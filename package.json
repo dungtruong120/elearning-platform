@@ -9,13 +9,18 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.48.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@xmldom/xmldom": "^0.8.10",
+    "clsx": "^2.1.1",
     "framer-motion": "^11.0.0",
     "jszip": "^3.10.1",
     "katex": "^0.16.9",
     "lucide-react": "^0.475.0",
     "next": "16.3.5",
     "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react-dom": "19.0.0",
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@types/node": "^20",
