@@ -93,7 +93,7 @@ function AdminDashboardContent() {
   const [notifContent, setNotifContent] = useState("");
   const [notifType, setNotifType] = useState<"teacher" | "urgent" | "exam">("teacher");
 
-  // Handler đăng xuất an toàn
+  // Đăng xuất an toàn
   const handleAdminLogout = () => {
     if (typeof window !== "undefined") {
       try {
@@ -106,7 +106,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // State Quản lý học viên & duyệt tài khoản
+  // State Quản lý học viên khởi tạo rỗng để đọc 100% từ Supabase
   const [registeredStudents, setRegisteredStudents] = useState<any[]>([]);
   const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [studentSearch, setStudentSearch] = useState("");
@@ -190,7 +190,7 @@ function AdminDashboardContent() {
     setTimeout(() => setSuccessToast(""), 3000); 
   };
 
-  // 1. TẢI DANH SÁCH HỌC VIÊN THẬT TỪ SUPABASE BẢNG PROFILES
+  // 1. TẢI HỌC VIÊN TRỰC TIẾP TỪ SUPABASE
   const fetchSupabaseStudents = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -201,17 +201,9 @@ function AdminDashboardContent() {
 
       if (!error && data) {
         setRegisteredStudents(data);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_registered_students", JSON.stringify(data));
-        }
-      } else {
-        // Fallback đọc cache nếu offline
-        const saved = localStorage.getItem("edunexus_registered_students");
-        if (saved) setRegisteredStudents(JSON.parse(saved));
       }
-    } catch {
-      const saved = localStorage.getItem("edunexus_registered_students");
-      if (saved) setRegisteredStudents(JSON.parse(saved));
+    } catch (err) {
+      console.error("Lỗi lấy học sinh từ Supabase:", err);
     }
   }, []);
 
@@ -237,23 +229,15 @@ function AdminDashboardContent() {
       created_at: new Date().toISOString()
     };
 
-    // Thêm trực tiếp vào Supabase
     try {
       await supabase.from("profiles").insert([newStudent]);
     } catch {}
 
     const updated = [newStudent, ...registeredStudents];
     setRegisteredStudents(updated);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
-        window.dispatchEvent(new Event("storage"));
-      } catch (err) {}
-    }
-
     setIsAddStudentModalOpen(false);
     setQuickStudentForm({ lastName: "", firstName: "", status: "approved" });
-    showToast("Đã thêm học sinh " + full_name + " vào bảng điểm danh!");
+    showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
   const loadStorageData = useCallback(() => {
@@ -514,7 +498,7 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin tài liệu!");
   };
 
-  // CẬP NHẬT TRẠNG THÁI HỌC VIÊN TRỰC TIẾP LÊN SUPABASE
+  // CẬP NHẬT TRẠNG THÁI HỌC VIÊN TRỰC TIẾP TRÊN SUPABASE
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
     try {
       await supabase
@@ -525,16 +509,10 @@ function AdminDashboardContent() {
 
     const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
     setRegisteredStudents(updated);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
     showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!");
   };
 
-  // XÓA HỌC VIÊN TRỰC TIẾP TRÊN SUPABASE (F5 KHÔNG BAO GIỜ BỊ QUAY LẠI)
+  // XÓA HỌC VIÊN TRỰC TIẾP TRÊN SUPABASE
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
 
@@ -547,12 +525,6 @@ function AdminDashboardContent() {
 
     const updated = registeredStudents.filter(s => s.id !== studentId);
     setRegisteredStudents(updated);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
   };
 
@@ -1482,7 +1454,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN (LIÊN THÔNG TRỰC TIẾP SUPABASE) */}
+          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN */}
           {activeTab === "students" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1658,7 +1630,7 @@ function AdminDashboardContent() {
                       {registeredStudents.length === 0 && (
                         <tr>
                           <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
-                            Chưa có học sinh nào đăng ký.
+                            Chưa có học sinh nào đăng ký trên hệ thống.
                           </td>
                         </tr>
                       )}
@@ -2150,7 +2122,7 @@ function AdminDashboardContent() {
                 </div>
 
                 <div className="p-3 bg-blue-50/60 rounded-xl text-[11px] text-blue-700">
-                  Học sinh được thêm sẽ lưu vào cơ sở dữ liệu Supabase và xuất hiện ngay lập tức trên Bảng điểm danh.
+                  Học sinh được thêm sẽ lưu trực tiếp vào cơ sở dữ liệu Supabase và xuất hiện ngay lập tức trên Bảng điểm danh.
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
