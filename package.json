@@ -1,0 +1,42 @@
+{
+  "name": "elearning-platform",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@google/genai": "^2.23.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.116.0",
+    "@xmldom/xmldom": "^0.9.12",
+    "clsx": "^2.1.1",
+    "framer-motion": "^13.4.0",
+    "jszip": "^3.10.2",
+    "katex": "^0.18.7",
+    "lucide-react": "^1.48.0",
+    "mammoth": "^1.12.3",
+    "next": "16.3.5",
+    "pdf-parse": "^2.4.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwind-merge": "^3.7.0",
+    "wmf": "^1.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/katex": "^0.16.8",
+    "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "^10.6.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.5",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5"
+  }
+}
