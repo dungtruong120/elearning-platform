@@ -20,7 +20,7 @@ const StudentOfflineDashboard = dynamic(
 );
 
 const AdminPage = dynamic(
-  () => import("@/app/admin/page"),
+  () => import("./admin/page").catch(() => import("@/app/admin/page")),
   { ssr: false }
 );
 
