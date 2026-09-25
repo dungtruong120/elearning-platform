@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import ScheduleView from "@/components/student/ScheduleView";
 import AdminStudentReportPanel from "@/components/admin/AdminStudentReportPanel";
 import { STANDARD_SHIFTS, TargetAudience, TargetMode, OnlineSession } from "@/types";
+import { supabase } from "@/lib/supabaseClient";
 import { 
   BookOpen, Trophy, Plus, FileText, Video, PenTool, ClipboardCheck, 
   Trash2, Link as LinkIcon, X, FileUp, FileSignature, FolderPlus, 
@@ -95,6 +96,9 @@ function AdminDashboardContent() {
   // Handler đăng xuất an toàn
   const handleAdminLogout = () => {
     if (typeof window !== "undefined") {
+      try {
+        supabase.auth.signOut();
+      } catch {}
       localStorage.removeItem("tct_current_user");
       localStorage.removeItem("edunexus_current_user");
       localStorage.removeItem("edunexus_user_session");
@@ -103,12 +107,7 @@ function AdminDashboardContent() {
   };
 
   // State Quản lý học viên & duyệt tài khoản
-  const [registeredStudents, setRegisteredStudents] = useState<any[]>([
-    { id: "stu-1", full_name: "Trương Ngọc Dũng", email: "dung.truong@gmail.com", phone: "0912345678", school: "THPT Chuyên", grade: "Lớp 12", learning_mode: "online", approval_status: "approved", created_at: "2026-08-20T10:00:00Z" },
-    { id: "stu-2", full_name: "Nguyễn Thị Hiền", email: "hien.nguyen@gmail.com", phone: "0987654321", school: "THPT Kim Liên", grade: "Lớp 12", learning_mode: "offline", approval_status: "approved", created_at: "2026-08-21T11:00:00Z" },
-    { id: "stu-3", full_name: "Phạm Minh Đức", email: "duc.pham@gmail.com", phone: "0933221144", school: "THPT Chu Văn An", grade: "Lớp 12", learning_mode: "online", approval_status: "pending", created_at: "2026-08-23T08:30:00Z" },
-    { id: "stu-4", full_name: "Trần Mai Anh", email: "maianh.tran@gmail.com", phone: "0944556677", school: "THPT Việt Đức", grade: "Lớp 11", learning_mode: "offline", approval_status: "pending", created_at: "2026-08-23T09:15:00Z" }
-  ]);
+  const [registeredStudents, setRegisteredStudents] = useState<any[]>([]);
   const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [studentSearch, setStudentSearch] = useState("");
 
@@ -153,7 +152,6 @@ function AdminDashboardContent() {
   const [resourceModal, setResourceModal] = useState<any>(null);
   const [resTitle, setResTitle] = useState(""); 
   const [resUrl, setResUrl] = useState(""); 
-  // Phân luồng Video: "lecture" (Video bài giảng lý thuyết) hoặc "homework_solution" (Video chữa BTVN)
   const [vidType, setVidType] = useState<"lecture" | "homework_solution">("lecture");
 
   const [createModal, setCreateModal] = useState<{ type: "chapter" | "lesson"; chapterId?: string } | null>(null);
@@ -192,7 +190,32 @@ function AdminDashboardContent() {
     setTimeout(() => setSuccessToast(""), 3000); 
   };
 
-  const handleAddQuickStudentSubmit = (e: React.FormEvent) => {
+  // 1. TẢI DANH SÁCH HỌC VIÊN THẬT TỪ SUPABASE BẢNG PROFILES
+  const fetchSupabaseStudents = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .neq("role", "admin")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        setRegisteredStudents(data);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_registered_students", JSON.stringify(data));
+        }
+      } else {
+        // Fallback đọc cache nếu offline
+        const saved = localStorage.getItem("edunexus_registered_students");
+        if (saved) setRegisteredStudents(JSON.parse(saved));
+      }
+    } catch {
+      const saved = localStorage.getItem("edunexus_registered_students");
+      if (saved) setRegisteredStudents(JSON.parse(saved));
+    }
+  }, []);
+
+  const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickStudentForm.firstName.trim()) {
       alert("Vui lòng nhập Tên học sinh!");
@@ -207,20 +230,25 @@ function AdminDashboardContent() {
       phone: "",
       school: "Chưa cập nhật",
       grade: "Lớp 12",
+      role: "student",
       learning_mode: "online",
+      study_mode: "online",
       approval_status: quickStudentForm.status,
       created_at: new Date().toISOString()
     };
 
-    const updated = [...registeredStudents, newStudent];
+    // Thêm trực tiếp vào Supabase
+    try {
+      await supabase.from("profiles").insert([newStudent]);
+    } catch {}
+
+    const updated = [newStudent, ...registeredStudents];
     setRegisteredStudents(updated);
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
         window.dispatchEvent(new Event("storage"));
-      } catch (err) {
-        console.error("Lỗi thêm học sinh mới:", err);
-      }
+      } catch (err) {}
     }
 
     setIsAddStudentModalOpen(false);
@@ -284,14 +312,6 @@ function AdminDashboardContent() {
     }
 
     try {
-      const savedStudents = localStorage.getItem("edunexus_registered_students");
-      if (savedStudents) {
-        const parsed = JSON.parse(savedStudents);
-        if (Array.isArray(parsed) && parsed.length > 0) setRegisteredStudents(parsed);
-      }
-    } catch (e) {}
-
-    try {
       const savedSessions = localStorage.getItem("edunexus_online_sessions");
       if (savedSessions) {
         const parsed = JSON.parse(savedSessions);
@@ -311,9 +331,10 @@ function AdminDashboardContent() {
   useEffect(() => {
     setMounted(true);
     loadStorageData();
+    fetchSupabaseStudents();
     window.addEventListener("storage", loadStorageData);
     return () => window.removeEventListener("storage", loadStorageData);
-  }, [loadStorageData]);
+  }, [loadStorageData, fetchSupabaseStudents]);
 
   const saveToStorage = (newChapters: any[]) => {
     setChapters(newChapters);
@@ -385,7 +406,6 @@ function AdminDashboardContent() {
     showToast("Đã xóa bài học!");
   };
 
-  // THÊM TÀI NGUYÊN (PHÂN BIỆT RÕ 2 LOẠI VIDEO: BÀI GIẢNG HOẶC CHỮA BTVN)
   const handleAddResource = (e: React.FormEvent) => {
     e.preventDefault();
     if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
@@ -494,7 +514,15 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin tài liệu!");
   };
 
-  const handleUpdateStudentStatus = (studentId: string, status: "approved" | "rejected") => {
+  // CẬP NHẬT TRẠNG THÁI HỌC VIÊN TRỰC TIẾP LÊN SUPABASE
+  const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
+    try {
+      await supabase
+        .from("profiles")
+        .update({ approval_status: status })
+        .eq("id", studentId);
+    } catch {}
+
     const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
     setRegisteredStudents(updated);
     if (typeof window !== "undefined") {
@@ -506,8 +534,17 @@ function AdminDashboardContent() {
     showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!");
   };
 
-  const handleDeleteStudent = (studentId: string) => {
-    if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống?")) return;
+  // XÓA HỌC VIÊN TRỰC TIẾP TRÊN SUPABASE (F5 KHÔNG BAO GIỜ BỊ QUAY LẠI)
+  const handleDeleteStudent = async (studentId: string) => {
+    if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
+
+    try {
+      await supabase
+        .from("profiles")
+        .delete()
+        .eq("id", studentId);
+    } catch {}
+
     const updated = registeredStudents.filter(s => s.id !== studentId);
     setRegisteredStudents(updated);
     if (typeof window !== "undefined") {
@@ -516,7 +553,7 @@ function AdminDashboardContent() {
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
     }
-    showToast("Đã xóa học sinh khỏi danh sách.");
+    showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
   };
 
   const handleDeleteAttendanceDate = (dateToDelete: string) => {
@@ -718,7 +755,7 @@ function AdminDashboardContent() {
           if (q?.is_quiz && q?.id) map[q.id] = { chapterId: ch?.id, lessonId: ls?.id, type: "homework" }; 
         }); 
       }); 
-    });
+    }); 
     return map;
   }, [chapters]);
 
@@ -779,8 +816,8 @@ function AdminDashboardContent() {
     }
     filteredAttempts.forEach(att => {
       if (!att?.studentId) return;
-      if (!stats[att.studentId]) {
-        stats[att.studentId] = { id: att.studentId, name: att.studentName || "Học sinh", totalAttempts: 0, maxScoresPerQuiz: {} };
+      if (!stats[att.studentId]) { 
+        stats[att.studentId] = { id: att.studentId, name: att.studentName || "Học sinh", totalAttempts: 0, maxScoresPerQuiz: {} }; 
       }
       const st = stats[att.studentId];
       st.totalAttempts++;
@@ -1445,7 +1482,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN */}
+          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN (LIÊN THÔNG TRỰC TIẾP SUPABASE) */}
           {activeTab === "students" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1456,13 +1493,13 @@ function AdminDashboardContent() {
                 <div className="bg-white/90 backdrop-blur-xl p-5 rounded-3xl border border-slate-200/80 shadow-xs">
                   <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider block">Học sinh Online</span>
                   <span className="text-2xl font-black text-[#1D4ED8] mt-1 block">
-                    {registeredStudents.filter(s => s.learning_mode === "online").length}
+                    {registeredStudents.filter(s => s.learning_mode === "online" || s.study_mode === "online").length}
                   </span>
                 </div>
                 <div className="bg-white/90 backdrop-blur-xl p-5 rounded-3xl border border-slate-200/80 shadow-xs">
                   <span className="text-[11px] font-bold text-purple-500 uppercase tracking-wider block">Học sinh Offline</span>
                   <span className="text-2xl font-black text-purple-700 mt-1 block">
-                    {registeredStudents.filter(s => s.learning_mode === "offline").length}
+                    {registeredStudents.filter(s => s.learning_mode === "offline" || s.study_mode === "offline").length}
                   </span>
                 </div>
                 <div className="bg-white/90 backdrop-blur-xl p-5 rounded-3xl border border-amber-200 shadow-xs bg-amber-50/40">
@@ -1549,7 +1586,7 @@ function AdminDashboardContent() {
                                 <div className="text-[10px] text-blue-600 font-bold">{student.grade}</div>
                               </td>
                               <td className="py-4 px-4 text-center">
-                                {student.learning_mode === "online" ? (
+                                {student.learning_mode === "online" || student.study_mode === "online" ? (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-[#1D4ED8] font-bold text-[10px] uppercase rounded-lg border border-blue-100">
                                     <Globe className="w-3 h-3" /> Online
                                   </span>
@@ -1609,7 +1646,7 @@ function AdminDashboardContent() {
                                     type="button"
                                     onClick={() => handleDeleteStudent(student.id)}
                                     className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                                    title="Xóa học sinh"
+                                    title="Xóa học sinh vĩnh viễn"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1857,7 +1894,7 @@ function AdminDashboardContent() {
                             attendanceFilterMode === "online" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
                           )}
                         >
-                          Lớp Online ({registeredStudents.filter(s => s.learning_mode === "online").length})
+                          Lớp Online ({registeredStudents.filter(s => s.learning_mode === "online" || s.study_mode === "online").length})
                         </button>
                         <button
                           type="button"
@@ -1866,7 +1903,7 @@ function AdminDashboardContent() {
                             attendanceFilterMode === "offline" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
                           )}
                         >
-                          Lớp Offline ({registeredStudents.filter(s => s.learning_mode === "offline").length})
+                          Lớp Offline ({registeredStudents.filter(s => s.learning_mode === "offline" || s.study_mode === "offline").length})
                         </button>
                       </div>
                     </div>
@@ -1957,18 +1994,19 @@ function AdminDashboardContent() {
 
                             <td className="py-2.5 px-2 border-r border-slate-200 text-center">
                               <span className={"px-1.5 py-0.5 rounded text-[9px] font-black uppercase " + (
-                                stu.learning_mode === "online" ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                stu.learning_mode === "online" || stu.study_mode === "online" ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                               )}>
-                                {stu.learning_mode === "online" ? "Online" : "Offline"}
+                                {stu.learning_mode === "online" || stu.study_mode === "online" ? "Online" : "Offline"}
                               </span>
                             </td>
 
                             {sessionDates.map(dateCol => {
                               const sessMeta = onlineSessions.find(s => s.date === dateCol);
                               const aud = sessMeta?.audience || "all";
+                              const isOnlineStu = stu.learning_mode === "online" || stu.study_mode === "online";
                               
-                              const isExempt = (aud === "online" && stu.learning_mode === "offline") ||
-                                               (aud === "offline" && stu.learning_mode === "online");
+                              const isExempt = (aud === "online" && !isOnlineStu) ||
+                                               (aud === "offline" && isOnlineStu);
 
                               const attRecord = attendanceRecords.find(
                                 a => a.studentId === stu.id && a.sessionDate === dateCol && (a.status === "present" || a.status === "auto_present")
@@ -2112,7 +2150,7 @@ function AdminDashboardContent() {
                 </div>
 
                 <div className="p-3 bg-blue-50/60 rounded-xl text-[11px] text-blue-700">
-                  Học sinh được thêm sẽ xuất hiện ngay lập tức trên Bảng điểm danh với đầy đủ các cột ngày học để tích có mặt / vắng.
+                  Học sinh được thêm sẽ lưu vào cơ sở dữ liệu Supabase và xuất hiện ngay lập tức trên Bảng điểm danh.
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
@@ -2136,7 +2174,7 @@ function AdminDashboardContent() {
         )}
       </AnimatePresence>
 
-      {/* POPOVER XEM DANH SÁCH TÀI NGUYÊN MA TRẬN (PHÂN BIỆT RÕ 2 LOẠI VIDEO) */}
+      {/* POPOVER XEM DANH SÁCH TÀI NGUYÊN MA TRẬN */}
       {viewResourcesModal && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[80vh] overflow-hidden animate-in zoom-in-95 duration-200">
@@ -2157,7 +2195,6 @@ function AdminDashboardContent() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h4 className="font-bold text-slate-800 text-[13px] truncate">{item.title}</h4>
-                          {/* BADGE PHÂN LOẠI VIDEO RÕ RÀNG */}
                           {viewResourcesModal.type === "video_list" && (
                             <span className={"px-2 py-0.5 text-[9px] font-black uppercase rounded-md tracking-wider " + (
                               item.type === "homework_solution"
@@ -2210,7 +2247,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL SỬA TÀI LIỆU (CÓ CHỌN LOẠI VIDEO) */}
+      {/* MODAL SỬA TÀI LIỆU */}
       {editResourceModal && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleEditResourceSubmit} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2447,7 +2484,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL THÊM NGUỒN TÀI NGUYÊN (PHÂN BIỆT RÕ 2 LOẠI VIDEO) */}
+      {/* MODAL THÊM NGUỒN TÀI NGUYÊN */}
       {resourceModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-xl">
@@ -2460,7 +2497,6 @@ function AdminDashboardContent() {
                 <input required value={resTitle} onChange={e=>setResTitle(e.target.value)} placeholder={resourceModal.type === 'video_list' ? "VD: Video bài giảng phần 1" : "VD: Tài liệu viết tay"} className="w-full border border-slate-300 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm"/>
               </div>
 
-              {/* LỰA CHỌN PHÂN LOẠI VIDEO BÀI GIẢNG / CHỮA BTVN */}
               {resourceModal.type === "video_list" && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Phân loại Video *</label>
