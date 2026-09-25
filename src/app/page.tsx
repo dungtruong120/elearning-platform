@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 // DYNAMIC IMPORT CÁC TRANG TRÁNH LỖI SSR HYDRATION
+// DYNAMIC IMPORT CÁC TRANG TRÁNH LỖI SSR HYDRATION
 const StudentOnlineDashboard = dynamic(
   () => import("@/components/student/StudentOnlineDashboard"),
   { ssr: false }
@@ -20,7 +21,7 @@ const StudentOfflineDashboard = dynamic(
 );
 
 const AdminPage = dynamic(
-  () => import("./admin/page").catch(() => import("@/app/admin/page")),
+  () => import("@/app/admin/page"),
   { ssr: false }
 );
 
