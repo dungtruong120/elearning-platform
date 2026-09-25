@@ -3,29 +3,28 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Profile } from "@/types";
 import { 
   Lock, Mail, ArrowRight, GraduationCap, AlertCircle, LogOut 
 } from "lucide-react";
 
-// DYNAMIC IMPORT CÁC TRANG TRÁNH LỖI SSR HYDRATION
+// DYNAMIC IMPORT CÁC TRANG TRÁNH LỖI SSR HYDRATION VÀ KHẮC PHỤC LỆCH ĐƯỜNG DẪN ALIAS
 const StudentOnlineDashboard = dynamic(
-  () => import("@/components/student/StudentOnlineDashboard"),
+  () => import("../../components/student/StudentOnlineDashboard").catch(() => import("@/components/student/StudentOnlineDashboard")),
   { ssr: false }
 );
 
 const StudentOfflineDashboard = dynamic(
-  () => import("@/components/student/StudentOfflineDashboard"),
+  () => import("../../components/student/StudentOfflineDashboard").catch(() => import("@/components/student/StudentOfflineDashboard")),
   { ssr: false }
 );
 
 const AdminPage = dynamic(
-  () => import("./admin/page").catch(() => import("@/app/admin/page")),
+  () => import("../admin/page").catch(() => import("@/app/admin/page")),
   { ssr: false }
 );
 
 // HÀM TẠO MÃ ĐỊNH DANH HỌC SINH TỰ ĐỘNG CHUẨN PHÂN HỆ
-export function generateStudentCode(user: Partial<Profile>): string {
+export function generateStudentCode(user: any): string {
   if (user.student_code && user.student_code.startsWith("HS-")) {
     return user.student_code;
   }
