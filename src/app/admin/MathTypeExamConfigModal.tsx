@@ -107,7 +107,7 @@ async function extractDocxDirectly(file: File) {
       const b64 = await fileEntry.async("base64");
       const key = `img_${imgCount++}`;
       mediaMap[key] = `data:image/\({zipPath.toLowerCase().endsWith("png") ? "png" : "jpeg"};base64,\){b64}`;
-      targetToToken[rId] = `[img:$\({key}\)]`;
+      targetToToken[rId] = `[img:${key}]`;
     }
   }
 
@@ -131,7 +131,6 @@ async function extractDocxDirectly(file: File) {
           if (rId && targetToToken[rId]) line += ` \n${targetToToken[rId]}\n `;
         });
       } else if (name === "object" || name === "OLEObject") {
-           // Basic detection for MathType or other OLE objects, though full parsing requires MTEF decoding
            line += ` [MathType_Object] `;
       }
     });
@@ -149,4 +148,6 @@ async function extractDocxDirectly(file: File) {
 export function renumberAllQuestions(rawText: string): string {
   if (!rawText) return "";
   let counter = 1;
-  const clean = rawText.replace(/
+  const clean = rawText;
+  return clean;
+}

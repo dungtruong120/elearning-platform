@@ -3,7 +3,23 @@
 import React, { useState, useEffect } from "react";
 import { X, CheckCircle2, AlertCircle, Award, Loader2, ArrowRight } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { QuizResultResponse } from "@/types";
+
+export interface QuizResultDetail {
+  question_id: string;
+  question_text: string;
+  options: string[];
+  user_answer: string;
+  correct_option: string;
+  is_correct: boolean;
+  explanation?: string;
+}
+
+export interface QuizResultResponse {
+  score: number;
+  correct_count: number;
+  total_questions: number;
+  details: QuizResultDetail[];
+}
 
 interface QuestionItem {
   id: string;
@@ -44,7 +60,6 @@ export const QuizTakingModal: React.FC<QuizTakingModalProps> = ({
       setResult(null);
       setAnswers({});
 
-      // Đọc từ View an toàn (Client không thể xem correct_option)
       const { data, error } = await supabase
         .from("student_quiz_questions_view")
         .select("*")
@@ -63,14 +78,14 @@ export const QuizTakingModal: React.FC<QuizTakingModalProps> = ({
   if (!isOpen) return null;
 
   const handleSelectOption = (questionId: string, optionChar: string) => {
-    if (result) return; // Đã chấm điểm thì không cho sửa
+    if (result) return;
     setAnswers((prev) => ({ ...prev, [questionId]: optionChar }));
   };
 
   const handleSubmitQuiz = async () => {
     const unAnswered = questions.filter((q) => !answers[q.id]);
     if (unAnswered.length > 0) {
-      if (!confirm(`Bạn còn ${unAnswered.length} câu chưa chọn. Bạn có chắc muốn nộp bài?`)) {
+      if (!confirm("Bạn còn câu hỏi chưa chọn. Bạn có chắc muốn nộp bài?")) {
         return;
       }
     }
@@ -102,7 +117,6 @@ export const QuizTakingModal: React.FC<QuizTakingModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-3xl max-h-[90vh] rounded-2xl flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
-        {/* Header Modal */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
           <div>
             <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Bài thi trắc nghiệm</span>
@@ -113,7 +127,6 @@ export const QuizTakingModal: React.FC<QuizTakingModalProps> = ({
           </button>
         </div>
 
-        {/* Nội dung câu hỏi & kết quả */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {loading ? (
             <div className="h-48 flex flex-col items-center justify-center gap-2 text-slate-400">
@@ -121,7 +134,6 @@ export const QuizTakingModal: React.FC<QuizTakingModalProps> = ({
               <p className="text-sm">Đang tải đề thi...</p>
             </div>
           ) : result ? (
-            /* Màn hình điểm số và lời giải sau khi nộp */
             <div className="space-y-6">
               <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl text-center shadow-lg">
                 <Award className="h-12 w-12 mx-auto mb-2 text-amber-300" />
@@ -175,7 +187,6 @@ export const QuizTakingModal: React.FC<QuizTakingModalProps> = ({
               </div>
             </div>
           ) : (
-            /* Danh sách câu hỏi đang làm */
             questions.map((q, idx) => (
               <div key={q.id} className="p-5 rounded-xl border border-slate-200 bg-white shadow-sm space-y-3">
                 <p className="font-bold text-sm text-slate-800">
@@ -207,7 +218,6 @@ export const QuizTakingModal: React.FC<QuizTakingModalProps> = ({
           )}
         </div>
 
-        {/* Footer Modal */}
         <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
           <span className="text-xs font-semibold text-slate-500">
             {result ? "Đã hoàn thành kiểm tra" : `Đã làm: ${Object.keys(answers).length}/${questions.length} câu`}

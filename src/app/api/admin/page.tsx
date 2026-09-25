@@ -6,7 +6,7 @@ import {
   Plus, FileText, Video, PenTool, ClipboardCheck, 
   Trash2, LinkIcon, X, FileUp, FileSignature, FolderPlus, GraduationCap
 } from "lucide-react";
-import { AzotaExamConfigModal } from "./AzotaExamConfigModal";
+import { AzotaExamConfigModal } from "../../admin/AzotaExamConfigModal";
 
 const INITIAL_CHAPTERS = [
   {

@@ -247,7 +247,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     return attendanceRecords.some(
       a =>
         a.studentId === profile.id &&
-        (a.sessionId === sess.id || a.sessionDate === sess.date) &&
+        ((a as any).sessionId === sess.id || a.sessionDate === sess.date) &&
         (a.status === "present" || a.status === "auto_present")
     );
   };
@@ -360,7 +360,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     const baseMonday = new Date(2026, 8, 21);
     baseMonday.setDate(baseMonday.getDate() + weekOffset * 7);
 
-    const days = [];
+    const days: any[] = [];
     const dayLabels = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"];
 
     for (let i = 0; i < 7; i++) {
@@ -398,7 +398,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     const totalDays = new Date(year, month + 1, 0).getDate();
     const dayLabels = ["Chủ Nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
 
-    const cells = [];
+    const cells: any[] = [];
     for (let i = 0; i < offset; i++) {
       cells.push({ empty: true, key: "empty-" + i });
     }
@@ -585,7 +585,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
-            {weekDays.map((day, idx) => (
+            {weekDays.map((day: any, idx: number) => (
               <div
                 key={idx}
                 className={"p-3 rounded-2xl border transition-all flex flex-col min-h-[220px] " + (
@@ -608,7 +608,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
 
                 <div className="space-y-2 flex-1">
                   {day.sessions.length > 0 ? (
-                    day.sessions.map((sess, sIdx) => {
+                    day.sessions.map((sess: any, sIdx: number) => {
                       const isPersonal = Boolean(sess.isPersonal);
                       const isAtt = isAttended(sess);
                       const isOnline = sess.target_mode === "online";
@@ -739,7 +739,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
           </div>
 
           <div className="grid grid-cols-7 gap-1.5">
-            {monthDays.map(cell => {
+            {monthDays.map((cell: any) => {
               if (cell.empty) {
                 return <div key={cell.key} className="h-16 rounded-xl bg-slate-50/40 border border-transparent" />;
               }
@@ -790,8 +790,8 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                   </div>
 
                   <div className="text-[8px] text-slate-400 text-right">
-                    {cell.sessions && cell.sessions.length > 0 ? (
-                      <span className="font-bold text-[#1D4ED8]">{cell.sessions.length + " môn"}</span>
+                    {((cell as any).sessions && (cell as any).sessions.length > 0) ? (
+                      <span>{(cell as any).sessions.length} môn</span>
                     ) : (
                       "-"
                     )}

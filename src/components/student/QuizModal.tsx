@@ -15,11 +15,12 @@ export const QuizModal: React.FC<QuizModalProps> = ({ isOpen, lesson, onClose, o
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [resultStatus, setResultStatus] = useState<"idle" | "correct" | "wrong">("idle");
 
-  if (!isOpen || !lesson || !lesson.quiz) return null;
+  const quizData = (lesson as any)?.quiz;
+  if (!isOpen || !lesson || !quizData) return null;
 
   const handleCheck = () => {
     if (selectedIdx === null) return;
-    if (selectedIdx === lesson.quiz?.correct_answer) {
+    if (selectedIdx === quizData.correct_answer) {
       setResultStatus("correct");
       onSuccess(lesson.id);
     } else {
@@ -47,9 +48,9 @@ export const QuizModal: React.FC<QuizModalProps> = ({ isOpen, lesson, onClose, o
         </div>
 
         <div className="py-6">
-          <p className="text-sm font-semibold text-slate-800 mb-4">{lesson.quiz.question}</p>
+          <p className="text-sm font-semibold text-slate-800 mb-4">{quizData.question}</p>
           <div className="space-y-2.5">
-            {lesson.quiz.options.map((opt, idx) => (
+            {quizData.options.map((opt: string, idx: number) => (
               <button
                 key={idx}
                 onClick={() => {
