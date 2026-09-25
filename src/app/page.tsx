@@ -95,7 +95,6 @@ export default function RootPage() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
-  // HÀM DỌN SẠCH TẤT CẢ PHIÊN ĐĂNG NHẬP TRƯỚC KHI GHI MỚI HOẶC KHI ĐĂNG XUẤT
   const clearAllSessions = () => {
     if (typeof window === "undefined") return;
     localStorage.removeItem("tct_current_user");
@@ -104,11 +103,11 @@ export default function RootPage() {
     sessionStorage.clear();
   };
 
-  // 1. KIỂM TRA VÀ DUY TRÌ PHIÊN ĐĂNG NHẬP HIỆN TẠI (ĐỒNG BỘ SUPABASE VÀ LOCALSTORAGE)
+  // 1. KIỂM TRA PHIÊN ĐĂNG NHẬP
   const loadUserSession = useCallback(async () => {
     if (typeof window === "undefined") return;
     try {
-      // 1.1 Kiểm tra Supabase Auth trước
+      // Ưu tiên session từ Supabase Auth
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: profile } = await supabase
@@ -138,7 +137,7 @@ export default function RootPage() {
         return;
       }
 
-      // 1.2 Fallback kiểm tra localStorage
+      // Đọc local storage nếu có lưu trước đó
       const activeUserStr =
         localStorage.getItem("tct_current_user") ||
         localStorage.getItem("edunexus_current_user");
@@ -170,7 +169,7 @@ export default function RootPage() {
     return () => window.removeEventListener("storage", loadUserSession);
   }, [loadUserSession]);
 
-  // 2. XỬ LÝ ĐĂNG NHẬP QUA FORM
+  // 2. XỬ LÝ ĐĂNG NHẬP
   const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMessage("");
@@ -179,22 +178,16 @@ export default function RootPage() {
     const emailTrim = emailInput.trim().toLowerCase();
     const passwordTrim = passwordInput.trim();
 
-    if (!emailTrim) {
-      setErrorMessage("Vui lòng nhập Email hoặc Tài khoản.");
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!passwordTrim) {
-      setErrorMessage("Vui lòng nhập mật khẩu.");
+    if (!emailTrim || !passwordTrim) {
+      setErrorMessage("Vui lòng nhập đầy đủ Email và Mật khẩu.");
       setIsSubmitting(false);
       return;
     }
 
     clearAllSessions();
 
+    // 2.1 Kiểm tra qua Supabase Auth
     try {
-      // 2.1 Thử xác thực trực tiếp qua Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: emailTrim,
         password: passwordTrim
@@ -227,104 +220,78 @@ export default function RootPage() {
         setIsSubmitting(false);
         return;
       }
-    } catch {
-      // Bỏ qua lỗi kết nối và chuyển sang kiểm tra tài khoản offline/mẫu
+    } catch (e) {
+      console.warn("Không kết nối được Supabase Auth:", e);
     }
 
-    // 2.2 Xử lý trường hợp tài khoản Admin cố định
+    // 2.2 Kiểm tra tài khoản Admin cứng
     if (emailTrim === ADMIN_ACCOUNT.email.toLowerCase()) {
-      if (passwordTrim !== ADMIN_ACCOUNT.password && passwordTrim !== "admin123") {
+      if (passwordTrim === ADMIN_ACCOUNT.password || passwordTrim === "admin123") {
+        const adminUser = {
+          id: "c9b1ca43-e9f0-43bc-99b1-fdcbd1878",
+          full_name: "Thầy Nam (Quản Trị TCT)",
+          email: ADMIN_ACCOUNT.email,
+          role: "admin",
+          approval_status: "approved"
+        };
+        localStorage.setItem("tct_current_user", JSON.stringify(adminUser));
+        localStorage.setItem("edunexus_current_user", JSON.stringify(adminUser));
+        setCurrentUser(adminUser);
+        setIsSubmitting(false);
+        return;
+      } else {
         setErrorMessage("Mật khẩu Quản trị viên không chính xác.");
         setIsSubmitting(false);
         return;
       }
+    }
 
-      const adminUser = {
-        id: "c9b1ca43-e9f0-43bc-99b1-fdcbd1878",
-        full_name: "Thầy Nam (Quản Trị TCT)",
-        email: ADMIN_ACCOUNT.email,
-        role: "admin",
-        approval_status: "approved"
-      };
+    // 2.3 Kiểm tra danh sách tài khoản học sinh mẫu
+    const matchedAccount = DEFAULT_ACCOUNTS.find(
+      acc => acc.role === "student" && acc.email.toLowerCase() === emailTrim
+    );
 
-      if (typeof window !== "undefined") {
-        localStorage.setItem("tct_current_user", JSON.stringify(adminUser));
-        localStorage.setItem("edunexus_current_user", JSON.stringify(adminUser));
-      }
-
-      setCurrentUser(adminUser);
+    if (matchedAccount) {
+      localStorage.setItem("tct_current_user", JSON.stringify(matchedAccount));
+      localStorage.setItem("edunexus_current_user", JSON.stringify(matchedAccount));
+      setCurrentUser(matchedAccount);
       setIsSubmitting(false);
       return;
     }
 
-    // 2.3 Kiểm tra danh sách tài khoản học sinh mẫu
-    let matchedAccount: any = DEFAULT_ACCOUNTS.find(
-      acc => acc.role === "student" && acc.email.toLowerCase() === emailTrim
-    );
-
-    // 2.4 Kiểm tra danh sách đã lưu ở LocalStorage
-    if (!matchedAccount && typeof window !== "undefined") {
+    // 2.4 Kiểm tra danh sách học sinh đăng ký offline lưu trong localStorage
+    if (typeof window !== "undefined") {
       try {
         const registered = localStorage.getItem("edunexus_registered_students");
         if (registered) {
           const list: any[] = JSON.parse(registered);
           const found = list.find(
-            s =>
-              (s.email && s.email.toLowerCase() === emailTrim) ||
-              (s.full_name && s.full_name.toLowerCase() === emailTrim)
+            s => (s.email && s.email.toLowerCase() === emailTrim) || (s.full_name && s.full_name.toLowerCase() === emailTrim)
           );
           if (found) {
             const isOffline = found.learning_mode === "offline" || found.study_mode === "offline";
-            matchedAccount = {
-              id: found.id || ("stu-" + Date.now()),
-              student_code: found.student_code || generateStudentCode({ id: found.id, learning_mode: isOffline ? "offline" : "online" }),
-              full_name: found.full_name || "Học sinh TCT",
-              email: found.email || emailTrim,
-              grade: found.grade || "Lớp 12",
-              school: found.school || "THPT",
+            const localAccount = {
+              ...found,
               role: "student",
               study_mode: isOffline ? "offline" : "online",
-              learning_mode: isOffline ? "offline" : "online",
-              approval_status: "approved"
+              learning_mode: isOffline ? "offline" : "online"
             };
+            localStorage.setItem("tct_current_user", JSON.stringify(localAccount));
+            localStorage.setItem("edunexus_current_user", JSON.stringify(localAccount));
+            setCurrentUser(localAccount);
+            setIsSubmitting(false);
+            return;
           }
         }
       } catch (err) {}
     }
 
-    // 2.5 Fallback tạo tài khoản học sinh mới
-    if (!matchedAccount) {
-      const isOfflineKeyword = emailTrim.includes("offline") || emailTrim.includes("dung");
-      matchedAccount = {
-        id: "stu-" + Date.now(),
-        student_code: generateStudentCode({ id: String(Date.now()), learning_mode: isOfflineKeyword ? "offline" : "online" }),
-        full_name: isOfflineKeyword ? "Trương Ngọc Dũng" : "Trương Ngọc Quang",
-        email: emailTrim,
-        grade: "Lớp 12",
-        school: isOfflineKeyword ? "THPT Kim Liên" : "THPT Chuyên",
-        role: "student",
-        study_mode: isOfflineKeyword ? "offline" : "online",
-        learning_mode: isOfflineKeyword ? "offline" : "online",
-        approval_status: "approved"
-      };
-    }
-
-    if (!matchedAccount.student_code && matchedAccount.role === "student") {
-      matchedAccount.student_code = generateStudentCode(matchedAccount);
-    }
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem("tct_current_user", JSON.stringify(matchedAccount));
-      localStorage.setItem("edunexus_current_user", JSON.stringify(matchedAccount));
-    }
-
-    setTimeout(() => {
-      setCurrentUser(matchedAccount);
-      setIsSubmitting(false);
-    }, 120);
+    // 2.5 NẾU KHÔNG KHỚP BẤT KỲ ĐÂU: CHẶN VÀ BÁO LỖI (KHÔNG TỰ TẠO USER ẢO NỮA)
+    setErrorMessage("Tài khoản hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại!");
+    setIsSubmitting(false);
   };
 
-  // 3. XỬ LÝ ĐĂNG XUẤT HỆ THỐNG
+  // 3. XỬ LÝ ĐĂNG XUẤT
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -340,7 +307,7 @@ export default function RootPage() {
     }
   };
 
-  // MÀN HÌNH CHỜ BAN ĐẦU
+  // MÀN HÌNH CHỜ
   if (!isMounted) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-[#F8FAFC]">
@@ -352,7 +319,7 @@ export default function RootPage() {
     );
   }
 
-  // 4. ĐIỀU HƯỚNG GIAO DIỆN THEO ĐÚNG VAI TRÒ
+  // 4. PHÂN QUYỀN GIAO DIỆN
   if (currentUser) {
     if (currentUser.role === "admin") {
       return (
@@ -377,7 +344,7 @@ export default function RootPage() {
     return <StudentOnlineDashboard initialProfile={currentUser} onLogout={handleLogout} />;
   }
 
-  // 5. GIAO DIỆN ĐĂNG NHẬP CHÍNH THỨC
+  // 5. GIAO DIỆN ĐĂNG NHẬP
   return (
     <div className="min-h-screen w-full bg-[#F8FAFC] flex items-center justify-center p-4 sm:p-6 font-sans select-none text-slate-800">
       <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-10 shadow-[0_10px_35px_rgba(0,0,0,0.04)] relative z-10 space-y-6">
