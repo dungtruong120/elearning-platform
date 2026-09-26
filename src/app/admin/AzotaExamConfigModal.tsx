@@ -21,9 +21,11 @@ export const PRACTICE_CATEGORIES = [
   "Học Kì 2"
 ];
 
+// MỞ RỘNG INTERFACE ĐỂ HỖ TRỢ ĐIỂM CON VÀ TỶ LỆ PHẦN TRĂM
 export interface ExtendedParsedQuestion extends ParsedQuestion {
   points?: number;
-  sub_points?: Record<string, number>;
+  sub_weights?: { a: number, b: number, c: number, d: number };
+  sub_points?: { a: number, b: number, c: number, d: number };
 }
 
 export interface ExtendedExamSection extends ExamSection {
@@ -404,7 +406,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & CÂU HỎI (FIX TRIỆT ĐỂ LỖI REGEX NUỐT PHƯƠNG ÁN C, D)
+// 2. BÓC TÁCH SECTION & CÂU HỎI
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -416,7 +418,6 @@ export function normalizeOptionsSmart(text: string): string {
   return res;
 }
 
-// REGEX CHUẨN XÁC: Chỉ bắt "Phần I", "Phần 1", hoặc "I.", "II.", "III.", "IV." (TUYỆT ĐỐI KHÔNG BẮT C. VÀ D.)
 const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+)|(?:I{1,3}|IV)\.)\s*[:\-]?[^\r\n]*)/gi;
 
 function getSectionTypeFromTitle(title: string): QuestionType {
@@ -529,7 +530,6 @@ export function injectQuestionLabelsIfMissing(rawText: string): string {
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
   text = normalizeOptionsSmart(text);
 
-  // NẾU ĐỀ ĐÃ CÓ SẴN TỪ 2 CÂU HỎI TRỞ LÊN -> BẢO TOÀN NGUYÊN VẸN CẤU TRÚC NHƯ CODE CŨ
   const existingMatches = text.match(/(?:^|\n)\s*(?:Câu|Bài|Question)\s*\d+[:.]?/gi);
   if (existingMatches && existingMatches.length >= 2) {
     return text;
@@ -589,10 +589,8 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     solutionText = cleanChunk.slice(solMatch.index).trim();
   }
 
-  // ID duy nhất chống trùng React key
   const uniqueId = "sec-" + sectionIndex + "-q-" + qIndex + "-" + Math.random().toString(36).substring(2, 8);
 
-  // 1. DẠNG ĐÚNG / SAI
   if (sectionType === "true_false") {
     const tfOptRegex = /(?:^|[\r\n\t\s])([a-d])[\.\)]\s*/gim;
     const tfMatches: { key: string; start: number; end: number }[] = [];
@@ -644,7 +642,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       }
     }
 
-    // AI Tự động đọc Lời giải để đoán Đúng/Sai
     if (solutionText) {
       for (let i = 0; i < 4; i++) {
         const subKey = options[i].key;
@@ -656,6 +653,7 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       }
     }
 
+    // MẶC ĐỊNH LÀ 1 ĐIỂM, CHIA TỶ TRỌNG 25% MỖI Ý CHO ĐÚNG/SAI
     return {
       id: uniqueId,
       order_index: qIndex,
@@ -667,11 +665,11 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       correct_answer: options.map(o => (o.is_true_false_ans ? "Đ" : "S")).join(""),
       solution_html: solutionText,
       points: 1.0,
-      sub_points: { a: 0.1, b: 0.25, c: 0.5, d: 1.0 }
+      sub_weights: { a: 25, b: 25, c: 25, d: 25 },
+      sub_points: { a: 0.25, b: 0.25, c: 0.25, d: 0.25 }
     };
   }
 
-  // 2. DẠNG TRẢ LỜI NGẮN
   if (sectionType === "short_answer") {
     let correctAns = "";
     const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^\r\n]+)/i.exec(cleanChunk);
@@ -692,7 +690,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     };
   }
 
-  // 3. DẠNG TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D) CHUẨN XÁC 100% NHƯ CŨ
   let correctAns = "A";
   const ansMatch = /(?:Chọn|Đáp\s*án|Đáp\s*số)\s*(?:đáp\s*án\s*)?([A-D])\b/i.exec(cleanChunk);
   if (ansMatch && ansMatch[1]) {
@@ -750,6 +747,7 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     options[3].text_html = cleanOpt(textD);
   }
 
+  // TRẮC NGHIỆM MẶC ĐỊNH LÀ 0.25
   return {
     id: uniqueId,
     order_index: qIndex,
@@ -927,683 +925,4 @@ interface AzotaExamConfigModalProps {
   onSave: (examData: any) => void;
 }
 
-export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: AzotaExamConfigModalProps) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [examTitle, setExamTitle] = useState<string>("");
-  const [duration, setDuration] = useState<number>(50);
-  const [category, setCategory] = useState<string>(PRACTICE_CATEGORIES[0]);
-  const [sections, setSections] = useState<ExtendedExamSection[]>([]);
-  const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
-  const [rawText, setRawText] = useState<string>("");
-  const [expandedSolutions, setExpandedSolutions] = useState<Record<string, boolean>>({});
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (file && isOpen) {
-      setLoading(true);
-      setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
-      extractDocxDirectly(file)
-        .then(res => {
-          setMediaMap(res.mediaMap);
-          const labeledText = injectQuestionLabelsIfMissing(res.text);
-          setRawText(labeledText);
-          const parsed = parseExamHierarchical(labeledText);
-          setSections(parsed);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Lỗi đọc file Word:", err);
-          setLoading(false);
-        });
-    }
-  }, [file, isOpen]);
-
-  const handleRawTextChange = (newText: string) => {
-    setRawText(newText);
-    const parsed = parseExamHierarchical(newText);
-    setSections(parsed);
-  };
-
-  const handleUpdateAnswer = (qId: string, newAns: string) => {
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => q.id === qId ? { ...q, correct_answer: newAns } : q)
-    })));
-  };
-
-  const handleToggleTrueFalseOpt = (qId: string, optKey: string, val: boolean) => {
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => {
-        if (q.id !== qId) return q;
-        const newOpts = q.options.map(o => o.key === optKey ? { ...o, is_true_false_ans: val } : o);
-        const newAnsStr = newOpts.map(o => (o.is_true_false_ans ? "Đ" : "S")).join("");
-        return { ...q, options: newOpts, correct_answer: newAnsStr };
-      })
-    })));
-  };
-
-  const handleUpdatePoints = (qId: string, points: number) => {
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => q.id === qId ? { ...q, points } : q)
-    })));
-  };
-
-  const handleAutoDistribute10Points = () => {
-    const totalQ = sections.reduce((acc, s) => acc + s.questions.length, 0);
-    if (totalQ === 0) return;
-    const avgPoint = parseFloat((10 / totalQ).toFixed(2));
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => ({
-        ...q,
-        points: avgPoint
-      }))
-    })));
-  };
-
-  const currentTotalPoints = useMemo(() => {
-    let sum = 0;
-    sections.forEach(sec => {
-      sec.questions.forEach(q => {
-        sum += (q.points || 0);
-      });
-    });
-    return parseFloat(sum.toFixed(2));
-  }, [sections]);
-
-  const handleTriggerUploadImage = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (!base64) return;
-
-      const newKey = "img_custom_" + Date.now();
-      setMediaMap(prev => ({ ...prev, [newKey]: base64 }));
-
-      const token = "\n[img:$" + newKey + "$]\n";
-
-      if (textareaRef.current) {
-        const start = textareaRef.current.selectionStart || 0;
-        const end = textareaRef.current.selectionEnd || 0;
-        const updatedText = rawText.substring(0, start) + token + rawText.substring(end);
-        handleRawTextChange(updatedText);
-      } else {
-        handleRawTextChange(rawText + token);
-      }
-    };
-    reader.readAsDataURL(selectedFile);
-    e.target.value = "";
-  };
-
-  const handleInsertImageUrl = () => {
-    const url = window.prompt("Nhập đường dẫn URL của hình ảnh (https://...):");
-    if (!url || !url.trim()) return;
-
-    const cleanUrl = url.trim();
-    const token = "\n[img:" + cleanUrl + "]\n";
-
-    if (textareaRef.current) {
-      const start = textareaRef.current.selectionStart || 0;
-      const end = textareaRef.current.selectionEnd || 0;
-      const updatedText = rawText.substring(0, start) + token + rawText.substring(end);
-      handleRawTextChange(updatedText);
-    } else {
-      handleRawTextChange(rawText + token);
-    }
-  };
-
-  const toggleSolution = (qId: string) => {
-    setExpandedSolutions(prev => ({ ...prev, [qId]: !prev[qId] }));
-  };
-
-  const totalQuestions = useMemo(() => {
-    return sections.reduce((acc, s) => acc + s.questions.length, 0);
-  }, [sections]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 w-screen h-screen z-[200] bg-white flex flex-col rounded-none border-none text-left font-sans overflow-hidden">
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleImageFileChange} 
-        accept="image/*" 
-        className="hidden" 
-      />
-
-      {/* HEADER FULLSCREEN */}
-      <header className="h-16 px-6 border-b border-slate-200 bg-white/90 backdrop-blur-md flex items-center justify-between shrink-0 shadow-xs z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-tr from-blue-700 to-indigo-600 text-white rounded-2xl flex items-center justify-center font-black text-base shadow-sm">
-            AZ
-          </div>
-          <div>
-            <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
-              Azota All-In-One Exam Engine
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60">
-                Fullscreen Pro
-              </span>
-            </h2>
-            <p className="text-xs text-slate-500 font-medium">
-              Bước {step}/3: {step === 1 ? "Bóc tách & Biên tập đề thi" : step === 2 ? "Ma trận đáp án & Thang điểm 10" : "Cài đặt & Xuất bản"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold text-slate-600">
-            <span className={"px-3 py-1 rounded-lg transition-all " + (step === 1 ? "bg-white text-blue-700 shadow-xs" : "")}>
-              1. Biên tập & Preview
-            </span>
-            <span className={"px-3 py-1 rounded-lg transition-all " + (step === 2 ? "bg-white text-blue-700 shadow-xs" : "")}>
-              2. Ma trận đáp án & Điểm
-            </span>
-            <span className={"px-3 py-1 rounded-lg transition-all " + (step === 3 ? "bg-white text-blue-700 shadow-xs" : "")}>
-              3. Cài đặt đề thi
-            </span>
-          </div>
-
-          <button 
-            onClick={onClose} 
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
-            title="Đóng trình cấu hình"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-      </header>
-
-      {/* BODY CHÍNH */}
-      <main className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[#F8FAFC]">
-        {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
-            <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
-            <div className="text-center space-y-1">
-              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
-              <p className="text-xs text-slate-500">Tự động nhận diện đầy đủ các phần thi và công thức toán...</p>
-            </div>
-          </div>
-        ) : step === 1 ? (
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 min-h-0 overflow-hidden">
-            {/* CỘT TRÁI: PREVIEW */}
-            <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
-              <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
-                <span className="text-xs font-black uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
-                  <Eye className="w-4 h-4" /> Xem trước đề thi (Preview)
-                </span>
-                <span className="text-xs text-slate-500 font-bold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-lg border border-blue-200/50">
-                  {totalQuestions} câu hỏi • {sections.length} phần thi
-                </span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                {sections.map((sec, sIdx) => (
-                  <div key={"sec-pv-" + sIdx} className="space-y-4">
-                    <div className="p-4 bg-gradient-to-r from-blue-50 via-indigo-50/40 to-slate-50 rounded-2xl border border-blue-200/80 flex items-center justify-between shadow-2xs">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
-                          {sIdx + 1}
-                        </div>
-                        <div>
-                          <h4 className="font-black text-sm text-slate-900 uppercase tracking-wide">
-                            {sec.section_title}
-                          </h4>
-                          <p className="text-[11px] font-semibold text-blue-700">
-                            {sec.questions.length} câu hỏi • {
-                              sec.section_type === "true_false" 
-                                ? "Trắc nghiệm Đúng / Sai" 
-                                : sec.section_type === "short_answer" 
-                                  ? "Trả lời ngắn" 
-                                  : "Trắc nghiệm nhiều lựa chọn (A, B, C, D)"
-                            }
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-2xs">
-                        {sec.questions.length} câu
-                      </span>
-                    </div>
-
-                    <div className="space-y-4">
-                      {sec.questions.map((q, idx) => {
-                        const isSolOpen = !!expandedSolutions[q.id];
-                        return (
-                          <div key={q.id} className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3">
-                            <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
-                              <span className="font-black text-xs text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200/60">
-                                {q.original_label || ("Câu " + (idx + 1))}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
-                                  {q.correct_answer || "A"}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="py-1">
-                              <TokenViewer content={q.prompt_html} mediaMap={mediaMap} />
-                            </div>
-
-                            {/* 1. Trắc nghiệm 4 lựa chọn (Phần I) */}
-                            {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                                {q.options.map(opt => {
-                                  const isCorrect = opt.key === q.correct_answer;
-                                  return (
-                                    <div 
-                                      key={opt.key}
-                                      onClick={() => handleUpdateAnswer(q.id, opt.key)}
-                                      className={"p-3 rounded-xl border text-xs flex items-center gap-2.5 transition-all cursor-pointer " + (
-                                        isCorrect 
-                                          ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-300" 
-                                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-                                      )}
-                                    >
-                                      <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
-                                        isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                                      )}>
-                                        {opt.key}
-                                      </span>
-                                      <div className="flex-1 min-w-0">
-                                        <TokenViewer content={opt.text_html} mediaMap={mediaMap} inline={true} />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* 2. Bảng tích chọn Đúng / Sai (Phần II) */}
-                            {sec.section_type === "true_false" && q.options && (
-                              <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-                                <table className="w-full text-left text-[13px]">
-                                  <thead className="bg-slate-50 border-b border-slate-200">
-                                    <tr>
-                                      <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 bg-white">
-                                    {q.options.map(opt => {
-                                      const isTrue = opt.is_true_false_ans === true;
-                                      const isFalse = opt.is_true_false_ans === false;
-                                      return (
-                                        <tr key={opt.key} className="hover:bg-slate-50/50">
-                                          <td className="py-2.5 px-3">
-                                            <div className="flex items-start gap-2">
-                                              <span className="font-bold text-blue-600">{opt.key})</span>
-                                              <TokenViewer content={opt.text_html} mediaMap={mediaMap} inline={true} />
-                                            </div>
-                                          </td>
-                                          <td className="py-2.5 px-3 text-center align-middle">
-                                            <div 
-                                              onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
-                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
-                                            >
-                                              <Check className="w-4 h-4" />
-                                            </div>
-                                          </td>
-                                          <td className="py-2.5 px-3 text-center align-middle">
-                                            <div 
-                                              onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
-                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
-                                            >
-                                              <X className="w-4 h-4" />
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-
-                            {/* 3. Ô điền kết quả ngắn (Phần III) */}
-                            {sec.section_type === "short_answer" && (
-                              <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
-                                <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
-                                <input 
-                                  type="text"
-                                  value={q.correct_answer || ""}
-                                  onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
-                                  placeholder="Nhập đáp án số hoặc chữ..."
-                                  className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600"
-                                />
-                              </div>
-                            )}
-
-                            {/* Lời giải */}
-                            {q.solution_html && (
-                              <div className="pt-3 border-t border-slate-100 mt-3">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleSolution(q.id)}
-                                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50/50 px-2.5 py-1.5 rounded-lg border border-indigo-100 transition-colors"
-                                >
-                                  <BookOpen className="w-3.5 h-3.5" />
-                                  <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
-                                </button>
-                                {isSolOpen && (
-                                  <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
-                                    <TokenViewer content={q.solution_html} mediaMap={mediaMap} />
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* CỘT PHẢI: TRÌNH BIÊN TẬP VĂN BẢN NGUỒN + TẢI ẢNH & CHÈN LINK ẢNH */}
-            <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-slate-50/50 shadow-xs overflow-hidden">
-              <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 shrink-0">
-                <div className="flex items-center gap-2">
-                  <Edit3 className="w-4 h-4 text-slate-700" />
-                  <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                    Word Raw
-                  </span>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleTriggerUploadImage}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                    title="Chèn ảnh từ máy tính vào vị trí con trỏ chuột"
-                  >
-                    <ImagePlus className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Tải ảnh</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleInsertImageUrl}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                    title="Dán đường link (URL) ảnh từ internet"
-                  >
-                    <LinkIcon className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Chèn Link Ảnh</span>
-                  </button>
-
-                  <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> Tự động đồng bộ
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex-1 p-2 bg-white relative">
-                <textarea
-                  ref={textareaRef}
-                  value={rawText}
-                  onChange={(e) => handleRawTextChange(e.target.value)}
-                  placeholder="Nội dung đề thi thô... Bạn có thể gõ I. Trắc nghiệm, II. Trả lời đúng sai, III. Trả lời ngắn hoặc bấm 'Chèn Link Ảnh' / 'Tải ảnh' để cập nhật trực tiếp sang bên trái."
-                  className="w-full h-full p-3 font-mono text-xs text-slate-800 bg-transparent resize-none outline-none leading-relaxed custom-scrollbar border-none focus:ring-0"
-                  spellCheck={false}
-                />
-              </div>
-            </div>
-          </div>
-        ) : step === 2 ? (
-          /* BƯỚC 2: MA TRẬN ĐÁP ÁN & CẤU HÌNH THANG ĐIỂM 10 */
-          <div className="flex-1 p-6 overflow-y-auto custom-scrollbar max-w-5xl mx-auto w-full space-y-6">
-            <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs flex items-center justify-between">
-              <div>
-                <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-blue-600" />
-                  Cấu hình Ma trận đáp án & Thang điểm 10
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Tự quyết định điểm số từng câu hoặc bấm chia đều để đạt chuẩn thang điểm 10.0
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleAutoDistribute10Points}
-                  className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Tự động chia đều 10 điểm</span>
-                </button>
-
-                <div className={"px-3.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 " + (
-                  Math.abs(currentTotalPoints - 10) < 0.05 
-                    ? "bg-emerald-50 text-emerald-800 border-emerald-300" 
-                    : "bg-amber-50 text-amber-800 border-amber-300"
-                )}>
-                  <span>Tổng điểm: {currentTotalPoints} / 10.0</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              {sections.map((sec, sIdx) => (
-                <div key={"sec-cfg-" + sIdx} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <div>
-                      <h4 className="font-black text-sm text-slate-900 uppercase">
-                        {sec.section_title}
-                      </h4>
-                      <span className="text-[11px] text-slate-500 font-semibold">
-                        {sec.section_type === "true_false" ? "Trắc nghiệm Đúng/Sai" : sec.section_type === "short_answer" ? "Trả lời ngắn" : "Trắc nghiệm 4 phương án"}
-                      </span>
-                    </div>
-                    <span className="text-xs text-slate-500 font-bold bg-slate-100 px-2.5 py-1 rounded-lg">
-                      {sec.questions.length} câu hỏi
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 pt-1">
-                    {sec.questions.map((q, idx) => (
-                      <div key={q.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 shadow-2xs space-y-2.5">
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                          <span className="font-black text-blue-700">{q.original_label || ("Câu " + (idx + 1))}</span>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-slate-400">Điểm:</span>
-                            <input 
-                              type="number"
-                              step="0.05"
-                              value={q.points !== undefined ? q.points : 0.25}
-                              onChange={(e) => handleUpdatePoints(q.id, parseFloat(e.target.value) || 0)}
-                              className="w-14 px-1.5 py-0.5 bg-white border border-slate-300 rounded text-center text-xs font-black text-blue-900 outline-none focus:border-blue-600"
-                            />
-                          </div>
-                        </div>
-
-                        {sec.section_type === "multiple_choice" && (
-                          <div className="grid grid-cols-4 gap-1">
-                            {["A", "B", "C", "D"].map(k => {
-                              const isSel = q.correct_answer === k;
-                              return (
-                                <button
-                                  key={k}
-                                  type="button"
-                                  onClick={() => handleUpdateAnswer(q.id, k)}
-                                  className={"py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer " + (
-                                    isSel 
-                                      ? "bg-emerald-600 text-white shadow-xs scale-105" 
-                                      : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                                  )}
-                                >
-                                  {k}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {sec.section_type === "true_false" && (
-                          <div className="space-y-1.5">
-                            {["a", "b", "c", "d"].map(subKey => {
-                              const opt = q.options.find(o => o.key === subKey);
-                              const isTrue = opt?.is_true_false_ans === true;
-                              return (
-                                <div key={subKey} className="flex items-center justify-between gap-1 text-[11px]">
-                                  <span className="font-bold text-slate-700 uppercase">{subKey}:</span>
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleTrueFalseOpt(q.id, subKey, true)}
-                                      className={"px-1.5 py-0.5 rounded font-black text-[10px] border cursor-pointer " + (
-                                        isTrue ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200"
-                                      )}
-                                    >
-                                      Đ
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleTrueFalseOpt(q.id, subKey, false)}
-                                      className={"px-1.5 py-0.5 rounded font-black text-[10px] border cursor-pointer " + (
-                                        !isTrue ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-600 border-slate-200"
-                                      )}
-                                    >
-                                      S
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {sec.section_type === "short_answer" && (
-                          <input 
-                            type="text"
-                            value={q.correct_answer || ""}
-                            onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
-                            placeholder="Đáp án..."
-                            className="w-full p-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-800 outline-none focus:border-blue-600"
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          /* BƯỚC 3: CÀI ĐẶT & XUẤT BẢN ĐỀ THI */
-          <div className="flex-1 p-6 overflow-y-auto custom-scrollbar flex items-center justify-center">
-            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-xs max-w-lg w-full space-y-5">
-              <div className="text-center space-y-1 pb-2 border-b border-slate-100">
-                <h3 className="font-black text-lg text-slate-900">Thiết lập Thông số Đề thi</h3>
-                <p className="text-xs text-slate-500">Hoàn tất các cài đặt bên dưới để xuất bản đề thi</p>
-              </div>
-
-              <div className="space-y-4 text-xs font-bold text-slate-700">
-                <div>
-                  <label className="block mb-1.5">Tiêu đề đề thi *</label>
-                  <input 
-                    type="text" 
-                    value={examTitle} 
-                    onChange={e => setExamTitle(e.target.value)} 
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all" 
-                  />
-                </div>
-
-                <div>
-                  <label className="block mb-1.5">Thời gian làm bài (Phút) *</label>
-                  <input 
-                    type="number" 
-                    value={duration} 
-                    onChange={e => setDuration(Number(e.target.value))} 
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all" 
-                  />
-                </div>
-
-                {mode === "practice" && (
-                  <div>
-                    <label className="block mb-1.5">Danh mục Luyện đề</label>
-                    <select 
-                      value={category} 
-                      onChange={e => setCategory(e.target.value)}
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all cursor-pointer"
-                    >
-                      {PRACTICE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-100 text-blue-900 text-xs leading-relaxed font-normal">
-                  • Đề thi gồm <strong className="font-bold">{totalQuestions} câu hỏi</strong> thuộc <strong className="font-bold">{sections.length} phần thi</strong> đã sẵn sàng xuất bản.<br />
-                  • Tổng điểm: <strong className="font-bold">{currentTotalPoints} / 10.0 điểm</strong>.<br />
-                  • Toàn bộ công thức toán KaTeX và hình ảnh đồ thị đã được chuẩn hóa.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* FOOTER */}
-      <footer className="h-16 px-6 border-t border-slate-200 bg-white flex items-center justify-between shrink-0 z-10">
-        <button
-          type="button"
-          disabled={step === 1}
-          onClick={() => setStep(step === 3 ? 2 : 1)}
-          className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-40 cursor-pointer hover:bg-slate-50 transition-all flex items-center gap-1.5"
-        >
-          <ArrowLeft className="w-4 h-4" /> Quay lại
-        </button>
-
-        <div className="flex items-center gap-3">
-          {step < 3 ? (
-            <button
-              type="button"
-              onClick={() => setStep(step === 1 ? 2 : 3)}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer transition-all"
-            >
-              <span>Tiếp tục ({totalQuestions} câu)</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                onSave({
-                  id: "exam-" + Date.now(),
-                  title: examTitle || "Đề thi mới",
-                  duration_minutes: duration,
-                  category,
-                  sections,
-                  total_points: currentTotalPoints,
-                  createdAt: new Date().toISOString()
-                });
-                onClose();
-              }}
-              className="px-7 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition-all flex items-center gap-2"
-            >
-              <Check className="w-4 h-4" />
-              <span>Lưu & Xuất Bản Đề Thi</span>
-            </button>
-          )}
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-export default AzotaExamConfigModal;
+export function AzotaExamConfigModal({ isOpen, file
