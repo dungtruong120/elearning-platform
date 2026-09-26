@@ -8,6 +8,7 @@ import {
   Plus, Trash2, X
 } from "lucide-react";
 import { Profile, OnlineSession, AttendanceRecord, STANDARD_SHIFTS } from "@/types";
+import { supabase } from "@/lib/supabaseClient";
 
 interface ScheduleViewProps {
   profile?: Profile | null;
@@ -40,8 +41,8 @@ export function isSameDate(sessDate?: string, sessIsoDate?: string, targetDate: 
   const y = String(targetDate.getFullYear());
   const dStr = d + "/" + m;
   const isoStr = y + "-" + m + "-" + d;
-  if (sessIsoDate && sessIsoDate === isoStr) return true;
-  if (sessDate && sessDate === dStr) return true;
+  if (sessIsoDate && (sessIsoDate === isoStr || sessIsoDate.includes(isoStr))) return true;
+  if (sessDate && (sessDate === dStr || sessDate.includes(dStr))) return true;
   return false;
 }
 
@@ -66,56 +67,88 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
   });
 
   const studentMode = mode || profile?.learning_mode || "online";
-  const isOnlineStudent = studentMode === "online";
 
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-    }, 15000);
+    }, 10000);
     return () => clearInterval(timer);
   }, []);
 
-  const loadScheduleData = useCallback(() => {
-    if (typeof window === "undefined") return;
+  // ĐỌC DỮ LIỆU TỪ SUPABASE DATABASE & REALTIME
+  const loadScheduleData = useCallback(async () => {
     try {
-      const savedSessions = localStorage.getItem("edunexus_online_sessions");
-      if (savedSessions) {
-        const parsed = JSON.parse(savedSessions);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setSessions(parsed);
-        } else {
-          setSessions(getDefaultSessions());
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        setSessions(data);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_online_sessions", JSON.stringify(data));
         }
       } else {
-        const defaults = getDefaultSessions();
-        setSessions(defaults);
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(defaults));
+        // Fallback sang localStorage nếu DB chưa có
+        if (typeof window !== "undefined") {
+          const savedSessions = localStorage.getItem("edunexus_online_sessions");
+          if (savedSessions) {
+            const parsed = JSON.parse(savedSessions);
+            if (Array.isArray(parsed) && parsed.length > 0) setSessions(parsed);
+          }
+        }
       }
     } catch {
-      setSessions(getDefaultSessions());
+      if (typeof window !== "undefined") {
+        const savedSessions = localStorage.getItem("edunexus_online_sessions");
+        if (savedSessions) {
+          try {
+            const parsed = JSON.parse(savedSessions);
+            if (Array.isArray(parsed) && parsed.length > 0) setSessions(parsed);
+          } catch {}
+        }
+      }
     }
 
-    try {
-      const savedPersonal = localStorage.getItem("edunexus_personal_schedules");
-      if (savedPersonal) {
-        const parsed = JSON.parse(savedPersonal);
-        if (Array.isArray(parsed)) setPersonalSchedules(parsed);
-      }
-    } catch {}
+    if (typeof window !== "undefined") {
+      try {
+        const savedPersonal = localStorage.getItem("edunexus_personal_schedules");
+        if (savedPersonal) {
+          const parsed = JSON.parse(savedPersonal);
+          if (Array.isArray(parsed)) setPersonalSchedules(parsed);
+        }
+      } catch {}
 
-    try {
-      const savedAtt = localStorage.getItem("edunexus_attendance");
-      if (savedAtt) {
-        const parsed = JSON.parse(savedAtt);
-        if (Array.isArray(parsed)) setAttendanceRecords(parsed);
-      }
-    } catch {}
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        if (savedAtt) {
+          const parsed = JSON.parse(savedAtt);
+          if (Array.isArray(parsed)) setAttendanceRecords(parsed);
+        }
+      } catch {}
+    }
   }, []);
 
   useEffect(() => {
     loadScheduleData();
+
+    // Kết nối Supabase Realtime: Admin lưu là Học sinh nhận được ca học ngay tức thì (< 1 giây)
+    const channel = supabase
+      .channel("realtime-sessions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sessions" },
+        () => {
+          loadScheduleData();
+        }
+      )
+      .subscribe();
+
     window.addEventListener("storage", loadScheduleData);
-    return () => window.removeEventListener("storage", loadScheduleData);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener("storage", loadScheduleData);
+    };
   }, [loadScheduleData]);
 
   const showToast = (msg: string) => {
@@ -123,85 +156,16 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     setTimeout(() => setSuccessToast(""), 3500);
   };
 
-  function getDefaultSessions(): OnlineSession[] {
-    return [
-      {
-        id: "sess-t3",
-        title: "Đạo hàm & Khảo sát hàm số 12: Cực trị nâng cao",
-        subject: "Giải tích 12",
-        dayOfWeek: "Thứ 3",
-        date: "22/09",
-        isoDate: "2026-09-22",
-        shiftId: "ca-5",
-        shiftName: "Ca 5",
-        timeSlot: "18:00 - 19:30",
-        room: "P.201 TCT",
-        teacherName: "Thầy Nam",
-        target_mode: "offline",
-        audience: "all",
-        createdAt: "2026-09-20T10:00:00Z"
-      },
-      {
-        id: "sess-t5-today",
-        title: "Chuyên đề: Tích phân & Kỹ thuật Casio",
-        subject: "Toán 12 - Tích phân",
-        dayOfWeek: "Thứ 5",
-        date: "24/09",
-        isoDate: "2026-09-24",
-        shiftId: "ca-3",
-        shiftName: "Ca 3",
-        timeSlot: "14:30 - 16:00",
-        meetingUrl: "https://zoom.us/j/1234567890",
-        room: "Zoom Meeting",
-        teacherName: "Thầy Nam",
-        target_mode: "online",
-        audience: "all",
-        createdAt: "2026-09-24T08:00:00Z"
-      },
-      {
-        id: "sess-t5-ca6",
-        title: "Luyện đề thi thử Toán THPT Quốc Gia",
-        subject: "Toán 12 - Luyện đề",
-        dayOfWeek: "Thứ 5",
-        date: "24/09",
-        isoDate: "2026-09-24",
-        shiftId: "ca-6",
-        shiftName: "Ca 6",
-        timeSlot: "19:30 - 21:00",
-        meetingUrl: "https://zoom.us/j/1234567890",
-        room: "Zoom Meeting",
-        teacherName: "Thầy Nam",
-        target_mode: "online",
-        audience: "all",
-        createdAt: "2026-09-24T08:00:00Z"
-      },
-      {
-        id: "sess-t7",
-        title: "Hình học không gian & Phương pháp tọa độ Oxyz",
-        subject: "Hình học Oxyz",
-        dayOfWeek: "Thứ 7",
-        date: "26/09",
-        isoDate: "2026-09-26",
-        shiftId: "ca-5",
-        shiftName: "Ca 5",
-        timeSlot: "18:00 - 19:30",
-        room: "P.201 TCT",
-        teacherName: "Thầy Giang",
-        target_mode: "offline",
-        audience: "offline",
-        createdAt: "2026-09-20T10:00:00Z"
-      }
-    ];
-  }
-
+  // LỌC CA HỌC CHUẨN XÁC: Hiển thị cả ca học dành riêng lẫn ca học chung ("all")
   const filteredSessions = useMemo(() => {
-    if (isAdmin) return sessions;
+    if (isAdmin || mode === "all") return sessions;
     return sessions.filter(sess => {
-      const modeMatch = sess.target_mode === "all" || !sess.target_mode || sess.target_mode === studentMode;
-      const audMatch = sess.audience === "all" || !sess.audience || sess.audience === studentMode;
-      return modeMatch || audMatch;
+      const tMode = (sess.target_mode || "all").toLowerCase();
+      const aud = (sess.audience || "all").toLowerCase();
+      const sMode = studentMode.toLowerCase();
+      return tMode === "all" || tMode === sMode || aud === "all" || aud === sMode;
     });
-  }, [sessions, studentMode, isAdmin]);
+  }, [sessions, studentMode, isAdmin, mode]);
 
   const getSessionStatus = useCallback(
     (sess: OnlineSession, dayDate: Date): "past" | "live" | "upcoming" => {
@@ -217,13 +181,9 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
 
       const curMinutes = now.getHours() * 60 + now.getMinutes();
 
-      if (curMinutes > slot.endMinutes) {
-        return "past";
-      }
-
-      if (curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes) {
-        return "live";
-      }
+      if (curMinutes > slot.endMinutes) return "past";
+      // Kích hoạt banner trước giờ học 15 phút
+      if (curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes) return "live";
 
       return "upcoming";
     },
@@ -256,7 +216,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     if (!profile) return;
     const now = new Date();
     const timeStr = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
-    const dateStr = sess.date || "24/09";
+    const dateStr = sess.date || (String(now.getDate()).padStart(2, "0") + "/" + String(now.getMonth() + 1).padStart(2, "0"));
 
     const newRecord: AttendanceRecord = {
       id: "att-" + Date.now(),
@@ -264,9 +224,9 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
       studentName: profile.full_name,
       sessionDate: dateStr,
       status: "present",
-      mode: isOnlineStudent ? "online_auto" : "offline_self",
+      mode: studentMode === "online" ? "online_auto" : "offline_self",
       attendedAt: now.toISOString(),
-      note: isOnlineStudent ? ("Điểm danh Online lúc " + timeStr) : ("Điểm danh Offline lúc " + timeStr)
+      note: "Điểm danh lúc " + timeStr
     };
 
     const updated = [
@@ -280,12 +240,10 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
         localStorage.setItem("edunexus_attendance", JSON.stringify(updated));
         localStorage.setItem("tct_attendance_records", JSON.stringify(updated));
         window.dispatchEvent(new Event("storage"));
-      } catch (e) {
-        console.error("Lỗi lưu điểm danh:", e);
-      }
+      } catch (e) {}
     }
 
-    if (isOnlineStudent && sess.meetingUrl) {
+    if (sess.meetingUrl) {
       showToast("Điểm danh thành công lúc " + timeStr + "! Đang mở lớp học...");
       window.open(sess.meetingUrl, "_blank");
     } else {
@@ -356,16 +314,19 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     showToast("Đã xóa môn \"" + name + "\".");
   };
 
+  // TÍNH TOÁN NGÀY TRONG TUẦN ĐỘNG THEO THỜI GIAN THỰC
   const weekDays = useMemo(() => {
-    const baseMonday = new Date(2026, 8, 21);
-    baseMonday.setDate(baseMonday.getDate() + weekOffset * 7);
+    const now = currentTime;
+    const currentDayOfWeek = now.getDay();
+    const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+    
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + distanceToMonday + weekOffset * 7);
 
     const days: any[] = [];
     const dayLabels = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật"];
 
     for (let i = 0; i < 7; i++) {
-      const d = new Date(baseMonday);
-      d.setDate(baseMonday.getDate() + i);
+      const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
       const dayNum = String(d.getDate()).padStart(2, "0");
       const monthNum = String(d.getMonth() + 1).padStart(2, "0");
       const dateStr = dayNum + "/" + monthNum;
@@ -373,7 +334,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
       const isToday = isSameDate(dateStr, isoStr, currentTime);
 
       const dayCenterSessions = filteredSessions.filter(
-        s => s.date === dateStr || s.isoDate === isoStr || (s.dayOfWeek === dayLabels[i] && weekOffset === 0)
+        s => isSameDate(s.date, s.isoDate, d) || (s.dayOfWeek === dayLabels[i] && weekOffset === 0)
       );
       const dayPersonalSessions = personalSchedules.filter(p => p.dayOfWeek === dayLabels[i]);
 
@@ -411,7 +372,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
       const isToday = isSameDate(dateStr, isoStr, now);
       const dayOfWeekLabel = dayLabels[d.getDay()];
 
-      const centerMatch = filteredSessions.filter(s => s.date === dateStr || s.isoDate === isoStr);
+      const centerMatch = filteredSessions.filter(s => isSameDate(s.date, s.isoDate, d));
       const personalMatch = personalSchedules.filter(p => p.dayOfWeek === dayOfWeekLabel);
 
       cells.push({
@@ -458,7 +419,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                 <span className="px-1.5 py-0.2 rounded-md bg-rose-600 text-white text-[9px] font-bold">ĐANG DIỄN RA</span>
               </p>
               <p className="text-xs sm:text-sm font-extrabold text-white truncate">
-                {activeLiveBannerSession.subject || activeLiveBannerSession.title} ({activeLiveBannerSession.timeSlot})
+                {(activeLiveBannerSession.subject || activeLiveBannerSession.title) + " (" + activeLiveBannerSession.timeSlot + ")"}
                 <span className="text-blue-200 text-xs font-medium ml-2">
                   {"• " + (activeLiveBannerSession.room || "Zoom / Google Meet")}
                 </span>
@@ -472,7 +433,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-100 text-xs font-bold border border-emerald-400/40">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" /> Đã điểm danh
                 </span>
-                {isOnlineStudent && activeLiveBannerSession.meetingUrl && (
+                {activeLiveBannerSession.meetingUrl && (
                   <button
                     type="button"
                     onClick={() => handleRejoin(activeLiveBannerSession)}
@@ -580,7 +541,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
               </button>
             </div>
             <span className="text-xs font-bold text-slate-500">
-              {weekDays[0].dateStr + "/2026 — " + weekDays[6].dateStr + "/2026"}
+              {weekDays[0].dateStr + " — " + weekDays[6].dateStr}
             </span>
           </div>
 
@@ -611,7 +572,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                     day.sessions.map((sess: any, sIdx: number) => {
                       const isPersonal = Boolean(sess.isPersonal);
                       const isAtt = isAttended(sess);
-                      const isOnline = sess.target_mode === "online";
+                      const isOnline = (sess.target_mode || sess.audience) === "online";
                       const status = getSessionStatus(sess, day.fullDate);
                       const isPast = status === "past";
                       const isLive = status === "live";
@@ -765,7 +726,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                   <div className="space-y-1 my-1">
                     {(cell.sessions || []).slice(0, 2).map((s: any, sIdx: number) => {
                       const isPersonal = Boolean(s.isPersonal);
-                      const isOnline = s.target_mode === "online";
+                      const isOnline = (s.target_mode || s.audience) === "online";
                       return (
                         <div
                           key={s.id || sIdx}
