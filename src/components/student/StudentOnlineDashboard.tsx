@@ -26,21 +26,41 @@ const MOTIVATIONAL_QUOTES = [
   "Toán học và tư duy logic là chìa khóa mở ra cánh cửa tương lai rộng mở."
 ];
 
-interface StudentOfflineDashboardProps {
+const DEFAULT_CHAPTERS = [
+  { 
+    id: "chap-1", 
+    title: "Chương 1: Ứng dụng đạo hàm để khảo sát hàm số", 
+    lessons: [
+      { 
+        id: "les-1", 
+        title: "Bài 1: Tính đơn điệu của hàm số", 
+        description: "", 
+        duration: 45, 
+        format: "Zoom", 
+        target_mode: "all",
+        lecture_files: [], 
+        homework_files: [], 
+        handwritten_notes: [], 
+        video_list: [], 
+        test_quizzes: [], 
+        extra_resources: [] 
+      }
+    ] 
+  }
+];
+
+interface StudentOnlineDashboardProps {
   initialProfile?: Profile | null;
   onLogout?: () => void;
 }
 
-export default function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDashboardProps) {
-  // SỬA LỖI 1: Giữ nguyên learning_mode truyền vào từ ngoài, không tự động ép cứng thành offline
+export default function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashboardProps) {
   const [profile, setProfile] = useState<Profile | null>(() => {
-    if (initialProfile) return initialProfile;
+    if (initialProfile) return { ...initialProfile, learning_mode: "online", study_mode: "online" };
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("tct_current_user") || localStorage.getItem("edunexus_current_user");
-        if (saved) {
-          return JSON.parse(saved);
-        }
+        if (saved) return { ...JSON.parse(saved), learning_mode: "online", study_mode: "online" };
       } catch (e) {}
     }
     return null;
@@ -48,17 +68,14 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
 
   useEffect(() => {
     if (initialProfile) {
-      setProfile(initialProfile);
+      setProfile({ ...initialProfile, learning_mode: "online", study_mode: "online" });
     }
   }, [initialProfile]);
 
-  const isOnlineStudent = (profile?.learning_mode === "online" || profile?.study_mode === "online");
-
-  const [offlineAttendance, setOfflineAttendance] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<string>("overview");
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [chapters, setChapters] = useState<any[]>([]);
+  const [chapters, setChapters] = useState<any[]>(DEFAULT_CHAPTERS);
   const [allAttempts, setAllAttempts] = useState<any[]>([]);
   const [practiceExams, setPracticeExams] = useState<any[]>([]);
   const [sysNotifications, setSysNotifications] = useState<any[]>([]);
@@ -87,33 +104,38 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
+  // ĐỒNG BỘ DỮ LIỆU TỪ STORAGE HOẶC DÙNG DỮ LIỆU MẶC ĐỊNH
   const fetchAuthAndData = useCallback(() => {
     if (typeof window !== "undefined") {
-      const savedChapters = localStorage.getItem("edunexus_course_data");
-      if (savedChapters) setChapters(JSON.parse(savedChapters));
+      try {
+        const savedChapters = localStorage.getItem("edunexus_course_data");
+        if (savedChapters && savedChapters !== "undefined" && savedChapters !== "null") {
+          const parsed = JSON.parse(savedChapters);
+          setChapters(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_CHAPTERS);
+        } else {
+          setChapters(DEFAULT_CHAPTERS);
+        }
+      } catch (e) {
+        setChapters(DEFAULT_CHAPTERS);
+      }
       
-      const savedAttempts = localStorage.getItem("edunexus_attempts");
-      if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
-      
-      const savedPractice = localStorage.getItem("edunexus_practice_exams");
-      if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
-      
-      const savedNotifs = localStorage.getItem("edunexus_system_notifications");
-      if (savedNotifs) setSysNotifications(JSON.parse(savedNotifs));
-      
-      const studySecs = parseInt(localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0", 10);
-      setTotalStudySeconds(studySecs);
+      try {
+        const savedAttempts = localStorage.getItem("edunexus_attempts");
+        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+      } catch (e) {}
 
       try {
-        const savedAtt = localStorage.getItem("edunexus_attendance");
-        const savedTct = localStorage.getItem("tct_attendance_records");
-        const listAtt = savedAtt ? JSON.parse(savedAtt) : [];
-        const listTct = savedTct ? JSON.parse(savedTct) : [];
-        const combined = [...listAtt, ...listTct];
-        if (Array.isArray(combined)) {
-          setOfflineAttendance(combined.filter((a: any) => a.studentId === profile?.id));
-        }
+        const savedPractice = localStorage.getItem("edunexus_practice_exams");
+        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
       } catch (e) {}
+
+      try {
+        const savedNotifs = localStorage.getItem("edunexus_system_notifications");
+        if (savedNotifs) setSysNotifications(JSON.parse(savedNotifs));
+      } catch (e) {}
+
+      const studySecs = parseInt(localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0", 10);
+      setTotalStudySeconds(studySecs);
     }
   }, [profile?.id]);
 
@@ -138,8 +160,8 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     const mins = Math.floor(totalStudySeconds / 60);
     const hrs = Math.floor(mins / 60);
     const remainMins = mins % 60;
-    if (hrs > 0) return hrs + "h " + remainMins + "p";
-    return mins + " phút";
+    if (hrs > 0) return ${hrs}h ${remainMins}p;
+    return ${mins} phút;
   }, [totalStudySeconds]);
 
   const findLessonByQuizId = (qId: string) => {
@@ -155,7 +177,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
 
   const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
   const syncReadNotifs = useCallback(() => {
-    const savedReads = localStorage.getItem("edunexus_read_notifs_" + (profile?.id || "default"));
+    const savedReads = localStorage.getItem(edunexus_read_notifs_${profile?.id});
     if (savedReads) setReadNotifIds(JSON.parse(savedReads));
   }, [profile?.id]);
 
@@ -172,9 +194,9 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     myAttempts.forEach(att => {
       const isPractice = att.type === "practice";
       combined.push({
-        id: "score-" + att.attemptId, 
+        id: score-${att.attemptId}, 
         title: "Điểm kiểm tra mới", 
-        desc: 'Bài "' + att.quizTitle + '" đạt kết quả: ' + att.score + "/10 điểm.", 
+        desc: Bài "${att.quizTitle}" đạt kết quả: ${att.score}/10 điểm., 
         type: "success", 
         timestamp: new Date(att.submittedAt).getTime(), 
         dateStr: new Date(att.submittedAt).toLocaleString("vi-VN"), 
@@ -186,9 +208,9 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     practiceExams.forEach(ex => {
       const exTime = ex.createdAt ? new Date(ex.createdAt).getTime() : Date.now() - 86400000;
       combined.push({
-        id: "exam-" + ex.id, 
+        id: exam-${ex.id}, 
         title: "Đề thi thử mới cập nhật", 
-        desc: 'Đề "' + ex.title + '" (' + ex.category + ") đã sẵn sàng luyện tập.", 
+        desc: Đề "${ex.title}" (${ex.category}) đã sẵn sàng luyện tập., 
         type: "info", 
         timestamp: exTime, 
         dateStr: "Mới cập nhật", 
@@ -198,7 +220,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     
     sysNotifications.forEach(sys => {
       combined.push({
-        id: "sys-" + sys.id, 
+        id: sys-${sys.id}, 
         title: sys.title, 
         desc: sys.content, 
         type: sys.type === "urgent" ? "warning" : "teacher", 
@@ -214,7 +236,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const handleMarkAllAsRead = () => {
     const allIds = notificationsList.map(n => n.id);
     setReadNotifIds(allIds);
-    localStorage.setItem("edunexus_read_notifs_" + (profile?.id || "default"), JSON.stringify(allIds));
+    localStorage.setItem(edunexus_read_notifs_${profile?.id}, JSON.stringify(allIds));
     window.dispatchEvent(new Event("readNotifsUpdated"));
   };
 
@@ -222,7 +244,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     if (!readNotifIds.includes(item.id)) {
       const newIds = [...readNotifIds, item.id];
       setReadNotifIds(newIds);
-      localStorage.setItem("edunexus_read_notifs_" + (profile?.id || "default"), JSON.stringify(newIds));
+      localStorage.setItem(edunexus_read_notifs_${profile?.id}, JSON.stringify(newIds));
       window.dispatchEvent(new Event("readNotifsUpdated"));
     }
     if (item.actionType === "system_modal") { 
@@ -269,26 +291,26 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const formatCompletionTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
-    if (m === 0) return s + " giây";
-    return m + "p " + s + "s";
+    if (m === 0) return ${s} giây;
+    return ${m}p ${s}s;
   };
 
-  // SỬA LỖI 2: Lọc bài học linh hoạt theo đúng phân hệ của học sinh
-  const displayChapters = useMemo(() => {
-    const mode = isOnlineStudent ? "online" : "offline";
+  // LỌC BÀI HỌC DÀNH CHO HỌC SINH ONLINE (LẤY CÁC BÀI TARGET LÀ ONLINE HOẶC ALL HOẶC RỖNG)
+  const onlineChapters = useMemo(() => {
     return (chapters || [])
       .map((chap: any) => ({
         ...chap,
         lessons: (chap.lessons || []).filter((les: any) => 
-          !les?.target_mode || les?.target_mode === "all" || les?.target_mode === mode
+          !les?.target_mode || les?.target_mode === "online" || les?.target_mode === "all"
         )
       }))
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
-  }, [chapters, isOnlineStudent]);
+  }, [chapters]);
 
-  const [offlineSessions, setOfflineSessions] = useState<any[]>([]);
-  const [offlineAttRecords, setOfflineAttRecords] = useState<any[]>([]);
-  const [offlineToast, setOfflineToast] = useState<string>("");
+  // Lịch học & Điểm danh Online
+  const [onlineSessions, setOnlineSessions] = useState<any[]>([]);
+  const [onlineAttRecords, setOnlineAttRecords] = useState<any[]>([]);
+  const [onlineToast, setOnlineToast] = useState<string>("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -296,12 +318,12 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
       const saved = localStorage.getItem("edunexus_online_sessions");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) setOfflineSessions(parsed);
+        if (Array.isArray(parsed)) setOnlineSessions(parsed);
       }
       const savedAtt = localStorage.getItem("edunexus_attendance");
       if (savedAtt) {
         const parsed = JSON.parse(savedAtt);
-        if (Array.isArray(parsed)) setOfflineAttRecords(parsed);
+        if (Array.isArray(parsed)) setOnlineAttRecords(parsed);
       }
     } catch (e) {}
   }, []);
@@ -337,41 +359,36 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     return false;
   };
 
-  const liveOfflineSession = useMemo(() => {
-    if (!offlineSessions || offlineSessions.length === 0) return null;
+  const liveOnlineSession = useMemo(() => {
+    if (!onlineSessions || onlineSessions.length === 0) return null;
     const now = currentTime;
     const curMinutes = now.getHours() * 60 + now.getMinutes();
 
-    return offlineSessions.find((s: any) => {
-      const isTarget = isOnlineStudent 
-        ? (s.target_mode === "online" || s.target_mode === "all" || s.audience === "online" || s.audience === "all")
-        : (s.target_mode === "offline" || s.target_mode === "all" || s.audience === "offline" || s.audience === "all");
+    return onlineSessions.find((s: any) => {
+      const isTarget = s.target_mode === "online" || s.target_mode === "all" || s.audience === "online" || s.audience === "all";
       if (!isTarget) return false;
-
       if (!isSameDate(s.date, s.isoDate, now)) return false;
-
       const slot = parseTimeSlotMinutes(s.timeSlot);
       if (!slot) return false;
-
       return curMinutes <= slot.endMinutes;
     }) || null;
-  }, [offlineSessions, currentTime, isOnlineStudent]);
+  }, [onlineSessions, currentTime]);
 
-  const isOfflineSessionActive = useMemo(() => {
-    if (!liveOfflineSession) return false;
-    const slot = parseTimeSlotMinutes(liveOfflineSession.timeSlot);
+  const isOnlineSessionActive = useMemo(() => {
+    if (!liveOnlineSession) return false;
+    const slot = parseTimeSlotMinutes(liveOnlineSession.timeSlot);
     if (!slot) return true;
     const curMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
     return curMinutes <= slot.endMinutes;
-  }, [liveOfflineSession, currentTime]);
+  }, [liveOnlineSession, currentTime]);
 
-  const isOfflineLiveNow = useMemo(() => {
-    if (!liveOfflineSession) return false;
-    const slot = parseTimeSlotMinutes(liveOfflineSession.timeSlot);
+  const isOnlineLiveNow = useMemo(() => {
+    if (!liveOnlineSession) return false;
+    const slot = parseTimeSlotMinutes(liveOnlineSession.timeSlot);
     if (!slot) return false;
     const curMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
     return curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes;
-  }, [liveOfflineSession, currentTime]);
+  }, [liveOnlineSession, currentTime]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -385,52 +402,52 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const isAttendedTodayOffline = useMemo(() => {
-    if (!profile || !liveOfflineSession) return false;
+  const isAttendedTodayOnline = useMemo(() => {
+    if (!profile || !liveOnlineSession) return false;
     const now = currentTime;
-    return offlineAttRecords.some((a: any) => 
+    return onlineAttRecords.some((a: any) => 
       a.studentId === profile.id && 
-      (a.sessionId === liveOfflineSession.id || isSameDate(a.sessionDate, undefined, now)) && 
+      (a.sessionId === liveOnlineSession.id || isSameDate(a.sessionDate, undefined, now)) && 
       (a.status === "present" || a.status === "auto_present")
-    ) || offlineAttendance.some((a: any) => 
-      a.studentId === profile.id && 
-      (a.sessionId === liveOfflineSession.id || isSameDate(a.sessionDate, undefined, now) || isSameDate(a.date, undefined, now))
     );
-  }, [profile, liveOfflineSession, offlineAttRecords, offlineAttendance, currentTime]);
+  }, [profile, liveOnlineSession, onlineAttRecords, currentTime]);
 
-  const handleOfflineSelfCheckIn = () => {
-    if (!profile || !liveOfflineSession) return;
+  const handleOnlineJoinMeeting = () => {
+    if (!profile || !liveOnlineSession) return;
     const now = new Date();
     const timeStr = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
-    const dateStr = liveOfflineSession.date || (String(now.getDate()).padStart(2, "0") + "/" + String(now.getMonth() + 1).padStart(2, "0"));
+    const dateStr = liveOnlineSession.date || (String(now.getDate()).padStart(2, "0") + "/" + String(now.getMonth() + 1).padStart(2, "0"));
 
     const newRecord = {
-      id: "att-offline-" + Date.now(),
+      id: "att-online-" + Date.now(),
       studentId: profile.id,
       studentName: profile.full_name,
       sessionDate: dateStr,
       status: "present",
-      mode: isOnlineStudent ? "online_self" : "offline_self",
+      mode: "online_self",
       attendedAt: now.toISOString(),
-      note: "Học sinh xác nhận có mặt lúc " + timeStr
+      note: "Học sinh tham gia lớp học trực tuyến lúc " + timeStr
     };
 
     const updated = [
-      ...offlineAttRecords.filter((a: any) => !(a.studentId === profile.id && (a.sessionDate === dateStr || isSameDate(a.sessionDate, undefined, now)))),
+      ...onlineAttRecords.filter((a: any) => !(a.studentId === profile.id && (a.sessionDate === dateStr || isSameDate(a.sessionDate, undefined, now)))),
       newRecord
     ];
-    setOfflineAttRecords(updated);
-    setOfflineAttendance(prev => [...prev.filter((a: any) => !(a.sessionDate === dateStr || isSameDate(a.sessionDate, undefined, now))), newRecord]);
+    setOnlineAttRecords(updated);
 
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_attendance", JSON.stringify(updated));
-        localStorage.setItem("tct_attendance_records", JSON.stringify(updated));
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
     }
-    setOfflineToast("Đã xác nhận CÓ MẶT tại buổi học lúc " + timeStr + " thành công!");
-    setTimeout(() => setOfflineToast(""), 4000);
+
+    if (liveOnlineSession.meetingUrl) {
+      window.open(liveOnlineSession.meetingUrl, "_blank");
+    }
+
+    setOnlineToast("Đã tham gia phòng học và điểm danh lúc " + timeStr + "!");
+    setTimeout(() => setOnlineToast(""), 4000);
   };
 
   if (examRoom) {
@@ -482,14 +499,14 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   return (
     <div className="h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 flex overflow-hidden relative selection:bg-blue-500/20">
       <AnimatePresence>
-        {offlineToast && (
+        {onlineToast && (
           <motion.div 
             initial={{ opacity: 0, y: -20 }} 
             animate={{ opacity: 1, y: 0 }} 
             exit={{ opacity: 0, y: -20 }} 
             className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-xs sm:text-sm border border-emerald-400"
           >
-            <CheckCircle2 className="w-5 h-5 text-white" /> {offlineToast}
+            <CheckCircle2 className="w-5 h-5 text-white" /> {onlineToast}
           </motion.div>
         )}
       </AnimatePresence>
@@ -524,9 +541,10 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
               transition={{ duration: 0.2, ease: "easeInOut" }}
               className="w-full"
             >
+              {/* TAB OVERVIEW */}
               {activeTab === "overview" && (
                 <div className="w-full max-w-7xl mx-auto space-y-6 text-left">
-                  {liveOfflineSession && isOfflineSessionActive && (
+                  {liveOnlineSession && isOnlineSessionActive && (
                     <motion.div
                       initial={{ opacity: 0, y: -6 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -534,21 +552,20 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="p-2 rounded-xl bg-white/20 text-white shrink-0">
-                          <MapPin className="w-4 h-4" />
+                          <Video className="w-4 h-4" />
                         </div>
                         <div className="min-w-0 text-left">
                           <p className="text-[11px] font-black uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
-                            <span>{isOfflineLiveNow ? "ĐANG DIỄN RA CA HỌC TRỰC TIẾP" : "LỊCH HỌC TRỰC TIẾP HÔM NAY"}</span>
-                            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold">TCT</span>
+                            <span>{isOnlineLiveNow ? "ĐANG DIỄN RA BUỔI HỌC TRỰC TUYẾN" : "LỊCH HỌC TRỰC TUYẾN HÔM NAY"}</span>
+                            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold">LIVE ZOOM</span>
                           </p>
                           <p className="text-xs sm:text-sm font-extrabold text-white truncate">
-                            {(liveOfflineSession.subject || liveOfflineSession.title) + " (" + liveOfflineSession.timeSlot + ")"}
-                            <span className="text-blue-200 text-xs font-medium ml-2">{"• " + (liveOfflineSession.room || (isOnlineStudent ? "Zoom Trực Tuyến" : "P.201 TCT"))}</span>
+                            {(liveOnlineSession.title || liveOnlineSession.subject) + " (" + liveOnlineSession.timeSlot + ")"}
                           </p>
                         </div>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
-                        {isAttendedTodayOffline ? (
+                        {isAttendedTodayOnline ? (
                           <div className="flex items-center gap-2">
                             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-200 font-black text-xs border border-emerald-400/30">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
@@ -556,40 +573,36 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                             </span>
                             <button
                               type="button"
-                              onClick={() => {
-                                setActiveTab("courses");
-                                setOfflineToast("Đang mở không gian học tập: " + (liveOfflineSession.subject || liveOfflineSession.title));
-                              }}
+                              onClick={handleOnlineJoinMeeting}
                               className="px-3.5 py-1.5 bg-white text-[#1D4ED8] hover:bg-blue-50 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                             >
-                              <BookOpen className="w-3.5 h-3.5" />
-                              <span>Vào học</span>
+                              <Video className="w-3.5 h-3.5" />
+                              <span>Vào phòng học</span>
                             </button>
                           </div>
                         ) : (
                           <button
                             type="button"
-                            onClick={handleOfflineSelfCheckIn}
+                            onClick={handleOnlineJoinMeeting}
                             className="px-5 py-2 bg-white text-[#1D4ED8] hover:bg-blue-50 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                           >
-                            <CheckCircle2 className="w-4 h-4 text-[#1D4ED8]" />
-                            <span>Xác nhận có mặt</span>
+                            <Play className="w-4 h-4 fill-[#1D4ED8]" />
+                            <span>Vào học & Điểm danh</span>
                           </button>
                         )}
                       </div>
                     </motion.div>
                   )}
 
-                  {/* SỬA LỖI 3: Hiển thị đúng phân hệ Online/Offline và số lượng chương */}
                   <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
                     <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Chương trình 12</h2>
                     <span className="text-xs font-bold text-slate-500">
-                      {displayChapters.length} Chương chính khóa ({isOnlineStudent ? "Lớp Online TCT" : "Lớp Offline TCT"})
+                      {onlineChapters.length} Chương chính khóa (Lớp Online TCT)
                     </span>
                   </div>
 
                   <div className="space-y-6">
-                    {displayChapters.map((chap, idx) => (
+                    {onlineChapters.map((chap, idx) => (
                       <div key={chap.id || idx} className="space-y-3">
                         <h3 className="font-extrabold text-slate-900 text-lg flex items-center gap-2">
                           <span className="text-[#1D4ED8] uppercase text-xs tracking-widest bg-blue-50 px-2 py-1 rounded-md border border-blue-100">Chương {idx + 1}</span> {chap.title}
@@ -604,21 +617,22 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                         </div>
                       </div>
                     ))}
-                    {displayChapters.length === 0 && (
+                    {onlineChapters.length === 0 && (
                       <div className="py-8 text-center text-slate-400 font-medium bg-white rounded-2xl border border-slate-200">
-                        Chưa có bài học nào được gán cho phân hệ {isOnlineStudent ? "Online" : "Offline"}.
+                        Chưa có chương trình học nào. Giáo viên sẽ cập nhật nội dung bài giảng sớm nhất.
                       </div>
                     )}
                   </div>
                 </div>
               )}
 
+              {/* TAB COURSES */}
               {activeTab === "courses" && (
                 <div className="max-w-6xl mx-auto space-y-6 text-left justify-start">
                   <div className="bg-white rounded-[20px] p-5 border border-slate-200 shadow-sm flex flex-col gap-3.5 text-left">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="px-2.5 py-1 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-extrabold uppercase tracking-widest border border-blue-100">
-                        Hệ thống TCT ({isOnlineStudent ? "Online" : "Offline"})
+                        Hệ thống TCT (Lớp Online)
                       </span>
                       <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md text-[10px] font-bold border border-emerald-100"><Clock className="w-3.5 h-3.5" /> Thời gian học: {formattedStudyTimeToday}</div>
                     </div>
@@ -647,7 +661,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                       <h3 className="text-xl font-black text-slate-900 tracking-tight">Chương trình học chính khóa</h3>
                     </div>
                     <ChapterAccordion 
-                      chapters={displayChapters.filter(chap => chap.title.toLowerCase().includes(searchQuery.toLowerCase()) || chap.lessons?.some((l: any) => l.title.toLowerCase().includes(searchQuery.toLowerCase())))} 
+                      chapters={onlineChapters.filter(chap => chap.title.toLowerCase().includes(searchQuery.toLowerCase()) || chap.lessons?.some((l: any) => l.title.toLowerCase().includes(searchQuery.toLowerCase())))} 
                       pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} 
                       onOpenLesson={(les) => setSelectedLesson(les)} 
                       onStartExam={(qId, qTitle, isHomework, durationMinutes) => { 
@@ -658,6 +672,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                 </div>
               )}
 
+              {/* TAB NOTIFICATIONS */}
               {activeTab === "notifications" && (
                 <div className="w-full max-w-7xl mx-auto space-y-6 text-left">
                   <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
@@ -711,15 +726,17 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                 </div>
               )}
 
+              {/* TAB SCHEDULE */}
               {activeTab === "schedule" && (
                 <div className="space-y-6 max-w-6xl mx-auto text-left">
-                  <ScheduleView profile={profile} mode={isOnlineStudent ? "online" : "offline"} />
+                  <ScheduleView profile={profile} mode="online" />
                 </div>
               )}
 
               {(activeTab === "progress" || activeTab === "assessments") && <ProgressTrackingView chapters={chapters} pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} onStartExam={(qId, qTitle, isHomework, durationMinutes) => { setExamRoom({ id: qId, title: qTitle, duration: durationMinutes || 45, isHomework }); }} />}
-              {activeTab === "leaderboard" && <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode={isOnlineStudent ? "online" : "offline"} />}
+              {activeTab === "leaderboard" && <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode="online" />}
               
+              {/* TAB PRACTICE */}
               {activeTab === "practice" && (
                 <div className="max-w-6xl mx-auto space-y-5 text-left justify-start">
                   <div className="bg-white py-4 px-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -729,7 +746,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                       </div>
                       <div>
                         <h2 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          Hệ thống Luyện đề Thực chiến
+                          Hệ thống Luyện đề Thực chiến (Lớp Online)
                         </h2>
                         <span className="inline-flex items-center gap-1 mt-1 text-[11px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-lg border border-emerald-100">
                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> {practiceExams.length} đề thi khả dụng
@@ -773,7 +790,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
 
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {(practiceExams || [])
-                          .filter((e: any) => isOnlineStudent ? (e.target_mode === "online" || e.target_mode === "all" || !e.target_mode) : (e.target_mode === "offline" || e.target_mode === "all" || !e.target_mode))
+                          .filter((e: any) => e.target_mode === "online" || e.target_mode === "all" || !e.target_mode)
                           .filter(e => selectedPracticeCategory === "Tất cả đề" || e.category === selectedPracticeCategory)
                           .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
                           .map(exam => {
