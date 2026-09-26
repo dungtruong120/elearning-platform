@@ -317,6 +317,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
 
+  // Lịch học & Điểm danh Offline
   const [offlineSessions, setOfflineSessions] = useState<any[]>([]);
   const [offlineAttRecords, setOfflineAttRecords] = useState<any[]>([]);
   const [offlineToast, setOfflineToast] = useState<string>("");
@@ -325,9 +326,13 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     if (typeof window === "undefined") return;
     try {
       const saved = localStorage.getItem("edunexus_online_sessions");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) setOfflineSessions(parsed);
+      const savedTct = localStorage.getItem("tct_schedule_sessions");
+      const listA = saved ? JSON.parse(saved) : [];
+      const listB = savedTct ? JSON.parse(savedTct) : [];
+      const merged = [...listA, ...listB];
+      if (Array.isArray(merged) && merged.length > 0) {
+        const unique = Array.from(new Map(merged.map(item => [item.id || item.title + item.date + item.timeSlot, item])).values());
+        setOfflineSessions(unique);
       }
       const savedAtt = localStorage.getItem("edunexus_attendance");
       if (savedAtt) {
@@ -363,23 +368,24 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     const dStr = d + "/" + m;
     const isoStr = y + "-" + m + "-" + d;
 
-    if (sessIsoDate && sessIsoDate === isoStr) return true;
-    if (sessDate && sessDate === dStr) return true;
+    if (sessIsoDate && sessIsoDate.includes(isoStr)) return true;
+    if (sessDate && (sessDate === dStr || sessDate.includes(dStr))) return true;
     return false;
   };
 
-  // TÌM CA HỌC OFFLINE HÔM NAY VÀ CHỈ HIỂN THỊ TRƯỚC GIỜ HỌC 15 PHÚT
+  // Ca học Offline chỉ hiện trước giờ học 15 phút
   const todayOfflineSession = useMemo(() => {
+    if (!offlineSessions || offlineSessions.length === 0) return null;
     const now = currentTime;
     const curMinutes = now.getHours() * 60 + now.getMinutes();
 
     return offlineSessions.find((s: any) => {
-      const isTarget = s.target_mode === "offline" || s.target_mode === "all" || s.audience === "offline" || s.audience === "all";
+      const target = (s.target_mode || s.audience || "all").toLowerCase();
+      const isTarget = target === "offline" || target === "all";
       if (!isTarget) return false;
       if (!isSameDate(s.date, s.isoDate, now)) return false;
       const slot = parseTimeSlotMinutes(s.timeSlot);
       if (!slot) return false;
-      // Chỉ hiện thông báo từ lúc (Giờ bắt đầu - 15 phút) đến khi hết giờ học
       return curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes;
     }) || null;
   }, [offlineSessions, currentTime]);
@@ -547,7 +553,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                         </div>
                         <div className="min-w-0 text-left">
                           <p className="text-[11px] font-black uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
-                            <span>{isOfflineLiveNow ? "ĐANG DIỄN RA CA HỌC TRỰC TIẾP" : "SẮP DIỄN RA (TRƯỚC 15 PHÚT)"}</span>
+                            <span>{isOfflineLiveNow ? "ĐANG DIỄN RA CA HỌC TRỰC TIẾP" : "SẮP BẮT ĐẦU CA HỌC (TRƯỚC 15 PHÚT)"}</span>
                             <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold">TCT</span>
                           </p>
                           <p className="text-xs sm:text-sm font-extrabold text-white truncate">
