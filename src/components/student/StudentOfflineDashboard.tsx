@@ -92,13 +92,19 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const [tempGoal, setTempGoal] = useState<string>(studyGoal);
   const [dailyQuote, setDailyQuote] = useState<string>("");
   const [totalStudySeconds, setTotalStudySeconds] = useState<number>(0);
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 10000);
+    return () => clearInterval(timer);
+  }, []);
+
   const [examRoom, setExamRoom] = useState<{ id: string; title: string; duration: number; isHomework: boolean } | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<any | null>(null);
   const [previewExam, setPreviewExam] = useState<any | null>(null); 
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
-  // ĐỒNG BỘ DỮ LIỆU TỪ STORAGE HOẶC DÙNG DỮ LIỆU MẶC ĐỊNH
   const fetchAuthAndData = useCallback(() => {
     if (typeof window !== "undefined") {
       try {
@@ -161,13 +167,14 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     setIsEditingGoal(false); 
   };
 
-const formattedStudyTimeToday = useMemo(() => {
-  const mins = Math.floor(totalStudySeconds / 60);
-  const hrs = Math.floor(mins / 60);
-  const remainMins = mins % 60;
-  if (hrs > 0) return hrs + "h " + remainMins + "p";
-  return mins + " phút";
-}, [totalStudySeconds]);
+  const formattedStudyTimeToday = useMemo(() => {
+    const mins = Math.floor(totalStudySeconds / 60);
+    const hrs = Math.floor(mins / 60);
+    const remainMins = mins % 60;
+    if (hrs > 0) return hrs + "h " + remainMins + "p";
+    return mins + " phút";
+  }, [totalStudySeconds]);
+
   const findLessonByQuizId = (qId: string) => {
     for (const chap of chapters) {
       for (const les of chap.lessons || []) {
@@ -181,7 +188,7 @@ const formattedStudyTimeToday = useMemo(() => {
 
   const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
   const syncReadNotifs = useCallback(() => {
-   const savedReads = localStorage.getItem("edunexus_read_notifs_" + (profile?.id || "default"));
+    const savedReads = localStorage.getItem("edunexus_read_notifs_" + (profile?.id || "default"));
     if (savedReads) setReadNotifIds(JSON.parse(savedReads));
   }, [profile?.id]);
 
@@ -198,9 +205,9 @@ const formattedStudyTimeToday = useMemo(() => {
     myAttempts.forEach(att => {
       const isPractice = att.type === "practice";
       combined.push({
-        id: score-${att.attemptId}, 
+        id: "score-" + att.attemptId, 
         title: "Điểm kiểm tra mới", 
-        desc: Bài "${att.quizTitle}" đạt kết quả: ${att.score}/10 điểm., 
+        desc: 'Bài "' + att.quizTitle + '" đạt kết quả: ' + att.score + '/10 điểm.', 
         type: "success", 
         timestamp: new Date(att.submittedAt).getTime(), 
         dateStr: new Date(att.submittedAt).toLocaleString("vi-VN"), 
@@ -212,9 +219,9 @@ const formattedStudyTimeToday = useMemo(() => {
     practiceExams.forEach(ex => {
       const exTime = ex.createdAt ? new Date(ex.createdAt).getTime() : Date.now() - 86400000;
       combined.push({
-        id: exam-${ex.id}, 
+        id: "exam-" + ex.id, 
         title: "Đề thi thử mới cập nhật", 
-        desc: Đề "${ex.title}" (${ex.category}) đã sẵn sàng luyện tập., 
+        desc: 'Đề "' + ex.title + '" (' + ex.category + ') đã sẵn sàng luyện tập.', 
         type: "info", 
         timestamp: exTime, 
         dateStr: "Mới cập nhật", 
@@ -224,7 +231,7 @@ const formattedStudyTimeToday = useMemo(() => {
     
     sysNotifications.forEach(sys => {
       combined.push({
-        id: sys-${sys.id}, 
+        id: "sys-" + sys.id, 
         title: sys.title, 
         desc: sys.content, 
         type: sys.type === "urgent" ? "warning" : "teacher", 
@@ -240,7 +247,7 @@ const formattedStudyTimeToday = useMemo(() => {
   const handleMarkAllAsRead = () => {
     const allIds = notificationsList.map(n => n.id);
     setReadNotifIds(allIds);
-    localStorage.setItem(edunexus_read_notifs_${profile?.id}, JSON.stringify(allIds));
+    localStorage.setItem("edunexus_read_notifs_" + (profile?.id || ""), JSON.stringify(allIds));
     window.dispatchEvent(new Event("readNotifsUpdated"));
   };
 
@@ -248,7 +255,7 @@ const formattedStudyTimeToday = useMemo(() => {
     if (!readNotifIds.includes(item.id)) {
       const newIds = [...readNotifIds, item.id];
       setReadNotifIds(newIds);
-      localStorage.setItem(edunexus_read_notifs_${profile?.id}, JSON.stringify(newIds));
+      localStorage.setItem("edunexus_read_notifs_" + (profile?.id || ""), JSON.stringify(newIds));
       window.dispatchEvent(new Event("readNotifsUpdated"));
     }
     if (item.actionType === "system_modal") { 
@@ -295,11 +302,10 @@ const formattedStudyTimeToday = useMemo(() => {
   const formatCompletionTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
-    if (m === 0) return ${s} giây;
-    return ${m}p ${s}s;
+    if (m === 0) return s + " giây";
+    return m + "p " + s + "s";
   };
 
-  // LỌC BÀI HỌC DÀNH CHO HỌC SINH OFFLINE
   const offlineChapters = useMemo(() => {
     return (chapters || [])
       .map((chap: any) => ({
@@ -311,7 +317,6 @@ const formattedStudyTimeToday = useMemo(() => {
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
 
-  // Lịch học & Điểm danh Offline
   const [offlineSessions, setOfflineSessions] = useState<any[]>([]);
   const [offlineAttRecords, setOfflineAttRecords] = useState<any[]>([]);
   const [offlineToast, setOfflineToast] = useState<string>("");
@@ -332,51 +337,60 @@ const formattedStudyTimeToday = useMemo(() => {
     } catch (e) {}
   }, []);
 
-  const todayOfflineSession = useMemo(() => {
-    return offlineSessions.find((s: any) => {
-      const isToday = s.date === "24/09" || s.isoDate === "2026-09-24";
-      const isTarget = s.target_mode === "offline" || s.target_mode === "all" || s.audience === "offline" || s.audience === "all";
-      return isToday && isTarget;
-    }) || {
-      id: "sess-default-today",
-      title: "Đại số & Giải tích 12: Khảo sát hàm số nâng cao",
-      subject: "Đại số & Giải tích 12",
-      shiftName: "Ca 5",
-      timeSlot: "18:00 - 19:30",
-      room: "P.201 TCT",
-      date: "24/09",
-      target_mode: "offline"
-    };
-  }, [offlineSessions]);
+  const parseTimeSlotMinutes = (timeSlot?: string): { startMinutes: number; endMinutes: number } | null => {
+    if (!timeSlot || !timeSlot.includes("-")) return null;
+    const parts = timeSlot.split("-").map(s => s.trim());
+    if (parts.length < 2) return null;
 
-  const isOfflineSessionActive = useMemo(() => {
-    if (!todayOfflineSession) return false;
-    const now = new Date();
-    const isToday = todayOfflineSession.date === "24/09" || todayOfflineSession.isoDate === "2026-09-24";
-    if (!isToday) return false;
-    if (!todayOfflineSession.timeSlot || !todayOfflineSession.timeSlot.includes("-")) return true;
-    const parts = todayOfflineSession.timeSlot.split("-").map((s: string) => s.trim());
-    if (parts.length < 2) return true;
-    const [endH, endM] = parts[1].split(":").map(Number);
-    if (isNaN(endH) || isNaN(endM)) return true;
+    const parsePart = (str: string) => {
+      const m = str.match(/(\d{1,2})[:h](\d{2})/i) || str.match(/(\d{1,2})/);
+      if (!m) return null;
+      const h = parseInt(m[1], 10);
+      const min = m[2] ? parseInt(m[2], 10) : 0;
+      return h * 60 + min;
+    };
+
+    const start = parsePart(parts[0]);
+    const end = parsePart(parts[1]);
+    if (start === null || end === null) return null;
+    return { startMinutes: start, endMinutes: end };
+  };
+
+  const isSameDate = (sessDate?: string, sessIsoDate?: string, targetDate: Date = new Date()): boolean => {
+    const d = String(targetDate.getDate()).padStart(2, "0");
+    const m = String(targetDate.getMonth() + 1).padStart(2, "0");
+    const y = targetDate.getFullYear();
+    const dStr = d + "/" + m;
+    const isoStr = y + "-" + m + "-" + d;
+
+    if (sessIsoDate && sessIsoDate === isoStr) return true;
+    if (sessDate && sessDate === dStr) return true;
+    return false;
+  };
+
+  // TÌM CA HỌC OFFLINE HÔM NAY VÀ CHỈ HIỂN THỊ TRƯỚC GIỜ HỌC 15 PHÚT
+  const todayOfflineSession = useMemo(() => {
+    const now = currentTime;
     const curMinutes = now.getHours() * 60 + now.getMinutes();
-    const endMinutes = endH * 60 + endM;
-    return curMinutes <= endMinutes;
-  }, [todayOfflineSession]);
+
+    return offlineSessions.find((s: any) => {
+      const isTarget = s.target_mode === "offline" || s.target_mode === "all" || s.audience === "offline" || s.audience === "all";
+      if (!isTarget) return false;
+      if (!isSameDate(s.date, s.isoDate, now)) return false;
+      const slot = parseTimeSlotMinutes(s.timeSlot);
+      if (!slot) return false;
+      // Chỉ hiện thông báo từ lúc (Giờ bắt đầu - 15 phút) đến khi hết giờ học
+      return curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes;
+    }) || null;
+  }, [offlineSessions, currentTime]);
 
   const isOfflineLiveNow = useMemo(() => {
-    if (!todayOfflineSession || !todayOfflineSession.timeSlot || !todayOfflineSession.timeSlot.includes("-")) return false;
-    const now = new Date();
-    const parts = todayOfflineSession.timeSlot.split("-").map((s: string) => s.trim());
-    if (parts.length < 2) return false;
-    const [startH, startM] = parts[0].split(":").map(Number);
-    const [endH, endM] = parts[1].split(":").map(Number);
-    if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) return false;
-    const curMinutes = now.getHours() * 60 + now.getMinutes();
-    const startMinutes = startH * 60 + startM;
-    const endMinutes = endH * 60 + endM;
-    return curMinutes >= startMinutes && curMinutes <= endMinutes;
-  }, [todayOfflineSession]);
+    if (!todayOfflineSession) return false;
+    const slot = parseTimeSlotMinutes(todayOfflineSession.timeSlot);
+    if (!slot) return false;
+    const curMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    return curMinutes >= slot.startMinutes && curMinutes <= slot.endMinutes;
+  }, [todayOfflineSession, currentTime]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -391,20 +405,20 @@ const formattedStudyTimeToday = useMemo(() => {
   }, []);
 
   const isAttendedTodayOffline = useMemo(() => {
-    if (!profile) return false;
-    const dateToCheck = todayOfflineSession?.date || "24/09";
+    if (!profile || !todayOfflineSession) return false;
+    const now = currentTime;
     return offlineAttRecords.some((a: any) => 
       a.studentId === profile.id && 
-      (a.sessionDate === dateToCheck || a.sessionDate === "24/09") && 
+      (a.sessionId === todayOfflineSession.id || isSameDate(a.sessionDate, undefined, now)) && 
       (a.status === "present" || a.status === "auto_present")
-    ) || offlineAttendance.some((a: any) => a.studentId === profile.id && (a.sessionDate === dateToCheck || a.date === dateToCheck));
-  }, [profile, todayOfflineSession, offlineAttRecords, offlineAttendance]);
+    ) || offlineAttendance.some((a: any) => a.studentId === profile.id && isSameDate(a.sessionDate || a.date, undefined, now));
+  }, [profile, todayOfflineSession, offlineAttRecords, offlineAttendance, currentTime]);
 
   const handleOfflineSelfCheckIn = () => {
-    if (!profile) return;
+    if (!profile || !todayOfflineSession) return;
     const now = new Date();
     const timeStr = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
-    const dateStr = todayOfflineSession?.date || "24/09";
+    const dateStr = todayOfflineSession.date || (String(now.getDate()).padStart(2, "0") + "/" + String(now.getMonth() + 1).padStart(2, "0"));
 
     const newRecord = {
       id: "att-offline-" + Date.now(),
@@ -418,7 +432,7 @@ const formattedStudyTimeToday = useMemo(() => {
     };
 
     const updated = [
-      ...offlineAttRecords.filter((a: any) => !(a.studentId === profile.id && a.sessionDate === dateStr)),
+      ...offlineAttRecords.filter((a: any) => !(a.studentId === profile.id && (a.sessionDate === dateStr || isSameDate(a.sessionDate, undefined, now)))),
       newRecord
     ];
     setOfflineAttRecords(updated);
@@ -519,10 +533,9 @@ const formattedStudyTimeToday = useMemo(() => {
         <main className="flex-1 p-4 sm:p-5 md:p-8 overflow-y-auto custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div key={activeTab} initial={{ opacity: 0, y: 10, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.99 }} transition={{ duration: 0.2, ease: "easeInOut" }}>
-              {/* TAB OVERVIEW */}
               {activeTab === "overview" && (
                 <div className="max-w-4xl space-y-6 text-left">
-                  {todayOfflineSession && isOfflineSessionActive && (
+                  {todayOfflineSession && (
                     <motion.div
                       initial={{ opacity: 0, y: -6 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -534,11 +547,11 @@ const formattedStudyTimeToday = useMemo(() => {
                         </div>
                         <div className="min-w-0 text-left">
                           <p className="text-[11px] font-black uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
-                            <span>{isOfflineLiveNow ? "ĐANG DIỄN RA CA HỌC TRỰC TIẾP" : "LỊCH HỌC TRỰC TIẾP HÔM NAY"}</span>
+                            <span>{isOfflineLiveNow ? "ĐANG DIỄN RA CA HỌC TRỰC TIẾP" : "SẮP DIỄN RA (TRƯỚC 15 PHÚT)"}</span>
                             <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold">TCT</span>
                           </p>
                           <p className="text-xs sm:text-sm font-extrabold text-white truncate">
-                            {todayOfflineSession.subject || todayOfflineSession.title} ({todayOfflineSession.timeSlot})
+                            {(todayOfflineSession.subject || todayOfflineSession.title) + " (" + todayOfflineSession.timeSlot + ")"}
                             <span className="text-blue-200 text-xs font-medium ml-2">• {todayOfflineSession.room || "P.201 TCT"}</span>
                           </p>
                         </div>
@@ -554,7 +567,7 @@ const formattedStudyTimeToday = useMemo(() => {
                               type="button"
                               onClick={() => {
                                 setActiveTab("courses");
-                                setOfflineToast(Đang mở không gian học tập: ${todayOfflineSession.subject || todayOfflineSession.title});
+                                setOfflineToast("Đang mở không gian học tập: " + (todayOfflineSession.subject || todayOfflineSession.title));
                               }}
                               className="px-3.5 py-1.5 bg-white text-[#1D4ED8] hover:bg-blue-50 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                             >
@@ -604,7 +617,6 @@ const formattedStudyTimeToday = useMemo(() => {
                 </div>
               )}
 
-              {/* TAB COURSES */}
               {activeTab === "courses" && (
                 <div className="max-w-6xl mx-auto space-y-6 text-left justify-start">
                   <div className="bg-white/90 backdrop-blur-xl rounded-[20px] p-5 border border-slate-200/70 shadow-sm flex flex-col gap-3.5 text-left">
@@ -648,7 +660,6 @@ const formattedStudyTimeToday = useMemo(() => {
                 </div>
               )}
 
-              {/* TAB NOTIFICATIONS */}
               {activeTab === "notifications" && (
                 <div className="max-w-4xl mx-auto space-y-6 text-left">
                   <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
@@ -668,17 +679,17 @@ const formattedStudyTimeToday = useMemo(() => {
                       notificationsList.map(item => {
                         const isUnread = !readNotifIds.includes(item.id);
                         return (
-                          <div key={item.id} onClick={() => handleActionFromCenter(item)} className={`p-5 rounded-3xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 group cursor-pointer ${isUnread ? 'bg-blue-50/40 border-[#1D4ED8] shadow-sm' : 'bg-white/80 border-slate-200/80 hover:border-slate-300 shadow-sm'}`}> 
+                          <div key={item.id} onClick={() => handleActionFromCenter(item)} className={"p-5 rounded-3xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 group cursor-pointer " + (isUnread ? "bg-blue-50/40 border-[#1D4ED8] shadow-sm" : "bg-white/80 border-slate-200/80 hover:border-slate-300 shadow-sm")}> 
                             <div className="flex items-start gap-4">
-                              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${item.type === 'warning' ? 'bg-rose-50 text-rose-500 border border-rose-100' : item.type === 'success' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : item.type === 'teacher' ? 'bg-indigo-50 text-indigo-500 border border-indigo-100' : 'bg-blue-50 text-blue-500 border border-blue-100'}`}>
-                                {item.type === 'warning' && <AlertTriangle className="w-6 h-6" />}
-                                {item.type === 'success' && <CheckCircle2 className="w-6 h-6" />}
-                                {item.type === 'teacher' && <MessageSquare className="w-6 h-6" />}
-                                {(item.type === 'info' || !['warning','success','teacher'].includes(item.type)) && <Clock className="w-6 h-6" />}
+                              <div className={"w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm " + (item.type === "warning" ? "bg-rose-50 text-rose-500 border border-rose-100" : item.type === "success" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : item.type === "teacher" ? "bg-indigo-50 text-indigo-500 border border-indigo-100" : "bg-blue-50 text-blue-500 border border-blue-100")}>
+                                {item.type === "warning" && <AlertTriangle className="w-6 h-6" />}
+                                {item.type === "success" && <CheckCircle2 className="w-6 h-6" />}
+                                {item.type === "teacher" && <MessageSquare className="w-6 h-6" />}
+                                {(item.type === "info" || !["warning","success","teacher"].includes(item.type)) && <Clock className="w-6 h-6" />}
                               </div>
                               <div>
                                 <div className="flex items-center gap-2 mb-1">
-                                  <h4 className={`text-[15px] tracking-tight ${isUnread ? 'font-black text-[#1D4ED8]' : 'font-bold text-slate-800'}`}>{item.title}</h4>
+                                  <h4 className={"text-[15px] tracking-tight " + (isUnread ? "font-black text-[#1D4ED8]" : "font-bold text-slate-800")}>{item.title}</h4>
                                   {isUnread && <span className="w-2.5 h-2.5 rounded-full bg-[#1D4ED8] shadow-sm"></span>}
                                 </div>
                                 <p className="text-sm text-slate-600 leading-relaxed mb-2">{item.desc}</p>
@@ -686,9 +697,9 @@ const formattedStudyTimeToday = useMemo(() => {
                               </div>
                             </div>
                             <div className="shrink-0 sm:self-center mt-2 sm:mt-0">
-                              {item.actionType === 'system_modal' ? (
+                              {item.actionType === "system_modal" ? (
                                 <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer bg-white text-slate-700 border border-slate-200 hover:bg-slate-50">Xem chi tiết</button>
-                              ) : item.actionType === 'course_score' ? (
+                              ) : item.actionType === "course_score" ? (
                                 <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer bg-[#1D4ED8] text-white hover:bg-[#1E40AF]">Xem bài học <ArrowRight className="w-4 h-4" /></button>
                               ) : (
                                 <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer bg-[#1D4ED8] text-white hover:bg-[#1E40AF]">Xem tiến trình <ArrowRight className="w-4 h-4" /></button>
@@ -702,7 +713,6 @@ const formattedStudyTimeToday = useMemo(() => {
                 </div>
               )}
 
-              {/* TAB SCHEDULE */}
               {activeTab === "schedule" && (
                 <div className="space-y-6 max-w-6xl mx-auto text-left">
                   <ScheduleView profile={profile} mode="offline" />
@@ -711,7 +721,6 @@ const formattedStudyTimeToday = useMemo(() => {
               {(activeTab === "progress" || activeTab === "assessments") && <ProgressTrackingView chapters={chapters} pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} onStartExam={(qId, qTitle, isHomework, durationMinutes) => { setExamRoom({ id: qId, title: qTitle, duration: durationMinutes || 45, isHomework }); }} />}
               {activeTab === "leaderboard" && <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode="offline" />}
               
-              {/* TAB PRACTICE */}
               {activeTab === "practice" && (
                 <div className="max-w-6xl mx-auto space-y-5 text-left justify-start">
                   <div className="bg-white/85 backdrop-blur-2xl py-4 px-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -731,13 +740,13 @@ const formattedStudyTimeToday = useMemo(() => {
                     <div className="flex bg-slate-100/80 p-1.5 rounded-xl border border-slate-200/60 shrink-0">
                       <button 
                         onClick={() => setPracticeSubTab("list")}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${practiceSubTab === "list" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                        className={"px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
                       >
                         <Library className="w-4 h-4"/> Danh sách đề
                       </button>
                       <button 
                         onClick={() => setPracticeSubTab("history")}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${practiceSubTab === "history" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                        className={"px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
                       >
                         <BarChart3 className="w-4 h-4"/> Điểm & Lịch sử
                       </button>
@@ -751,11 +760,11 @@ const formattedStudyTimeToday = useMemo(() => {
                           <button 
                             key={cat}
                             onClick={() => setSelectedPracticeCategory(cat)}
-                            className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all shadow-sm cursor-pointer ${
+                            className={"px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all shadow-sm cursor-pointer " + (
                               selectedPracticeCategory === cat 
-                                ? 'bg-[#1D4ED8] text-white border border-[#1D4ED8]' 
-                                : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50'
-                            }`}
+                                ? "bg-[#1D4ED8] text-white border border-[#1D4ED8]" 
+                                : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
+                            )}
                           >
                             {cat}
                           </button>
@@ -786,7 +795,7 @@ const formattedStudyTimeToday = useMemo(() => {
                                   {canViewFile && (
                                     <button 
                                       onClick={() => {
-                                        if (exam.driveUrl && exam.driveUrl.trim() !== "") window.open(exam.driveUrl, '_blank');
+                                        if (exam.driveUrl && exam.driveUrl.trim() !== "") window.open(exam.driveUrl, "_blank");
                                         else setPreviewExam(exam);
                                       }}
                                       className="w-full py-2 bg-white border border-[#1D4ED8] text-[#1D4ED8] hover:bg-blue-50 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
@@ -851,7 +860,7 @@ const formattedStudyTimeToday = useMemo(() => {
                                     </span>
                                   </td>
                                   <td className="py-3 px-5 text-center text-slate-500 text-xs font-medium">
-                                    {new Date(grp.lastDate).toLocaleString('vi-VN')}
+                                    {new Date(grp.lastDate).toLocaleString("vi-VN")}
                                   </td>
                                   <td className="py-3 px-5 text-right">
                                     <button 
@@ -908,13 +917,13 @@ const formattedStudyTimeToday = useMemo(() => {
                   {practiceHistoryGrouped.find((g:any) => g.quizId === historyModalExamId)?.attempts.map((att: any, idx: number) => {
                     const isMax = att.score === practiceHistoryGrouped.find((g:any) => g.quizId === historyModalExamId)?.maxScore;
                     return (
-                      <tr key={att.attemptId} className={`hover:bg-slate-50/50 transition-colors ${isMax ? 'bg-amber-50/30' : ''}`}>
+                      <tr key={att.attemptId} className={"hover:bg-slate-50/50 transition-colors " + (isMax ? "bg-amber-50/30" : "")}>
                         <td className="py-3 px-5 text-center font-bold text-slate-700">Lần {idx + 1}</td>
-                        <td className="py-3 px-5 text-slate-600 font-medium">{new Date(att.submittedAt).toLocaleString('vi-VN')}</td>
+                        <td className="py-3 px-5 text-slate-600 font-medium">{new Date(att.submittedAt).toLocaleString("vi-VN")}</td>
                         <td className="py-3 px-5 text-center text-slate-500">{formatCompletionTime(Number(att.completionTime) || 0)}</td>
                         <td className="py-3 px-5 text-center">
                           <div className="flex items-center justify-center gap-2">
-                            <span className={`font-black ${isMax ? 'text-amber-600 text-[15px]' : 'text-[#1D4ED8]'}`}>{att.score.toFixed(1)}</span>
+                            <span className={"font-black " + (isMax ? "text-amber-600 text-[15px]" : "text-[#1D4ED8]")}>{att.score.toFixed(1)}</span>
                             {isMax && <span className="text-[9px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md uppercase font-bold">Max</span>}
                           </div>
                         </td>
