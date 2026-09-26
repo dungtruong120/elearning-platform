@@ -157,13 +157,12 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   };
 
   const formattedStudyTimeToday = useMemo(() => {
-   const formattedStudyTimeToday = useMemo(() => {
-  const mins = Math.floor(totalStudySeconds / 60);
-  const hrs = Math.floor(mins / 60);
-  const remainMins = mins % 60;
-  if (hrs > 0) return hrs + "h " + remainMins + "p";
-  return mins + " phút";
-}, [totalStudySeconds]);
+    const mins = Math.floor(totalStudySeconds / 60);
+    const hrs = Math.floor(mins / 60);
+    const remainMins = mins % 60;
+    if (hrs > 0) return hrs + "h " + remainMins + "p";
+    return mins + " phút";
+  }, [totalStudySeconds]);
 
   const findLessonByQuizId = (qId: string) => {
     for (const chap of chapters) {
@@ -178,7 +177,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
   const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
   const syncReadNotifs = useCallback(() => {
-   const savedReads = localStorage.getItem("edunexus_read_notifs_" + (profile?.id || "default"));
+    const savedReads = localStorage.getItem("edunexus_read_notifs_" + (profile?.id || "default"));
     if (savedReads) setReadNotifIds(JSON.parse(savedReads));
   }, [profile?.id]);
 
