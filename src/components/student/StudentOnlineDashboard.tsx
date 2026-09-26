@@ -23,7 +23,7 @@ const MOTIVATIONAL_QUOTES = [
   "Học tập không phải là con đường duy nhất để thành công, nhưng là con đường ngắn nhất để chinh phục tri thức.",
   "Thành công lớn nhất không phải là không bao giờ vấp ngã, mà là đứng dậy sau mỗi lần vấp ngã.",
   "Kiên trì mỗi ngày một chút, đỉnh cao thủ khoa kỳ thi Tốt nghiệp THPT và ĐGNL sẽ thuộc về bạn.",
-  "Toán học và tư duy logic là chìa khóa mở ra cánh cửa tương lai rộng mở."
+  "Toán học và tư duy logic là khóa mở ra tương lai rộng mở."
 ];
 
 const DEFAULT_CHAPTERS = [
@@ -305,6 +305,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
 
+  // Lịch học & Điểm danh Online
   const [onlineSessions, setOnlineSessions] = useState<any[]>([]);
   const [onlineAttRecords, setOnlineAttRecords] = useState<any[]>([]);
   const [onlineToast, setOnlineToast] = useState<string>("");
@@ -313,9 +314,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     if (typeof window === "undefined") return;
     try {
       const saved = localStorage.getItem("edunexus_online_sessions");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) setOnlineSessions(parsed);
+      const savedTct = localStorage.getItem("tct_schedule_sessions");
+      const listA = saved ? JSON.parse(saved) : [];
+      const listB = savedTct ? JSON.parse(savedTct) : [];
+      const merged = [...listA, ...listB];
+      if (Array.isArray(merged) && merged.length > 0) {
+        const unique = Array.from(new Map(merged.map(item => [item.id || item.title + item.date + item.timeSlot, item])).values());
+        setOnlineSessions(unique);
       }
       const savedAtt = localStorage.getItem("edunexus_attendance");
       if (savedAtt) {
@@ -351,24 +356,24 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     const dStr = d + "/" + m;
     const isoStr = y + "-" + m + "-" + d;
 
-    if (sessIsoDate && sessIsoDate === isoStr) return true;
-    if (sessDate && sessDate === dStr) return true;
+    if (sessIsoDate && sessIsoDate.includes(isoStr)) return true;
+    if (sessDate && (sessDate === dStr || sessDate.includes(dStr))) return true;
     return false;
   };
 
-  // TÌM CA HỌC HÔM NAY VÀ CHỈ HIỂN THỊ TRƯỚC GIỜ HỌC 15 PHÚT
+  // Ca học Online chỉ hiện đúng trước giờ học 15 phút
   const liveOnlineSession = useMemo(() => {
     if (!onlineSessions || onlineSessions.length === 0) return null;
     const now = currentTime;
     const curMinutes = now.getHours() * 60 + now.getMinutes();
 
     return onlineSessions.find((s: any) => {
-      const isTarget = s.target_mode === "online" || s.target_mode === "all" || s.audience === "online" || s.audience === "all";
+      const target = (s.target_mode || s.audience || "all").toLowerCase();
+      const isTarget = target === "online" || target === "all";
       if (!isTarget) return false;
       if (!isSameDate(s.date, s.isoDate, now)) return false;
       const slot = parseTimeSlotMinutes(s.timeSlot);
       if (!slot) return false;
-      // Chỉ kích hoạt banner từ (Giờ bắt đầu - 15 phút) đến khi kết thúc ca học
       return curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes;
     }) || null;
   }, [onlineSessions, currentTime]);
@@ -546,7 +551,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         </div>
                         <div className="min-w-0 text-left">
                           <p className="text-[11px] font-black uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
-                            <span>{isOnlineLiveNow ? "ĐANG DIỄN RA BUỔI HỌC TRỰC TUYẾN" : "SẮP DIỄN RA (TRƯỚC 15 PHÚT)"}</span>
+                            <span>{isOnlineLiveNow ? "ĐANG DIỄN RA BUỔI HỌC TRỰC TUYẾN" : "SẮP BẮT ĐẦU BUỔI HỌC (TRƯỚC 15 PHÚT)"}</span>
                             <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold">LIVE ZOOM</span>
                           </p>
                           <p className="text-xs sm:text-sm font-extrabold text-white truncate">
