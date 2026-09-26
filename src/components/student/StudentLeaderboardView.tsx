@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, Medal, Award, Search, Sparkles, CheckCircle2 } from "lucide-react";
 import { Profile, Chapter } from "@/types";
+import { supabase } from "@/lib/supabaseClient";
 
 interface StudentLeaderboardViewProps {
   profile: Profile;
@@ -20,42 +21,72 @@ export function StudentLeaderboardView({
 }: StudentLeaderboardViewProps) {
   const [filterMode, setFilterMode] = useState<"all" | "online" | "offline">("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [dbStudents, setDbStudents] = useState<any[]>([]);
 
   const isOfflineOnly = allowedMode === "offline";
   const isOnlineOnly = allowedMode === "online";
 
-  const registeredStudents = useMemo(() => {
-    if (typeof window !== "undefined") {
-      try {
+  // LẤY DANH SÁCH HỌC SINH THỰC TẾ TỪ SUPABASE
+  const fetchStudents = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .neq("role", "admin")
+        .order("created_at", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        setDbStudents(data);
+      } else {
+        // Fallback đọc từ localStorage nếu offline
         const saved = localStorage.getItem("edunexus_registered_students");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) setDbStudents(parsed);
         }
-      } catch (e) {}
+      }
+    } catch {
+      const saved = localStorage.getItem("edunexus_registered_students");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) setDbStudents(parsed);
+        } catch {}
+      }
     }
-    return [
-      { id: "stu-1", full_name: "Trương Ngọc Dũng", email: "dung.truong@gmail.com", school: "THPT Chuyên", grade: "Lớp 12", learning_mode: "offline", study_mode: "offline", approval_status: "approved" },
-      { id: "stu-2", full_name: "Nguyễn Thị Hiền", email: "hien.nguyen@gmail.com", school: "THPT Kim Liên", grade: "Lớp 12", learning_mode: "online", study_mode: "online", approval_status: "approved" },
-      { id: "stu-3", full_name: "Phạm Minh Đức", email: "duc.pham@gmail.com", school: "THPT Chu Văn An", grade: "Lớp 12", learning_mode: "online", study_mode: "online", approval_status: "approved" },
-      { id: "stu-4", full_name: "Trần Mai Anh", email: "maianh.tran@gmail.com", school: "THPT Việt Đức", grade: "Lớp 11", learning_mode: "offline", study_mode: "offline", approval_status: "approved" },
-      { id: "stu-5", full_name: "Trương Ngọc Quang", email: "quang.truong@gmail.com", school: "THPT Chuyên Hà Nội", grade: "Lớp 12", learning_mode: "online", study_mode: "online", approval_status: "approved" },
-      { id: "stu-6", full_name: "Lê Hoàng Nam", email: "nam.le@gmail.com", school: "THPT Chuyên Sư Phạm", grade: "Lớp 12", learning_mode: "offline", study_mode: "offline", approval_status: "approved" },
-      { id: "stu-7", full_name: "Vũ Phương Thảo", email: "thao.vu@gmail.com", school: "THPT Yên Hòa", grade: "Lớp 12", learning_mode: "offline", study_mode: "offline", approval_status: "approved" }
-    ];
   }, []);
 
+  useEffect(() => {
+    fetchStudents();
+
+    // Lắng nghe thay đổi hồ sơ học sinh thời gian thực
+    const channel = supabase
+      .channel("realtime-leaderboard-profiles")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => {
+          fetchStudents();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchStudents]);
+
   const modeFilteredStudents = useMemo(() => {
-    let list = registeredStudents;
+    let list = dbStudents;
     if (isOfflineOnly) {
       list = list.filter((s: any) => s.study_mode !== "online" && s.learning_mode !== "online");
     } else if (isOnlineOnly) {
       list = list.filter((s: any) => s.study_mode === "online" || s.learning_mode === "online");
     } else if (filterMode !== "all") {
-      list = list.filter((s: any) => s.learning_mode === filterMode);
+      list = list.filter((s: any) => s.learning_mode === filterMode || s.study_mode === filterMode);
     }
     return list;
-  }, [registeredStudents, isOfflineOnly, isOnlineOnly, filterMode]);
+  }, [dbStudents, isOfflineOnly, isOnlineOnly, filterMode]);
 
   const leaderboardData = useMemo(() => {
     return modeFilteredStudents
@@ -68,29 +99,39 @@ export function StudentLeaderboardView({
         const hwAttempts = stuAttempts.filter(a => a.type === "homework");
         const testAttempts = stuAttempts.filter(a => a.type === "quiz" || a.type === "practice");
 
-        const maxHW = hwAttempts.length > 0 ? Math.max(...hwAttempts.map(a => a.score || 0)) : (stu.learning_mode === "offline" ? 8.8 : 8.5);
-        const maxTest = testAttempts.length > 0 ? Math.max(...testAttempts.map(a => a.score || 0)) : (stu.learning_mode === "offline" ? 9.2 : 9.0);
-        const avgScore = Number(((maxHW + maxTest) / 2).toFixed(1));
+        const maxHW = hwAttempts.length > 0 
+          ? Math.max(...hwAttempts.map(a => Number(a.score) || 0)) 
+          : 0;
+        const maxTest = testAttempts.length > 0 
+          ? Math.max(...testAttempts.map(a => Number(a.score) || 0)) 
+          : 0;
+
+        const totalAttempts = stuAttempts.length;
+        const overallScore = totalAttempts > 0 
+          ? Number(((maxHW + maxTest) / (maxHW > 0 && maxTest > 0 ? 2 : 1)).toFixed(1))
+          : 0;
 
         return {
           id: stu.id,
-          name: stu.full_name,
+          name: stu.full_name || "Học sinh",
           school: stu.school || "THPT",
           grade: stu.grade || "Lớp 12",
-          mode: stu.learning_mode || "offline",
-          attemptsCount: stuAttempts.length || (stu.id === "stu-1" ? 8 : stu.id === "stu-4" ? 6 : 5),
+          mode: stu.learning_mode || stu.study_mode || "online",
+          attemptsCount: totalAttempts,
           maxHW,
           maxTest,
-          overallScore: avgScore,
+          overallScore,
           isCurrentStudent: stu.id === profile?.id || stu.full_name === profile?.full_name
         };
       })
-      .sort((a, b) => b.overallScore - a.overallScore);
+      .sort((a, b) => {
+        if (b.overallScore !== a.overallScore) return b.overallScore - a.overallScore;
+        return b.attemptsCount - a.attemptsCount;
+      });
   }, [modeFilteredStudents, searchQuery, allAttempts, profile]);
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto font-sans text-left">
-      {/* 1. HEADER LIQUID GLASS: ĐÃ ĐỔI THÀNH DUY NHẤT "BẢNG VINH DANH" THEO YÊU CẦU 2.d */}
       <motion.div 
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -107,30 +148,29 @@ export function StudentLeaderboardView({
           </div>
         </div>
 
-        {/* BỘ LỌC KHI Ở CHẾ ĐỘ ALL */}
         {!isOfflineOnly && !isOnlineOnly && (
           <div className="flex items-center gap-1 p-1 bg-slate-100/80 backdrop-blur-md rounded-xl border border-slate-200/80 shrink-0">
             <button
               onClick={() => setFilterMode("all")}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={"px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer " + (
                 filterMode === "all" ? "bg-white text-[#1D4ED8] shadow-xs" : "text-slate-600 hover:text-slate-900"
-              }`}
+              )}
             >
               Toàn bộ
             </button>
             <button
               onClick={() => setFilterMode("online")}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={"px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer " + (
                 filterMode === "online" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
-              }`}
+              )}
             >
               Online
             </button>
             <button
               onClick={() => setFilterMode("offline")}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={"px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer " + (
                 filterMode === "offline" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
-              }`}
+              )}
             >
               Offline
             </button>
@@ -138,7 +178,6 @@ export function StudentLeaderboardView({
         )}
       </motion.div>
 
-      {/* 2. SEARCH BAR & THỐNG KÊ GỌN GÀNG */}
       <div className="flex items-center justify-between gap-3 px-1">
         <div className="relative w-full max-w-xs">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -156,7 +195,6 @@ export function StudentLeaderboardView({
         </div>
       </div>
 
-      {/* 3. BẢNG BIỂU COMPACT (GIẢM PADDING & CHIỀU CAO DÒNG) */}
       <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-2xl backdrop-saturate-150 rounded-2xl border border-white/50 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -181,11 +219,11 @@ export function StudentLeaderboardView({
                 return (
                   <tr 
                     key={st.id || idx}
-                    className={`transition-all duration-150 ${
+                    className={"transition-all duration-150 " + (
                       st.isCurrentStudent 
                         ? "bg-blue-50/80 font-bold border-l-4 border-l-[#1D4ED8]" 
                         : "hover:bg-white/80 bg-white/40"
-                    }`}
+                    )}
                   >
                     <td className="py-2.5 px-3 text-center font-black">
                       {isTop1 ? (
@@ -218,11 +256,11 @@ export function StudentLeaderboardView({
                     </td>
 
                     <td className="py-2.5 px-2 text-center">
-                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${
+                      <span className={"px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border " + (
                         st.mode === "online" 
                           ? "bg-indigo-50 text-indigo-700 border-indigo-200" 
                           : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      }`}>
+                      )}>
                         {st.mode === "online" ? "Online" : "Offline"}
                       </span>
                     </td>
@@ -232,16 +270,16 @@ export function StudentLeaderboardView({
                     </td>
 
                     <td className="py-2.5 px-2 text-center font-bold text-slate-700">
-                      {st.maxHW.toFixed(1)}
+                      {st.maxHW > 0 ? st.maxHW.toFixed(1) : "--"}
                     </td>
 
                     <td className="py-2.5 px-2 text-center font-bold text-slate-700">
-                      {st.maxTest.toFixed(1)}
+                      {st.maxTest > 0 ? st.maxTest.toFixed(1) : "--"}
                     </td>
 
                     <td className="py-2.5 px-3 text-center">
                       <span className="inline-block px-2.5 py-0.5 rounded-lg bg-blue-50 text-[#1D4ED8] border border-blue-200 font-black text-xs">
-                        {st.overallScore.toFixed(1)}
+                        {st.overallScore > 0 ? st.overallScore.toFixed(1) : "--"}
                       </span>
                     </td>
                   </tr>
@@ -251,7 +289,7 @@ export function StudentLeaderboardView({
               {leaderboardData.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-400 italic">
-                    Chưa có học viên nào trong bảng xếp hạng này.
+                    Chưa có dữ liệu học viên trong bảng vinh danh.
                   </td>
                 </tr>
               )}
