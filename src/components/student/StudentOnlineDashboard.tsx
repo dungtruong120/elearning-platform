@@ -157,12 +157,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   };
 
   const formattedStudyTimeToday = useMemo(() => {
-    const mins = Math.floor(totalStudySeconds / 60);
-    const hrs = Math.floor(mins / 60);
-    const remainMins = mins % 60;
-    if (hrs > 0) return ${hrs}h ${remainMins}p;
-    return ${mins} phút;
-  }, [totalStudySeconds]);
+   const formattedStudyTimeToday = useMemo(() => {
+  const mins = Math.floor(totalStudySeconds / 60);
+  const hrs = Math.floor(mins / 60);
+  const remainMins = mins % 60;
+  if (hrs > 0) return hrs + "h " + remainMins + "p";
+  return mins + " phút";
+}, [totalStudySeconds]);
 
   const findLessonByQuizId = (qId: string) => {
     for (const chap of chapters) {
