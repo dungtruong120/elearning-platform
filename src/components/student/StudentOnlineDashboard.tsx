@@ -194,9 +194,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     myAttempts.forEach(att => {
       const isPractice = att.type === "practice";
       combined.push({
-        id: score-${att.attemptId}, 
+        id: "score-" + att.attemptId, 
         title: "Điểm kiểm tra mới", 
-        desc: Bài "${att.quizTitle}" đạt kết quả: ${att.score}/10 điểm., 
+        desc: 'Bài "' + att.quizTitle + '" đạt kết quả: ' + att.score + '/10 điểm.', 
         type: "success", 
         timestamp: new Date(att.submittedAt).getTime(), 
         dateStr: new Date(att.submittedAt).toLocaleString("vi-VN"), 
@@ -208,9 +208,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     practiceExams.forEach(ex => {
       const exTime = ex.createdAt ? new Date(ex.createdAt).getTime() : Date.now() - 86400000;
       combined.push({
-        id: exam-${ex.id}, 
+        id: "exam-" + ex.id, 
         title: "Đề thi thử mới cập nhật", 
-        desc: Đề "${ex.title}" (${ex.category}) đã sẵn sàng luyện tập., 
+        desc: 'Đề "' + ex.title + '" (' + ex.category + ') đã sẵn sàng luyện tập.', 
         type: "info", 
         timestamp: exTime, 
         dateStr: "Mới cập nhật", 
@@ -220,7 +220,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     
     sysNotifications.forEach(sys => {
       combined.push({
-        id: sys-${sys.id}, 
+        id: "sys-" + sys.id, 
         title: sys.title, 
         desc: sys.content, 
         type: sys.type === "urgent" ? "warning" : "teacher", 
@@ -236,7 +236,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   const handleMarkAllAsRead = () => {
     const allIds = notificationsList.map(n => n.id);
     setReadNotifIds(allIds);
-    localStorage.setItem(edunexus_read_notifs_${profile?.id}, JSON.stringify(allIds));
+    localStorage.setItem("edunexus_read_notifs_" + (profile?.id || ""), JSON.stringify(allIds));
     window.dispatchEvent(new Event("readNotifsUpdated"));
   };
 
@@ -244,7 +244,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     if (!readNotifIds.includes(item.id)) {
       const newIds = [...readNotifIds, item.id];
       setReadNotifIds(newIds);
-      localStorage.setItem(edunexus_read_notifs_${profile?.id}, JSON.stringify(newIds));
+      localStorage.setItem("edunexus_read_notifs_" + (profile?.id || ""), JSON.stringify(newIds));
       window.dispatchEvent(new Event("readNotifsUpdated"));
     }
     if (item.actionType === "system_modal") { 
@@ -291,8 +291,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   const formatCompletionTime = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
-    if (m === 0) return ${s} giây;
-    return ${m}p ${s}s;
+    if (m === 0) return s + " giây";
+    return m + "p " + s + "s";
   };
 
   // LỌC BÀI HỌC DÀNH CHO HỌC SINH ONLINE (LẤY CÁC BÀI TARGET LÀ ONLINE HOẶC ALL HOẶC RỖNG)
