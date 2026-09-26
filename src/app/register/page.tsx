@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { 
@@ -10,8 +9,6 @@ import {
 } from "lucide-react";
 
 export default function RegisterPage() {
-  const router = useRouter();
-
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -52,7 +49,7 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. Tạo tài khoản trong Supabase Auth
+      // 1. Đăng ký tài khoản Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: emailTrim,
         password: formData.password,
@@ -67,9 +64,13 @@ export default function RegisterPage() {
         throw new Error(authError.message);
       }
 
-      const userId = authData.user?.id || ("stu-" + Date.now());
+      if (!authData.user?.id) {
+        throw new Error("Không thể khởi tạo mã định danh người dùng. Vui lòng thử lại!");
+      }
 
-      // 2. Tạo bản ghi hồ sơ học sinh trực tiếp vào bảng "profiles" trên Supabase
+      const userId = authData.user.id;
+
+      // 2. Lưu thông tin hồ sơ vào bảng profiles trên Supabase
       const newProfile = {
         id: userId,
         full_name: fullNameTrim,
@@ -80,7 +81,7 @@ export default function RegisterPage() {
         role: "student",
         learning_mode: formData.learningMode,
         study_mode: formData.learningMode,
-        approval_status: "pending", // Đặt ở trạng thái Chờ duyệt
+        approval_status: "pending",
         created_at: new Date().toISOString(),
       };
 
@@ -90,14 +91,6 @@ export default function RegisterPage() {
 
       if (profileError) {
         throw new Error(profileError.message);
-      }
-
-      // Lưu dự phòng vào cache local
-      if (typeof window !== "undefined") {
-        try {
-          const localList = JSON.parse(localStorage.getItem("edunexus_registered_students") || "[]");
-          localStorage.setItem("edunexus_registered_students", JSON.stringify([newProfile, ...localList]));
-        } catch {}
       }
 
       setIsSuccess(true);
@@ -119,22 +112,22 @@ export default function RegisterPage() {
           <div className="space-y-1">
             <h2 className="text-xl font-black text-slate-900">Đăng Ký Thành Công!</h2>
             <p className="text-xs text-slate-500">
-              Hồ sơ của bạn đã được gửi lên hệ thống và đang ở trạng thái <strong>Chờ xét duyệt</strong>.
+              Hồ sơ đã được gửi lên hệ thống và đang ở trạng thái <strong>Chờ xét duyệt</strong>.
             </p>
           </div>
 
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-left text-xs space-y-1.5 font-medium text-slate-600">
             <p><strong>Họ và tên:</strong> {formData.fullName}</p>
             <p><strong>Email:</strong> {formData.email}</p>
-            <p><strong>Hình thức học:</strong> {formData.learningMode === "online" ? "Lớp Online" : "Lớp Offline"}</p>
+            <p><strong>Hình thức:</strong> {formData.learningMode === "online" ? "Lớp Online" : "Lớp Offline"}</p>
             <p><strong>Trạng thái:</strong> <span className="text-amber-600 font-bold">Chờ duyệt từ Ban Giám Khảo</span></p>
           </div>
 
           <Link
             href="/"
-            className="w-full py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2"
+            className="w-full py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
           >
-            <span>Về trang chủ đăng nhập</span>
+            <span>Về trang đăng nhập</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -167,7 +160,6 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4 text-left">
-          {/* Họ và tên */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               Họ và tên học sinh <span className="text-rose-500">*</span>
@@ -185,7 +177,6 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Email & Số điện thoại */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -221,17 +212,16 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Trường học & Khối lớp */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Trường THPT đang học
+                Trường THPT
               </label>
               <div className="relative">
                 <School className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="VD: THPT Chuyên Hà Nội"
+                  placeholder="VD: THPT Chuyên"
                   value={formData.school}
                   onChange={e => setFormData({ ...formData, school: e.target.value })}
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] focus:bg-white transition"
@@ -248,17 +238,16 @@ export default function RegisterPage() {
                 onChange={e => setFormData({ ...formData, grade: e.target.value })}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] focus:bg-white transition cursor-pointer"
               >
-                <option value="Lớp 12">Lớp 12 (Ôn thi TN & ĐGNL)</option>
+                <option value="Lớp 12">Lớp 12</option>
                 <option value="Lớp 11">Lớp 11</option>
                 <option value="Lớp 10">Lớp 10</option>
               </select>
             </div>
           </div>
 
-          {/* Phân luồng: Học Online hay Học Offline */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Hình thức đăng ký học tập <span className="text-rose-500">*</span>
+              Hình thức học tập <span className="text-rose-500">*</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -275,7 +264,7 @@ export default function RegisterPage() {
                 </div>
                 <div>
                   <span className="font-black text-xs block">Lớp Online</span>
-                  <span className="text-[10px] text-slate-500 block">Học Zoom & Video</span>
+                  <span className="text-[10px] text-slate-500 block">Zoom & Video</span>
                 </div>
               </button>
 
@@ -293,17 +282,16 @@ export default function RegisterPage() {
                 </div>
                 <div>
                   <span className="font-black text-xs block">Lớp Offline</span>
-                  <span className="text-[10px] text-slate-500 block">Học tại cơ sở TCT</span>
+                  <span className="text-[10px] text-slate-500 block">Tại cơ sở TCT</span>
                 </div>
               </button>
             </div>
           </div>
 
-          {/* Mật khẩu & Nhập lại mật khẩu */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Mật khẩu đăng nhập <span className="text-rose-500">*</span>
+                Mật khẩu <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -344,7 +332,7 @@ export default function RegisterPage() {
             {isSubmitting ? (
               <>
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Đang gửi hồ sơ xét duyệt...</span>
+                <span>Đang gửi hồ sơ...</span>
               </>
             ) : (
               <>
@@ -358,7 +346,7 @@ export default function RegisterPage() {
         <div className="pt-2 border-t border-slate-100 text-center">
           <p className="text-xs text-slate-500 font-medium">
             Đã có tài khoản?{" "}
-            <Link href="/" className="font-bold text-[#1D4ED8] hover:underline">
+            <Link href="/" className="font-bold text-[#1D4ED8] hover:underline cursor-pointer">
               Đăng nhập ngay
             </Link>
           </p>
