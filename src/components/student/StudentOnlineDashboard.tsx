@@ -589,7 +589,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
 
                   <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
                     <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Chương trình 12</h2>
-                    <span className="text-xs font-bold text-slate-500">{offlineChapters.length} Chương chính khóa (Lớp Offline TCT)</span>
+                    <span className="text-xs font-bold text-slate-500">{offlineChapters.length} Chương chính khóa (Lớp Online TCT)</span>
                   </div>
 
                   <div className="space-y-6">
