@@ -178,7 +178,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
   const [readNotifIds, setReadNotifIds] = useState<string[]>([]);
   const syncReadNotifs = useCallback(() => {
-    const savedReads = localStorage.getItem(edunexus_read_notifs_${profile?.id});
+   const savedReads = localStorage.getItem("edunexus_read_notifs_" + (profile?.id || "default"));
     if (savedReads) setReadNotifIds(JSON.parse(savedReads));
   }, [profile?.id]);
 
