@@ -62,6 +62,7 @@ const INITIAL_CHAPTERS = [
         description: "", 
         duration: 45, 
         format: "Zoom", 
+        target_mode: "all",
         lecture_files: [], 
         homework_files: [], 
         handwritten_notes: [], 
@@ -93,7 +94,6 @@ function AdminDashboardContent() {
   const [notifContent, setNotifContent] = useState("");
   const [notifType, setNotifType] = useState<"teacher" | "urgent" | "exam">("teacher");
 
-  // Đăng xuất an toàn
   const handleAdminLogout = () => {
     if (typeof window !== "undefined") {
       try {
@@ -106,12 +106,10 @@ function AdminDashboardContent() {
     }
   };
 
-  // State Quản lý học viên khởi tạo rỗng để đọc 100% từ Supabase
   const [registeredStudents, setRegisteredStudents] = useState<any[]>([]);
   const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [studentSearch, setStudentSearch] = useState("");
 
-  // State Lịch học Online & Điểm danh Spreadsheet
   const [sessionDates, setSessionDates] = useState<string[]>([
     "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09"
   ]);
@@ -190,7 +188,6 @@ function AdminDashboardContent() {
     setTimeout(() => setSuccessToast(""), 3000); 
   };
 
-  // 1. TẢI HỌC VIÊN TRỰC TIẾP TỪ SUPABASE
   const fetchSupabaseStudents = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -202,9 +199,7 @@ function AdminDashboardContent() {
       if (!error && data) {
         setRegisteredStudents(data);
       }
-    } catch (err) {
-      console.error("Lỗi lấy học sinh từ Supabase:", err);
-    }
+    } catch (err) {}
   }, []);
 
   const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
@@ -326,9 +321,7 @@ function AdminDashboardContent() {
       try {
         localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
         window.dispatchEvent(new Event("storage"));
-      } catch (e) {
-        console.error("Lỗi lưu edunexus_course_data:", e);
-      }
+      } catch (e) {}
     }
   };
 
@@ -338,9 +331,7 @@ function AdminDashboardContent() {
       try {
         localStorage.setItem("edunexus_practice_exams", JSON.stringify(newExams));
         window.dispatchEvent(new Event("storage"));
-      } catch (e) {
-        console.error("Lỗi lưu edunexus_practice_exams:", e);
-      }
+      } catch (e) {}
     }
   };
 
@@ -486,43 +477,24 @@ function AdminDashboardContent() {
       }) 
     }));
     saveToStorage(newChapters);
-    if (viewResourcesModal && viewResourcesModal.lessonId === editResourceModal.lessonId && viewResourcesModal.type === editResourceModal.type) {
-      setViewResourcesModal(prev => prev ? { ...prev, items: (prev.items || []).map(i => i?.id === editResourceModal.item.id ? { 
-        ...i, 
-        title: editResourceForm.title, 
-        url: editResourceForm.url || i.url,
-        type: editResourceModal.type === "video_list" ? editResourceForm.type : i.type
-      } : i) } : null);
-    }
     setEditResourceModal(null); 
     showToast("Đã cập nhật thông tin tài liệu!");
   };
 
-  // CẬP NHẬT TRẠNG THÁI HỌC VIÊN TRỰC TIẾP TRÊN SUPABASE
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
     try {
-      await supabase
-        .from("profiles")
-        .update({ approval_status: status })
-        .eq("id", studentId);
+      await supabase.from("profiles").update({ approval_status: status }).eq("id", studentId);
     } catch {}
-
     const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
     setRegisteredStudents(updated);
     showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!");
   };
 
-  // XÓA HỌC VIÊN TRỰC TIẾP TRÊN SUPABASE
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
-
     try {
-      await supabase
-        .from("profiles")
-        .delete()
-        .eq("id", studentId);
+      await supabase.from("profiles").delete().eq("id", studentId);
     } catch {}
-
     const updated = registeredStudents.filter(s => s.id !== studentId);
     setRegisteredStudents(updated);
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
@@ -895,7 +867,6 @@ function AdminDashboardContent() {
         )}
       </AnimatePresence>
 
-      {/* SIDEBAR ADMIN CHUẨN */}
       <aside className="w-64 bg-[#1E40AF] border-r border-[#1E40AF] text-white/90 flex flex-col shrink-0 p-5 shadow-[4px_0_24px_rgba(15,23,42,0.05)] h-screen">
         <div className="flex items-center gap-3 mb-6 shrink-0"> 
           <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">TCT</div>
@@ -935,7 +906,6 @@ function AdminDashboardContent() {
           })}
         </nav>
 
-        {/* NÚT ĐĂNG XUẤT ADMIN Ở GÓC CHÂN SIDEBAR */}
         <div className="mt-auto pt-4 border-t border-blue-400/20 shrink-0">
           <button
             type="button"
@@ -959,7 +929,6 @@ function AdminDashboardContent() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
-          {/* TAB 1: NỘI DUNG BÀI HỌC (MA TRẬN) */}
           {activeTab === "lessons" && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
@@ -1098,7 +1067,6 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 2: KHO LUYỆN ĐỀ */}
           {activeTab === "practice" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto">
               <div className="flex gap-2.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm w-fit">
@@ -1289,7 +1257,6 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 3: ANALYTICS */}
           {activeTab === "analytics" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -1420,7 +1387,6 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 4: NOTIFICATIONS */}
           {activeTab === "notifications" && (
             <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-300">
               <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-fit">
@@ -1454,7 +1420,6 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN */}
           {activeTab === "students" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1641,7 +1606,6 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 6: LỊCH HỌC & BẢNG ĐIỂM DANH SPREADSHEET */}
           {activeTab === "online_schedule" && (
             <div className="space-y-8 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white/90 backdrop-blur-2xl rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
@@ -2039,7 +2003,6 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 7: BÁO CÁO PHỤ HUYNH */}
           {activeTab === "reports" && (
             <motion.div
               key="reports"
@@ -2060,7 +2023,6 @@ function AdminDashboardContent() {
         </div>
       </main>
 
-      {/* MODAL THÊM NHANH HỌC SINH VÀO BẢNG ĐIỂM DANH */}
       <AnimatePresence>
         {isAddStudentModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
@@ -2093,7 +2055,7 @@ function AdminDashboardContent() {
                       value={quickStudentForm.lastName}
                       onChange={e => setQuickStudentForm({ ...quickStudentForm, lastName: e.target.value })}
                       placeholder="VD: Trương Ngọc"
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-hidden focus:border-blue-600 focus:bg-white"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-blue-600 focus:bg-white"
                     />
                   </div>
                   <div>
@@ -2104,7 +2066,7 @@ function AdminDashboardContent() {
                       value={quickStudentForm.firstName}
                       onChange={e => setQuickStudentForm({ ...quickStudentForm, firstName: e.target.value })}
                       placeholder="VD: Dũng"
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-blue-700 outline-hidden focus:border-blue-600 focus:bg-white"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-blue-700 outline-none focus:border-blue-600 focus:bg-white"
                     />
                   </div>
                 </div>
@@ -2114,7 +2076,7 @@ function AdminDashboardContent() {
                   <select
                     value={quickStudentForm.status}
                     onChange={e => setQuickStudentForm({ ...quickStudentForm, status: e.target.value as any })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden focus:border-blue-600 cursor-pointer"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-blue-600 cursor-pointer"
                   >
                     <option value="approved">Học (Đang theo học)</option>
                     <option value="rejected">Nghỉ (Đã tạm nghỉ)</option>
@@ -2146,7 +2108,6 @@ function AdminDashboardContent() {
         )}
       </AnimatePresence>
 
-      {/* POPOVER XEM DANH SÁCH TÀI NGUYÊN MA TRẬN */}
       {viewResourcesModal && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[80vh] overflow-hidden animate-in zoom-in-95 duration-200">
@@ -2219,7 +2180,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL SỬA TÀI LIỆU */}
       {editResourceModal && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleEditResourceSubmit} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2262,7 +2222,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL THÊM CHƯƠNG / BÀI HỌC */}
       {createModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl">
           <form onSubmit={handleCreateNewItem} className="bg-white/90 backdrop-blur-2xl rounded-[32px] w-full max-w-md p-8 shadow-2xl border border-white/50 space-y-5">
@@ -2270,10 +2229,26 @@ function AdminDashboardContent() {
               {createModal.type === "chapter" ? "Thêm Chương Mới" : "Thêm Bài Học Mới"}
             </h3>
             
+            {createModal.type === "lesson" && (
+              <div>
+                <label className="block text-[13px] font-bold text-slate-700 mb-2">Chọn chương chứa bài học <span className="text-rose-500">*</span></label>
+                <select 
+                  value={createModal.chapterId || ""} 
+                  onChange={e => setCreateModal({ ...createModal, chapterId: e.target.value })}
+                  className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] font-semibold outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white cursor-pointer"
+                >
+                  {(chapters || []).map(c => (
+                    <option key={c.id} value={c.id}>{c.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-2">Tên {createModal.type === "chapter" ? "chương" : "bài học"} <span className="text-rose-500">*</span></label>
               <input autoFocus required type="text" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} placeholder={createModal.type === "chapter" ? "VD: Chương 1..." : "VD: Bài 1..."} className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] font-semibold outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm" />
             </div>
+            
             {createModal.type === "lesson" && (
               <>
                 <div>
@@ -2337,14 +2312,13 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* AZOTA MODAL CALL */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
           file={testFile}
-          uploadMode={uploadMode} 
+          mode={uploadMode} 
           onClose={() => setTestFile(null)} 
-          onPublish={(examData: any) => {
+          onSave={(examData: any) => {
             if (uploadMode === "practice") {
               const newExam = { 
                 id: "prac-" + Date.now(), 
@@ -2390,7 +2364,6 @@ function AdminDashboardContent() {
         />
       )}
 
-      {/* MODAL LỰA CHỌN PHƯƠNG THỨC UPLOAD BTVN/TEST */}
       {uploadMethodModal && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-[24px] p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2430,7 +2403,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL DÁN LINK DRIVE BTVN/TEST */}
       {driveLinkModal && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <form onSubmit={handleAddDriveFile} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2456,7 +2428,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL THÊM NGUỒN TÀI NGUYÊN */}
       {resourceModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-xl">
@@ -2497,7 +2468,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL CHỈNH SỬA BÀI HỌC */}
       {editLessonModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleEditLessonSubmit} className="bg-white rounded-[24px] w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2576,7 +2546,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL THÊM NGÀY HỌC MỚI VÀO BẢNG ĐIỂM DANH */}
       {isAddDateModalOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleAddNewAttendanceDate} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
@@ -2634,7 +2603,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL THÊM TÀI LIỆU TĂNG CƯỜNG */}
       {boostModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleAddBoost} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2671,7 +2639,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL GẮN LINK VIDEO CHỮA BÀI */}
       {videoModalExam && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleSaveSolutionVideo} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2716,7 +2683,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* POPUP TEST PHÒNG THI DÀNH CHO ADMIN */}
       {testExamRoom && (
         <div className="fixed inset-0 z-[700] bg-white">
           <div className="h-10 bg-indigo-900 text-white flex items-center justify-between px-6 text-xs font-bold">
