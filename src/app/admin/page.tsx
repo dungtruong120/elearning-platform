@@ -235,7 +235,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  const loadStorageData = useCallback(() => {
+  const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
     try {
       const savedData = localStorage.getItem("edunexus_course_data");
@@ -290,13 +290,32 @@ function AdminDashboardContent() {
       setSysNotifications([]);
     }
 
+    // ĐỌC LỊCH HỌC TỪ SUPABASE (NẾU CÓ) ĐỂ ĐỒNG BỘ HAI CHIỀU
     try {
+      const { data: dbSessions, error } = await supabase
+        .from("sessions")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && dbSessions && dbSessions.length > 0) {
+        setOnlineSessions(dbSessions);
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
+      } else {
+        const savedSessions = localStorage.getItem("edunexus_online_sessions");
+        if (savedSessions) {
+          const parsed = JSON.parse(savedSessions);
+          if (Array.isArray(parsed) && parsed.length > 0) setOnlineSessions(parsed);
+        }
+      }
+    } catch {
       const savedSessions = localStorage.getItem("edunexus_online_sessions");
       if (savedSessions) {
-        const parsed = JSON.parse(savedSessions);
-        if (Array.isArray(parsed) && parsed.length > 0) setOnlineSessions(parsed);
+        try {
+          const parsed = JSON.parse(savedSessions);
+          if (Array.isArray(parsed) && parsed.length > 0) setOnlineSessions(parsed);
+        } catch {}
       }
-    } catch (e) {}
+    }
 
     try {
       const savedAtt = localStorage.getItem("edunexus_attendance");
@@ -311,8 +330,23 @@ function AdminDashboardContent() {
     setMounted(true);
     loadStorageData();
     fetchSupabaseStudents();
+
+    // Kết nối Supabase Realtime cho Admin lắng nghe ca học & học sinh
+    const channel = supabase
+      .channel("admin-realtime-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
+        loadStorageData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+        fetchSupabaseStudents();
+      })
+      .subscribe();
+
     window.addEventListener("storage", loadStorageData);
-    return () => window.removeEventListener("storage", loadStorageData);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener("storage", loadStorageData);
+    };
   }, [loadStorageData, fetchSupabaseStudents]);
 
   const saveToStorage = (newChapters: any[]) => {
@@ -500,7 +534,7 @@ function AdminDashboardContent() {
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
   };
 
-  const handleDeleteAttendanceDate = (dateToDelete: string) => {
+  const handleDeleteAttendanceDate = async (dateToDelete: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa cột ngày học \"" + dateToDelete + "\" khỏi bảng điểm danh?")) return;
     const updatedDates = sessionDates.filter(d => d !== dateToDelete);
     setSessionDates(updatedDates);
@@ -510,6 +544,10 @@ function AdminDashboardContent() {
 
     const updatedSessions = onlineSessions.filter(s => s.date !== dateToDelete);
     setOnlineSessions(updatedSessions);
+
+    try {
+      await supabase.from("sessions").delete().eq("date", dateToDelete);
+    } catch {}
 
     if (typeof window !== "undefined") {
       try {
@@ -522,7 +560,7 @@ function AdminDashboardContent() {
     showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
   };
 
-  const handleAddNewAttendanceDate = (e: React.FormEvent) => {
+  const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDateInput) return;
     const parts = newDateInput.split("-");
@@ -553,6 +591,13 @@ function AdminDashboardContent() {
     const updatedSessions = [newSessionMeta, ...onlineSessions];
     setOnlineSessions(updatedSessions);
 
+    // ĐỒNG BỘ TRỰC TIẾP LÊN SUPABASE
+    try {
+      await supabase.from("sessions").insert([newSessionMeta]);
+    } catch (err) {
+      console.warn("Lỗi lưu Supabase:", err);
+    }
+
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_attendance_dates", JSON.stringify(updatedDates));
@@ -562,10 +607,10 @@ function AdminDashboardContent() {
     }
     setIsAddDateModalOpen(false);
     setNewDateTitle("");
-    showToast("Đã thêm ngày học " + displayDate + " (" + shiftObj.name + ") vào bảng điểm danh!");
+    showToast("Đã thêm ngày học " + displayDate + " (" + shiftObj.name + ") thành công!");
   };
 
-  const handleCreateOnlineSession = (e: React.FormEvent) => {
+  const handleCreateOnlineSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
       return alert("Vui lòng nhập đầy đủ tiêu đề và link phòng học!");
@@ -599,6 +644,13 @@ function AdminDashboardContent() {
       setSessionDates(updatedDates);
     }
 
+    // ĐỒNG BỘ TRỰC TIẾP LÊN SUPABASE
+    try {
+      await supabase.from("sessions").insert([newSession]);
+    } catch (err) {
+      console.warn("Lỗi lưu Supabase:", err);
+    }
+
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
@@ -614,10 +666,10 @@ function AdminDashboardContent() {
       shiftId: "ca-6", 
       timeSlot: "19:30 - 21:00", 
       meetingUrl: "", 
-      guideImagesText: "",
-      audience: "all"
+      guideImagesText: "", 
+      audience: "all" 
     });
-    showToast("Đã phát link buổi học Online (" + dispDate + ") thành công!");
+    showToast("Đã phát link buổi học (" + dispDate + ") lên hệ thống thành công!");
   };
 
   const handleToggleAttendance = (studentId: string, studentName: string, sessionDate: string) => {
@@ -972,9 +1024,6 @@ function AdminDashboardContent() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-semibold text-slate-500 hidden md:block">
-                    * Đang xem: <strong>{lessonModeTab === "online" ? "Bài học Online" : lessonModeTab === "offline" ? "Bài học Offline" : "Toàn bộ bài học"}</strong>
-                  </span>
                   <button onClick={() => setCreateModal({ type: "chapter" })} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer">
                     <FolderPlus className="w-4 h-4 text-[#1D4ED8]" /> Thêm Chương
                   </button>
@@ -1070,8 +1119,8 @@ function AdminDashboardContent() {
           {activeTab === "practice" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto">
               <div className="flex gap-2.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm w-fit">
-                <button onClick={() => setPracticeSubTab("manage")} className={`px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all duration-300 cursor-pointer ${practiceSubTab === "manage" ? "bg-[#1D4ED8] text-white shadow-sm" : "text-slate-500 hover:bg-slate-100/50"}`}>Kho Đề & Tải lên</button>
-                <button onClick={() => setPracticeSubTab("scores")} className={`px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all duration-300 cursor-pointer ${practiceSubTab === "scores" ? "bg-[#1D4ED8] text-white shadow-sm" : "text-slate-500 hover:bg-slate-100/50"}`}>Điểm & Xếp hạng Luyện đề</button>
+                <button onClick={() => setPracticeSubTab("manage")} className={"px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all duration-300 cursor-pointer " + (practiceSubTab === "manage" ? "bg-[#1D4ED8] text-white shadow-sm" : "text-slate-500 hover:bg-slate-100/50")}>Kho Đề & Tải lên</button>
+                <button onClick={() => setPracticeSubTab("scores")} className={"px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all duration-300 cursor-pointer " + (practiceSubTab === "scores" ? "bg-[#1D4ED8] text-white shadow-sm" : "text-slate-500 hover:bg-slate-100/50")}>Điểm & Xếp hạng Luyện đề</button>
               </div>
 
               {practiceSubTab === "manage" && (
