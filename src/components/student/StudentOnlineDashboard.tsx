@@ -32,28 +32,27 @@ interface StudentOfflineDashboardProps {
 }
 
 export default function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDashboardProps) {
+  // SỬA LỖI 1: Giữ nguyên learning_mode truyền vào từ ngoài, không tự động ép cứng thành offline
   const [profile, setProfile] = useState<Profile | null>(() => {
-    if (initialProfile) return { ...initialProfile, learning_mode: "offline", study_mode: "offline" };
+    if (initialProfile) return initialProfile;
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("edunexus_current_user");
+        const saved = localStorage.getItem("tct_current_user") || localStorage.getItem("edunexus_current_user");
         if (saved) {
-          const parsed = JSON.parse(saved);
-          return { ...parsed, learning_mode: "offline", study_mode: "offline" };
+          return JSON.parse(saved);
         }
       } catch (e) {}
     }
-    return {
-      id: "user-student-2",
-      full_name: "Trương Ngọc Dũng",
-      grade: "Lớp 12",
-      school: "THPT Chuyên",
-      email: "student@edunexus.edu.vn",
-      learning_mode: "offline",
-      study_mode: "offline",
-      approval_status: "approved"
-    };
+    return null;
   });
+
+  useEffect(() => {
+    if (initialProfile) {
+      setProfile(initialProfile);
+    }
+  }, [initialProfile]);
+
+  const isOnlineStudent = (profile?.learning_mode === "online" || profile?.study_mode === "online");
 
   const [offlineAttendance, setOfflineAttendance] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<string>("overview");
@@ -77,7 +76,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const [totalStudySeconds, setTotalStudySeconds] = useState<number>(0);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
-  // Đồng hồ cập nhật real-time kiểm tra ca học mỗi 10 giây
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 10000);
     return () => clearInterval(timer);
@@ -275,17 +273,19 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     return m + "p " + s + "s";
   };
 
-  // 1. LỌC BÀI HỌC DÀNH CHO HỌC SINH OFFLINE
-  const offlineChapters = useMemo(() => {
+  // SỬA LỖI 2: Lọc bài học linh hoạt theo đúng phân hệ của học sinh
+  const displayChapters = useMemo(() => {
+    const mode = isOnlineStudent ? "online" : "offline";
     return (chapters || [])
       .map((chap: any) => ({
         ...chap,
-        lessons: (chap.lessons || []).filter((les: any) => les?.target_mode === "offline" || les?.target_mode === "all" || !les?.target_mode)
+        lessons: (chap.lessons || []).filter((les: any) => 
+          !les?.target_mode || les?.target_mode === "all" || les?.target_mode === mode
+        )
       }))
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
-  }, [chapters]);
+  }, [chapters, isOnlineStudent]);
 
-  // Lịch học & Điểm danh cho học sinh Offline
   const [offlineSessions, setOfflineSessions] = useState<any[]>([]);
   const [offlineAttRecords, setOfflineAttRecords] = useState<any[]>([]);
   const [offlineToast, setOfflineToast] = useState<string>("");
@@ -337,27 +337,25 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     return false;
   };
 
-  // 2. LOGIC THỜI GIAN THỰC TÌM CA HỌC OFFLINE LIVE
-  // Chỉ tìm ca học nếu ngày khớp với ngày hôm nay và chưa vượt quá giờ kết thúc
   const liveOfflineSession = useMemo(() => {
     if (!offlineSessions || offlineSessions.length === 0) return null;
     const now = currentTime;
     const curMinutes = now.getHours() * 60 + now.getMinutes();
 
     return offlineSessions.find((s: any) => {
-      const isTarget = s.target_mode === "offline" || s.target_mode === "all" || s.audience === "offline" || s.audience === "all";
+      const isTarget = isOnlineStudent 
+        ? (s.target_mode === "online" || s.target_mode === "all" || s.audience === "online" || s.audience === "all")
+        : (s.target_mode === "offline" || s.target_mode === "all" || s.audience === "offline" || s.audience === "all");
       if (!isTarget) return false;
 
-      // 1. Phải trùng ngày thực tế hôm nay
       if (!isSameDate(s.date, s.isoDate, now)) return false;
 
-      // 2. Giờ hiện tại CHƯA VƯỢT QUÁ giờ kết thúc ca học
       const slot = parseTimeSlotMinutes(s.timeSlot);
       if (!slot) return false;
 
       return curMinutes <= slot.endMinutes;
     }) || null;
-  }, [offlineSessions, currentTime]);
+  }, [offlineSessions, currentTime, isOnlineStudent]);
 
   const isOfflineSessionActive = useMemo(() => {
     if (!liveOfflineSession) return false;
@@ -412,7 +410,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
       studentName: profile.full_name,
       sessionDate: dateStr,
       status: "present",
-      mode: "offline_self",
+      mode: isOnlineStudent ? "online_self" : "offline_self",
       attendedAt: now.toISOString(),
       note: "Học sinh xác nhận có mặt lúc " + timeStr
     };
@@ -431,7 +429,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
     }
-    setOfflineToast("Đã xác nhận CÓ MẶT tại lớp học TCT lúc " + timeStr + " thành công!");
+    setOfflineToast("Đã xác nhận CÓ MẶT tại buổi học lúc " + timeStr + " thành công!");
     setTimeout(() => setOfflineToast(""), 4000);
   };
 
@@ -483,7 +481,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
 
   return (
     <div className="h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 flex overflow-hidden relative selection:bg-blue-500/20">
-      {/* TOAST THÔNG BÁO ĐIỂM DANH */}
       <AnimatePresence>
         {offlineToast && (
           <motion.div 
@@ -497,7 +494,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         )}
       </AnimatePresence>
 
-      {/* SIDEBAR VỚI HIỆU ỨNG THU GỌN MƯỢT MÀ */}
       <div 
         className={"h-full shrink-0 transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden hidden md:block z-40 " + (
           isSidebarOpen ? "w-64 opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-10"
@@ -509,7 +505,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         </div>
       </div>
       
-      {/* KHUNG MAIN CHÍNH: TỰ ĐỘNG CO GIÃN ĐẦY MÀN HÌNH KHI ĐÓNG SIDEBAR */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         <div className="shrink-0 w-full">
           <Header 
@@ -529,10 +524,8 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
               transition={{ duration: 0.2, ease: "easeInOut" }}
               className="w-full"
             >
-              {/* TAB OVERVIEW */}
               {activeTab === "overview" && (
                 <div className="w-full max-w-7xl mx-auto space-y-6 text-left">
-                  {/* BANNER LIVE: TỰ ĐỘNG BIẾN MẤT KHI HẾT GIỜ HỌC */}
                   {liveOfflineSession && isOfflineSessionActive && (
                     <motion.div
                       initial={{ opacity: 0, y: -6 }}
@@ -550,7 +543,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                           </p>
                           <p className="text-xs sm:text-sm font-extrabold text-white truncate">
                             {(liveOfflineSession.subject || liveOfflineSession.title) + " (" + liveOfflineSession.timeSlot + ")"}
-                            <span className="text-blue-200 text-xs font-medium ml-2">{"• " + (liveOfflineSession.room || "P.201 TCT")}</span>
+                            <span className="text-blue-200 text-xs font-medium ml-2">{"• " + (liveOfflineSession.room || (isOnlineStudent ? "Zoom Trực Tuyến" : "P.201 TCT"))}</span>
                           </p>
                         </div>
                       </div>
@@ -565,12 +558,12 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                               type="button"
                               onClick={() => {
                                 setActiveTab("courses");
-                                setOfflineToast("Đang mở không gian học tập ca: " + (liveOfflineSession.subject || liveOfflineSession.title));
+                                setOfflineToast("Đang mở không gian học tập: " + (liveOfflineSession.subject || liveOfflineSession.title));
                               }}
                               className="px-3.5 py-1.5 bg-white text-[#1D4ED8] hover:bg-blue-50 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                             >
                               <BookOpen className="w-3.5 h-3.5" />
-                              <span>Vào học lại</span>
+                              <span>Vào học</span>
                             </button>
                           </div>
                         ) : (
@@ -587,13 +580,16 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                     </motion.div>
                   )}
 
+                  {/* SỬA LỖI 3: Hiển thị đúng phân hệ Online/Offline và số lượng chương */}
                   <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
                     <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Chương trình 12</h2>
-                    <span className="text-xs font-bold text-slate-500">{offlineChapters.length} Chương chính khóa (Lớp Online TCT)</span>
+                    <span className="text-xs font-bold text-slate-500">
+                      {displayChapters.length} Chương chính khóa ({isOnlineStudent ? "Lớp Online TCT" : "Lớp Offline TCT"})
+                    </span>
                   </div>
 
                   <div className="space-y-6">
-                    {offlineChapters.map((chap, idx) => (
+                    {displayChapters.map((chap, idx) => (
                       <div key={chap.id || idx} className="space-y-3">
                         <h3 className="font-extrabold text-slate-900 text-lg flex items-center gap-2">
                           <span className="text-[#1D4ED8] uppercase text-xs tracking-widest bg-blue-50 px-2 py-1 rounded-md border border-blue-100">Chương {idx + 1}</span> {chap.title}
@@ -608,16 +604,22 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                         </div>
                       </div>
                     ))}
+                    {displayChapters.length === 0 && (
+                      <div className="py-8 text-center text-slate-400 font-medium bg-white rounded-2xl border border-slate-200">
+                        Chưa có bài học nào được gán cho phân hệ {isOnlineStudent ? "Online" : "Offline"}.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* TAB COURSES */}
               {activeTab === "courses" && (
                 <div className="max-w-6xl mx-auto space-y-6 text-left justify-start">
                   <div className="bg-white rounded-[20px] p-5 border border-slate-200 shadow-sm flex flex-col gap-3.5 text-left">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-1 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-extrabold uppercase tracking-widest border border-blue-100">Hệ thống TCT</span>
+                      <span className="px-2.5 py-1 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-extrabold uppercase tracking-widest border border-blue-100">
+                        Hệ thống TCT ({isOnlineStudent ? "Online" : "Offline"})
+                      </span>
                       <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md text-[10px] font-bold border border-emerald-100"><Clock className="w-3.5 h-3.5" /> Thời gian học: {formattedStudyTimeToday}</div>
                     </div>
                     <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Xin chào, {profile?.full_name}!</h2>
@@ -645,7 +647,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                       <h3 className="text-xl font-black text-slate-900 tracking-tight">Chương trình học chính khóa</h3>
                     </div>
                     <ChapterAccordion 
-                      chapters={offlineChapters.filter(chap => chap.title.toLowerCase().includes(searchQuery.toLowerCase()) || chap.lessons?.some((l: any) => l.title.toLowerCase().includes(searchQuery.toLowerCase())))} 
+                      chapters={displayChapters.filter(chap => chap.title.toLowerCase().includes(searchQuery.toLowerCase()) || chap.lessons?.some((l: any) => l.title.toLowerCase().includes(searchQuery.toLowerCase())))} 
                       pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} 
                       onOpenLesson={(les) => setSelectedLesson(les)} 
                       onStartExam={(qId, qTitle, isHomework, durationMinutes) => { 
@@ -656,7 +658,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                 </div>
               )}
 
-              {/* TAB NOTIFICATIONS */}
               {activeTab === "notifications" && (
                 <div className="w-full max-w-7xl mx-auto space-y-6 text-left">
                   <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
@@ -710,18 +711,15 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                 </div>
               )}
 
-              {/* TAB SCHEDULE */}
               {activeTab === "schedule" && (
                 <div className="space-y-6 max-w-6xl mx-auto text-left">
-                  <ScheduleView profile={profile} mode="offline" />
+                  <ScheduleView profile={profile} mode={isOnlineStudent ? "online" : "offline"} />
                 </div>
               )}
 
-              {/* TAB PROGRESS & LEADERBOARD */}
               {(activeTab === "progress" || activeTab === "assessments") && <ProgressTrackingView chapters={chapters} pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} onStartExam={(qId, qTitle, isHomework, durationMinutes) => { setExamRoom({ id: qId, title: qTitle, duration: durationMinutes || 45, isHomework }); }} />}
-              {activeTab === "leaderboard" && <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode="offline" />}
+              {activeTab === "leaderboard" && <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode={isOnlineStudent ? "online" : "offline"} />}
               
-              {/* TAB PRACTICE */}
               {activeTab === "practice" && (
                 <div className="max-w-6xl mx-auto space-y-5 text-left justify-start">
                   <div className="bg-white py-4 px-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -775,7 +773,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
 
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {(practiceExams || [])
-                          .filter((e: any) => e.target_mode === "offline" || e.target_mode === "all" || !e.target_mode)
+                          .filter((e: any) => isOnlineStudent ? (e.target_mode === "online" || e.target_mode === "all" || !e.target_mode) : (e.target_mode === "offline" || e.target_mode === "all" || !e.target_mode))
                           .filter(e => selectedPracticeCategory === "Tất cả đề" || e.category === selectedPracticeCategory)
                           .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
                           .map(exam => {
@@ -887,7 +885,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         </main>
       </div>
 
-      {/* MODAL LỊCH SỬ LÀM BÀI */}
       {historyModalExamId && (
         <div 
           onClick={(e) => { if (e.target === e.currentTarget) setHistoryModalExamId(null); }} 
@@ -946,7 +943,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         </div>
       )}
 
-      {/* MODAL THÔNG BÁO GIÁO VIÊN */}
       {selectedSysNotif && (
         <div 
           onClick={(e) => { if (e.target === e.currentTarget) setSelectedSysNotif(null); }} 
@@ -981,7 +977,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         </div>
       )}
 
-      {/* MODAL PREVIEW ĐỀ THI */}
       {previewExam && (
         <div 
           onClick={(e) => { if (e.target === e.currentTarget) setPreviewExam(null); }} 
