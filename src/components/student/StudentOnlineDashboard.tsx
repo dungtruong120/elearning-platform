@@ -104,7 +104,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
-  // ĐỒNG BỘ DỮ LIỆU TỪ STORAGE HOẶC DÙNG DỮ LIỆU MẶC ĐỊNH
   const fetchAuthAndData = useCallback(() => {
     if (typeof window !== "undefined") {
       try {
@@ -295,7 +294,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return m + "p " + s + "s";
   };
 
-  // LỌC BÀI HỌC DÀNH CHO HỌC SINH ONLINE (LẤY CÁC BÀI TARGET LÀ ONLINE HOẶC ALL HOẶC RỖNG)
   const onlineChapters = useMemo(() => {
     return (chapters || [])
       .map((chap: any) => ({
@@ -307,7 +305,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
 
-  // Lịch học & Điểm danh Online
   const [onlineSessions, setOnlineSessions] = useState<any[]>([]);
   const [onlineAttRecords, setOnlineAttRecords] = useState<any[]>([]);
   const [onlineToast, setOnlineToast] = useState<string>("");
@@ -359,6 +356,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return false;
   };
 
+  // TÌM CA HỌC HÔM NAY VÀ CHỈ HIỂN THỊ TRƯỚC GIỜ HỌC 15 PHÚT
   const liveOnlineSession = useMemo(() => {
     if (!onlineSessions || onlineSessions.length === 0) return null;
     const now = currentTime;
@@ -370,24 +368,17 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       if (!isSameDate(s.date, s.isoDate, now)) return false;
       const slot = parseTimeSlotMinutes(s.timeSlot);
       if (!slot) return false;
-      return curMinutes <= slot.endMinutes;
+      // Chỉ kích hoạt banner từ (Giờ bắt đầu - 15 phút) đến khi kết thúc ca học
+      return curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes;
     }) || null;
   }, [onlineSessions, currentTime]);
-
-  const isOnlineSessionActive = useMemo(() => {
-    if (!liveOnlineSession) return false;
-    const slot = parseTimeSlotMinutes(liveOnlineSession.timeSlot);
-    if (!slot) return true;
-    const curMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-    return curMinutes <= slot.endMinutes;
-  }, [liveOnlineSession, currentTime]);
 
   const isOnlineLiveNow = useMemo(() => {
     if (!liveOnlineSession) return false;
     const slot = parseTimeSlotMinutes(liveOnlineSession.timeSlot);
     if (!slot) return false;
     const curMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-    return curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes;
+    return curMinutes >= slot.startMinutes && curMinutes <= slot.endMinutes;
   }, [liveOnlineSession, currentTime]);
 
   useEffect(() => {
@@ -541,10 +532,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               transition={{ duration: 0.2, ease: "easeInOut" }}
               className="w-full"
             >
-              {/* TAB OVERVIEW */}
               {activeTab === "overview" && (
                 <div className="w-full max-w-7xl mx-auto space-y-6 text-left">
-                  {liveOnlineSession && isOnlineSessionActive && (
+                  {liveOnlineSession && (
                     <motion.div
                       initial={{ opacity: 0, y: -6 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -556,7 +546,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         </div>
                         <div className="min-w-0 text-left">
                           <p className="text-[11px] font-black uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
-                            <span>{isOnlineLiveNow ? "ĐANG DIỄN RA BUỔI HỌC TRỰC TUYẾN" : "LỊCH HỌC TRỰC TUYẾN HÔM NAY"}</span>
+                            <span>{isOnlineLiveNow ? "ĐANG DIỄN RA BUỔI HỌC TRỰC TUYẾN" : "SẮP DIỄN RA (TRƯỚC 15 PHÚT)"}</span>
                             <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold">LIVE ZOOM</span>
                           </p>
                           <p className="text-xs sm:text-sm font-extrabold text-white truncate">
@@ -626,7 +616,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB COURSES */}
               {activeTab === "courses" && (
                 <div className="max-w-6xl mx-auto space-y-6 text-left justify-start">
                   <div className="bg-white rounded-[20px] p-5 border border-slate-200 shadow-sm flex flex-col gap-3.5 text-left">
@@ -672,7 +661,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB NOTIFICATIONS */}
               {activeTab === "notifications" && (
                 <div className="w-full max-w-7xl mx-auto space-y-6 text-left">
                   <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
@@ -726,7 +714,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB SCHEDULE */}
               {activeTab === "schedule" && (
                 <div className="space-y-6 max-w-6xl mx-auto text-left">
                   <ScheduleView profile={profile} mode="online" />
@@ -736,7 +723,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               {(activeTab === "progress" || activeTab === "assessments") && <ProgressTrackingView chapters={chapters} pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} onStartExam={(qId, qTitle, isHomework, durationMinutes) => { setExamRoom({ id: qId, title: qTitle, duration: durationMinutes || 45, isHomework }); }} />}
               {activeTab === "leaderboard" && <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode="online" />}
               
-              {/* TAB PRACTICE */}
               {activeTab === "practice" && (
                 <div className="max-w-6xl mx-auto space-y-5 text-left justify-start">
                   <div className="bg-white py-4 px-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
