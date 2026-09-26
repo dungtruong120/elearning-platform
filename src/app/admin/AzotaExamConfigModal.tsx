@@ -540,7 +540,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
   const handleFinishSave = () => {
     if (Math.abs(currentTotalPoints - 10) > 0.05) {
-      if (!confirm(Tổng điểm đề thi hiện tại là ${currentTotalPoints}đ (khác 10.0đ). Bạn có chắc chắn muốn xuất bản không?)) {
+     if (!confirm("Tổng điểm đề thi hiện tại là " + currentTotalPoints + "đ (khác 10.0đ). Bạn có chắc chắn muốn xuất bản không?")) {
         return;
       }
     }
