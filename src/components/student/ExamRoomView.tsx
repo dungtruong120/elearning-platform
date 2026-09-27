@@ -6,7 +6,7 @@ import {
   ArrowLeft, Clock, CheckCircle2, XCircle, AlertCircle, 
   HelpCircle, ChevronLeft, ChevronRight, RotateCcw, 
   Eye, Trophy, Home, Send, List, LayoutGrid, Award, Check,
-  ShieldAlert, ShieldCheck, Maximize2, Minimize2, X, Grid3X3
+  ShieldAlert, ShieldCheck, Maximize2, Minimize2, X, Grid3X3, BookOpen
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -37,7 +37,7 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
-// BỘ RENDER CHUẨN XÁC: RENDER KATEX VÀ HÌNH ẢNH MINH HỌA/ĐỒ THỊ TỪ WORD
+// BỘ RENDER CHUẨN XÁC: ĐÃ FIX TOÀN DIỆN CẢ FORM \[ \], \( \), ALIGN VÀ HỆ PHƯƠNG TRÌNH
 function MathRenderer({ 
   content, 
   mediaMap = {}, 
@@ -48,14 +48,29 @@ function MathRenderer({
   inline?: boolean;
 }) {
   if (!content) return null;
-  const cleanContent = content.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
-  const parts = cleanContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$$|\$[\s\S]*?\$)/g);
+
+  // 1. Chuẩn hóa các dạng công thức LaTeX chưa được bọc $ hoặc bọc sai kiểu
+  let text = content.normalize("NFC");
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => $$${math.trim()}$$);
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => $${math.trim()}$);
+
+  // Chuyển hệ \left\{ \begin{align} ... thành \begin{cases} chuẩn mực KaTeX
+  text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
+    return $$\\begin{cases} ${body.replace(/&/g, "").trim()} \\end{cases}$$;
+  });
+  text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => $$${match}$$);
+  text = text.replace(/(\\right\.)([a-zA-Z\\])/g, "$1 $2");
+  text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
+  text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
+
+  const parts = text.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$$|\$[\s\S]*?\$)/g);
 
   return (
     <span className={inline ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14px] sm:text-[15px] font-normal text-slate-800"}>
       {parts.map((part, i) => {
         if (!part) return null;
 
+        // Render Hình ảnh từ Word qua token [img:$...$]
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
         if (imgMatch && imgMatch[1]) {
           let rawKey = imgMatch[1].trim();
@@ -86,9 +101,12 @@ function MathRenderer({
           );
         }
 
+        // Render Công thức KaTeX
         if (part.startsWith("$") && part.endsWith("$")) {
           const isBlock = part.startsWith("$$");
           const math = isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim();
+          if (!math) return null;
+
           try {
             return (
               <span
@@ -116,15 +134,15 @@ const DEFAULT_QUESTIONS: QuestionItem[] = [
   {
     id: "q-1",
     order: 1,
-    prompt: "Cho hàm số $y = f(x)$ có đồ thị như hình vẽ. Hàm số đồng biến trên khoảng nào dưới đây?",
+    prompt: "Cho hàm số $y = f(x)$ có đạo hàm $f'(x) = x(x - 1)^2$. Số điểm cực trị của hàm số đã cho là:",
     options: [
-      { key: "A", text: "$(0; 2)$" },
-      { key: "B", text: "$(-\\infty; 0)$" },
-      { key: "C", text: "$(2; +\\infty)$" },
-      { key: "D", text: "$(-1; 1)$" }
+      { key: "A", text: "1" },
+      { key: "B", text: "2" },
+      { key: "C", text: "0" },
+      { key: "D", text: "3" }
     ],
     correctAnswer: "A",
-    explanation: "Dựa vào đồ thị ta thấy hàm số đồng biến trên khoảng (0; 2)."
+    explanation: "Đạo hàm đổi dấu qua nghiệm bội lẻ x = 0. Do đó hàm số có đúng 1 điểm cực trị."
   }
 ];
 
@@ -140,11 +158,24 @@ export function ExamRoomView({
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
-  const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
+
+  // TỰ ĐỘNG KHÔI PHỤC TIẾN ĐỘ BTVN ĐÃ LÀM TRƯỚC ĐÓ
+  const [userAnswers, setUserAnswers] = useState<Record<string, string>>(() => {
+    if (typeof window !== "undefined" && isHomework) {
+      try {
+        const saved = localStorage.getItem(tct_hw_draft_${profile?.id || "anon"}_${quizId});
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {};
+  });
+
   const [layoutMode, setLayoutMode] = useState<"single" | "scroll">("scroll");
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
+  // NẾU LÀ BTVN THÌ THỜI GIAN KHÔNG GIỚI HẠN (VÔ HẠN), CHỈ ĐẾM TIẾN ĐỘ THỜI GIAN THỰC
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
+    if (isHomework) return 0;
     return durationMinutes > 0 ? durationMinutes * 60 : 0;
   });
   const [timeSpentSeconds, setTimeSpentSeconds] = useState<number>(0);
@@ -157,6 +188,7 @@ export function ExamRoomView({
   const [historyAttemptsCount, setHistoryAttemptsCount] = useState<number>(1);
   const [isReviewMode, setIsReviewMode] = useState<boolean>(false);
 
+  // GIÁM SÁT THI (CHỈ ÁP DỤNG CHO BÀI KIỂM TRA ĐỊNH KỲ / LUYỆN ĐỀ, BTVN TẮT HOÀN TOÀN)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [fullscreenExitCount, setFullscreenExitCount] = useState<number>(0);
   const [showFullscreenWarningModal, setShowFullscreenWarningModal] = useState<boolean>(false);
@@ -166,7 +198,17 @@ export function ExamRoomView({
   const userAnswersRef = useRef<Record<string, string>>({});
   userAnswersRef.current = userAnswers;
 
+  // LƯU TỰ ĐỘNG TIẾN ĐỘ BTVN MỖI KHI CHỌN ĐÁP ÁN
+  useEffect(() => {
+    if (isHomework && typeof window !== "undefined" && profile?.id && !isSubmitted) {
+      try {
+        localStorage.setItem(tct_hw_draft_${profile.id}_${quizId}, JSON.stringify(userAnswers));
+      } catch (e) {}
+    }
+  }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
+
   const enterFullscreen = useCallback(() => {
+    if (isHomework) return; // BTVN không ép toàn màn hình
     try {
       if (typeof document !== "undefined" && !document.fullscreenElement) {
         const elem = document.documentElement;
@@ -179,7 +221,7 @@ export function ExamRoomView({
         }
       }
     } catch (err) {}
-  }, []);
+  }, [isHomework]);
 
   const exitFullscreen = useCallback(() => {
     try {
@@ -196,11 +238,14 @@ export function ExamRoomView({
   }, []);
 
   useEffect(() => {
-    enterFullscreen();
-  }, [enterFullscreen]);
+    if (!isHomework) {
+      enterFullscreen();
+    }
+  }, [enterFullscreen, isHomework]);
 
+  // CẢNH BÁO TOÀN MÀN HÌNH (CHỈ BẬT KHI KHÔNG PHẢI LÀ BTVN)
   useEffect(() => {
-    if (isSubmitted || isReviewMode) return;
+    if (isHomework || isSubmitted || isReviewMode) return;
 
     const handleFullscreenChange = () => {
       const isCurrentlyFullscreen = Boolean(document.fullscreenElement);
@@ -210,13 +255,13 @@ export function ExamRoomView({
         setFullscreenExitCount(prev => {
           const nextCount = prev + 1;
           if (nextCount >= 2) {
-            setCheatWarning("CẢNH BÁO TỐI CAO: Bạn đã thoát chế độ Toàn Màn hình quá 2 lần! Hệ thống đang tự động thu bài và khóa bài thi.");
+            setCheatWarning("CẢNH BÁO: Bạn đã thoát Toàn Màn hình quá 2 lần! Hệ thống đang tự động thu bài.");
             setTimeout(() => {
               handleSubmitExam(undefined, nextCount);
             }, 1200);
           } else {
             setShowFullscreenWarningModal(true);
-            setCheatWarning("Cảnh báo: Bạn vừa thoát chế độ Toàn Màn hình! Vui lòng quay lại ngay (Vi phạm 1/2 lần).");
+            setCheatWarning("Cảnh báo: Bạn vừa thoát Toàn Màn hình! Vui lòng quay lại ngay (Vi phạm 1/2 lần).");
           }
           return nextCount;
         });
@@ -227,17 +272,18 @@ export function ExamRoomView({
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
-  }, [isSubmitted, isReviewMode]);
+  }, [isSubmitted, isReviewMode, isHomework]);
 
+  // CẢNH BÁO CHUYỂN TAB (CHỈ BẬT KHI KHÔNG PHẢI LÀ BTVN)
   useEffect(() => {
-    if (isSubmitted || isReviewMode) return;
+    if (isHomework || isSubmitted || isReviewMode) return;
 
     const handleFocusLoss = () => {
       if (document.hidden || !document.hasFocus()) {
         setTabSwitchCount(prev => {
           const nextCount = prev + 1;
           if (nextCount >= 2) {
-            setCheatWarning("CẢNH BÁO TỐI CAO: Bạn đã rời khỏi màn hình làm bài lần 2! Hệ thống đang tự động thu bài.");
+            setCheatWarning("CẢNH BÁO: Bạn đã rời khỏi màn hình làm bài lần 2! Hệ thống đang tự động thu bài.");
             setTimeout(() => {
               handleSubmitExam(nextCount);
             }, 1200);
@@ -256,10 +302,11 @@ export function ExamRoomView({
       document.removeEventListener("visibilitychange", handleFocusLoss);
       window.removeEventListener("blur", handleFocusLoss);
     };
-  }, [isSubmitted, isReviewMode]);
+  }, [isSubmitted, isReviewMode, isHomework]);
 
+  // PHÍM TẮT BẢO VỆ (CHỈ BẬT CHO THI CỬ, BTVN ĐƯỢC TỰ DO TRA CỨU)
   useEffect(() => {
-    if (isSubmitted || isReviewMode) return;
+    if (isHomework || isSubmitted || isReviewMode) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "F12") {
@@ -278,7 +325,7 @@ export function ExamRoomView({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSubmitted, isReviewMode]);
+  }, [isSubmitted, isReviewMode, isHomework]);
 
   useEffect(() => {
     if (cheatWarning) {
@@ -287,7 +334,7 @@ export function ExamRoomView({
     }
   }, [cheatWarning]);
 
-  // NẠP ĐỀ THI TỪ SUPABASE HOẶC LOCALSTORAGE (KÈM MEDIAMAP ẢNH)
+  // NẠP ĐỀ THI TỪ SUPABASE HOẶC LOCALSTORAGE (KÈM MEDIAMAP)
   useEffect(() => {
     setIsLoading(true);
 
@@ -377,12 +424,15 @@ export function ExamRoomView({
     loadExamQuestions();
   }, [quizId]);
 
+  // ĐỒNG HỒ ĐẾM THỜI GIAN
   useEffect(() => {
     if (isSubmitted || isReviewMode) return;
 
     const timer = setInterval(() => {
       setTimeSpentSeconds(prev => prev + 1);
-      if (durationMinutes > 0) {
+
+      // Nếu là đề thi có giới hạn thời gian (không phải BTVN)
+      if (!isHomework && durationMinutes > 0) {
         setSecondsRemaining(prev => {
           if (prev <= 1) {
             clearInterval(timer);
@@ -395,7 +445,7 @@ export function ExamRoomView({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isSubmitted, isReviewMode, durationMinutes]);
+  }, [isSubmitted, isReviewMode, durationMinutes, isHomework]);
 
   const handleSelectOption = (questionId: string, optionKey: string) => {
     if (isSubmitted && !isReviewMode) return;
@@ -427,6 +477,13 @@ export function ExamRoomView({
     setIsSubmitted(true);
     setShowResultModal(true);
 
+    // XÓA BẢN NHÁP BTVN SAU KHI ĐÃ NỘP XONG
+    if (isHomework && typeof window !== "undefined" && profile?.id) {
+      try {
+        localStorage.removeItem(tct_hw_draft_${profile.id}_${quizId});
+      } catch (e) {}
+    }
+
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
@@ -434,8 +491,8 @@ export function ExamRoomView({
         const newAttempt = {
           attemptId: "att-" + Date.now(),
           studentId: profile?.id || "stu-current",
-          studentName: profile?.full_name || "Trương Ngọc Quang",
-          school: profile?.school || "THPT Chuyên",
+          studentName: profile?.full_name || "Học sinh TCT",
+          school: profile?.school || "THPT",
           quizId,
           quizTitle,
           score: calculatedScore,
@@ -474,9 +531,9 @@ export function ExamRoomView({
     setFullscreenExitCount(0);
     setShowFullscreenWarningModal(false);
     setIsMobileDrawerOpen(false);
-    setSecondsRemaining(durationMinutes > 0 ? durationMinutes * 60 : 0);
+    setSecondsRemaining(!isHomework && durationMinutes > 0 ? durationMinutes * 60 : 0);
     setTimeSpentSeconds(0);
-    enterFullscreen();
+    if (!isHomework) enterFullscreen();
   };
 
   const handleViewSolutions = () => {
@@ -500,7 +557,7 @@ export function ExamRoomView({
     return (
       <div className="fixed inset-0 z-[200] bg-slate-900/60 flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-4 border-white/20 border-t-blue-500 rounded-full animate-spin mb-4" />
-        <p className="font-bold text-sm tracking-wide">Đang tải cấu trúc đề thi & hình vẽ minh họa...</p>
+        <p className="font-bold text-sm tracking-wide">Đang tải câu hỏi & dữ liệu hình vẽ...</p>
       </div>
     );
   }
@@ -509,18 +566,18 @@ export function ExamRoomView({
 
   return (
     <div 
-      onContextMenu={(e) => e.preventDefault()}
-      onCopy={(e) => e.preventDefault()}
-      onCut={(e) => e.preventDefault()}
-      onPaste={(e) => e.preventDefault()}
+      onContextMenu={(e) => !isHomework && e.preventDefault()}
+      onCopy={(e) => !isHomework && e.preventDefault()}
+      onCut={(e) => !isHomework && e.preventDefault()}
+      onPaste={(e) => !isHomework && e.preventDefault()}
       style={{
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Plus Jakarta Sans", sans-serif'
       }}
       className="fixed inset-0 z-[120] bg-[#F8FAFC] text-slate-800 flex flex-col overflow-hidden select-none"
     >
-      {/* 1. CẢNH BÁO VI PHẠM GIAN LẬN */}
+      {/* 1. CẢNH BÁO VI PHẠM (CHỈ HIỂN THỊ KHI THI ĐỊNH KỲ / LUYỆN ĐỀ) */}
       <AnimatePresence>
-        {cheatWarning && (
+        {!isHomework && cheatWarning && (
           <motion.div
             initial={{ opacity: 0, y: -24, x: "-50%" }}
             animate={{ opacity: 1, y: 0, x: "-50%" }}
@@ -533,9 +590,9 @@ export function ExamRoomView({
         )}
       </AnimatePresence>
 
-      {/* 2. MODAL CẢNH BÁO THOÁT TOÀN MÀN HÌNH */}
+      {/* 2. MODAL CẢNH BÁO THOÁT TOÀN MÀN HÌNH (CHỈ DÀNH CHO THI CỬ) */}
       <AnimatePresence>
-        {showFullscreenWarningModal && !isSubmitted && (
+        {!isHomework && showFullscreenWarningModal && !isSubmitted && (
           <div className="fixed inset-0 z-[700] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -573,14 +630,16 @@ export function ExamRoomView({
         )}
       </AnimatePresence>
 
-      {/* 3. THANH BAR GỌN GÀNG TRÊN CÙNG (RESPONSIVE CHO TẤT CẢ THIẾT BỊ) */}
+      {/* 3. THANH BAR GỌN GÀNG TRÊN CÙNG (RESPONSIVE CHO CẢ ĐIỆN THOẠI & IPAD) */}
       <header className="h-14 sm:h-16 px-3 sm:px-6 bg-white border-b border-slate-200 shadow-xs flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
             onClick={() => {
               if (!isSubmitted) {
-                if (confirm("Bạn có chắc muốn thoát phòng thi? Bài làm hiện tại sẽ được nộp để tính điểm!")) {
+                if (isHomework) {
+                  onBackToDashboard();
+                } else if (confirm("Bạn có chắc muốn thoát phòng thi? Bài làm hiện tại sẽ được nộp để tính điểm!")) {
                   handleSubmitExam();
                   onBackToDashboard();
                 }
@@ -599,36 +658,38 @@ export function ExamRoomView({
               {quizTitle}
             </h2>
             <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold text-slate-500">
-              <span className="text-[#1D4ED8] font-bold">{isHomework ? "BTVN" : "Thi thử"}</span>
+              <span className={isHomework ? "text-emerald-600 font-bold" : "text-[#1D4ED8] font-bold"}>
+                {isHomework ? "BÀI TẬP VỀ NHÀ (TỰ DO)" : "KIỂM TRA ĐỊNH KỲ"}
+              </span>
               <span className="hidden sm:inline">• {profile?.full_name}</span>
             </div>
           </div>
         </div>
 
-        {/* Cụm thông tin giữa: Đồng hồ thời gian nhỏ gọn */}
+        {/* CỤM THỜI GIAN: BTVN HIỂN THỊ THỜI GIAN ĐÃ LÀM TỰ DO */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-xl shadow-2xs">
           <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
           <span className="text-xs sm:text-sm font-black tracking-tight font-mono">
-            {durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds)}
+            {isHomework ? ${formatTimer(timeSpentSeconds)} (Tự do) : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
           </span>
         </div>
 
-        {/* Cụm nút thao tác phải */}
+        {/* NÚT THAO TÁC BÊN PHẢI */}
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          {/* Nút bật/tắt toàn màn hình trên desktop */}
-          <button
-            type="button"
-            onClick={() => {
-              if (document.fullscreenElement) exitFullscreen();
-              else enterFullscreen();
-            }}
-            className="hidden sm:flex p-2 rounded-xl text-slate-600 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
-            title="Toàn màn hình"
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
+          {!isHomework && (
+            <button
+              type="button"
+              onClick={() => {
+                if (document.fullscreenElement) exitFullscreen();
+                else enterFullscreen();
+              }}
+              className="hidden sm:flex p-2 rounded-xl text-slate-600 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
+              title="Toàn màn hình"
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+          )}
 
-          {/* Nút nộp bài trực tiếp trên top bar */}
           {!isSubmitted ? (
             <button
               type="button"
@@ -636,7 +697,7 @@ export function ExamRoomView({
               className="px-3 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm shadow-xs flex items-center gap-1 cursor-pointer shrink-0"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Nộp bài <span className="hidden sm:inline">({answeredCount}/{questions.length})</span></span>
+              <span>{isHomework ? "Nộp bài tập" : "Nộp bài"} <span className="hidden sm:inline">({answeredCount}/{questions.length})</span></span>
             </button>
           ) : (
             <button
@@ -654,6 +715,20 @@ export function ExamRoomView({
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
         <main className="lg:col-span-9 p-3 sm:p-6 lg:p-8 overflow-y-auto custom-scrollbar flex flex-col justify-between">
           <div className="max-w-4xl w-full mx-auto space-y-4 sm:space-y-6 pb-20 lg:pb-0">
+            
+            {/* THÔNG BÁO TỰ LƯU ĐỐI VỚI BTVN */}
+            {isHomework && (
+              <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-emerald-600" />
+                  Chế độ BTVN: Thời gian vô hạn, không giám sát, tự động lưu tiến độ làm bài liên tục.
+                </span>
+                <span className="text-[11px] font-bold bg-white px-2 py-0.5 rounded border border-emerald-300">
+                  Đã lưu {answeredCount}/{questions.length} câu ✓
+                </span>
+              </div>
+            )}
+
             {layoutMode === "single" ? (
               <div className="bg-white rounded-2xl p-4 sm:p-7 border border-slate-200/90 shadow-2xs space-y-4 text-left">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -743,7 +818,7 @@ export function ExamRoomView({
                           onClick={() => handleSubmitExam()}
                           className="px-4 py-1.5 sm:px-5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition flex items-center gap-1 cursor-pointer"
                         >
-                          <Send className="w-3.5 h-3.5" /> Nộp bài
+                          <Send className="w-3.5 h-3.5" /> Hoàn tất
                         </button>
                       )
                     )}
@@ -835,14 +910,27 @@ export function ExamRoomView({
                 <span className="truncate">{profile?.school || "THPT"}</span>
                 <span className="font-bold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded-md">{profile?.grade || "Lớp 12"}</span>
               </div>
+              <div className="pt-1.5 border-t border-slate-100 text-[11px]">
+                {isHomework ? (
+                  <span className="text-emerald-700 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Chế độ BTVN: Tự do làm bài
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1 text-blue-700 font-bold">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Chế độ: Giám sát Toàn màn hình
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-slate-900 text-white shadow-xs space-y-0.5 text-left">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Thời gian</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">
+                {isHomework ? "THỜI GIAN LÀM BTVN" : "THỜI GIAN CÒN LẠI"}
+              </span>
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-blue-400" />
                 <span className="text-xl font-black tracking-tight font-mono">
-                  {durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds)}
+                  {isHomework ? ${formatTimer(timeSpentSeconds)} (Vô hạn) : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
             </div>
@@ -890,7 +978,7 @@ export function ExamRoomView({
                 onClick={() => handleSubmitExam()}
                 className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <Send className="w-3.5 h-3.5" /> Nộp bài thi
+                <Send className="w-3.5 h-3.5" /> {isHomework ? "Nộp BTVN" : "Nộp bài thi"}
               </button>
             ) : (
               <button
@@ -917,7 +1005,7 @@ export function ExamRoomView({
         </button>
       </div>
 
-      {/* 7. DRAWER MA TRẬN CÂU HỎI CHO MOBILE & IPAD (TRƯỢT LÊN TỪ ĐÁY) */}
+      {/* 7. DRAWER MA TRẬN CÂU HỎI CHO MOBILE & IPAD */}
       <AnimatePresence>
         {isMobileDrawerOpen && (
           <div 
@@ -936,7 +1024,7 @@ export function ExamRoomView({
                 <div className="flex items-center gap-2">
                   <Grid3X3 className="w-5 h-5 text-[#1D4ED8]" />
                   <h3 className="font-black text-sm text-slate-900">Danh sách câu hỏi</h3>
-                  <span className="text-xs font-bold text-slate-500">({answeredCount}/{questions.length} đã làm)</span>
+                  <span className="text-xs font-bold text-slate-500">({answeredCount}/{questions.length} câu)</span>
                 </div>
                 <button
                   type="button"
@@ -947,10 +1035,10 @@ export function ExamRoomView({
                 </button>
               </div>
 
-              <div className="py-3 flex items-center justify-between text-xs font-bold text-slate-600 bg-slate-50 px-3 rounded-xl my-2">
-                <span>Thời gian làm bài:</span>
+              <div className="py-2.5 flex items-center justify-between text-xs font-bold text-slate-600 bg-slate-50 px-3 rounded-xl my-2">
+                <span>Thời gian:</span>
                 <span className="text-[#1D4ED8] font-black font-mono">
-                  {durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds)}
+                  {isHomework ? ${formatTimer(timeSpentSeconds)} (Vô hạn) : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
 
@@ -992,7 +1080,7 @@ export function ExamRoomView({
                   onClick={() => setIsMobileDrawerOpen(false)}
                   className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition cursor-pointer"
                 >
-                  Đóng lại
+                  Đóng
                 </button>
                 {!isSubmitted && (
                   <button
@@ -1003,7 +1091,7 @@ export function ExamRoomView({
                     }}
                     className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Send className="w-3.5 h-3.5" /> Nộp bài ngay
+                    <Send className="w-3.5 h-3.5" /> Nộp bài
                   </button>
                 )}
               </div>
@@ -1031,7 +1119,7 @@ export function ExamRoomView({
 
                   <div>
                     <h3 className="text-lg sm:text-2xl font-black text-slate-900 tracking-tight">
-                      Hoàn Thành Bài Thi!
+                      {isHomework ? "Hoàn Thành BTVN!" : "Hoàn Thành Bài Thi!"}
                     </h3>
                     <p className="text-xs text-slate-500 font-semibold mt-0.5">{quizTitle}</p>
                   </div>
@@ -1087,7 +1175,7 @@ export function ExamRoomView({
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-100 mb-2">
                     <Award className="w-4 h-4 text-amber-500" />
                     <h3 className="font-black text-xs sm:text-sm text-slate-900 tracking-tight">
-                      Bảng Xếp Hạng Đề Thi
+                      Bảng Xếp Hạng Kết Quả
                     </h3>
                   </div>
 
