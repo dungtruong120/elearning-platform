@@ -107,15 +107,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
   // FETCH BÀI HỌC VÀ KHO ĐỀ TRỰC TIẾP TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
-    // 1. Tải bài học
     try {
-      const { data: courseRow, error: courseErr } = await supabase
+      const { data: courseRow } = await supabase
         .from("courses")
         .select("*")
         .limit(1)
         .maybeSingle();
 
-      if (!courseErr && courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
+      if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
         setChapters(courseRow.chapters);
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
@@ -131,7 +130,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       }
     }
 
-    // 2. Tải Kho đề thi luyện tập từ Supabase (BẢNG practice_exams)
     try {
       const { data: dbExams } = await supabase
         .from("practice_exams")
@@ -154,7 +152,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       }
     }
 
-    // 3. Tải thông báo từ Supabase
     try {
       const { data: dbNotifs } = await supabase
         .from("system_notifications")
@@ -184,7 +181,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     fetchAuthAndData();
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
 
-    // Lắng nghe Realtime cho cả bảng courses và practice_exams
     const channel = supabase
       .channel("student-online-global-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => fetchAuthAndData())
@@ -344,7 +340,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return m + "p " + s + "s";
   };
 
-  // LỌC BÀI HỌC DÀNH CHO HỌC SINH ONLINE
   const onlineChapters = useMemo(() => {
     return (chapters || [])
       .map((chap: any) => ({
@@ -356,7 +351,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
 
-  // Lịch học & Điểm danh Online kết nối Realtime Supabase
   const [onlineSessions, setOnlineSessions] = useState<any[]>([]);
   const [onlineAttRecords, setOnlineAttRecords] = useState<any[]>([]);
   const [onlineToast, setOnlineToast] = useState<string>("");
@@ -451,7 +445,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return false;
   };
 
-  // Ca học Online chỉ kích hoạt trước giờ học 15 phút
   const liveOnlineSession = useMemo(() => {
     if (!onlineSessions || onlineSessions.length === 0) return null;
     const now = currentTime;
@@ -459,7 +452,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
     return onlineSessions.find((s: any) => {
       const tMode = (s.target_mode || s.audience || "all").toLowerCase();
-      const isTarget = tMode === "online" || tMode === "all";
+      const isTarget = tMode === "online" || tMode === "all" || (s.meetingUrl && s.meetingUrl.trim() !== "");
       if (!isTarget) return false;
       if (!isSameDate(s.date, s.isoDate, now)) return false;
       const slot = parseTimeSlotMinutes(s.timeSlot);
@@ -597,6 +590,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         )}
       </AnimatePresence>
 
+      {/* BẢO TOÀN TÍNH NĂNG ĐÓNG MỞ SIDEBAR TRÊN LAPTOP / DESKTOP (md:block) */}
       <div 
         className={"h-full shrink-0 transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden hidden md:block z-40 " + (
           isSidebarOpen ? "w-64 opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-10"
@@ -606,6 +600,11 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         <div className="w-64 h-full">
           <Sidebar user={profile!} activeTab={activeTab} setActiveTab={setActiveTab} onToggleSidebar={() => setIsSidebarOpen(false)} onLogout={onLogout} />
         </div>
+      </div>
+
+      {/* THANH MENU DƯỚI ĐÁY CỐ ĐỊNH DUY NHẤT TRÊN ĐIỆN THOẠI (md:hidden) */}
+      <div className="md:hidden">
+        <Sidebar user={profile!} activeTab={activeTab} setActiveTab={setActiveTab} onToggleSidebar={() => {}} onLogout={onLogout} />
       </div>
       
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
@@ -617,7 +616,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
           />
         </div>
         
-        <main className="flex-1 p-4 sm:px-8 py-6 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out w-full">
+        {/* VÙNG NỘI DUNG VỚI ĐỆM pb-24 TRÊN MOBILE ĐỂ KHÔNG BỊ THANH DƯỚI ĐÁY CHE */}
+        <main className="flex-1 p-4 sm:px-8 py-5 pb-24 md:pb-6 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out w-full">
           <AnimatePresence mode="wait">
             <motion.div 
               key={activeTab} 
@@ -680,23 +680,23 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                   )}
 
                   <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
-                    <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Chương trình 12</h2>
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Chương trình 12</h2>
                     <span className="text-xs font-bold text-slate-500">
                       {onlineChapters.length} Chương chính khóa (Lớp Online TCT)
                     </span>
                   </div>
 
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     {onlineChapters.map((chap, idx) => (
-                      <div key={chap.id || idx} className="space-y-3">
-                        <h3 className="font-extrabold text-slate-900 text-lg flex items-center gap-2">
-                          <span className="text-[#1D4ED8] uppercase text-xs tracking-widest bg-blue-50 px-2 py-1 rounded-md border border-blue-100">Chương {idx + 1}</span> {chap.title}
+                      <div key={chap.id || idx} className="space-y-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs">
+                        <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-2">
+                          <span className="text-[#1D4ED8] uppercase text-xs tracking-widest bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">Chương {idx + 1}</span> {chap.title}
                         </h3>
-                        <div className="pl-4 space-y-2.5 border-l-2 border-slate-200/60 ml-4">
+                        <div className="pl-3 space-y-2 border-l-2 border-blue-500/20 ml-2">
                           {(chap.lessons || []).map((les: any) => (
-                            <div key={les.id} className="flex items-center gap-3 text-slate-700 hover:text-[#1D4ED8] transition-colors cursor-default">
-                              <div className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
-                              <span className="font-medium text-[14px]">{les.title}</span>
+                            <div key={les.id} className="flex items-center gap-2 text-slate-700 hover:text-[#1D4ED8] transition-colors cursor-default text-xs sm:text-sm font-medium">
+                              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                              <span className="truncate">{les.title}</span>
                             </div>
                           ))}
                         </div>
@@ -713,14 +713,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
               {activeTab === "courses" && (
                 <div className="max-w-6xl mx-auto space-y-6 text-left justify-start">
-                  <div className="bg-white rounded-[20px] p-5 border border-slate-200 shadow-sm flex flex-col gap-3.5 text-left">
+                  <div className="bg-white rounded-[20px] p-4 sm:p-5 border border-slate-200 shadow-sm flex flex-col gap-3.5 text-left">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="px-2.5 py-1 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-extrabold uppercase tracking-widest border border-blue-100">
                         Hệ thống TCT (Lớp Online)
                       </span>
                       <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md text-[10px] font-bold border border-emerald-100"><Clock className="w-3.5 h-3.5" /> Thời gian học: {formattedStudyTimeToday}</div>
                     </div>
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Xin chào, {profile?.full_name}!</h2>
+                    <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">Xin chào, {profile?.full_name}!</h2>
                     <div>
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">MỤC TIÊU CÁ NHÂN:</span>
@@ -735,14 +735,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     </div>
                   </div>
                   
-                  <div className="bg-[#1D4ED8] rounded-xl py-3 px-5 text-white shadow-sm flex items-center gap-3 text-left">
+                  <div className="bg-[#1D4ED8] rounded-xl py-3 px-4 sm:px-5 text-white shadow-sm flex items-center gap-3 text-left">
                     <Quote className="w-5 h-5 text-yellow-300 opacity-90 shrink-0" />
-                    <p className="text-[13px] font-semibold text-white leading-snug">"{dailyQuote}"</p>
+                    <p className="text-xs sm:text-[13px] font-semibold text-white leading-snug">"{dailyQuote}"</p>
                   </div>
                   
                   <div className="pt-2 space-y-4 text-left justify-start">
                     <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
-                      <h3 className="text-xl font-black text-slate-900 tracking-tight">Chương trình học chính khóa</h3>
+                      <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">Chương trình học chính khóa</h3>
                     </div>
                     <ChapterAccordion 
                       chapters={onlineChapters.filter(chap => chap.title.toLowerCase().includes(searchQuery.toLowerCase()) || chap.lessons?.some((l: any) => l.title.toLowerCase().includes(searchQuery.toLowerCase())))} 
@@ -760,46 +760,40 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 <div className="w-full max-w-7xl mx-auto space-y-6 text-left">
                   <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
                     <div className="flex items-center gap-3">
-                      <button onClick={() => setActiveTab("courses")} className="w-10 h-10 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:text-[#1D4ED8] hover:border-[#1D4ED8] flex items-center justify-center transition-colors cursor-pointer"><ArrowLeft className="w-5 h-5" /></button>
+                      <button onClick={() => setActiveTab("courses")} className="w-9 h-9 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:text-[#1D4ED8] hover:border-[#1D4ED8] flex items-center justify-center transition-colors cursor-pointer"><ArrowLeft className="w-4 h-4" /></button>
                       <div>
-                        <h2 className="text-2xl font-black text-slate-900 tracking-tight">Trung tâm thông báo</h2>
-                        <p className="text-sm text-slate-500 font-medium mt-0.5">Tin tức lớp học, kết quả thi & nhắc nhở từ giáo viên.</p>
+                        <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Trung tâm thông báo</h2>
+                        <p className="text-xs sm:text-sm text-slate-500 font-medium">Tin tức lớp học, kết quả thi & nhắc nhở từ giáo viên.</p>
                       </div>
                     </div>
-                    <button onClick={handleMarkAllAsRead} className="px-5 py-2.5 bg-blue-50 text-[#1D4ED8] font-bold text-[13px] rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm cursor-pointer">Đánh dấu đã đọc</button>
+                    <button onClick={handleMarkAllAsRead} className="px-4 py-2 bg-blue-50 text-[#1D4ED8] font-bold text-xs rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm cursor-pointer">Đã đọc tất cả</button>
                   </div>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {notificationsList.length === 0 ? (
                       <div className="py-12 text-center text-slate-400 font-medium bg-white rounded-3xl border border-slate-200 shadow-sm">Chưa có thông báo nào.</div>
                     ) : (
                       notificationsList.map(item => {
                         const isUnread = !readNotifIds.includes(item.id);
                         return (
-                          <div key={item.id} onClick={() => handleActionFromCenter(item)} className={"p-5 rounded-3xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 group cursor-pointer " + (isUnread ? "bg-blue-50/40 border-[#1D4ED8] shadow-sm" : "bg-white border-slate-200 hover:border-slate-300 shadow-sm")}> 
-                            <div className="flex items-start gap-4">
-                              <div className={"w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm " + (item.type === "warning" ? "bg-rose-50 text-rose-500 border border-rose-100" : item.type === "success" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : item.type === "teacher" ? "bg-indigo-50 text-indigo-500 border border-indigo-100" : "bg-blue-50 text-blue-500 border border-blue-100")}>
-                                {item.type === "warning" && <AlertTriangle className="w-6 h-6" />}
-                                {item.type === "success" && <CheckCircle2 className="w-6 h-6" />}
-                                {item.type === "teacher" && <MessageSquare className="w-6 h-6" />}
-                                {(item.type === "info" || !["warning","success","teacher"].includes(item.type)) && <Clock className="w-6 h-6" />}
+                          <div key={item.id} onClick={() => handleActionFromCenter(item)} className={"p-4 sm:p-5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group cursor-pointer " + (isUnread ? "bg-blue-50/40 border-[#1D4ED8] shadow-sm" : "bg-white border-slate-200 hover:border-slate-300 shadow-2xs")}> 
+                            <div className="flex items-start gap-3">
+                              <div className={"w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-xs " + (item.type === "warning" ? "bg-rose-50 text-rose-500 border border-rose-100" : item.type === "success" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : item.type === "teacher" ? "bg-indigo-50 text-indigo-500 border border-indigo-100" : "bg-blue-50 text-blue-500 border border-blue-100")}>
+                                {item.type === "warning" && <AlertTriangle className="w-5 h-5" />}
+                                {item.type === "success" && <CheckCircle2 className="w-5 h-5" />}
+                                {item.type === "teacher" && <MessageSquare className="w-5 h-5" />}
+                                {(item.type === "info" || !["warning","success","teacher"].includes(item.type)) && <Clock className="w-5 h-5" />}
                               </div>
                               <div>
-                                <div className="flex items-center gap-2 mb-1">
-                                  <h4 className={"text-[15px] tracking-tight " + (isUnread ? "font-black text-[#1D4ED8]" : "font-bold text-slate-800")}>{item.title}</h4>
-                                  {isUnread && <span className="w-2.5 h-2.5 rounded-full bg-[#1D4ED8] shadow-sm"></span>}
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <h4 className={"text-sm tracking-tight " + (isUnread ? "font-black text-[#1D4ED8]" : "font-bold text-slate-800")}>{item.title}</h4>
+                                  {isUnread && <span className="w-2 h-2 rounded-full bg-[#1D4ED8] shadow-sm"></span>}
                                 </div>
-                                <p className="text-sm text-slate-600 leading-relaxed mb-2">{item.desc}</p>
-                                <span className="text-[11px] text-slate-400 font-bold">{item.dateStr}</span>
+                                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-1.5">{item.desc}</p>
+                                <span className="text-[10px] text-slate-400 font-bold">{item.dateStr}</span>
                               </div>
                             </div>
                             <div className="shrink-0 sm:self-center mt-2 sm:mt-0">
-                              {item.actionType === "system_modal" ? (
-                                <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer bg-white text-slate-700 border border-slate-200 hover:bg-slate-50">Xem chi tiết</button>
-                              ) : item.actionType === "course_score" ? (
-                                <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer bg-[#1D4ED8] text-white hover:bg-[#1E40AF]">Xem bài học <ArrowRight className="w-4 h-4" /></button>
-                              ) : (
-                                <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer bg-[#1D4ED8] text-white hover:bg-[#1E40AF]">Xem tiến trình <ArrowRight className="w-4 h-4" /></button>
-                              )}
+                              <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer bg-[#1D4ED8] text-white hover:bg-[#1E40AF]">Xem chi tiết <ArrowRight className="w-3.5 h-3.5" /></button>
                             </div>
                           </div>
                         );
@@ -820,16 +814,16 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               
               {activeTab === "practice" && (
                 <div className="max-w-6xl mx-auto space-y-5 text-left justify-start">
-                  <div className="bg-white py-4 px-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="bg-white py-4 px-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-50 text-[#1D4ED8] rounded-xl flex items-center justify-center shadow-sm">
+                      <div className="w-10 h-10 bg-blue-50 text-[#1D4ED8] rounded-xl flex items-center justify-center shadow-sm shrink-0">
                         <Target className="w-5 h-5" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                        <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
                           Hệ thống Luyện đề Thực chiến (Lớp Online)
                         </h2>
-                        <span className="inline-flex items-center gap-1 mt-1 text-[11px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-lg border border-emerald-100">
+                        <span className="inline-flex items-center gap-1 mt-0.5 text-[11px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-lg border border-emerald-100">
                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> {practiceExams.length} đề thi khả dụng
                         </span>
                       </div>
@@ -838,27 +832,27 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 shrink-0">
                       <button 
                         onClick={() => setPracticeSubTab("list")}
-                        className={"px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
+                        className={"px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
                       >
                         <Library className="w-4 h-4"/> Danh sách đề
                       </button>
                       <button 
                         onClick={() => setPracticeSubTab("history")}
-                        className={"px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
+                        className={"px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
                       >
-                        <BarChart3 className="w-4 h-4"/> Điểm & Lịch sử
+                        <BarChart3 className="w-4 h-4"/> Lịch sử làm bài
                       </button>
                     </div>
                   </div>
 
                   {practiceSubTab === "list" && (
-                    <div className="space-y-5 animate-in fade-in duration-200">
+                    <div className="space-y-4 animate-in fade-in duration-200">
                       <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
                         {["Tất cả đề", "ĐGNL HSA (ĐHQGHN)", "ĐGTD TSA (ĐHBK)", "Tốt Nghiệp THPT", "Giữa Kì 1", "Học Kì 1", "Giữa Kì 2", "Học Kì 2"].map(cat => (
                           <button 
                             key={cat}
                             onClick={() => setSelectedPracticeCategory(cat)}
-                            className={"px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all shadow-sm cursor-pointer " + (
+                            className={"px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all shadow-2xs cursor-pointer " + (
                               selectedPracticeCategory === cat 
                                 ? "bg-[#1D4ED8] text-white border border-[#1D4ED8]" 
                                 : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
@@ -869,16 +863,19 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         ))}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {(practiceExams || [])
-                          .filter((e: any) => e.target_mode === "online" || e.target_mode === "all" || !e.target_mode)
+                          .filter((e: any) => {
+                            const tMode = (e.target_mode || "all").toLowerCase();
+                            return tMode === "online" || tMode === "all";
+                          })
                           .filter(e => selectedPracticeCategory === "Tất cả đề" || e.category === selectedPracticeCategory)
                           .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
                           .map(exam => {
                             const canViewFile = exam.allowViewFile !== false;
                             return (
-                              <div key={exam.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:border-[#1D4ED8]/50 hover:shadow-md transition-all flex flex-col group">
-                                <div className="flex justify-between items-start mb-3">
+                              <div key={exam.id} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs hover:border-[#1D4ED8]/50 hover:shadow-md transition-all flex flex-col group">
+                                <div className="flex justify-between items-start mb-2.5">
                                   <span className="text-[9px] font-black uppercase bg-blue-50 text-[#1D4ED8] px-2 py-0.5 rounded-md border border-blue-100">
                                     {exam.category}
                                   </span>
@@ -887,7 +884,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                   </span>
                                 </div>
                                 <h3 className="text-sm font-bold text-slate-800 mb-1 leading-snug line-clamp-2 group-hover:text-[#1D4ED8] transition-colors">{exam.title}</h3>
-                                <p className="text-[11px] text-slate-500 font-medium mb-5">Số câu hỏi: {exam.data?.reduce((acc: number, sec: any) => acc + (sec.questions?.length || 0), 0) || 0} câu</p>
+                                <p className="text-[11px] text-slate-500 font-medium mb-4">Số câu: {exam.data?.reduce((acc: number, sec: any) => acc + (sec.questions?.length || 0), 0) || 0} câu</p>
                                 
                                 <div className="mt-auto flex flex-col gap-2">
                                   {canViewFile && (
@@ -906,7 +903,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                     onClick={() => setWorkspacePracticeExam(exam)}
                                     className="w-full py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                                   >
-                                    <Video className="w-3.5 h-3.5 text-amber-600"/> Xem video chữa bài
+                                    <Video className="w-3.5 h-3.5 text-amber-600"/> Video chữa bài
                                   </button>
 
                                   <button 
@@ -920,7 +917,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             );
                         })}
                         {practiceExams.length === 0 && (
-                          <div className="col-span-full py-10 text-center text-slate-400 text-sm font-medium">Không có đề thi nào trong danh mục này.</div>
+                          <div className="col-span-full py-10 text-center text-slate-400 text-sm font-medium">Chưa có đề thi nào trong danh mục này.</div>
                         )}
                       </div>
                     </div>
@@ -933,9 +930,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
                             <tr>
                               <th className="py-3 px-5 font-bold w-1/3">Tên đề thi</th>
-                              <th className="py-3 px-5 font-bold text-center">Số lần làm</th>
+                              <th className="py-3 px-5 font-bold text-center">Lượt làm</th>
                               <th className="py-3 px-5 font-bold text-center">Điểm cao nhất</th>
-                              <th className="py-3 px-5 font-bold text-center">Lần mới nhất</th>
+                              <th className="py-3 px-5 font-bold text-center">Lần cuối</th>
                               <th className="py-3 px-5 font-bold text-right">Thao tác</th>
                             </tr>
                           </thead>
@@ -950,20 +947,20 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                     <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase mt-1 inline-block">{grp.category}</span>
                                   </td>
                                   <td className="py-3 px-5 text-center">
-                                    <span className="bg-slate-100 text-slate-600 font-bold px-2.5 py-1 rounded-lg text-xs">{grp.attempts.length} lần</span>
+                                    <span className="bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-lg text-xs">{grp.attempts.length} lần</span>
                                   </td>
                                   <td className="py-3 px-5 text-center">
-                                    <span className="font-black text-[#1D4ED8] text-sm bg-blue-50 border border-blue-100 px-3 py-1 rounded-xl shadow-xs">
-                                      {grp.maxScore.toFixed(1)} <span className="text-[10px] font-medium text-blue-700">điểm</span>
+                                    <span className="font-black text-[#1D4ED8] text-sm bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-xl shadow-xs">
+                                      {grp.maxScore.toFixed(1)}
                                     </span>
                                   </td>
                                   <td className="py-3 px-5 text-center text-slate-500 text-xs font-medium">
-                                    {new Date(grp.lastDate).toLocaleString("vi-VN")}
+                                    {new Date(grp.lastDate).toLocaleDateString("vi-VN")}
                                   </td>
                                   <td className="py-3 px-5 text-right">
                                     <button 
                                       onClick={() => setHistoryModalExamId(grp.quizId)}
-                                      className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-[#1D4ED8] text-[#1D4ED8] hover:bg-blue-50 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#1D4ED8] text-[#1D4ED8] hover:bg-blue-50 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
                                     >
                                       <ListOrdered className="w-3.5 h-3.5" /> Chi tiết
                                     </button>
@@ -1005,9 +1002,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               <table className="w-full text-left text-[13px] border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
-                    <th className="py-3 px-5 font-bold text-center">Lần làm</th>
-                    <th className="py-3 px-5 font-bold">Thời gian nộp bài</th>
-                    <th className="py-3 px-5 font-bold text-center">Hoàn thành trong</th>
+                    <th className="py-3 px-5 font-bold text-center">Lần</th>
+                    <th className="py-3 px-5 font-bold">Thời gian nộp</th>
+                    <th className="py-3 px-5 font-bold text-center">Thời lượng</th>
                     <th className="py-3 px-5 font-bold text-center">Điểm số</th>
                   </tr>
                 </thead>
@@ -1020,10 +1017,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         <td className="py-3 px-5 text-slate-600 font-medium">{new Date(att.submittedAt).toLocaleString("vi-VN")}</td>
                         <td className="py-3 px-5 text-center text-slate-500">{formatCompletionTime(Number(att.completionTime) || 0)}</td>
                         <td className="py-3 px-5 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <span className={"font-black " + (isMax ? "text-amber-600 text-[15px]" : "text-[#1D4ED8]")}>{att.score.toFixed(1)}</span>
-                            {isMax && <span className="text-[9px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md uppercase font-bold">Max</span>}
-                          </div>
+                          <span className={"font-black " + (isMax ? "text-amber-600 text-[15px]" : "text-[#1D4ED8]")}>{att.score.toFixed(1)}</span>
                         </td>
                       </tr>
                     );
@@ -1033,7 +1027,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
             </div>
             
             <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50/30">
-              <button onClick={() => setHistoryModalExamId(null)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-[13px] rounded-xl transition-colors cursor-pointer shadow-sm">
+              <button onClick={() => setHistoryModalExamId(null)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-sm">
                 Đóng lại
               </button>
             </div>
@@ -1055,19 +1049,18 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
             </div>
             
             <div className="p-6">
-              <h4 className="text-lg font-black text-slate-900 mb-2 leading-snug">{selectedSysNotif.title}</h4>
-              <div className="flex flex-wrap items-center gap-2 mb-5 text-xs font-semibold text-slate-500">
-                <span className="bg-blue-50 text-[#1D4ED8] px-2 py-1 rounded-md border border-blue-100">Từ: Ban Giám Thị TCT</span>
-                <span className="hidden sm:inline">•</span>
+              <h4 className="text-base sm:text-lg font-black text-slate-900 mb-2 leading-snug">{selectedSysNotif.title}</h4>
+              <div className="flex flex-wrap items-center gap-2 mb-4 text-xs font-semibold text-slate-500">
+                <span className="bg-blue-50 text-[#1D4ED8] px-2 py-0.5 rounded-md border border-blue-100">Ban Giám Thị TCT</span>
                 <span>{selectedSysNotif.dateStr}</span>
               </div>
-              <div className="text-[14px] text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-2xl border border-slate-100">
+              <div className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-2xl border border-slate-100">
                 {selectedSysNotif.desc}
               </div>
             </div>
             
             <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50/30">
-              <button onClick={() => setSelectedSysNotif(null)} className="px-6 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-[13px] rounded-xl transition-colors cursor-pointer">
+              <button onClick={() => setSelectedSysNotif(null)} className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer">
                 Đóng
               </button>
             </div>
@@ -1081,28 +1074,28 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
         >
           <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden cursor-default">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2">
-                <FileText className="w-5 h-5 text-[#1D4ED8]" /> Xem trước: {previewExam.title}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-2">
+                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-[#1D4ED8]" /> Xem trước: {previewExam.title}
               </h3>
-              <button onClick={() => setPreviewExam(null)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer">
+              <button onClick={() => setPreviewExam(null)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 flex-1 overflow-y-auto custom-scrollbar bg-slate-50/30">
+            <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar bg-slate-50/30">
               {previewExam.data?.map((sec: any, sIdx: number) => (
-                <div key={sIdx} className="mb-8">
-                  {sec.section_title && <h4 className="font-bold text-[#1D4ED8] mb-4 bg-blue-50 px-3 py-1.5 rounded-lg inline-block text-sm">{sec.section_title}</h4>}
-                  <div className="space-y-6">
+                <div key={sIdx} className="mb-6">
+                  {sec.section_title && <h4 className="font-bold text-[#1D4ED8] mb-3 bg-blue-50 px-3 py-1.5 rounded-lg inline-block text-xs sm:text-sm">{sec.section_title}</h4>}
+                  <div className="space-y-4">
                     {sec.questions?.map((q: any, qIdx: number) => (
-                      <div key={qIdx} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                        <div className="font-bold text-slate-800 text-sm mb-3 flex items-start gap-2">
+                      <div key={qIdx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                        <div className="font-bold text-slate-800 text-xs sm:text-sm mb-2.5 flex items-start gap-2">
                           <span className="shrink-0 text-[#1D4ED8]">Câu {q.order_index}:</span> 
                           <span className="font-medium" dangerouslySetInnerHTML={{ __html: q.prompt_html }} />
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-2 sm:pl-10">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2 sm:pl-8">
                           {q.options?.map((opt: any, oIdx: number) => (
-                            <div key={oIdx} className="text-[13px] text-slate-600 flex items-start gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            <div key={oIdx} className="text-xs text-slate-600 flex items-start gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
                               <span className="font-bold text-slate-900">{opt.key}.</span> 
                               <span dangerouslySetInnerHTML={{ __html: opt.text_html }} />
                             </div>
