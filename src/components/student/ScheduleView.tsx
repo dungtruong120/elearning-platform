@@ -38,9 +38,10 @@ export function parseTimeSlotMinutes(timeSlot?: string): { startMinutes: number;
 export function isSameDate(sessDate?: string, sessIsoDate?: string, targetDate: Date = new Date()): boolean {
   const d = String(targetDate.getDate()).padStart(2, "0");
   const m = String(targetDate.getMonth() + 1).padStart(2, "0");
-  const y = String(targetDate.getFullYear());
+  const y = targetDate.getFullYear();
   const dStr = d + "/" + m;
   const isoStr = y + "-" + m + "-" + d;
+
   if (sessIsoDate && (sessIsoDate === isoStr || sessIsoDate.includes(isoStr))) return true;
   if (sessDate && (sessDate === dStr || sessDate.includes(dStr))) return true;
   return false;
@@ -66,16 +67,14 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     teacher: ""
   });
 
-  const studentMode = mode || profile?.learning_mode || "online";
+  const studentMode = (mode || profile?.learning_mode || profile?.study_mode || "online").toLowerCase();
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 10000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 10000);
     return () => clearInterval(timer);
   }, []);
 
-  // ĐỌC DỮ LIỆU TỪ SUPABASE DATABASE & REALTIME
+  // TẢI LỊCH HỌC TRỰC TIẾP TỪ SUPABASE (BẢNG SESSIONS)
   const loadScheduleData = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -88,14 +87,11 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_online_sessions", JSON.stringify(data));
         }
-      } else {
-        // Fallback sang localStorage nếu DB chưa có
-        if (typeof window !== "undefined") {
-          const savedSessions = localStorage.getItem("edunexus_online_sessions");
-          if (savedSessions) {
-            const parsed = JSON.parse(savedSessions);
-            if (Array.isArray(parsed) && parsed.length > 0) setSessions(parsed);
-          }
+      } else if (typeof window !== "undefined") {
+        const savedSessions = localStorage.getItem("edunexus_online_sessions");
+        if (savedSessions) {
+          const parsed = JSON.parse(savedSessions);
+          if (Array.isArray(parsed)) setSessions(parsed);
         }
       }
     } catch {
@@ -104,7 +100,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
         if (savedSessions) {
           try {
             const parsed = JSON.parse(savedSessions);
-            if (Array.isArray(parsed) && parsed.length > 0) setSessions(parsed);
+            if (Array.isArray(parsed)) setSessions(parsed);
           } catch {}
         }
       }
@@ -113,18 +109,12 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     if (typeof window !== "undefined") {
       try {
         const savedPersonal = localStorage.getItem("edunexus_personal_schedules");
-        if (savedPersonal) {
-          const parsed = JSON.parse(savedPersonal);
-          if (Array.isArray(parsed)) setPersonalSchedules(parsed);
-        }
+        if (savedPersonal) setPersonalSchedules(JSON.parse(savedPersonal));
       } catch {}
 
       try {
         const savedAtt = localStorage.getItem("edunexus_attendance");
-        if (savedAtt) {
-          const parsed = JSON.parse(savedAtt);
-          if (Array.isArray(parsed)) setAttendanceRecords(parsed);
-        }
+        if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
       } catch {}
     }
   }, []);
@@ -132,16 +122,12 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
   useEffect(() => {
     loadScheduleData();
 
-    // Kết nối Supabase Realtime: Admin lưu là Học sinh nhận được ca học ngay tức thì (< 1 giây)
+    // Lắng nghe Realtime tức thì khi Admin thêm/sửa ca học
     const channel = supabase
-      .channel("realtime-sessions")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sessions" },
-        () => {
-          loadScheduleData();
-        }
-      )
+      .channel("realtime-sessions-view")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
+        loadScheduleData();
+      })
       .subscribe();
 
     window.addEventListener("storage", loadScheduleData);
@@ -156,14 +142,14 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     setTimeout(() => setSuccessToast(""), 3500);
   };
 
-  // LỌC CA HỌC CHUẨN XÁC: Hiển thị cả ca học dành riêng lẫn ca học chung ("all")
+  // BỘ LỌC THÔNG MINH CHO CẢ ADMIN VÀ HỌC SINH
   const filteredSessions = useMemo(() => {
     if (isAdmin || mode === "all") return sessions;
     return sessions.filter(sess => {
       const tMode = (sess.target_mode || "all").toLowerCase();
       const aud = (sess.audience || "all").toLowerCase();
-      const sMode = studentMode.toLowerCase();
-      return tMode === "all" || tMode === sMode || aud === "all" || aud === sMode;
+      // Hiển thị nếu ca học đặt là "all" HOẶC khớp với phân hệ học sinh
+      return tMode === "all" || tMode === studentMode || aud === "all" || aud === studentMode;
     });
   }, [sessions, studentMode, isAdmin, mode]);
 
@@ -182,7 +168,6 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
       const curMinutes = now.getHours() * 60 + now.getMinutes();
 
       if (curMinutes > slot.endMinutes) return "past";
-      // Kích hoạt banner trước giờ học 15 phút
       if (curMinutes >= slot.startMinutes - 15 && curMinutes <= slot.endMinutes) return "live";
 
       return "upcoming";
@@ -644,7 +629,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                             <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
                               {isAtt ? (
                                 <span className="text-emerald-600 font-bold flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3" /> Đã điểm danh
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Đã điểm danh
                                 </span>
                               ) : isPast ? (
                                 <span className="w-full text-center py-1 bg-slate-100 text-slate-400 rounded-md font-semibold border border-slate-200 select-none cursor-not-allowed">
