@@ -105,8 +105,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
-  // FETCH BÀI HỌC TRỰC TIẾP TỪ SUPABASE
+  // FETCH BÀI HỌC VÀ KHO ĐỀ TRỰC TIẾP TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
+    // 1. Tải bài học
     try {
       const { data: courseRow, error: courseErr } = await supabase
         .from("courses")
@@ -130,20 +131,48 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       }
     }
 
+    // 2. Tải Kho đề thi luyện tập từ Supabase (BẢNG practice_exams)
+    try {
+      const { data: dbExams } = await supabase
+        .from("practice_exams")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (dbExams && Array.isArray(dbExams)) {
+        setPracticeExams(dbExams);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
+        }
+      } else if (typeof window !== "undefined") {
+        const savedPractice = localStorage.getItem("edunexus_practice_exams");
+        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
+      }
+    } catch (e) {
+      if (typeof window !== "undefined") {
+        const savedPractice = localStorage.getItem("edunexus_practice_exams");
+        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
+      }
+    }
+
+    // 3. Tải thông báo từ Supabase
+    try {
+      const { data: dbNotifs } = await supabase
+        .from("system_notifications")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (dbNotifs && Array.isArray(dbNotifs)) {
+        setSysNotifications(dbNotifs);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
+        }
+      }
+    } catch (e) {}
+
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
         if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
-      } catch (e) {}
-
-      try {
-        const savedPractice = localStorage.getItem("edunexus_practice_exams");
-        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
-      } catch (e) {}
-
-      try {
-        const savedNotifs = localStorage.getItem("edunexus_system_notifications");
-        if (savedNotifs) setSysNotifications(JSON.parse(savedNotifs));
       } catch (e) {}
 
       const studySecs = parseInt(localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0", 10);
@@ -155,12 +184,12 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     fetchAuthAndData();
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
 
-    // Lắng nghe Realtime: Admin lưu bài mới là màn hình học sinh tự cập nhật
+    // Lắng nghe Realtime cho cả bảng courses và practice_exams
     const channel = supabase
-      .channel("student-online-course-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => {
-        fetchAuthAndData();
-      })
+      .channel("student-online-global-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => fetchAuthAndData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => fetchAuthAndData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "system_notifications" }, () => fetchAuthAndData())
       .subscribe();
 
     window.addEventListener("storage", fetchAuthAndData);
@@ -226,7 +255,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     });
     
     practiceExams.forEach(ex => {
-      const exTime = ex.createdAt ? new Date(ex.createdAt).getTime() : Date.now() - 86400000;
+      const exTime = ex.createdAt || ex.created_at ? new Date(ex.createdAt || ex.created_at).getTime() : Date.now() - 86400000;
       combined.push({
         id: "exam-" + ex.id, 
         title: "Đề thi thử mới cập nhật", 
@@ -244,8 +273,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         title: sys.title, 
         desc: sys.content, 
         type: sys.type === "urgent" ? "warning" : "teacher", 
-        timestamp: new Date(sys.createdAt).getTime(), 
-        dateStr: new Date(sys.createdAt).toLocaleString("vi-VN"), 
+        timestamp: new Date(sys.createdAt || sys.created_at).getTime(), 
+        dateStr: new Date(sys.createdAt || sys.created_at).toLocaleString("vi-VN"), 
         actionType: "system_modal"
       });
     });
