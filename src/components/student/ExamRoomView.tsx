@@ -158,11 +158,12 @@ export function ExamRoomView({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
 
-  // TỰ ĐỘNG KHÔI PHỤC TIẾN ĐỘ BTVN ĐÃ LÀM TRƯỚC ĐÓ
+  // TỰ ĐỘNG KHÔI PHỤC TIẾN ĐỘ BTVN ĐÃ LÀM TRƯỚC ĐÓ (GHÉP CHUỖI AN TOÀN)
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>(() => {
     if (typeof window !== "undefined" && isHomework) {
       try {
-        const saved = localStorage.getItem(tct_hw_draft_${profile?.id || "anon"}_${quizId});
+        const key = "tct_hw_draft_" + (profile?.id || "anon") + "_" + quizId;
+        const saved = localStorage.getItem(key);
         if (saved) return JSON.parse(saved);
       } catch (e) {}
     }
@@ -197,11 +198,12 @@ export function ExamRoomView({
   const userAnswersRef = useRef<Record<string, string>>({});
   userAnswersRef.current = userAnswers;
 
-  // LƯU TỰ ĐỘNG TIẾN ĐỘ BTVN MỖI KHI CHỌN ĐÁP ÁN
+  // LƯU TỰ ĐỘNG TIẾN ĐỘ BTVN MỖI KHI CHỌN ĐÁP ÁN (GHÉP CHUỖI AN TOÀN)
   useEffect(() => {
     if (isHomework && typeof window !== "undefined" && profile?.id && !isSubmitted) {
       try {
-        localStorage.setItem(tct_hw_draft_${profile.id}_${quizId}, JSON.stringify(userAnswers));
+        const key = "tct_hw_draft_" + profile.id + "_" + quizId;
+        localStorage.setItem(key, JSON.stringify(userAnswers));
       } catch (e) {}
     }
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
@@ -477,7 +479,8 @@ export function ExamRoomView({
 
     if (isHomework && typeof window !== "undefined" && profile?.id) {
       try {
-        localStorage.removeItem(tct_hw_draft_${profile.id}_${quizId});
+        const key = "tct_hw_draft_" + profile.id + "_" + quizId;
+        localStorage.removeItem(key);
       } catch (e) {}
     }
 
