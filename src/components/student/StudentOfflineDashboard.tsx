@@ -106,20 +106,32 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
+  // FETCH BÀI HỌC TRỰC TIẾP TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedChapters = localStorage.getItem("edunexus_course_data");
-        if (savedChapters && savedChapters !== "undefined" && savedChapters !== "null") {
-          const parsed = JSON.parse(savedChapters);
-          setChapters(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_CHAPTERS);
-        } else {
-          setChapters(DEFAULT_CHAPTERS);
+    try {
+      const { data: courseRow, error: courseErr } = await supabase
+        .from("courses")
+        .select("*")
+        .limit(1)
+        .maybeSingle();
+
+      if (!courseErr && courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
+        setChapters(courseRow.chapters);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
         }
-      } catch (e) {
-        setChapters(DEFAULT_CHAPTERS);
+      } else if (typeof window !== "undefined") {
+        const savedChapters = localStorage.getItem("edunexus_course_data");
+        if (savedChapters) setChapters(JSON.parse(savedChapters));
       }
-      
+    } catch (e) {
+      if (typeof window !== "undefined") {
+        const savedChapters = localStorage.getItem("edunexus_course_data");
+        if (savedChapters) setChapters(JSON.parse(savedChapters));
+      }
+    }
+
+    if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
         if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
@@ -154,11 +166,19 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   useEffect(() => {
     fetchAuthAndData();
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
+
+    // Lắng nghe Realtime
+    const channel = supabase
+      .channel("student-offline-course-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => {
+        fetchAuthAndData();
+      })
+      .subscribe();
+
     window.addEventListener("storage", fetchAuthAndData);
-    const interval = setInterval(fetchAuthAndData, 5000);
     return () => { 
+      supabase.removeChannel(channel);
       window.removeEventListener("storage", fetchAuthAndData); 
-      clearInterval(interval); 
     };
   }, [fetchAuthAndData]);
 
@@ -336,13 +356,11 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_online_sessions", JSON.stringify(data));
         }
-      } else {
-        if (typeof window !== "undefined") {
-          const saved = localStorage.getItem("edunexus_online_sessions");
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) setOfflineSessions(parsed);
-          }
+      } else if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("edunexus_online_sessions");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) setOfflineSessions(parsed);
         }
       }
     } catch {
