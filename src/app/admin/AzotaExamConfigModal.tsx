@@ -837,12 +837,41 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ LINK ẢNH TỪ WEB
+// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX TRIỆT ĐỂ)
 // ============================================================================
+
+export function cleanAndNormalizeMath(raw: string): string {
+  if (!raw) return "";
+  let text = raw.normalize("NFC");
+
+  // 1. Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => $$${math.trim()}$$);
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => $${math.trim()}$);
+
+  // 2. Chuyển đổi hệ phương trình \left\{ \begin{align} ... \end{align} \right. thành \begin{cases} ... \end{cases} chuẩn KaTeX
+  text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
+    const cleanBody = body.replace(/&/g, "").trim();
+    return $$\\begin{cases} ${cleanBody} \\end{cases}$$;
+  });
+
+  // Tự bọc \begin{align} độc lập nếu chưa có $$ bao quanh
+  text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => {
+    return $$${match}$$;
+  });
+
+  // 3. Tự động thêm dấu cách sau các lệnh LaTeX dính nhau
+  text = text.replace(/(\\right\.)([a-zA-Z\\])/g, "$1 $2");
+  text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
+
+  // 4. Dọn sạch rác MathType thừa
+  text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
+
+  return text;
+}
 
 export function TokenViewer({ 
   content, 
-  mediaMap, 
+  mediaMap = {}, 
   inline = false 
 }: { 
   content?: string; 
@@ -850,13 +879,15 @@ export function TokenViewer({
   inline?: boolean;
 }) {
   if (!content) return null;
-  const cleanContent = content.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
-  const parts = cleanContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$$|\$[\s\S]*?\$)/g);
+  const readyContent = cleanAndNormalizeMath(content);
+  const parts = readyContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$$|\$[\s\S]*?\$)/g);
 
   return (
     <div className={inline ? "inline leading-relaxed text-slate-800 text-[13px] break-words" : "leading-relaxed text-slate-800 text-[14px] whitespace-pre-wrap break-words"}>
       {parts.map((part, idx) => {
         if (!part) return null;
+
+        // Render Hình ảnh đồ thị
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
         if (imgMatch && imgMatch[1]) {
           let rawKey = imgMatch[1].trim();
@@ -886,16 +917,19 @@ export function TokenViewer({
             </div>
           );
         }
+
+        // Render KaTeX chuẩn xác
         if (part.startsWith("$") && part.endsWith("$")) {
           const isDisplay = part.startsWith("$$");
           let mathStr = isDisplay ? part.slice(2, -2) : part.slice(1, -1);
-          mathStr = mathStr.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "").trim();
+          mathStr = mathStr.trim();
           if (!mathStr) return null;
+
           try {
             return (
               <span 
                 key={idx} 
-                className={isDisplay ? "block my-2 text-center" : "inline-block align-middle px-0.5 text-[15px] font-serif"} 
+                className={isDisplay ? "block my-2 text-center overflow-x-auto custom-scrollbar" : "inline-block align-middle px-0.5 text-[15px] font-serif"} 
                 dangerouslySetInnerHTML={{ 
                   __html: katex.renderToString(mathStr, { displayMode: isDisplay, throwOnError: false }) 
                 }} 
