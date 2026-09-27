@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React from "react";
 import { 
-  LayoutGrid, BookOpen, Calendar, Target, 
-  TrendingUp, Trophy, LogOut, PanelLeftClose 
+  BookOpen, Calendar, Target, BarChart2, Trophy, LogOut, LayoutDashboard, Bell
 } from "lucide-react";
 import { Profile } from "@/types";
 
@@ -13,196 +12,101 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   onToggleSidebar?: () => void;
   onLogout?: () => void;
-  hasLiveMeeting?: boolean;
 }
 
-export function Sidebar({ 
-  user, 
-  activeTab, 
-  setActiveTab, 
-  onToggleSidebar,
-  onLogout,
-  hasLiveMeeting = false
-}: SidebarProps) {
-  const [unattendedLiveCount, setUnattendedLiveCount] = useState<number>(0);
-  const isOnlineStudent = user?.study_mode === "online" || user?.learning_mode === "online";
-
-  const checkLiveAttendance = useCallback(() => {
-    if (!user || !isOnlineStudent || typeof window === "undefined") {
-      setUnattendedLiveCount(0);
-      return;
-    }
-    try {
-      const todayStr = new Date().toISOString().split("T")[0];
-      const savedSessions = localStorage.getItem("tct_schedule_sessions") || localStorage.getItem("edunexus_online_sessions");
-      if (!savedSessions) {
-        setUnattendedLiveCount(0);
-        return;
-      }
-
-      const sessions = JSON.parse(savedSessions);
-      const activeSessions = Array.isArray(sessions) 
-        ? sessions.filter((s: any) => (s.meet_link || s.zoom_link || s.meetingUrl) && (!s.date || s.date === todayStr || s.isoDate === todayStr))
-        : [];
-
-      const savedAtt = localStorage.getItem("tct_attendance_records") || localStorage.getItem("edunexus_attendance");
-      const records = savedAtt ? JSON.parse(savedAtt) : [];
-
-      const unattended = activeSessions.filter((s: any) => {
-        return !records.some((r: any) => 
-          (r.sessionId === s.id || r.sessionDate === s.date) && 
-          (r.studentId === user.id || r.studentName === user.full_name) && 
-          r.status === "present"
-        );
-      });
-
-      setUnattendedLiveCount(unattended.length);
-    } catch {
-      setUnattendedLiveCount(0);
-    }
-  }, [user, isOnlineStudent]);
-
-  useEffect(() => {
-    checkLiveAttendance();
-    window.addEventListener("storage", checkLiveAttendance);
-    window.addEventListener("attendance_updated", checkLiveAttendance);
-    const interval = setInterval(checkLiveAttendance, 5000);
-    return () => {
-      window.removeEventListener("storage", checkLiveAttendance);
-      window.removeEventListener("attendance_updated", checkLiveAttendance);
-      clearInterval(interval);
-    };
-  }, [checkLiveAttendance]);
-
-  const navItems = [
-    { id: "overview", label: "Tổng quan", icon: LayoutGrid },
-    { id: "courses", label: "Nội dung bài học", icon: BookOpen },
-    {
-      id: "schedule",
-      label: "Lịch học",
-      icon: Calendar,
-      badge: hasLiveMeeting || unattendedLiveCount > 0 ? (
-        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-200 text-[9px] font-black">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500" />
-          </span>
-          <span>LIVE</span>
-        </span>
-      ) : (
-        <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] font-bold">
-          MỚI
-        </span>
-      )
-    },
-    {
-      id: "practice",
-      label: "Luyện đề",
-      icon: Target,
-      badge: (
-        <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] font-bold">
-          KHO ĐỀ
-        </span>
-      )
-    },
-    { id: "progress", label: "Tiến trình", icon: TrendingUp },
-    { id: "leaderboard", label: "Xếp hạng", icon: Trophy }
+export function Sidebar({ user, activeTab, setActiveTab, onToggleSidebar, onLogout }: SidebarProps) {
+  const menuItems = [
+    { key: "overview", label: "Tổng quan", icon: LayoutDashboard },
+    { key: "courses", label: "Bài học", icon: BookOpen },
+    { key: "schedule", label: "Lịch học", icon: Calendar },
+    { key: "practice", label: "Luyện đề", icon: Target },
+    { key: "progress", label: "Tiến trình", icon: BarChart2 },
+    { key: "leaderboard", label: "Xếp hạng", icon: Trophy }
   ];
 
-  const handleLogout = () => {
-    if (onLogout) {
-      onLogout();
-      return;
-    }
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.removeItem("tct_current_user");
-        localStorage.removeItem("edunexus_current_user");
-        localStorage.removeItem("edunexus_user_session");
-        window.location.href = "/";
-      } catch {
-        window.location.href = "/";
-      }
-    }
-  };
-
-  const initialLetter = user?.full_name ? user.full_name.trim().charAt(0).toUpperCase() : "T";
-
   return (
-    <aside className="w-60 h-full bg-white/70 dark:bg-slate-900/70 backdrop-blur-2xl backdrop-saturate-150 border-r border-white/60 dark:border-white/10 flex flex-col justify-between select-none font-sans text-left transition-all">
-      {/* 1. LOGO BRAND TCT (Chỉ giữ duy nhất hình vuông bo góc, đã xóa chữ thừa) */}
-      <div>
-        <div className="h-16 px-4 flex items-center justify-between border-b border-slate-100/60 dark:border-slate-800/60">
-          <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-[#1D4ED8] to-indigo-600 text-white flex items-center justify-center font-black text-xs shadow-md shadow-blue-600/20">
+    <>
+      {/* ========================================================= */}
+      {/* 1. SIDEBAR CHO DESKTOP & TABLET/IPAD (Màn hình md trở lên) */}
+      {/* ========================================================= */}
+      <aside className="hidden md:flex w-64 bg-[#1E40AF] text-white/90 flex-col shrink-0 p-5 h-screen shadow-lg select-none">
+        <div className="flex items-center gap-3 mb-8 shrink-0">
+          <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">
             TCT
           </div>
-
-          {/* Nút thu gọn / đóng Sidebar */}
-          {onToggleSidebar && (
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100/80 transition cursor-pointer"
-              title="Đóng sidebar để chuyển sang thanh ngang"
-            >
-              <PanelLeftClose className="w-4 h-4" />
-            </button>
-          )}
+          <div>
+            <h1 className="font-extrabold text-[15px] text-white tracking-tight leading-none">TÂM CHÍ TÀI</h1>
+            <p className="text-[9px] text-blue-200 font-bold tracking-widest mt-1 uppercase">Học Trực Tuyến</p>
+          </div>
         </div>
 
-        {/* 2. MENU ĐIỀU HƯỚNG DỌC */}
-        <nav className="p-3 space-y-1">
-          {navItems.map(item => {
+        <nav className="space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
+          {menuItems.map(item => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
+            const isActive = activeTab === item.key;
             return (
               <button
-                key={item.id}
+                key={item.key}
                 type="button"
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                onClick={() => setActiveTab(item.key)}
+                className={"w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-[13px] font-bold transition-all duration-200 cursor-pointer " + (
                   isActive 
-                    ? "bg-[#1D4ED8] text-white shadow-md shadow-blue-600/20 font-extrabold" 
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
-                }`}
+                    ? "bg-white text-[#1E40AF] shadow-sm font-black" 
+                    : "text-blue-100 hover:bg-white/10"
+                )}
               >
-                <div className="flex items-center gap-2.5">
-                  <Icon className={`w-4 h-4 ${isActive ? "text-white" : "text-slate-400"}`} />
-                  <span>{item.label}</span>
-                </div>
-                {item.badge}
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{item.label}</span>
               </button>
             );
           })}
         </nav>
-      </div>
 
-      {/* 3. PROFILE VÀ NÚT ĐĂNG XUẤT */}
-      <div className="p-3.5 border-t border-slate-100/60 dark:border-slate-800/60 space-y-2">
-        <div className="flex items-center gap-2.5 p-2 bg-slate-50/80 rounded-xl border border-slate-100">
-          <div className="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs shadow-xs shrink-0">
-            {initialLetter}
+        <div className="mt-auto pt-4 border-t border-blue-400/20 shrink-0 space-y-3">
+          <div className="px-3.5 py-2.5 bg-white/10 rounded-2xl">
+            <p className="text-xs font-bold text-white truncate">{user?.full_name || "Học sinh"}</p>
+            <p className="text-[10px] text-blue-200 font-semibold">{user?.grade || "Lớp 12"} • {user?.learning_mode === "online" ? "Online" : "Offline"}</p>
           </div>
-          <div className="min-w-0 flex-1">
-            <h4 className="font-bold text-xs text-slate-900 truncate">
-              {user?.full_name || "Học sinh"}
-            </h4>
-            <p className="text-[10px] text-slate-400 truncate">
-              {(user?.grade || "Lớp 12") + " • " + (user?.school || "THPT")}
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-2xl bg-white/10 hover:bg-rose-600/90 text-blue-100 hover:text-white border border-white/10 transition-all font-bold text-xs cursor-pointer group"
+          >
+            <LogOut className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform shrink-0" />
+            <span>Đăng xuất</span>
+          </button>
         </div>
+      </aside>
 
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="w-full py-1.5 px-3 rounded-xl border border-rose-200 bg-rose-50/50 hover:bg-rose-100/60 text-rose-600 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-          <span>Đăng xuất</span>
-        </button>
-      </div>
-    </aside>
+      {/* ========================================================= */}
+      {/* 2. BOTTOM NAVIGATION BAR CỐ ĐỊNH Ở ĐÁY CHO MOBILE         */}
+      {/* ========================================================= */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-white/95 backdrop-blur-2xl border-t border-slate-200/90 shadow-[0_-4px_24px_rgba(15,23,42,0.08)] px-1.5 pt-1.5 pb-2.5 flex items-center justify-around select-none">
+        {menuItems.map(item => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setActiveTab(item.key)}
+              className={"flex-1 flex flex-col items-center justify-center py-1 rounded-xl transition-all cursor-pointer relative " + (
+                isActive 
+                  ? "text-[#1D4ED8]" 
+                  : "text-slate-400 hover:text-slate-600 active:scale-95"
+              )}
+            >
+              <div className={"p-1 rounded-xl transition-all " + (isActive ? "bg-blue-50" : "")}>
+                <Icon className={"w-5 h-5 transition-transform " + (isActive ? "scale-110 text-[#1D4ED8]" : "")} />
+              </div>
+              <span className={"text-[10px] tracking-tight mt-0.5 leading-none " + (isActive ? "font-black" : "font-semibold")}>
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+    </>
   );
 }
 
