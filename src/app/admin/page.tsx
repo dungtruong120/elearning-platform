@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
+// DYNAMIC IMPORT AN TOÀN TRÁNH LỖI SSR
 const AzotaExamConfigModal = dynamic(
   () => import("./AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
@@ -228,84 +229,84 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // NẠP DỮ LIỆU TỪ SUPABASE CHO TẤT CẢ CÁC PHẦN
+  // NẠP DỮ LIỆU TỪ SUPABASE CHO TẤT CẢ CÁC BẢNG (KHO BÀI HỌC, ĐỀ THI, LỊCH HỌC, THÔNG BÁO)
   const loadStorageData = useCallback(async () => {
-    if (typeof window === "undefined") return;
+    if (typeof window !== "undefined") {
+      // 1. Tải bài học từ bảng courses
+      try {
+        const { data: courseRow } = await supabase
+          .from("courses")
+          .select("*")
+          .limit(1)
+          .maybeSingle();
 
-    // 1. Tải bài học
-    try {
-      const { data: courseRow } = await supabase
-        .from("courses")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+        if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters)) {
+          setChapters(courseRow.chapters);
+          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+        } else {
+          const savedData = localStorage.getItem("edunexus_course_data");
+          if (savedData) setChapters(JSON.parse(savedData));
+        }
+      } catch (e) {}
 
-      if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters)) {
-        setChapters(courseRow.chapters);
-        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
-      } else {
-        const savedData = localStorage.getItem("edunexus_course_data");
-        if (savedData) setChapters(JSON.parse(savedData));
-      }
-    } catch (e) {}
+      // 2. Tải Kho đề thi luyện tập từ bảng practice_exams
+      try {
+        const { data: dbExams } = await supabase
+          .from("practice_exams")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-    // 2. Tải Kho đề thi luyện tập
-    try {
-      const { data: dbExams } = await supabase
-        .from("practice_exams")
-        .select("*")
-        .order("created_at", { ascending: false });
+        if (dbExams && Array.isArray(dbExams)) {
+          setPracticeExams(dbExams);
+          localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
+        } else {
+          const savedPractice = localStorage.getItem("edunexus_practice_exams");
+          if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
+        }
+      } catch (e) {}
 
-      if (dbExams && Array.isArray(dbExams)) {
-        setPracticeExams(dbExams);
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
-      } else {
-        const savedPractice = localStorage.getItem("edunexus_practice_exams");
-        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
-      }
-    } catch (e) {}
+      // 3. Tải Lịch học & Ca học từ bảng sessions
+      try {
+        const { data: dbSessions } = await supabase
+          .from("sessions")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-    // 3. Tải Lịch học & Ca học
-    try {
-      const { data: dbSessions } = await supabase
-        .from("sessions")
-        .select("*")
-        .order("created_at", { ascending: false });
+        if (dbSessions && Array.isArray(dbSessions) && dbSessions.length > 0) {
+          setOnlineSessions(dbSessions);
+          localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
+          const datesFromSessions = Array.from(new Set(dbSessions.map((s: any) => s.date).filter(Boolean)));
+          if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
+        } else {
+          const savedSessions = localStorage.getItem("edunexus_online_sessions");
+          if (savedSessions) setOnlineSessions(JSON.parse(savedSessions));
+        }
+      } catch (e) {}
 
-      if (dbSessions && Array.isArray(dbSessions) && dbSessions.length > 0) {
-        setOnlineSessions(dbSessions);
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
-        const datesFromSessions = Array.from(new Set(dbSessions.map(s => s.date).filter(Boolean)));
-        if (datesFromSessions.length > 0) setSessionDates(datesFromSessions);
-      } else {
-        const savedSessions = localStorage.getItem("edunexus_online_sessions");
-        if (savedSessions) setOnlineSessions(JSON.parse(savedSessions));
-      }
-    } catch (e) {}
+      // 4. Tải Thông báo từ bảng system_notifications
+      try {
+        const { data: dbNotifs } = await supabase
+          .from("system_notifications")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-    // 4. Tải Thông báo hệ thống
-    try {
-      const { data: dbNotifs } = await supabase
-        .from("system_notifications")
-        .select("*")
-        .order("created_at", { ascending: false });
+        if (dbNotifs && Array.isArray(dbNotifs)) {
+          setSysNotifications(dbNotifs);
+          localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
+        } else {
+          const savedNotifs = localStorage.getItem("edunexus_system_notifications");
+          if (savedNotifs) setSysNotifications(JSON.parse(savedNotifs));
+        }
+      } catch (e) {}
 
-      if (dbNotifs && Array.isArray(dbNotifs)) {
-        setSysNotifications(dbNotifs);
-        localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
-      } else {
-        const savedNotifs = localStorage.getItem("edunexus_system_notifications");
-        if (savedNotifs) setSysNotifications(JSON.parse(savedNotifs));
-      }
-    } catch (e) {}
-
-    // 5. Tải lượt làm bài & điểm danh
-    try {
-      const savedAttempts = localStorage.getItem("edunexus_attempts");
-      if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
-      const savedAtt = localStorage.getItem("edunexus_attendance");
-      if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
-    } catch (e) {}
+      // 5. Tải lượt làm bài và điểm danh
+      try {
+        const savedAttempts = localStorage.getItem("edunexus_attempts");
+        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
+      } catch (e) {}
+    }
   }, []);
 
   useEffect(() => {
@@ -315,7 +316,7 @@ function AdminDashboardContent() {
 
     // Lắng nghe Realtime cho tất cả các bảng
     const channel = supabase
-      .channel("admin-realtime-global-sync")
+      .channel("admin-realtime-sync-all")
       .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => loadStorageData())
       .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => loadStorageData())
@@ -330,7 +331,7 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents]);
 
-  // LƯU BÀI HỌC VÀO SUPABASE (BẢNG courses)
+  // LƯU BÀI HỌC VÀO SUPABASE (BẢNG courses - TỰ ĐỘNG KHỚP ID)
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
     if (typeof window !== "undefined") {
@@ -343,17 +344,20 @@ function AdminDashboardContent() {
     try {
       const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
       if (existingRows && existingRows.length > 0) {
-        await supabase
+        const { error } = await supabase
           .from("courses")
           .update({ chapters: newChapters, updated_at: new Date().toISOString() })
           .eq("id", existingRows[0].id);
+        if (error) alert("Lỗi lưu bài học lên Supabase: " + error.message);
       } else {
-        await supabase
+        const { error } = await supabase
           .from("courses")
           .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
+        if (error) alert("Lỗi chèn bài học lên Supabase: " + error.message);
       }
     } catch (err: any) {
       console.error("Lỗi khi lưu Supabase courses:", err);
+      alert("Lỗi kết nối bảng courses: " + (err?.message || ""));
     }
   };
 
@@ -594,17 +598,18 @@ function AdminDashboardContent() {
       timeSlot: finalTimeSlot,
       target_mode: newDateAudience,
       audience: newDateAudience,
-      room: newDateAudience === "online" ? "Zoom / Meet" : "P.201 TCT",
+      room: newDateAudience === "offline" ? "P.201 TCT" : "Zoom / Meet",
       meetingUrl: newDateAudience !== "offline" ? "https://zoom.us/j/1234567890" : "",
       createdAt: new Date().toISOString()
     };
     const updatedSessions = [newSessionMeta, ...onlineSessions];
     setOnlineSessions(updatedSessions);
 
-    try {
-      await supabase.from("sessions").insert([newSessionMeta]);
-    } catch (err) {
-      console.warn("Lỗi lưu Supabase:", err);
+    // GHI TRỰC TIẾP LÊN BẢNG SESSIONS SUPABASE
+    const { error } = await supabase.from("sessions").insert([newSessionMeta]);
+    if (error) {
+      console.error("Lỗi lưu sessions Supabase:", error);
+      alert("Lỗi lưu ca học lên Supabase: " + error.message);
     }
 
     if (typeof window !== "undefined") {
@@ -654,10 +659,11 @@ function AdminDashboardContent() {
       setSessionDates(updatedDates);
     }
 
-    try {
-      await supabase.from("sessions").insert([newSession]);
-    } catch (err) {
-      console.warn("Lỗi lưu Supabase:", err);
+    // GHI TRỰC TIẾP LÊN BẢNG SESSIONS SUPABASE
+    const { error } = await supabase.from("sessions").insert([newSession]);
+    if (error) {
+      console.error("Lỗi lưu sessions Supabase:", error);
+      alert("Lỗi phát ca học lên Supabase: " + error.message);
     }
 
     if (typeof window !== "undefined") {
@@ -1123,7 +1129,7 @@ function AdminDashboardContent() {
                             </td>
                             <td className="py-4 px-4">
                               <div className="flex items-center justify-center gap-2">
-                                <button onClick={() => { setEditLessonModal({chapterId: les.chapterId, lesson: les}); setEditLessonForm({ title: les.title, description: les.description || "", duration: les.duration || 45, format: les.format || "Zoom", target_mode: les.target_mode || "all" }); }} className="p-1.5 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer" title="Sửa bài học"><Edit3 className="w-4 h-4" /></button>
+                                <button onClick={() => { setEditLessonModal({chapterId: les.chapterId, lesson: les}); setEditLessonForm({ title: les.title, description: les.description || "", duration: 45, format: "Zoom", target_mode: les.target_mode || "all" }); }} className="p-1.5 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer" title="Sửa bài học"><Edit3 className="w-4 h-4" /></button>
                                 <button onClick={() => handleDeleteLesson(les.chapterId, les.id)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer" title="Xóa bài học"><Trash2 className="w-4 h-4" /></button>
                               </div>
                             </td>
@@ -2449,9 +2455,11 @@ function AdminDashboardContent() {
 
               // GHI TRỰC TIẾP LÊN BẢNG practice_exams CỦA SUPABASE
               try {
-                await supabase.from("practice_exams").upsert(newExam);
-              } catch (err) {
+                const { error } = await supabase.from("practice_exams").upsert(newExam);
+                if (error) alert("Lỗi lưu đề thi lên Supabase: " + error.message);
+              } catch (err: any) {
                 console.warn("Lỗi lưu đề thi lên Supabase:", err);
+                alert("Lỗi kết nối bảng practice_exams: " + (err?.message || ""));
               }
 
               showToast("Đã thêm vào kho Luyện đề: " + examData.category);
