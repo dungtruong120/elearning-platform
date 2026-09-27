@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// DYNAMIC IMPORT AN TOÀN TRÁNH LỖI SSR
 const AzotaExamConfigModal = dynamic(
   () => import("./AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
@@ -113,16 +112,8 @@ function AdminDashboardContent() {
   const [sessionDates, setSessionDates] = useState<string[]>([
     "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09"
   ]);
-  const [onlineSessions, setOnlineSessions] = useState<any[]>([
-    { id: "sess-1", title: "Chuyên đề 1: Đạo hàm & Khảo sát hàm số nâng cao", date: "24/8", isoDate: "2026-08-24", shiftId: "ca-6", timeSlot: "19:30 - 21:00", meetingUrl: "https://zoom.us/j/1234567890", audience: "all", target_mode: "all", guideImages: ["https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80"], createdAt: "2026-08-20T10:00:00Z" },
-    { id: "sess-2", title: "Chuyên đề 2: Kỹ thuật Casio & Giải nhanh Oxyz", date: "26/8", isoDate: "2026-08-26", shiftId: "ca-6", timeSlot: "19:30 - 21:00", meetingUrl: "https://meet.google.com/abc-defg-hij", audience: "online", target_mode: "online", guideImages: ["https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=800&auto=format&fit=crop&q=80"], createdAt: "2026-08-22T10:00:00Z" },
-    { id: "sess-3-today", title: "Chuyên đề 3: Tích phân & Ứng dụng thực tế", date: "24/09", isoDate: "2026-09-24", shiftId: "ca-6", timeSlot: "19:30 - 21:00", meetingUrl: "https://zoom.us/j/1234567890", audience: "all", target_mode: "all", createdAt: "2026-09-24T08:00:00Z" }
-  ]);
-  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([
-    { studentId: "stu-1", sessionDate: "24/8", status: "present" },
-    { studentId: "stu-3", sessionDate: "24/8", status: "present" },
-    { studentId: "stu-1", sessionDate: "24/09", status: "present" }
-  ]);
+  const [onlineSessions, setOnlineSessions] = useState<any[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
 
   const [attendanceSearchText, setAttendanceSearchText] = useState<string>("");
   const [attendanceFilterMode, setAttendanceFilterMode] = useState<"all" | "online" | "offline">("all");
@@ -237,108 +228,84 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // NẠP DỮ LIỆU TỪ SUPABASE
+  // NẠP DỮ LIỆU TỪ SUPABASE CHO TẤT CẢ CÁC PHẦN
   const loadStorageData = useCallback(async () => {
-    if (typeof window !== "undefined") {
-      try {
-        const { data: courseRow, error: courseErr } = await supabase
-          .from("courses")
-          .select("*")
-          .limit(1)
-          .maybeSingle();
+    if (typeof window === "undefined") return;
 
-        if (!courseErr && courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
-          setChapters(courseRow.chapters);
-          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
-        } else {
-          const savedData = localStorage.getItem("edunexus_course_data");
-          if (savedData && savedData !== "undefined" && savedData !== "null") {
-            const parsed = JSON.parse(savedData);
-            if (Array.isArray(parsed) && parsed.length > 0) setChapters(parsed);
-          } else {
-            setChapters(INITIAL_CHAPTERS);
-          }
-        }
-      } catch (e) {
+    // 1. Tải bài học
+    try {
+      const { data: courseRow } = await supabase
+        .from("courses")
+        .select("*")
+        .limit(1)
+        .maybeSingle();
+
+      if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters)) {
+        setChapters(courseRow.chapters);
+        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+      } else {
         const savedData = localStorage.getItem("edunexus_course_data");
-        if (savedData) {
-          try {
-            const parsed = JSON.parse(savedData);
-            if (Array.isArray(parsed) && parsed.length > 0) setChapters(parsed);
-          } catch {}
-        }
+        if (savedData) setChapters(JSON.parse(savedData));
       }
+    } catch (e) {}
 
-      try {
+    // 2. Tải Kho đề thi luyện tập
+    try {
+      const { data: dbExams } = await supabase
+        .from("practice_exams")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (dbExams && Array.isArray(dbExams)) {
+        setPracticeExams(dbExams);
+        localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
+      } else {
         const savedPractice = localStorage.getItem("edunexus_practice_exams");
-        if (savedPractice && savedPractice !== "undefined" && savedPractice !== "null") {
-          const parsed = JSON.parse(savedPractice);
-          setPracticeExams(Array.isArray(parsed) ? parsed : []);
-        } else {
-          setPracticeExams([]);
-        }
-      } catch (e) {
-        setPracticeExams([]);
+        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
       }
+    } catch (e) {}
 
-      try {
-        const savedAttempts = localStorage.getItem("edunexus_attempts");
-        if (savedAttempts && savedAttempts !== "undefined" && savedAttempts !== "null") {
-          const parsed = JSON.parse(savedAttempts);
-          setAllAttempts(Array.isArray(parsed) ? parsed : []);
-        } else {
-          setAllAttempts([]);
-        }
-      } catch (e) {
-        setAllAttempts([]);
-      }
+    // 3. Tải Lịch học & Ca học
+    try {
+      const { data: dbSessions } = await supabase
+        .from("sessions")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      try {
-        const savedNotifs = localStorage.getItem("edunexus_system_notifications");
-        if (savedNotifs && savedNotifs !== "undefined" && savedNotifs !== "null") {
-          const parsed = JSON.parse(savedNotifs);
-          setSysNotifications(Array.isArray(parsed) ? parsed : []);
-        } else {
-          setSysNotifications([]);
-        }
-      } catch (e) {
-        setSysNotifications([]);
-      }
-
-      try {
-        const { data: dbSessions, error: sessErr } = await supabase
-          .from("sessions")
-          .select("*")
-          .order("created_at", { ascending: false });
-
-        if (!sessErr && dbSessions && dbSessions.length > 0) {
-          setOnlineSessions(dbSessions);
-          localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
-        } else {
-          const savedSessions = localStorage.getItem("edunexus_online_sessions");
-          if (savedSessions) {
-            const parsed = JSON.parse(savedSessions);
-            if (Array.isArray(parsed)) setOnlineSessions(parsed);
-          }
-        }
-      } catch {
+      if (dbSessions && Array.isArray(dbSessions) && dbSessions.length > 0) {
+        setOnlineSessions(dbSessions);
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
+        const datesFromSessions = Array.from(new Set(dbSessions.map(s => s.date).filter(Boolean)));
+        if (datesFromSessions.length > 0) setSessionDates(datesFromSessions);
+      } else {
         const savedSessions = localStorage.getItem("edunexus_online_sessions");
-        if (savedSessions) {
-          try {
-            const parsed = JSON.parse(savedSessions);
-            if (Array.isArray(parsed)) setOnlineSessions(parsed);
-          } catch {}
-        }
+        if (savedSessions) setOnlineSessions(JSON.parse(savedSessions));
       }
+    } catch (e) {}
 
-      try {
-        const savedAtt = localStorage.getItem("edunexus_attendance");
-        if (savedAtt) {
-          const parsed = JSON.parse(savedAtt);
-          if (Array.isArray(parsed)) setAttendanceRecords(parsed);
-        }
-      } catch (e) {}
-    }
+    // 4. Tải Thông báo hệ thống
+    try {
+      const { data: dbNotifs } = await supabase
+        .from("system_notifications")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (dbNotifs && Array.isArray(dbNotifs)) {
+        setSysNotifications(dbNotifs);
+        localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
+      } else {
+        const savedNotifs = localStorage.getItem("edunexus_system_notifications");
+        if (savedNotifs) setSysNotifications(JSON.parse(savedNotifs));
+      }
+    } catch (e) {}
+
+    // 5. Tải lượt làm bài & điểm danh
+    try {
+      const savedAttempts = localStorage.getItem("edunexus_attempts");
+      if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+      const savedAtt = localStorage.getItem("edunexus_attendance");
+      if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
@@ -346,17 +313,14 @@ function AdminDashboardContent() {
     loadStorageData();
     fetchSupabaseStudents();
 
+    // Lắng nghe Realtime cho tất cả các bảng
     const channel = supabase
-      .channel("admin-realtime-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => {
-        loadStorageData();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
-        loadStorageData();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
-        fetchSupabaseStudents();
-      })
+      .channel("admin-realtime-global-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => loadStorageData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => loadStorageData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "system_notifications" }, () => loadStorageData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => fetchSupabaseStudents())
       .subscribe();
 
     window.addEventListener("storage", loadStorageData);
@@ -366,7 +330,7 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents]);
 
-  // LƯU DỮ LIỆU BÀI HỌC VÀO SUPABASE (TỰ ĐỘNG KHỚP UUID)
+  // LƯU BÀI HỌC VÀO SUPABASE (BẢNG courses)
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
     if (typeof window !== "undefined") {
@@ -377,33 +341,24 @@ function AdminDashboardContent() {
     }
 
     try {
-      const { data: existingRows } = await supabase
-        .from("courses")
-        .select("id")
-        .limit(1);
-
+      const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
       if (existingRows && existingRows.length > 0) {
         await supabase
           .from("courses")
-          .update({
-            chapters: newChapters,
-            updated_at: new Date().toISOString()
-          })
+          .update({ chapters: newChapters, updated_at: new Date().toISOString() })
           .eq("id", existingRows[0].id);
       } else {
         await supabase
           .from("courses")
-          .insert([{
-            chapters: newChapters,
-            updated_at: new Date().toISOString()
-          }]);
+          .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
       }
     } catch (err: any) {
-      console.error("Lỗi khi lưu Supabase:", err);
+      console.error("Lỗi khi lưu Supabase courses:", err);
     }
   };
 
-  const savePracticeExams = (newExams: any[]) => {
+  // LƯU KHO ĐỀ LUYỆN TẬP VÀO SUPABASE (BẢNG practice_exams)
+  const savePracticeExams = async (newExams: any[]) => {
     setPracticeExams(newExams);
     if (typeof window !== "undefined") {
       try {
@@ -604,7 +559,7 @@ function AdminDashboardContent() {
     showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
   };
 
-  // THÊM NGÀY HỌC MỚI VỚI KHUNG GIỜ TÙY BIẾN TỰ DO
+  // THÊM NGÀY HỌC MỚI VỚI GIỜ TÙY CHỈNH TỰ DO LƯU LÊN SUPABASE
   const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDateInput) return;
@@ -664,7 +619,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!");
   };
 
-  // PHÁT LINK BUỔI HỌC VỚI GIỜ GIẤC TÙY CHỈNH TỰ DO
+  // PHÁT LINK BUỔI HỌC VỚI GIỜ GIẤC TÙY CHỈNH TỰ DO LƯU LÊN SUPABASE
   const handleCreateOnlineSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
@@ -754,24 +709,33 @@ function AdminDashboardContent() {
     }
   };
 
-  const handleSaveSolutionVideo = (e: React.FormEvent) => {
+  const handleSaveSolutionVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoModalExam) return;
     const newExams = (practiceExams || []).map(e => 
       e?.id === videoModalExam.id ? { ...e, solutionVideoUrl: solutionVideoInput.trim() } : e
     );
-    savePracticeExams(newExams);
+    await savePracticeExams(newExams);
+    try {
+      await supabase.from("practice_exams").update({ solutionVideoUrl: solutionVideoInput.trim() }).eq("id", videoModalExam.id);
+    } catch {}
     setVideoModalExam(null);
     setSolutionVideoInput("");
     showToast("Đã lưu Video chữa bài thành công!");
   };
 
-  const handleSendNotification = (e: React.FormEvent) => {
+  // PHÁT THÔNG BÁO LƯU LÊN SUPABASE
+  const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifTitle.trim() || !notifContent.trim()) return;
     const newNotif = { id: "sys-" + Date.now(), title: notifTitle, content: notifContent, type: notifType, createdAt: new Date().toISOString() };
     const updated = [newNotif, ...(sysNotifications || [])];
     setSysNotifications(updated); 
+    
+    try {
+      await supabase.from("system_notifications").insert([newNotif]);
+    } catch (err) {}
+
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_system_notifications", JSON.stringify(updated)); 
@@ -780,13 +744,16 @@ function AdminDashboardContent() {
     }
     setNotifTitle(""); 
     setNotifContent(""); 
-    showToast("Đã phát thông báo!");
+    showToast("Đã phát thông báo thành công!");
   };
 
-  const handleDeleteNotification = (id: string) => {
+  const handleDeleteNotification = async (id: string) => {
     if (!confirm("Thu hồi thông báo này?")) return;
     const updated = (sysNotifications || []).filter(n => n?.id !== id);
     setSysNotifications(updated); 
+    try {
+      await supabase.from("system_notifications").delete().eq("id", id);
+    } catch {}
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_system_notifications", JSON.stringify(updated)); 
@@ -1228,10 +1195,13 @@ function AdminDashboardContent() {
                             <td className="py-4 px-3 text-center">
                               <button
                                 type="button"
-                                onClick={() => {
+                                onClick={async () => {
                                   const nextMode = ex.target_mode === "all" ? "online" : ex.target_mode === "online" ? "offline" : "all";
                                   const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, target_mode: nextMode } : e);
-                                  savePracticeExams(newExams);
+                                  await savePracticeExams(newExams);
+                                  try {
+                                    await supabase.from("practice_exams").update({ target_mode: nextMode }).eq("id", ex.id);
+                                  } catch {}
                                   showToast("Đã chuyển đề sang: " + (nextMode === "online" ? "Lớp Online" : nextMode === "offline" ? "Lớp Offline" : "Cả hai lớp"));
                                 }}
                                 title="Click để chuyển phân hệ: Online -> Offline -> Cả hai"
@@ -1249,29 +1219,40 @@ function AdminDashboardContent() {
                               </button>
                             </td>
                             <td className="py-4 px-3 text-center">
-                              <button onClick={() => {
-                                const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowRetake: !(e?.allowRetake ?? true) } : e);
-                                savePracticeExams(newExams);
+                              <button onClick={async () => {
+                                const newAllow = !(ex?.allowRetake ?? true);
+                                const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowRetake: newAllow } : e);
+                                await savePracticeExams(newExams);
+                                try {
+                                  await supabase.from("practice_exams").update({ allowRetake: newAllow }).eq("id", ex.id);
+                                } catch {}
                                 showToast("Đã thay đổi quyền làm lại.");
                               }} className="cursor-pointer">
                                 {(ex?.allowRetake ?? true) ? <ToggleRight className="w-8 h-8 text-emerald-500 mx-auto" /> : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
                               </button>
                             </td>
                             <td className="py-4 px-4 text-center">
-                              <button onClick={() => {
-                                const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowViewFile: !(e?.allowViewFile ?? true) } : e);
-                                savePracticeExams(newExams);
+                              <button onClick={async () => {
+                                const newAllow = !(ex?.allowViewFile ?? true);
+                                const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowViewFile: newAllow } : e);
+                                await savePracticeExams(newExams);
+                                try {
+                                  await supabase.from("practice_exams").update({ allowViewFile: newAllow }).eq("id", ex.id);
+                                } catch {}
                                 showToast("Đã cập nhật quyền xem file.");
                               }} className="cursor-pointer">
                                 {(ex?.allowViewFile ?? true) ? <ToggleRight className="w-8 h-8 text-[#1D4ED8] mx-auto" /> : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
                               </button>
                             </td>
                             <td className="py-4 px-4 text-center">
-                              <button onClick={() => {
+                              <button onClick={async () => {
                                 const url = prompt("Nhập link Google Drive mới:", ex?.driveUrl || "");
                                 if (url !== null) {
                                   const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, driveUrl: url } : e);
-                                  savePracticeExams(newExams);
+                                  await savePracticeExams(newExams);
+                                  try {
+                                    await supabase.from("practice_exams").update({ driveUrl: url }).eq("id", ex.id);
+                                  } catch {}
                                   showToast("Đã cập nhật link Drive.");
                                 }
                               }} className="text-[#1D4ED8] hover:underline flex items-center justify-center gap-1.5 font-semibold text-xs mx-auto cursor-pointer">
@@ -1310,7 +1291,15 @@ function AdminDashboardContent() {
                                 >
                                   <Play className="w-3 h-3 fill-indigo-600" /> Test
                                 </button>
-                                <button onClick={() => { if (confirm("Xóa đề này khỏi kho?")) savePracticeExams(practiceExams.filter(e => e?.id !== ex?.id)); }} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer">
+                                <button onClick={async () => { 
+                                  if (confirm("Xóa đề này khỏi kho?")) {
+                                    const updated = practiceExams.filter(e => e?.id !== ex?.id);
+                                    await savePracticeExams(updated);
+                                    try {
+                                      await supabase.from("practice_exams").delete().eq("id", ex.id);
+                                    } catch {}
+                                  } 
+                                }} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer">
                                   <Trash2 className="w-4 h-4"/>
                                 </button>
                               </div>
@@ -2433,6 +2422,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
+      {/* MODAL AZOTA ĐÃ KẾT NỐI TỰ ĐỘNG VÀO SUPABASE */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
@@ -2451,21 +2441,15 @@ function AdminDashboardContent() {
                 driveUrl: examData.driveUrl || "", 
                 solutionVideoUrl: examData.solutionVideoUrl || "", 
                 data: examData.sections, 
-                mediaMap: examData.mediaMap 
+                media_map: examData.mediaMap || {},
+                created_at: new Date().toISOString()
               };
-              const updatedExams = [...(practiceExams || []), newExam];
-              savePracticeExams(updatedExams);
+              const updatedExams = [newExam, ...(practiceExams || [])];
+              await savePracticeExams(updatedExams);
 
+              // GHI TRỰC TIẾP LÊN BẢNG practice_exams CỦA SUPABASE
               try {
-                await supabase.from("practice_exams").upsert({
-                  id: newExam.id,
-                  title: newExam.title,
-                  category: newExam.category,
-                  duration_minutes: newExam.duration_minutes,
-                  data: newExam.data,
-                  media_map: newExam.mediaMap,
-                  created_at: new Date().toISOString()
-                });
+                await supabase.from("practice_exams").upsert(newExam);
               } catch (err) {
                 console.warn("Lỗi lưu đề thi lên Supabase:", err);
               }
