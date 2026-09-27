@@ -67,14 +67,14 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     teacher: ""
   });
 
-  const studentMode = (mode || profile?.learning_mode || profile?.study_mode || "online").toLowerCase();
+  const studentMode = (mode || profile?.learning_mode || profile?.study_mode || "all").toLowerCase();
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 10000);
     return () => clearInterval(timer);
   }, []);
 
-  // TẢI LỊCH HỌC TRỰC TIẾP TỪ SUPABASE (BẢNG SESSIONS)
+  // TẢI LỊCH HỌC TRỰC TIẾP TỪ SUPABASE
   const loadScheduleData = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -82,7 +82,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (!error && data && data.length > 0) {
+      if (!error && data && Array.isArray(data)) {
         setSessions(data);
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_online_sessions", JSON.stringify(data));
@@ -122,7 +122,6 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
   useEffect(() => {
     loadScheduleData();
 
-    // Lắng nghe Realtime tức thì khi Admin thêm/sửa ca học
     const channel = supabase
       .channel("realtime-sessions-view")
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
@@ -142,14 +141,15 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     setTimeout(() => setSuccessToast(""), 3500);
   };
 
-  // BỘ LỌC THÔNG MINH CHO CẢ ADMIN VÀ HỌC SINH
+  // BỘ LỌC CHUẨN XÁC: Hiển thị cả ca học "all" (Cả 2) và ca học đúng phân hệ
   const filteredSessions = useMemo(() => {
     if (isAdmin || mode === "all") return sessions;
     return sessions.filter(sess => {
-      const tMode = (sess.target_mode || "all").toLowerCase();
-      const aud = (sess.audience || "all").toLowerCase();
-      // Hiển thị nếu ca học đặt là "all" HOẶC khớp với phân hệ học sinh
-      return tMode === "all" || tMode === studentMode || aud === "all" || aud === studentMode;
+      const tMode = (sess.target_mode || sess.audience || "all").toLowerCase();
+      // Nếu là ca học cho cả 2, hoặc khớp phân hệ, hoặc có link Zoom/Meet thì học sinh đều được thấy
+      if (tMode === "all" || tMode === studentMode) return true;
+      if (sess.meetingUrl && sess.meetingUrl.trim() !== "") return true;
+      return false;
     });
   }, [sessions, studentMode, isAdmin, mode]);
 
@@ -299,7 +299,6 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
     showToast("Đã xóa môn \"" + name + "\".");
   };
 
-  // TÍNH TOÁN NGÀY TRONG TUẦN ĐỘNG THEO THỜI GIAN THỰC
   const weekDays = useMemo(() => {
     const now = currentTime;
     const currentDayOfWeek = now.getDay();
@@ -557,7 +556,9 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                     day.sessions.map((sess: any, sIdx: number) => {
                       const isPersonal = Boolean(sess.isPersonal);
                       const isAtt = isAttended(sess);
-                      const isOnline = (sess.target_mode || sess.audience) === "online";
+                      const tMode = (sess.target_mode || sess.audience || "all").toLowerCase();
+                      const isAll = tMode === "all";
+                      const isOnline = tMode === "online";
                       const status = getSessionStatus(sess, day.fullDate);
                       const isPast = status === "past";
                       const isLive = status === "live";
@@ -576,16 +577,19 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                               {sess.shiftName || "Ca"}
                             </span>
                             <div className="flex items-center gap-1">
+                              {/* SỬA CHUẨN XÁC: Hiển thị đúng nhãn Cả 2 / Online / Offline */}
                               <span
                                 className={"px-1.5 py-0.5 rounded font-bold text-[8px] uppercase " + (
                                   isPersonal
                                     ? "bg-purple-100 text-purple-700"
+                                    : isAll
+                                    ? "bg-blue-100 text-[#1D4ED8] border border-blue-200"
                                     : isOnline
                                     ? "bg-indigo-100 text-indigo-700"
                                     : "bg-emerald-100 text-emerald-700"
                                 )}
                               >
-                                {isPersonal ? "Cá nhân" : isOnline ? "Online" : "Offline"}
+                                {isPersonal ? "Cá nhân" : isAll ? "Cả 2" : isOnline ? "Online" : "Offline"}
                               </span>
 
                               {isPersonal && (
@@ -611,10 +615,10 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                               <span>{sess.timeSlot}</span>
                             </div>
                             <div className="flex items-center gap-1 truncate">
-                              {isOnline ? (
+                              {sess.meetingUrl ? (
                                 <>
                                   <Video className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
-                                  <span>{sess.room || "Zoom"}</span>
+                                  <span>{sess.room || "Zoom / Meet"}</span>
                                 </>
                               ) : (
                                 <>
@@ -641,7 +645,7 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                                   onClick={() => handleCheckIn(sess)}
                                   className="relative z-20 w-full py-1 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-md transition text-center cursor-pointer shadow-xs"
                                 >
-                                  {isOnline ? "Vào học ngay" : "Điểm danh"}
+                                  {sess.meetingUrl ? "Vào học ngay" : "Điểm danh"}
                                 </button>
                               ) : (
                                 <span className="text-slate-400 italic">Chưa diễn ra</span>
@@ -711,7 +715,9 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                   <div className="space-y-1 my-1">
                     {(cell.sessions || []).slice(0, 2).map((s: any, sIdx: number) => {
                       const isPersonal = Boolean(s.isPersonal);
-                      const isOnline = (s.target_mode || s.audience) === "online";
+                      const tMode = (s.target_mode || s.audience || "all").toLowerCase();
+                      const isAll = tMode === "all";
+                      const isOnline = tMode === "online";
                       return (
                         <div
                           key={s.id || sIdx}
@@ -719,6 +725,8 @@ export default function ScheduleView({ profile, mode, isAdmin = false }: Schedul
                           className={"px-1 py-0.5 rounded text-[8px] font-bold truncate " + (
                             isPersonal
                               ? "bg-purple-100 text-purple-800 border border-purple-200"
+                              : isAll
+                              ? "bg-blue-100 text-[#1D4ED8] border border-blue-200"
                               : isOnline
                               ? "bg-indigo-100 text-indigo-800 border border-indigo-200"
                               : "bg-emerald-100 text-emerald-800 border border-emerald-200"
