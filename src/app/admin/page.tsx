@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// DYNAMIC IMPORT AN TOÀN TRÁNH LỖI SSR
 const AzotaExamConfigModal = dynamic(
   () => import("./AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
@@ -229,10 +228,10 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // NẠP DỮ LIỆU TỪ SUPABASE CHO TẤT CẢ CÁC BẢNG (KHO BÀI HỌC, ĐỀ THI, LỊCH HỌC, THÔNG BÁO)
+  // NẠP DỮ LIỆU TỪ SUPABASE
   const loadStorageData = useCallback(async () => {
     if (typeof window !== "undefined") {
-      // 1. Tải bài học từ bảng courses
+      // 1. Tải bài học
       try {
         const { data: courseRow } = await supabase
           .from("courses")
@@ -249,7 +248,7 @@ function AdminDashboardContent() {
         }
       } catch (e) {}
 
-      // 2. Tải Kho đề thi luyện tập từ bảng practice_exams
+      // 2. Tải đề thi
       try {
         const { data: dbExams } = await supabase
           .from("practice_exams")
@@ -265,7 +264,7 @@ function AdminDashboardContent() {
         }
       } catch (e) {}
 
-      // 3. Tải Lịch học & Ca học từ bảng sessions
+      // 3. Tải lịch học
       try {
         const { data: dbSessions } = await supabase
           .from("sessions")
@@ -283,7 +282,7 @@ function AdminDashboardContent() {
         }
       } catch (e) {}
 
-      // 4. Tải Thông báo từ bảng system_notifications
+      // 4. Tải thông báo
       try {
         const { data: dbNotifs } = await supabase
           .from("system_notifications")
@@ -299,7 +298,6 @@ function AdminDashboardContent() {
         }
       } catch (e) {}
 
-      // 5. Tải lượt làm bài và điểm danh
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
         if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
@@ -314,9 +312,8 @@ function AdminDashboardContent() {
     loadStorageData();
     fetchSupabaseStudents();
 
-    // Lắng nghe Realtime cho tất cả các bảng
     const channel = supabase
-      .channel("admin-realtime-sync-all")
+      .channel("admin-realtime-global-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => loadStorageData())
       .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => loadStorageData())
@@ -331,7 +328,7 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents]);
 
-  // LƯU BÀI HỌC VÀO SUPABASE (BẢNG courses - TỰ ĐỘNG KHỚP ID)
+  // LƯU BÀI HỌC VÀO SUPABASE (BẢNG courses)
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
     if (typeof window !== "undefined") {
@@ -361,7 +358,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // LƯU KHO ĐỀ LUYỆN TẬP VÀO SUPABASE (BẢNG practice_exams)
   const savePracticeExams = async (newExams: any[]) => {
     setPracticeExams(newExams);
     if (typeof window !== "undefined") {
@@ -563,7 +559,7 @@ function AdminDashboardContent() {
     showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
   };
 
-  // THÊM NGÀY HỌC MỚI VỚI GIỜ TÙY CHỈNH TỰ DO LƯU LÊN SUPABASE
+  // THÊM NGÀY HỌC MỚI VỚI GIỜ TÙY CHỈNH TỰ DO (ĐỒNG BỘ CẢ 2 TRƯỜNG created_at VÀ createdAt)
   const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDateInput) return;
@@ -588,6 +584,7 @@ function AdminDashboardContent() {
       }
     }
 
+    const nowIso = new Date().toISOString();
     const newSessionMeta: any = {
       id: "sess-" + Date.now(),
       title: newDateTitle.trim() || ("Buổi học ngày " + displayDate),
@@ -600,12 +597,13 @@ function AdminDashboardContent() {
       audience: newDateAudience,
       room: newDateAudience === "offline" ? "P.201 TCT" : "Zoom / Meet",
       meetingUrl: newDateAudience !== "offline" ? "https://zoom.us/j/1234567890" : "",
-      createdAt: new Date().toISOString()
+      created_at: nowIso,
+      createdAt: nowIso
     };
     const updatedSessions = [newSessionMeta, ...onlineSessions];
     setOnlineSessions(updatedSessions);
 
-    // GHI TRỰC TIẾP LÊN BẢNG SESSIONS SUPABASE
+    // GHI TRỰC TIẾP LÊN SUPABASE VÀ KIỂM TRA LỖI
     const { error } = await supabase.from("sessions").insert([newSessionMeta]);
     if (error) {
       console.error("Lỗi lưu sessions Supabase:", error);
@@ -624,7 +622,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!");
   };
 
-  // PHÁT LINK BUỔI HỌC VỚI GIỜ GIẤC TÙY CHỈNH TỰ DO LƯU LÊN SUPABASE
+  // PHÁT LINK BUỔI HỌC VỚI GIỜ GIẤC TÙY CHỈNH TỰ DO (ĐỒNG BỘ CẢ 2 TRƯỜNG created_at VÀ createdAt)
   const handleCreateOnlineSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
@@ -633,6 +631,7 @@ function AdminDashboardContent() {
     const guideImgs = newSessionForm.guideImagesText.split("\n").map(s => s.trim()).filter(Boolean);
     const dispDate = newSessionForm.displayDate.trim() || "24/09";
     const finalTimeSlot = newSessionForm.timeSlot.trim() || "19:30 - 21:00";
+    const nowIso = new Date().toISOString();
 
     const newSession: any = {
       id: "sess-" + Date.now(),
@@ -647,7 +646,8 @@ function AdminDashboardContent() {
       target_mode: newSessionForm.audience,
       room: newSessionForm.audience === "offline" ? "P.201 TCT" : "Zoom / Google Meet",
       guideImages: guideImgs.length > 0 ? guideImgs : ["https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80"],
-      createdAt: new Date().toISOString()
+      created_at: nowIso,
+      createdAt: nowIso
     };
 
     const updatedSessions = [newSession, ...onlineSessions];
@@ -659,7 +659,7 @@ function AdminDashboardContent() {
       setSessionDates(updatedDates);
     }
 
-    // GHI TRỰC TIẾP LÊN BẢNG SESSIONS SUPABASE
+    // GHI TRỰC TIẾP LÊN SUPABASE VÀ KIỂM TRA LỖI
     const { error } = await supabase.from("sessions").insert([newSession]);
     if (error) {
       console.error("Lỗi lưu sessions Supabase:", error);
@@ -730,7 +730,6 @@ function AdminDashboardContent() {
     showToast("Đã lưu Video chữa bài thành công!");
   };
 
-  // PHÁT THÔNG BÁO LƯU LÊN SUPABASE
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifTitle.trim() || !notifContent.trim()) return;
@@ -2453,7 +2452,6 @@ function AdminDashboardContent() {
               const updatedExams = [newExam, ...(practiceExams || [])];
               await savePracticeExams(updatedExams);
 
-              // GHI TRỰC TIẾP LÊN BẢNG practice_exams CỦA SUPABASE
               try {
                 const { error } = await supabase.from("practice_exams").upsert(newExam);
                 if (error) alert("Lỗi lưu đề thi lên Supabase: " + error.message);
