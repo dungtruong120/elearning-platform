@@ -158,7 +158,7 @@ export function ExamRoomView({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
 
-  // TỰ ĐỘNG KHÔI PHỤC TIẾN ĐỘ BTVN ĐÃ LÀM TRƯỚC ĐÓ (GHÉP CHUỖI AN TOÀN)
+  // TỰ ĐỘNG KHÔI PHỤC TIẾN ĐỘ BTVN ĐÃ LÀM TRƯỚC ĐÓ (GHÉP CHUỖI AN TOÀN TUYỆT ĐỐI)
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>(() => {
     if (typeof window !== "undefined" && isHomework) {
       try {
@@ -198,7 +198,7 @@ export function ExamRoomView({
   const userAnswersRef = useRef<Record<string, string>>({});
   userAnswersRef.current = userAnswers;
 
-  // LƯU TỰ ĐỘNG TIẾN ĐỘ BTVN MỖI KHI CHỌN ĐÁP ÁN (GHÉP CHUỖI AN TOÀN)
+  // LƯU TỰ ĐỘNG TIẾN ĐỘ BTVN MỖI KHI CHỌN ĐÁP ÁN (GHÉP CHUỖI AN TOÀN TUYỆT ĐỐI)
   useEffect(() => {
     if (isHomework && typeof window !== "undefined" && profile?.id && !isSubmitted) {
       try {
@@ -784,7 +784,7 @@ export function ExamRoomView({
                 {isReviewMode && currentQ.explanation && (
                   <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 space-y-1 text-xs">
                     <p className="font-bold text-[#1D4ED8] flex items-center gap-1.5">
-                      <HelpCircle className="w-4 h-4" /> Lời giải chi tiết:
+                      <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
                     </p>
                     <div className="text-slate-700 leading-relaxed font-normal">
                       <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} />
