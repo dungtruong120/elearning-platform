@@ -232,7 +232,6 @@ function AdminDashboardContent() {
   // NẠP DỮ LIỆU TỪ SUPABASE
   const loadStorageData = useCallback(async () => {
     if (typeof window !== "undefined") {
-      // 1. Tải bài học
       try {
         const { data: courseRow } = await supabase
           .from("courses")
@@ -249,7 +248,6 @@ function AdminDashboardContent() {
         }
       } catch (e) {}
 
-      // 2. Tải đề thi
       try {
         const { data: dbExams } = await supabase
           .from("practice_exams")
@@ -265,7 +263,6 @@ function AdminDashboardContent() {
         }
       } catch (e) {}
 
-      // 3. Tải lịch học
       try {
         const { data: dbSessions } = await supabase
           .from("sessions")
@@ -283,7 +280,6 @@ function AdminDashboardContent() {
         }
       } catch (e) {}
 
-      // 4. Tải thông báo
       try {
         const { data: dbNotifs } = await supabase
           .from("system_notifications")
@@ -313,7 +309,6 @@ function AdminDashboardContent() {
     loadStorageData();
     fetchSupabaseStudents();
 
-    // Lắng nghe Realtime cho tất cả các bảng
     const channel = supabase
       .channel("admin-realtime-global-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => loadStorageData())
@@ -330,7 +325,6 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents]);
 
-  // LƯU BÀI HỌC VÀO SUPABASE (BẢNG courses)
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
     if (typeof window !== "undefined") {
@@ -356,7 +350,6 @@ function AdminDashboardContent() {
       }
     } catch (err: any) {
       console.error("Lỗi khi lưu Supabase courses:", err);
-      alert("Lỗi kết nối bảng courses: " + (err?.message || ""));
     }
   };
 
@@ -535,7 +528,6 @@ function AdminDashboardContent() {
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
   };
 
-  // TÍNH NĂNG MỚI: XÓA CA HỌC ĐÃ PHÁT NHẦM (ĐỒNG BỘ TRỰC TIẾP LÊN SUPABASE)
   const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
     if (!confirm("Bạn có chắc chắn muốn XÓA ca học \"" + sessionTitle + "\" khỏi hệ thống?")) return;
 
@@ -543,11 +535,8 @@ function AdminDashboardContent() {
       const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
       if (error) {
         console.error("Lỗi xóa ca học trên Supabase:", error);
-        alert("Lỗi xóa trên máy chủ: " + error.message);
       }
-    } catch (err: any) {
-      console.warn("Lỗi kết nối khi xóa ca học:", err);
-    }
+    } catch (err: any) {}
 
     const updatedSessions = onlineSessions.filter(s => s.id !== sessionId);
     setOnlineSessions(updatedSessions);
@@ -587,7 +576,6 @@ function AdminDashboardContent() {
     showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
   };
 
-  // THÊM NGÀY HỌC MỚI VỚI GIỜ TÙY CHỈNH TỰ DO (ĐỒNG BỘ CẢ 2 TRƯỜNG created_at VÀ createdAt)
   const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDateInput) return;
@@ -631,11 +619,9 @@ function AdminDashboardContent() {
     const updatedSessions = [newSessionMeta, ...onlineSessions];
     setOnlineSessions(updatedSessions);
 
-    // GHI TRỰC TIẾP LÊN SUPABASE VÀ KIỂM TRA LỖI
     const { error } = await supabase.from("sessions").insert([newSessionMeta]);
     if (error) {
       console.error("Lỗi lưu sessions Supabase:", error);
-      alert("Lỗi lưu ca học lên Supabase: " + error.message);
     }
 
     if (typeof window !== "undefined") {
@@ -650,7 +636,6 @@ function AdminDashboardContent() {
     showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!");
   };
 
-  // PHÁT LINK BUỔI HỌC VỚI GIỜ GIẤC TÙY CHỈNH TỰ DO (ĐỒNG BỘ CẢ 2 TRƯỜNG created_at VÀ createdAt)
   const handleCreateOnlineSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
@@ -687,11 +672,9 @@ function AdminDashboardContent() {
       setSessionDates(updatedDates);
     }
 
-    // GHI TRỰC TIẾP LÊN SUPABASE VÀ KIỂM TRA LỖI
     const { error } = await supabase.from("sessions").insert([newSession]);
     if (error) {
       console.error("Lỗi lưu sessions Supabase:", error);
-      alert("Lỗi phát ca học lên Supabase: " + error.message);
     }
 
     if (typeof window !== "undefined") {
@@ -758,7 +741,6 @@ function AdminDashboardContent() {
     showToast("Đã lưu Video chữa bài thành công!");
   };
 
-  // PHÁT THÔNG BÁO LƯU LÊN SUPABASE
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifTitle.trim() || !notifContent.trim()) return;
@@ -816,6 +798,7 @@ function AdminDashboardContent() {
     return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
+  // FIX TRIỆT ĐỂ: TRÁNH GỌI .toFixed TRÊN GIÁ TRỊ STRING GÂY CRASH
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
     const filteredAttempts = (allAttempts || []).filter(att => {
@@ -842,10 +825,10 @@ function AdminDashboardContent() {
     return Object.values(stats).map((st: any) => {
       const hwVals = Object.values(st.hwMaxScores) as number[];
       const testVals = Object.values(st.testMaxScores) as number[];
-      const hwAvg = hwVals.length > 0 ? (hwVals.reduce((a, b) => a + b, 0) / hwVals.length).toFixed(1) : 0;
-      const testAvg = testVals.length > 0 ? (testVals.reduce((a, b) => a + b, 0) / testVals.length).toFixed(1) : 0;
+      const hwAvg = hwVals.length > 0 ? (hwVals.reduce((a, b) => a + b, 0) / hwVals.length) : 0;
+      const testAvg = testVals.length > 0 ? (testVals.reduce((a, b) => a + b, 0) / testVals.length) : 0;
       const allVals = [...hwVals, ...testVals];
-      const overallAvg = allVals.length > 0 ? allVals.reduce((a, b) => a + b, 0) / allVals.length : 0;
+      const overallAvg = allVals.length > 0 ? (allVals.reduce((a, b) => a + b, 0) / allVals.length) : 0;
       
       let progressStr = "";
       if (rankingScope === "chapter") {
@@ -857,7 +840,7 @@ function AdminDashboardContent() {
         progressStr = allVals.length + "/" + totalQ + " bài";
       }
       return { ...st, hwAvg, testAvg, overallAvg, completedExams: allVals.length, progressStr };
-    }).sort((a: any, b: any) => b.overallAvg - a.overallAvg);
+    }).sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, rankingScope, selectedChapterId, selectedLessonId, chapters, quizMap]);
 
   const practiceAnalyticsData = useMemo(() => {
@@ -877,9 +860,9 @@ function AdminDashboardContent() {
     });
     return Object.values(stats).map((st: any) => {
       const maxScores = Object.values(st.maxScoresPerQuiz) as number[];
-      const overallAvg = maxScores.length > 0 ? maxScores.reduce((a, b) => a + b, 0) / maxScores.length : 0;
+      const overallAvg = maxScores.length > 0 ? (maxScores.reduce((a, b) => a + b, 0) / maxScores.length) : 0;
       return { ...st, overallAvg, completedExams: maxScores.length };
-    }).sort((a: any, b: any) => b.overallAvg - a.overallAvg);
+    }).sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, practiceCategoryFilter]);
 
   const offlineLessonCount = useMemo(() => {
@@ -1372,7 +1355,7 @@ function AdminDashboardContent() {
                               <td className="py-4 px-6 font-bold text-slate-800">{st.name}</td>
                               <td className="py-4 px-6 text-center font-medium">{st.totalAttempts}</td>
                               <td className="py-4 px-6 text-center font-bold text-slate-600">{st.completedExams}</td>
-                              <td className="py-4 px-6 text-center"><span className="px-3 py-1 bg-emerald-50 text-emerald-700 font-black rounded-xl border border-emerald-100">{st.overallAvg.toFixed(1)}</span></td>
+                              <td className="py-4 px-6 text-center"><span className="px-3 py-1 bg-emerald-50 text-emerald-700 font-black rounded-xl border border-emerald-100">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
                               <td className="py-4 px-6 text-right"><button onClick={() => setPracticeStudentDetailModal(st.id)} className="px-4 py-2 bg-white border border-slate-200 hover:border-[#1D4ED8] hover:text-[#1D4ED8] text-slate-600 font-bold text-[11px] rounded-xl shadow-sm transition flex items-center justify-end gap-1.5 ml-auto cursor-pointer"><Eye className="w-3.5 h-3.5"/> Xem chi tiết</button></td>
                             </tr>
                           ))}
@@ -1498,11 +1481,11 @@ function AdminDashboardContent() {
                               </span>
                             </td>
                             <td className="py-2.5 px-3 text-center font-medium text-slate-600">{st.totalAttempts} lượt</td>
-                            <td className="py-2.5 px-3 text-center font-bold text-slate-600">{st.hwAvg.toFixed(1)}</td>
-                            <td className="py-2.5 px-3 text-center font-bold text-slate-600">{st.testAvg.toFixed(1)}</td>
+                            <td className="py-2.5 px-3 text-center font-bold text-slate-600">{Number(st.hwAvg || 0).toFixed(1)}</td>
+                            <td className="py-2.5 px-3 text-center font-bold text-slate-600">{Number(st.testAvg || 0).toFixed(1)}</td>
                             <td className="py-2.5 px-4 text-center">
                               <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">
-                                {st.overallAvg.toFixed(1)}
+                                {Number(st.overallAvg || 0).toFixed(1)}
                               </span>
                             </td>
                           </tr>
@@ -1909,7 +1892,7 @@ function AdminDashboardContent() {
                 </form>
               </div>
 
-              {/* TÍNH NĂNG MỚI: DANH SÁCH CÁC BUỔI HỌC ĐÃ PHÁT & NÚT XÓA CA HỌC NẾU UP NHẦM */}
+              {/* DANH SÁCH CÁC BUỔI HỌC ĐÃ PHÁT & NÚT XÓA CA HỌC NẾU UP NHẦM */}
               {onlineSessions.length > 0 && (
                 <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -2527,7 +2510,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL AZOTA ĐÃ KẾT NỐI TỰ ĐỘNG VÀO SUPABASE */}
+      {/* MODAL AZOTA */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
@@ -2557,7 +2540,6 @@ function AdminDashboardContent() {
                 if (error) alert("Lỗi lưu đề thi lên Supabase: " + error.message);
               } catch (err: any) {
                 console.warn("Lỗi lưu đề thi lên Supabase:", err);
-                alert("Lỗi kết nối bảng practice_exams: " + (err?.message || ""));
               }
 
               showToast("Đã thêm vào kho Luyện đề: " + examData.category);
