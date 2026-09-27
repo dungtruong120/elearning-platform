@@ -11,6 +11,7 @@ import {
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { Profile } from "@/types";
+import { supabase } from "@/lib/supabaseClient";
 
 interface QuestionOption {
   key: string;
@@ -36,15 +37,57 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
-// BỘ RENDER CHỮ THƯỜNG GỌN GÀNG, KHÔNG IN ĐẬM THÔ CỨNG
-function MathRenderer({ content, inline = false }: { content: string; inline?: boolean }) {
+// BỘ RENDER CHUẨN XÁC: RENDER KATEX VÀ HÌNH ẢNH MINH HỌA/ĐỒ THỊ TỪ WORD
+function MathRenderer({ 
+  content, 
+  mediaMap = {}, 
+  inline = false 
+}: { 
+  content: string; 
+  mediaMap?: Record<string, string>; 
+  inline?: boolean;
+}) {
   if (!content) return null;
-  const parts = content.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
+  const cleanContent = content.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
+  const parts = cleanContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$$|\$[\s\S]*?\$)/g);
 
   return (
     <span className={inline ? "inline align-middle text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14.5px] font-normal text-slate-800"}>
       {parts.map((part, i) => {
         if (!part) return null;
+
+        // Xử lý Render Hình Ảnh từ file Word / Web URL
+        const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
+        if (imgMatch && imgMatch[1]) {
+          let rawKey = imgMatch[1].trim();
+          if (rawKey.startsWith("$") && rawKey.endsWith("$")) {
+            rawKey = rawKey.slice(1, -1);
+          }
+          const isDirectUrl = rawKey.startsWith("http://") || rawKey.startsWith("https://") || rawKey.startsWith("data:");
+          const src = isDirectUrl ? rawKey : mediaMap[rawKey];
+          if (!src) return null;
+
+          return inline ? (
+            <img 
+              key={i} 
+              src={src} 
+              alt="Hình ảnh" 
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
+            />
+          ) : (
+            <span key={i} className="my-3 block text-center">
+              <img 
+                src={src} 
+                alt="Hình minh họa" 
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                className="max-h-72 max-w-full rounded-xl border border-slate-200/90 bg-white shadow-sm p-1.5 object-contain inline-block" 
+              />
+            </span>
+          );
+        }
+
+        // Xử lý Render Công thức Toán KaTeX
         if (part.startsWith("$") && part.endsWith("$")) {
           const isBlock = part.startsWith("$$");
           const math = isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim();
@@ -75,7 +118,7 @@ const DEFAULT_QUESTIONS: QuestionItem[] = [
   {
     id: "q-1",
     order: 1,
-    prompt: "Cho hình chóp $S.ABC$ có $SA$ vuông góc với mặt phẳng $(ABC)$, $SA = a\\sqrt{2}$, $AB = a\\sqrt{2}$ (xem hình minh họa). Góc giữa đường thẳng $SB$ và mặt phẳng $(ABC)$ bằng:",
+    prompt: "Cho hình chóp $S.ABC$ có $SA$ vuông góc với mặt phẳng $(ABC)$, $SA = a\\sqrt{2}$, $AB = a\\sqrt{2}$. Góc giữa đường thẳng $SB$ và mặt phẳng $(ABC)$ bằng:",
     options: [
       { key: "A", text: "$45^\\circ$" },
       { key: "B", text: "$30^\\circ$" },
@@ -84,58 +127,6 @@ const DEFAULT_QUESTIONS: QuestionItem[] = [
     ],
     correctAnswer: "A",
     explanation: "Vì SA ⊥ (ABC) nên hình chiếu vuông góc của SB lên mặt phẳng (ABC) là AB. Do đó góc giữa SB và (ABC) là góc SBA. Xét tam giác SAB vuông tại A: tan(SBA) = SA / AB = (a√2) / (a√2) = 1 => góc SBA = 45°."
-  },
-  {
-    id: "q-2",
-    order: 2,
-    prompt: "Cho hàm số $y = f(x)$ có đạo hàm $f'(x) = x(x - 1)^2(x + 2)^3$. Số điểm cực trị của hàm số đã cho là:",
-    options: [
-      { key: "A", text: "1" },
-      { key: "B", text: "2" },
-      { key: "C", text: "3" },
-      { key: "D", text: "4" }
-    ],
-    correctAnswer: "B",
-    explanation: "Đạo hàm f'(x) đổi dấu qua các nghiệm bội lẻ. Ở đây x = 0 (bội 1) và x = -2 (bội 3) là các nghiệm bội lẻ. Còn x = 1 (bội 2) là nghiệm bội chẵn nên qua đó f'(x) không đổi dấu. Vậy hàm số có đúng 2 điểm cực trị."
-  },
-  {
-    id: "q-3",
-    order: 3,
-    prompt: "Giá trị lớn nhất của hàm số $f(x) = x^3 - 3x + 2$ trên đoạn $[0; 2]$ bằng:",
-    options: [
-      { key: "A", text: "2" },
-      { key: "B", text: "0" },
-      { key: "C", text: "4" },
-      { key: "D", text: "1" }
-    ],
-    correctAnswer: "C",
-    explanation: "Ta có f'(x) = 3x² - 3 = 0 <=> x = 1. Trên đoạn [0; 2], ta xét các điểm: f(0) = 2, f(1) = 0, f(2) = 4. Do đó giá trị lớn nhất bằng 4 tại x = 2."
-  },
-  {
-    id: "q-4",
-    order: 4,
-    prompt: "Trong không gian $Oxyz$, mặt cầu $(S): (x - 1)^2 + (y + 2)^2 + (z - 3)^2 = 16$ có tọa độ tâm $I$ và bán kính $R$ lần lượt là:",
-    options: [
-      { key: "A", text: "$I(1; -2; 3), R = 4$" },
-      { key: "B", text: "$I(-1; 2; -3), R = 4$" },
-      { key: "C", text: "$I(1; -2; 3), R = 16$" },
-      { key: "D", text: "$I(-1; 2; -3), R = 16$" }
-    ],
-    correctAnswer: "A",
-    explanation: "Phương trình mặt cầu dạng (x - a)² + (y - b)² + (z - c)² = R² có tâm I(a; b; c) và bán kính R. Ở đây a = 1, b = -2, c = 3 và R = √16 = 4."
-  },
-  {
-    id: "q-5",
-    order: 5,
-    prompt: "Tập nghiệm của bất phương trình $\\log_2(x - 1) < 3$ là:",
-    options: [
-      { key: "A", text: "$(1; 9)$" },
-      { key: "B", text: "$(-\\infty; 9)$" },
-      { key: "C", text: "$(1; 8)$" },
-      { key: "D", text: "$[1; 9)$" }
-    ],
-    correctAnswer: "A",
-    explanation: "Điều kiện xác định: x - 1 > 0 <=> x > 1. BPT tương đương: x - 1 < 2³ = 8 <=> x < 9. Kết hợp điều kiện ta được tập nghiệm là (1; 9)."
   }
 ];
 
@@ -148,6 +139,7 @@ export function ExamRoomView({
   onBackToDashboard
 }: ExamRoomViewProps) {
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
+  const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
@@ -296,18 +288,73 @@ export function ExamRoomView({
     }
   }, [cheatWarning]);
 
+  // NẠP ĐỀ THI TỪ SUPABASE HOẶC LOCALSTORAGE (KÈM TOÀN BỘ BẢN ĐỒ ẢNH MEDIAMAP)
   useEffect(() => {
     setIsLoading(true);
-    let loaded: QuestionItem[] = [];
 
-    if (typeof window !== "undefined") {
+    const loadExamQuestions = async () => {
+      let loaded: QuestionItem[] = [];
+      let mappedImages: Record<string, string> = {};
+
       try {
-        const savedPractice = localStorage.getItem("edunexus_practice_exams");
-        if (savedPractice) {
-          const exams = JSON.parse(savedPractice);
-          const found = exams.find((e: any) => e.id === quizId);
-          if (found && found.questions && found.questions.length > 0) {
-            loaded = found.questions.map((q: any, idx: number) => ({
+        // 1. Thử lấy từ bảng practice_exams trên Supabase
+        const { data: dbExam } = await supabase
+          .from("practice_exams")
+          .select("*")
+          .eq("id", quizId)
+          .maybeSingle();
+
+        let targetExam = dbExam;
+
+        // 2. Nếu không có, tìm trong localStorage
+        if (!targetExam && typeof window !== "undefined") {
+          const savedPractice = localStorage.getItem("edunexus_practice_exams");
+          if (savedPractice) {
+            const exams = JSON.parse(savedPractice);
+            targetExam = exams.find((e: any) => e.id === quizId);
+          }
+        }
+
+        // 3. Nếu là đề bài tập/kiểm tra trong bài học (bảng courses)
+        if (!targetExam) {
+          const { data: courseRow } = await supabase.from("courses").select("chapters").limit(1).maybeSingle();
+          if (courseRow && Array.isArray(courseRow.chapters)) {
+            for (const chap of courseRow.chapters) {
+              for (const les of chap.lessons || []) {
+                const foundHw = (les.homework_files || []).find((f: any) => f.id === quizId);
+                const foundTest = (les.test_quizzes || []).find((f: any) => f.id === quizId);
+                if (foundHw) { targetExam = foundHw; break; }
+                if (foundTest) { targetExam = foundTest; break; }
+              }
+              if (targetExam) break;
+            }
+          }
+        }
+
+        if (targetExam) {
+          mappedImages = targetExam.media_map || targetExam.mediaMap || {};
+          setMediaMap(mappedImages);
+
+          // Trường hợp cấu trúc theo Section (Đề Azota bóc tách)
+          if (targetExam.data && Array.isArray(targetExam.data)) {
+            let qIdx = 1;
+            targetExam.data.forEach((sec: any) => {
+              (sec.questions || []).forEach((q: any) => {
+                loaded.push({
+                  id: q.id || ("q-" + qIdx),
+                  order: qIdx++,
+                  prompt: q.prompt_html || q.prompt || "",
+                  options: (q.options || []).map((opt: any) => ({
+                    key: opt.key,
+                    text: opt.text_html || opt.text || ""
+                  })),
+                  correctAnswer: q.correct_answer || "A",
+                  explanation: q.solution_html || q.solution || "Đang cập nhật lời giải chi tiết."
+                });
+              });
+            });
+          } else if (targetExam.questions && Array.isArray(targetExam.questions)) {
+            loaded = targetExam.questions.map((q: any, idx: number) => ({
               id: q.id || ("q-" + (idx + 1)),
               order: idx + 1,
               prompt: q.prompt_html || q.prompt || ("Câu " + (idx + 1)),
@@ -320,15 +367,19 @@ export function ExamRoomView({
             }));
           }
         }
-      } catch (e) {}
-    }
+      } catch (err) {
+        console.error("Lỗi khi tải đề thi:", err);
+      }
 
-    if (loaded.length === 0) {
-      loaded = DEFAULT_QUESTIONS;
-    }
+      if (loaded.length === 0) {
+        loaded = DEFAULT_QUESTIONS;
+      }
 
-    setQuestions(loaded);
-    setIsLoading(false);
+      setQuestions(loaded);
+      setIsLoading(false);
+    };
+
+    loadExamQuestions();
   }, [quizId]);
 
   useEffect(() => {
@@ -452,7 +503,7 @@ export function ExamRoomView({
     return (
       <div className="fixed inset-0 z-[200] bg-slate-900/60 flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-4 border-white/20 border-t-blue-500 rounded-full animate-spin mb-4" />
-        <p className="font-bold text-sm tracking-wide">Đang tải cấu trúc đề thi...</p>
+        <p className="font-bold text-sm tracking-wide">Đang tải cấu trúc đề thi & hình vẽ minh họa...</p>
       </div>
     );
   }
@@ -647,7 +698,7 @@ export function ExamRoomView({
                 </div>
 
                 <div className="py-1">
-                  <MathRenderer content={currentQ.prompt} />
+                  <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -680,7 +731,7 @@ export function ExamRoomView({
                           {opt.key}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <MathRenderer content={opt.text} inline={true} />
+                          <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} />
                         </div>
                       </button>
                     );
@@ -693,7 +744,7 @@ export function ExamRoomView({
                       <HelpCircle className="w-4 h-4" /> Hướng dẫn giải chi tiết:
                     </p>
                     <div className="text-slate-700 leading-relaxed font-normal">
-                      <MathRenderer content={currentQ.explanation} />
+                      <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} />
                     </div>
                   </div>
                 )}
@@ -732,7 +783,7 @@ export function ExamRoomView({
                 </div>
               </div>
             ) : (
-              /* CHẾ ĐỘ CUỘN DANH SÁCH: CỠ CHỮ THON GỌN, KHÔNG IN ĐẬM */
+              /* CHẾ ĐỘ CUỘN DANH SÁCH: CỠ CHỮ THON GỌN, RENDER ẢNH MINH HỌA */
               <div className="space-y-4">
                 {questions.map((q, qIndex) => (
                   <div
@@ -756,7 +807,7 @@ export function ExamRoomView({
                     </div>
 
                     <div className="py-0.5">
-                      <MathRenderer content={q.prompt} />
+                      <MathRenderer content={q.prompt} mediaMap={mediaMap} />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -789,7 +840,7 @@ export function ExamRoomView({
                               {opt.key}
                             </span>
                             <div className="flex-1 min-w-0">
-                              <MathRenderer content={opt.text} inline={true} />
+                              <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} />
                             </div>
                           </button>
                         );
@@ -802,7 +853,7 @@ export function ExamRoomView({
                           <HelpCircle className="w-4 h-4" /> Lời giải chi tiết:
                         </p>
                         <div>
-                          <MathRenderer content={q.explanation} />
+                          <MathRenderer content={q.explanation} mediaMap={mediaMap} />
                         </div>
                       </div>
                     )}
