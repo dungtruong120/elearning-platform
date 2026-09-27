@@ -37,7 +37,7 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
-// BỘ RENDER CHUẨN XÁC: ĐÃ FIX TOÀN DIỆN CẢ FORM \[ \], \( \), ALIGN VÀ HỆ PHƯƠNG TRÌNH
+// BỘ RENDER CHUẨN XÁC: GHÉP CHUỖI AN TOÀN TRÁNH LỖI CÚ PHÁP BUILD TURBOPACK
 function MathRenderer({ 
   content, 
   mediaMap = {}, 
@@ -49,16 +49,15 @@ function MathRenderer({
 }) {
   if (!content) return null;
 
-  // 1. Chuẩn hóa các dạng công thức LaTeX chưa được bọc $ hoặc bọc sai kiểu
   let text = content.normalize("NFC");
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => $$${math.trim()}$$);
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => $${math.trim()}$);
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math.trim() + "$$");
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math.trim() + "$");
 
   // Chuyển hệ \left\{ \begin{align} ... thành \begin{cases} chuẩn mực KaTeX
   text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
-    return $$\\begin{cases} ${body.replace(/&/g, "").trim()} \\end{cases}$$;
+    return "$$\\begin{cases} " + body.replace(/&/g, "").trim() + " \\end{cases}$$";
   });
-  text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => $$${match}$$);
+  text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => "$$" + match + "$$");
   text = text.replace(/(\\right\.)([a-zA-Z\\])/g, "$1 $2");
   text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
@@ -208,7 +207,7 @@ export function ExamRoomView({
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
 
   const enterFullscreen = useCallback(() => {
-    if (isHomework) return; // BTVN không ép toàn màn hình
+    if (isHomework) return;
     try {
       if (typeof document !== "undefined" && !document.fullscreenElement) {
         const elem = document.documentElement;
@@ -431,7 +430,6 @@ export function ExamRoomView({
     const timer = setInterval(() => {
       setTimeSpentSeconds(prev => prev + 1);
 
-      // Nếu là đề thi có giới hạn thời gian (không phải BTVN)
       if (!isHomework && durationMinutes > 0) {
         setSecondsRemaining(prev => {
           if (prev <= 1) {
@@ -477,7 +475,6 @@ export function ExamRoomView({
     setIsSubmitted(true);
     setShowResultModal(true);
 
-    // XÓA BẢN NHÁP BTVN SAU KHI ĐÃ NỘP XONG
     if (isHomework && typeof window !== "undefined" && profile?.id) {
       try {
         localStorage.removeItem(tct_hw_draft_${profile.id}_${quizId});
@@ -666,11 +663,11 @@ export function ExamRoomView({
           </div>
         </div>
 
-        {/* CỤM THỜI GIAN: BTVN HIỂN THỊ THỜI GIAN ĐÃ LÀM TỰ DO */}
+        {/* CỤM THỜI GIAN */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-xl shadow-2xs">
           <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
           <span className="text-xs sm:text-sm font-black tracking-tight font-mono">
-            {isHomework ? ${formatTimer(timeSpentSeconds)} (Tự do) : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
+            {isHomework ? formatTimer(timeSpentSeconds) + " (Tự do)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
           </span>
         </div>
 
@@ -784,7 +781,7 @@ export function ExamRoomView({
                 {isReviewMode && currentQ.explanation && (
                   <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 space-y-1 text-xs">
                     <p className="font-bold text-[#1D4ED8] flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
+                      <HelpCircle className="w-4 h-4" /> Lời giải chi tiết:
                     </p>
                     <div className="text-slate-700 leading-relaxed font-normal">
                       <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} />
@@ -930,7 +927,7 @@ export function ExamRoomView({
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-blue-400" />
                 <span className="text-xl font-black tracking-tight font-mono">
-                  {isHomework ? ${formatTimer(timeSpentSeconds)} (Vô hạn) : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
+                  {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
             </div>
@@ -1038,7 +1035,7 @@ export function ExamRoomView({
               <div className="py-2.5 flex items-center justify-between text-xs font-bold text-slate-600 bg-slate-50 px-3 rounded-xl my-2">
                 <span>Thời gian:</span>
                 <span className="text-[#1D4ED8] font-black font-mono">
-                  {isHomework ? ${formatTimer(timeSpentSeconds)} (Vô hạn) : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
+                  {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
 
