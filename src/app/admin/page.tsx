@@ -130,7 +130,8 @@ function AdminDashboardContent() {
 
   const [isAddDateModalOpen, setIsAddDateModalOpen] = useState<boolean>(false);
   const [newDateInput, setNewDateInput] = useState<string>("2026-09-24");
-  const [newDateShift, setNewDateShift] = useState<string>("ca-6");
+  const [newDateShift, setNewDateShift] = useState<string>("custom");
+  const [newDateTimeSlot, setNewDateTimeSlot] = useState<string>("19:30 - 21:00");
   const [newDateAudience, setNewDateAudience] = useState<"all" | "online" | "offline">("all");
   const [newDateTitle, setNewDateTitle] = useState<string>("");
 
@@ -138,7 +139,8 @@ function AdminDashboardContent() {
     title: "",
     isoDate: "2026-09-24",
     displayDate: "24/09",
-    shiftId: "ca-6",
+    shiftId: "custom",
+    shiftName: "Ca học",
     timeSlot: "19:30 - 21:00",
     meetingUrl: "",
     guideImagesText: "",
@@ -602,6 +604,7 @@ function AdminDashboardContent() {
     showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
   };
 
+  // THÊM NGÀY HỌC MỚI VỚI KHUNG GIỜ TÙY BIẾN TỰ DO
   const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDateInput) return;
@@ -615,15 +618,25 @@ function AdminDashboardContent() {
     const updatedDates = [...sessionDates, displayDate];
     setSessionDates(updatedDates);
 
-    const shiftObj = STANDARD_SHIFTS.find(s => s.id === newDateShift) || STANDARD_SHIFTS[5];
+    let shiftTitle = "Ca học";
+    let finalTimeSlot = newDateTimeSlot.trim() || "19:30 - 21:00";
+
+    if (newDateShift !== "custom") {
+      const shiftObj = STANDARD_SHIFTS.find(s => s.id === newDateShift);
+      if (shiftObj) {
+        shiftTitle = shiftObj.name;
+        finalTimeSlot = shiftObj.timeSlot;
+      }
+    }
+
     const newSessionMeta: any = {
       id: "sess-" + Date.now(),
       title: newDateTitle.trim() || ("Buổi học ngày " + displayDate),
       date: displayDate,
       isoDate: newDateInput,
-      shiftId: shiftObj.id,
-      shiftName: shiftObj.name,
-      timeSlot: shiftObj.timeSlot,
+      shiftId: newDateShift,
+      shiftName: shiftTitle,
+      timeSlot: finalTimeSlot,
       target_mode: newDateAudience,
       audience: newDateAudience,
       room: newDateAudience === "online" ? "Zoom / Meet" : "P.201 TCT",
@@ -648,26 +661,27 @@ function AdminDashboardContent() {
     }
     setIsAddDateModalOpen(false);
     setNewDateTitle("");
-    showToast("Đã thêm ngày học " + displayDate + " (" + shiftObj.name + ") thành công!");
+    showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!");
   };
 
+  // PHÁT LINK BUỔI HỌC VỚI GIỜ GIẤC TÙY CHỈNH TỰ DO
   const handleCreateOnlineSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
       return alert("Vui lòng nhập đầy đủ tiêu đề và link phòng học!");
     }
     const guideImgs = newSessionForm.guideImagesText.split("\n").map(s => s.trim()).filter(Boolean);
-    const shiftObj = STANDARD_SHIFTS.find(s => s.id === newSessionForm.shiftId) || STANDARD_SHIFTS[5];
     const dispDate = newSessionForm.displayDate.trim() || "24/09";
+    const finalTimeSlot = newSessionForm.timeSlot.trim() || "19:30 - 21:00";
 
     const newSession: any = {
       id: "sess-" + Date.now(),
       title: newSessionForm.title.trim(),
       date: dispDate,
       isoDate: newSessionForm.isoDate,
-      shiftId: shiftObj.id,
-      shiftName: shiftObj.name,
-      timeSlot: newSessionForm.timeSlot.trim() || shiftObj.timeSlot,
+      shiftId: newSessionForm.shiftId,
+      shiftName: newSessionForm.shiftName || "Ca học",
+      timeSlot: finalTimeSlot,
       meetingUrl: newSessionForm.meetingUrl.trim(),
       audience: newSessionForm.audience,
       target_mode: newSessionForm.audience,
@@ -703,13 +717,14 @@ function AdminDashboardContent() {
       title: "", 
       isoDate: newSessionForm.isoDate, 
       displayDate: newSessionForm.displayDate, 
-      shiftId: "ca-6", 
+      shiftId: "custom", 
+      shiftName: "Ca học",
       timeSlot: "19:30 - 21:00", 
       meetingUrl: "", 
       guideImagesText: "", 
       audience: "all" 
     });
-    showToast("Đã phát link buổi học (" + dispDate + ") lên hệ thống thành công!");
+    showToast("Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!");
   };
 
   const handleToggleAttendance = (studentId: string, studentName: string, sessionDate: string) => {
@@ -1710,7 +1725,7 @@ function AdminDashboardContent() {
                         Link học Online
                       </h3>
                       <p className="text-xs text-slate-500 font-medium">
-                        Phát link phòng học trực tuyến Zoom / Google Meet & tự động tạo ca điểm danh
+                        Phát link phòng học trực tuyến Zoom / Google Meet & tự do tùy chỉnh khung giờ học
                       </p>
                     </div>
                   </div>
@@ -1762,22 +1777,37 @@ function AdminDashboardContent() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Ca học chuẩn *</label>
-                      <select
-                        value={newSessionForm.shiftId}
-                        onChange={e => {
-                          const shId = e.target.value;
-                          const sh = STANDARD_SHIFTS.find(s => s.id === shId);
-                          if (sh) {
-                            setNewSessionForm({ ...newSessionForm, shiftId: shId, timeSlot: sh.timeSlot });
-                          }
-                        }}
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] focus:bg-white transition"
-                      >
-                        {STANDARD_SHIFTS.map(sh => (
-                          <option key={sh.id} value={sh.id}>{sh.name} ({sh.timeSlot})</option>
-                        ))}
-                      </select>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Khung giờ ca học (Tùy chỉnh tự do) *</label>
+                      <div className="space-y-1.5">
+                        <select
+                          value={newSessionForm.shiftId}
+                          onChange={e => {
+                            const shId = e.target.value;
+                            if (shId === "custom") {
+                              setNewSessionForm({ ...newSessionForm, shiftId: "custom", shiftName: "Ca học" });
+                            } else {
+                              const sh = STANDARD_SHIFTS.find(s => s.id === shId);
+                              if (sh) {
+                                setNewSessionForm({ ...newSessionForm, shiftId: shId, shiftName: sh.name, timeSlot: sh.timeSlot });
+                              }
+                            }
+                          }}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] focus:bg-white transition cursor-pointer"
+                        >
+                          <option value="custom">-- Tự nhập giờ tùy ý (Ví dụ: 21:30 - 23:00) --</option>
+                          {STANDARD_SHIFTS.map(sh => (
+                            <option key={sh.id} value={sh.id}>{sh.name} ({sh.timeSlot})</option>
+                          ))}
+                        </select>
+                        <input
+                          required
+                          type="text"
+                          value={newSessionForm.timeSlot}
+                          onChange={e => setNewSessionForm({ ...newSessionForm, timeSlot: e.target.value })}
+                          placeholder="21:30 - 23:00"
+                          className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-xs font-black text-[#1D4ED8] outline-none focus:border-[#1D4ED8] transition"
+                        />
+                      </div>
                     </div>
 
                     <div>
@@ -2423,7 +2453,23 @@ function AdminDashboardContent() {
                 data: examData.sections, 
                 mediaMap: examData.mediaMap 
               };
-              savePracticeExams([...(practiceExams || []), newExam]);
+              const updatedExams = [...(practiceExams || []), newExam];
+              savePracticeExams(updatedExams);
+
+              try {
+                await supabase.from("practice_exams").upsert({
+                  id: newExam.id,
+                  title: newExam.title,
+                  category: newExam.category,
+                  duration_minutes: newExam.duration_minutes,
+                  data: newExam.data,
+                  media_map: newExam.mediaMap,
+                  created_at: new Date().toISOString()
+                });
+              } catch (err) {
+                console.warn("Lỗi lưu đề thi lên Supabase:", err);
+              }
+
               showToast("Đã thêm vào kho Luyện đề: " + examData.category);
             } else {
               if (!azotaTarget) return;
@@ -2446,8 +2492,9 @@ function AdminDashboardContent() {
                   return les; 
                 }) 
               }));
+
               await saveToStorage(newChapters); 
-              showToast("Đã tải đề thi trắc nghiệm!");
+              showToast("Đã tải đề thi trắc nghiệm vào bài học!");
             }
             setTestFile(null); 
             setAzotaTarget(null);
@@ -2637,6 +2684,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
+      {/* MODAL THÊM NGÀY HỌC - TỰ DO TÙY BIẾN KHUNG GIỜ */}
       {isAddDateModalOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleAddNewAttendanceDate} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
@@ -2657,16 +2705,34 @@ function AdminDashboardContent() {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Chọn ca học chuẩn *</label>
-              <select 
-                value={newDateShift} 
-                onChange={e => setNewDateShift(e.target.value)} 
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-xs font-semibold focus:border-[#1D4ED8] outline-none bg-white" 
-              >
-                {STANDARD_SHIFTS.map(sh => (
-                  <option key={sh.id} value={sh.id}>{sh.name} ({sh.timeSlot})</option>
-                ))}
-              </select>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Khung giờ ca học (Tự do nhập hoặc chọn ca) *</label>
+              <div className="space-y-1.5">
+                <select 
+                  value={newDateShift} 
+                  onChange={e => {
+                    const shId = e.target.value;
+                    setNewDateShift(shId);
+                    if (shId !== "custom") {
+                      const sh = STANDARD_SHIFTS.find(s => s.id === shId);
+                      if (sh) setNewDateTimeSlot(sh.timeSlot);
+                    }
+                  }} 
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:border-[#1D4ED8] outline-none bg-white cursor-pointer" 
+                >
+                  <option value="custom">-- Khung giờ tùy chỉnh (Tự do nhập bên dưới) --</option>
+                  {STANDARD_SHIFTS.map(sh => (
+                    <option key={sh.id} value={sh.id}>{sh.name} ({sh.timeSlot})</option>
+                  ))}
+                </select>
+                <input 
+                  type="text" 
+                  required 
+                  value={newDateTimeSlot} 
+                  onChange={e => setNewDateTimeSlot(e.target.value)} 
+                  placeholder="VD: 21:30 - 23:00 hoặc 08:15 - 09:45" 
+                  className="w-full px-3 py-2 border border-blue-200 rounded-xl text-xs font-black text-[#1D4ED8] outline-none focus:border-[#1D4ED8]" 
+                />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Đối tượng áp dụng *</label>
