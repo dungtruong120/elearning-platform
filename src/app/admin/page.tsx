@@ -235,113 +235,108 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // NẠP DỮ LIỆU TỪ SUPABASE (BẢO TOÀN FALLBACK LOCALSTORAGE)
+  // NẠP DỮ LIỆU TỪ SUPABASE
   const loadStorageData = useCallback(async () => {
-    if (typeof window === "undefined") return;
+    if (typeof window !== "undefined") {
+      try {
+        const { data: courseRow, error: courseErr } = await supabase
+          .from("courses")
+          .select("*")
+          .limit(1)
+          .maybeSingle();
 
-    try {
-      const { data: courseRow, error: courseErr } = await supabase
-        .from("courses")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
-
-      if (!courseErr && courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
-        setChapters(courseRow.chapters);
-        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
-      } else {
-        const savedData = localStorage.getItem("edunexus_course_data");
-        if (savedData && savedData !== "undefined" && savedData !== "null") {
-          const parsed = JSON.parse(savedData);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setChapters(parsed);
+        if (!courseErr && courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
+          setChapters(courseRow.chapters);
+          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+        } else {
+          const savedData = localStorage.getItem("edunexus_course_data");
+          if (savedData && savedData !== "undefined" && savedData !== "null") {
+            const parsed = JSON.parse(savedData);
+            if (Array.isArray(parsed) && parsed.length > 0) setChapters(parsed);
           } else {
             setChapters(INITIAL_CHAPTERS);
           }
-        } else {
-          setChapters(INITIAL_CHAPTERS);
-          localStorage.setItem("edunexus_course_data", JSON.stringify(INITIAL_CHAPTERS));
+        }
+      } catch (e) {
+        const savedData = localStorage.getItem("edunexus_course_data");
+        if (savedData) {
+          try {
+            const parsed = JSON.parse(savedData);
+            if (Array.isArray(parsed) && parsed.length > 0) setChapters(parsed);
+          } catch {}
         }
       }
-    } catch (e) {
-      const savedData = localStorage.getItem("edunexus_course_data");
-      if (savedData) {
-        try {
-          const parsed = JSON.parse(savedData);
-          if (Array.isArray(parsed) && parsed.length > 0) setChapters(parsed);
-        } catch {}
-      }
-    }
 
-    try {
-      const savedPractice = localStorage.getItem("edunexus_practice_exams");
-      if (savedPractice && savedPractice !== "undefined" && savedPractice !== "null") {
-        const parsed = JSON.parse(savedPractice);
-        setPracticeExams(Array.isArray(parsed) ? parsed : []);
-      } else {
+      try {
+        const savedPractice = localStorage.getItem("edunexus_practice_exams");
+        if (savedPractice && savedPractice !== "undefined" && savedPractice !== "null") {
+          const parsed = JSON.parse(savedPractice);
+          setPracticeExams(Array.isArray(parsed) ? parsed : []);
+        } else {
+          setPracticeExams([]);
+        }
+      } catch (e) {
         setPracticeExams([]);
       }
-    } catch (e) {
-      setPracticeExams([]);
-    }
 
-    try {
-      const savedAttempts = localStorage.getItem("edunexus_attempts");
-      if (savedAttempts && savedAttempts !== "undefined" && savedAttempts !== "null") {
-        const parsed = JSON.parse(savedAttempts);
-        setAllAttempts(Array.isArray(parsed) ? parsed : []);
-      } else {
+      try {
+        const savedAttempts = localStorage.getItem("edunexus_attempts");
+        if (savedAttempts && savedAttempts !== "undefined" && savedAttempts !== "null") {
+          const parsed = JSON.parse(savedAttempts);
+          setAllAttempts(Array.isArray(parsed) ? parsed : []);
+        } else {
+          setAllAttempts([]);
+        }
+      } catch (e) {
         setAllAttempts([]);
       }
-    } catch (e) {
-      setAllAttempts([]);
-    }
 
-    try {
-      const savedNotifs = localStorage.getItem("edunexus_system_notifications");
-      if (savedNotifs && savedNotifs !== "undefined" && savedNotifs !== "null") {
-        const parsed = JSON.parse(savedNotifs);
-        setSysNotifications(Array.isArray(parsed) ? parsed : []);
-      } else {
+      try {
+        const savedNotifs = localStorage.getItem("edunexus_system_notifications");
+        if (savedNotifs && savedNotifs !== "undefined" && savedNotifs !== "null") {
+          const parsed = JSON.parse(savedNotifs);
+          setSysNotifications(Array.isArray(parsed) ? parsed : []);
+        } else {
+          setSysNotifications([]);
+        }
+      } catch (e) {
         setSysNotifications([]);
       }
-    } catch (e) {
-      setSysNotifications([]);
-    }
 
-    try {
-      const { data: dbSessions, error: sessErr } = await supabase
-        .from("sessions")
-        .select("*")
-        .order("created_at", { ascending: false });
+      try {
+        const { data: dbSessions, error: sessErr } = await supabase
+          .from("sessions")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      if (!sessErr && dbSessions && dbSessions.length > 0) {
-        setOnlineSessions(dbSessions);
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
-      } else {
+        if (!sessErr && dbSessions && dbSessions.length > 0) {
+          setOnlineSessions(dbSessions);
+          localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
+        } else {
+          const savedSessions = localStorage.getItem("edunexus_online_sessions");
+          if (savedSessions) {
+            const parsed = JSON.parse(savedSessions);
+            if (Array.isArray(parsed)) setOnlineSessions(parsed);
+          }
+        }
+      } catch {
         const savedSessions = localStorage.getItem("edunexus_online_sessions");
         if (savedSessions) {
-          const parsed = JSON.parse(savedSessions);
-          if (Array.isArray(parsed) && parsed.length > 0) setOnlineSessions(parsed);
+          try {
+            const parsed = JSON.parse(savedSessions);
+            if (Array.isArray(parsed)) setOnlineSessions(parsed);
+          } catch {}
         }
       }
-    } catch {
-      const savedSessions = localStorage.getItem("edunexus_online_sessions");
-      if (savedSessions) {
-        try {
-          const parsed = JSON.parse(savedSessions);
-          if (Array.isArray(parsed) && parsed.length > 0) setOnlineSessions(parsed);
-        } catch {}
-      }
-    }
 
-    try {
-      const savedAtt = localStorage.getItem("edunexus_attendance");
-      if (savedAtt) {
-        const parsed = JSON.parse(savedAtt);
-        if (Array.isArray(parsed)) setAttendanceRecords(parsed);
-      }
-    } catch (e) {}
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        if (savedAtt) {
+          const parsed = JSON.parse(savedAtt);
+          if (Array.isArray(parsed)) setAttendanceRecords(parsed);
+        }
+      } catch (e) {}
+    }
   }, []);
 
   useEffect(() => {
@@ -369,7 +364,7 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents]);
 
-  // LƯU DỮ LIỆU BÀI HỌC VÀO SUPABASE SERVER
+  // LƯU DỮ LIỆU BÀI HỌC VÀO SUPABASE (TỰ ĐỘNG KHỚP UUID)
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
     if (typeof window !== "undefined") {
@@ -385,21 +380,24 @@ function AdminDashboardContent() {
         .select("id")
         .limit(1);
 
-      const targetId = (existingRows && existingRows.length > 0 && existingRows[0].id) 
-        ? existingRows[0].id 
-        : "main_course";
-
-      const { error } = await supabase.from("courses").upsert({
-        id: targetId,
-        chapters: newChapters,
-        updated_at: new Date().toISOString()
-      });
-
-      if (error) {
-        console.error("Lỗi lưu Supabase:", error);
+      if (existingRows && existingRows.length > 0) {
+        await supabase
+          .from("courses")
+          .update({
+            chapters: newChapters,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", existingRows[0].id);
+      } else {
+        await supabase
+          .from("courses")
+          .insert([{
+            chapters: newChapters,
+            updated_at: new Date().toISOString()
+          }]);
       }
     } catch (err: any) {
-      console.error("Lỗi ngoại lệ khi lưu Supabase:", err);
+      console.error("Lỗi khi lưu Supabase:", err);
     }
   };
 
