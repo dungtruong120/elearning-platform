@@ -235,23 +235,42 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
+  // NẠP DỮ LIỆU TỪ SUPABASE (BẢO TOÀN FALLBACK LOCALSTORAGE)
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
+
     try {
-      const savedData = localStorage.getItem("edunexus_course_data");
-      if (savedData && savedData !== "undefined" && savedData !== "null") {
-        const parsed = JSON.parse(savedData);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setChapters(parsed);
+      const { data: courseRow, error: courseErr } = await supabase
+        .from("courses")
+        .select("*")
+        .limit(1)
+        .maybeSingle();
+
+      if (!courseErr && courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
+        setChapters(courseRow.chapters);
+        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+      } else {
+        const savedData = localStorage.getItem("edunexus_course_data");
+        if (savedData && savedData !== "undefined" && savedData !== "null") {
+          const parsed = JSON.parse(savedData);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setChapters(parsed);
+          } else {
+            setChapters(INITIAL_CHAPTERS);
+          }
         } else {
           setChapters(INITIAL_CHAPTERS);
+          localStorage.setItem("edunexus_course_data", JSON.stringify(INITIAL_CHAPTERS));
         }
-      } else {
-        setChapters(INITIAL_CHAPTERS);
-        localStorage.setItem("edunexus_course_data", JSON.stringify(INITIAL_CHAPTERS));
       }
     } catch (e) {
-      setChapters(INITIAL_CHAPTERS);
+      const savedData = localStorage.getItem("edunexus_course_data");
+      if (savedData) {
+        try {
+          const parsed = JSON.parse(savedData);
+          if (Array.isArray(parsed) && parsed.length > 0) setChapters(parsed);
+        } catch {}
+      }
     }
 
     try {
@@ -290,14 +309,13 @@ function AdminDashboardContent() {
       setSysNotifications([]);
     }
 
-    // ĐỌC LỊCH HỌC TỪ SUPABASE (NẾU CÓ) ĐỂ ĐỒNG BỘ HAI CHIỀU
     try {
-      const { data: dbSessions, error } = await supabase
+      const { data: dbSessions, error: sessErr } = await supabase
         .from("sessions")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (!error && dbSessions && dbSessions.length > 0) {
+      if (!sessErr && dbSessions && dbSessions.length > 0) {
         setOnlineSessions(dbSessions);
         localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
       } else {
@@ -331,9 +349,11 @@ function AdminDashboardContent() {
     loadStorageData();
     fetchSupabaseStudents();
 
-    // Kết nối Supabase Realtime cho Admin lắng nghe ca học & học sinh
     const channel = supabase
       .channel("admin-realtime-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => {
+        loadStorageData();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
         loadStorageData();
       })
@@ -349,13 +369,37 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents]);
 
-  const saveToStorage = (newChapters: any[]) => {
+  // LƯU DỮ LIỆU BÀI HỌC VÀO SUPABASE SERVER
+  const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
+    }
+
+    try {
+      const { data: existingRows } = await supabase
+        .from("courses")
+        .select("id")
+        .limit(1);
+
+      const targetId = (existingRows && existingRows.length > 0 && existingRows[0].id) 
+        ? existingRows[0].id 
+        : "main_course";
+
+      const { error } = await supabase.from("courses").upsert({
+        id: targetId,
+        chapters: newChapters,
+        updated_at: new Date().toISOString()
+      });
+
+      if (error) {
+        console.error("Lỗi lưu Supabase:", error);
+      }
+    } catch (err: any) {
+      console.error("Lỗi ngoại lệ khi lưu Supabase:", err);
     }
   };
 
@@ -369,7 +413,7 @@ function AdminDashboardContent() {
     }
   };
 
-  const handleCreateNewItem = (e: React.FormEvent) => {
+  const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
     let newChapters = [...(chapters || [])];
@@ -383,7 +427,7 @@ function AdminDashboardContent() {
         }]
       } : chap);
     }
-    saveToStorage(newChapters); 
+    await saveToStorage(newChapters); 
     setCreateModal(null); 
     setNewItemTitle(""); 
     setNewItemDescription(""); 
@@ -392,18 +436,18 @@ function AdminDashboardContent() {
     showToast("Đã thêm " + (createModal.type === "chapter" ? "chương" : "bài học") + " thành công!");
   };
 
-  const handleEditLessonSubmit = (e: React.FormEvent) => {
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editLessonModal || !editLessonForm.title.trim()) return;
     const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
       ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
     } : chap);
-    saveToStorage(newChapters); 
+    await saveToStorage(newChapters); 
     setEditLessonModal(null); 
     showToast("Đã cập nhật thông tin bài học!");
   };
 
-  const handleDeleteLesson = (chapterId: string, lessonId: string) => {
+  const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
     const newChapters = (chapters || []).map(chap => {
       if (chap?.id === chapterId) { 
@@ -411,11 +455,11 @@ function AdminDashboardContent() {
       }
       return chap;
     });
-    saveToStorage(newChapters); 
+    await saveToStorage(newChapters); 
     showToast("Đã xóa bài học!");
   };
 
-  const handleAddResource = (e: React.FormEvent) => {
+  const handleAddResource = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
     const newResource = { 
@@ -433,7 +477,7 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    saveToStorage(newChapters); 
+    await saveToStorage(newChapters); 
     setResTitle(""); 
     setResUrl(""); 
     setVidType("lecture");
@@ -441,7 +485,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm tài nguyên thành công!");
   };
 
-  const handleAddBoost = (e: React.FormEvent) => {
+  const handleAddBoost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
     const newBoost = { id: "boost-" + Date.now(), ...boostForm };
@@ -454,13 +498,13 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    saveToStorage(newChapters); 
+    await saveToStorage(newChapters); 
     setBoostModal(null); 
     setBoostForm({ title: "", type: "video", url: "", note: "" }); 
     showToast("Đã thêm tài liệu tăng cường!");
   };
 
-  const handleAddDriveFile = (e: React.FormEvent) => {
+  const handleAddDriveFile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
     const newItem = { id: "drive-" + Date.now(), title: driveLinkForm.title, url: driveLinkForm.url, is_quiz: false, is_drive_file: true };
@@ -473,25 +517,25 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    saveToStorage(newChapters); 
+    await saveToStorage(newChapters); 
     setDriveLinkModal(null); 
     setDriveLinkForm({ title: "", url: "" }); 
     showToast("Đã đính kèm file Drive!");
   };
 
-  const handleDeleteResource = (lessonId: string, resType: string, resId: string) => {
+  const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
     const newChapters = (chapters || []).map(chap => ({ 
       ...chap, 
       lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
     }));
-    saveToStorage(newChapters);
+    await saveToStorage(newChapters);
     if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
       setViewResourcesModal(prev => prev ? { ...prev, items: (prev.items || []).filter(i => i?.id !== resId) } : null);
     }
   };
 
-  const handleEditResourceSubmit = (e: React.FormEvent) => {
+  const handleEditResourceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editResourceModal || !editResourceForm.title.trim()) return;
     const newChapters = (chapters || []).map(chap => ({ 
@@ -510,7 +554,7 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    saveToStorage(newChapters);
+    await saveToStorage(newChapters);
     setEditResourceModal(null); 
     showToast("Đã cập nhật thông tin tài liệu!");
   };
@@ -591,7 +635,6 @@ function AdminDashboardContent() {
     const updatedSessions = [newSessionMeta, ...onlineSessions];
     setOnlineSessions(updatedSessions);
 
-    // ĐỒNG BỘ TRỰC TIẾP LÊN SUPABASE
     try {
       await supabase.from("sessions").insert([newSessionMeta]);
     } catch (err) {
@@ -644,7 +687,6 @@ function AdminDashboardContent() {
       setSessionDates(updatedDates);
     }
 
-    // ĐỒNG BỘ TRỰC TIẾP LÊN SUPABASE
     try {
       await supabase.from("sessions").insert([newSession]);
     } catch (err) {
@@ -827,17 +869,19 @@ function AdminDashboardContent() {
   }, [allAttempts, practiceCategoryFilter]);
 
   const offlineLessonCount = useMemo(() => {
-    return (chapters || []).reduce((acc, chap) => {
-      if (chap?.target_mode === "online") return acc;
-      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode !== "online").length;
-    }, 0);
+    return (chapters || [])
+      .reduce((acc, chap) => {
+        if (chap?.target_mode === "online") return acc;
+        return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode !== "online").length;
+      }, 0);
   }, [chapters]);
 
   const onlineLessonCount = useMemo(() => {
-    return (chapters || []).reduce((acc, chap) => {
-      if (chap?.target_mode === "offline") return acc;
-      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
-    }, 0);
+    return (chapters || [])
+      .reduce((acc, chap) => {
+        if (chap?.target_mode === "offline") return acc;
+        return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
+      }, 0);
   }, [chapters]);
 
   const flattenedLessons = useMemo(() => {
@@ -2367,7 +2411,7 @@ function AdminDashboardContent() {
           file={testFile}
           mode={uploadMode} 
           onClose={() => setTestFile(null)} 
-          onSave={(examData: any) => {
+          onSave={async (examData: any) => {
             if (uploadMode === "practice") {
               const newExam = { 
                 id: "prac-" + Date.now(), 
@@ -2404,7 +2448,7 @@ function AdminDashboardContent() {
                   return les; 
                 }) 
               }));
-              saveToStorage(newChapters); 
+              await saveToStorage(newChapters); 
               showToast("Đã tải đề thi trắc nghiệm!");
             }
             setTestFile(null); 
@@ -2759,9 +2803,6 @@ function AdminDashboardContent() {
   );
 }
 
-// ==========================================
-// ERROR BOUNDARY PHÒNG VỆ CHỐNG SẬP TRẮNG MÀN HÌNH
-// ==========================================
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
