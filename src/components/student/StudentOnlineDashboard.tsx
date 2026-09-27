@@ -12,6 +12,7 @@ import { ExamRoomView } from "@/components/student/ExamRoomView";
 import { LessonWorkspaceView } from "@/components/student/LessonWorkspaceView";
 import PracticeExamWorkspace from "@/components/student/PracticeExamWorkspace";
 import { Profile } from "@/types";
+import { supabase } from "@/lib/supabaseClient";
 import { 
   Target, BookOpen, Play, CheckCircle2, Award, Sparkles, Clock, 
   Calendar, Edit3, Check, Quote, Layers, FileText, X, ArrowLeft, 
@@ -23,7 +24,7 @@ const MOTIVATIONAL_QUOTES = [
   "Học tập không phải là con đường duy nhất để thành công, nhưng là con đường ngắn nhất để chinh phục tri thức.",
   "Thành công lớn nhất không phải là không bao giờ vấp ngã, mà là đứng dậy sau mỗi lần vấp ngã.",
   "Kiên trì mỗi ngày một chút, đỉnh cao thủ khoa kỳ thi Tốt nghiệp THPT và ĐGNL sẽ thuộc về bạn.",
-  "Toán học và tư duy logic là khóa mở ra tương lai rộng mở."
+  "Toán học và tư duy logic là chìa khóa mở ra cánh cửa tương lai rộng mở."
 ];
 
 const DEFAULT_CHAPTERS = [
@@ -104,7 +105,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
-  const fetchAuthAndData = useCallback(() => {
+  // ĐỒNG BỘ DỮ LIỆU TỪ SUPABASE & STORAGE
+  const fetchAuthAndData = useCallback(async () => {
     if (typeof window !== "undefined") {
       try {
         const savedChapters = localStorage.getItem("edunexus_course_data");
@@ -294,6 +296,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return m + "p " + s + "s";
   };
 
+  // LỌC BÀI HỌC DÀNH CHO HỌC SINH ONLINE
   const onlineChapters = useMemo(() => {
     return (chapters || [])
       .map((chap: any) => ({
@@ -305,30 +308,71 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
 
-  // Lịch học & Điểm danh Online
+  // Lịch học & Điểm danh Online kết nối Realtime Supabase
   const [onlineSessions, setOnlineSessions] = useState<any[]>([]);
   const [onlineAttRecords, setOnlineAttRecords] = useState<any[]>([]);
   const [onlineToast, setOnlineToast] = useState<string>("");
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const loadSessionsData = useCallback(async () => {
     try {
-      const saved = localStorage.getItem("edunexus_online_sessions");
-      const savedTct = localStorage.getItem("tct_schedule_sessions");
-      const listA = saved ? JSON.parse(saved) : [];
-      const listB = savedTct ? JSON.parse(savedTct) : [];
-      const merged = [...listA, ...listB];
-      if (Array.isArray(merged) && merged.length > 0) {
-        const unique = Array.from(new Map(merged.map(item => [item.id || item.title + item.date + item.timeSlot, item])).values());
-        setOnlineSessions(unique);
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        setOnlineSessions(data);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_online_sessions", JSON.stringify(data));
+        }
+      } else {
+        if (typeof window !== "undefined") {
+          const saved = localStorage.getItem("edunexus_online_sessions");
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) setOnlineSessions(parsed);
+          }
+        }
       }
-      const savedAtt = localStorage.getItem("edunexus_attendance");
-      if (savedAtt) {
-        const parsed = JSON.parse(savedAtt);
-        if (Array.isArray(parsed)) setOnlineAttRecords(parsed);
+    } catch {
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("edunexus_online_sessions");
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) setOnlineSessions(parsed);
+          } catch {}
+        }
       }
-    } catch (e) {}
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        if (savedAtt) {
+          const parsed = JSON.parse(savedAtt);
+          if (Array.isArray(parsed)) setOnlineAttRecords(parsed);
+        }
+      } catch (e) {}
+    }
   }, []);
+
+  useEffect(() => {
+    loadSessionsData();
+
+    const channel = supabase
+      .channel("realtime-student-online-sessions")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
+        loadSessionsData();
+      })
+      .subscribe();
+
+    window.addEventListener("storage", loadSessionsData);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener("storage", loadSessionsData);
+    };
+  }, [loadSessionsData]);
 
   const parseTimeSlotMinutes = (timeSlot?: string): { startMinutes: number; endMinutes: number } | null => {
     if (!timeSlot || !timeSlot.includes("-")) return null;
@@ -356,20 +400,20 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     const dStr = d + "/" + m;
     const isoStr = y + "-" + m + "-" + d;
 
-    if (sessIsoDate && sessIsoDate.includes(isoStr)) return true;
+    if (sessIsoDate && (sessIsoDate === isoStr || sessIsoDate.includes(isoStr))) return true;
     if (sessDate && (sessDate === dStr || sessDate.includes(dStr))) return true;
     return false;
   };
 
-  // Ca học Online chỉ hiện đúng trước giờ học 15 phút
+  // Ca học Online chỉ kích hoạt trước giờ học 15 phút
   const liveOnlineSession = useMemo(() => {
     if (!onlineSessions || onlineSessions.length === 0) return null;
     const now = currentTime;
     const curMinutes = now.getHours() * 60 + now.getMinutes();
 
     return onlineSessions.find((s: any) => {
-      const target = (s.target_mode || s.audience || "all").toLowerCase();
-      const isTarget = target === "online" || target === "all";
+      const tMode = (s.target_mode || s.audience || "all").toLowerCase();
+      const isTarget = tMode === "online" || tMode === "all";
       if (!isTarget) return false;
       if (!isSameDate(s.date, s.isoDate, now)) return false;
       const slot = parseTimeSlotMinutes(s.timeSlot);
