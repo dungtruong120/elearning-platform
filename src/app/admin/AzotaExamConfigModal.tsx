@@ -837,26 +837,26 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX TRIỆT ĐỂ)
+// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX CÚ PHÁP BUILD)
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
   if (!raw) return "";
   let text = raw.normalize("NFC");
 
-  // 1. Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => $$${math.trim()}$$);
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => $${math.trim()}$);
+  // 1. Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $ bằng phép cộng chuỗi an toàn
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math.trim() + "$$");
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math.trim() + "$");
 
   // 2. Chuyển đổi hệ phương trình \left\{ \begin{align} ... \end{align} \right. thành \begin{cases} ... \end{cases} chuẩn KaTeX
   text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
     const cleanBody = body.replace(/&/g, "").trim();
-    return $$\\begin{cases} ${cleanBody} \\end{cases}$$;
+    return "$$\\begin{cases} " + cleanBody + " \\end{cases}$$";
   });
 
   // Tự bọc \begin{align} độc lập nếu chưa có $$ bao quanh
   text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => {
-    return $$${match}$$;
+    return "$$" + match + "$$";
   });
 
   // 3. Tự động thêm dấu cách sau các lệnh LaTeX dính nhau
@@ -1345,7 +1345,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* CỘT PHẢI: TRÌNH BIÊN TẬP VĂN BẢN NGUỒN + TẢI ẢNH & CHÈN LINK ẢNH */}
+            {/* CỘT PHẢI: TRÌNH BIÊN TẬP VĂN BẢN NGUỒN */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-slate-50/50 shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 shrink-0">
                 <div className="flex items-center gap-2">
