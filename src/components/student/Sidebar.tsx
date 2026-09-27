@@ -2,7 +2,7 @@
 
 import React from "react";
 import { 
-  BookOpen, Calendar, Target, BarChart2, Trophy, LogOut, LayoutDashboard, Bell
+  BookOpen, Calendar, Target, BarChart2, Trophy, LogOut, LayoutDashboard 
 } from "lucide-react";
 import { Profile } from "@/types";
 
@@ -26,9 +26,7 @@ export function Sidebar({ user, activeTab, setActiveTab, onToggleSidebar, onLogo
 
   return (
     <>
-      {/* ========================================================= */}
-      {/* 1. SIDEBAR CHO DESKTOP & TABLET/IPAD (Màn hình md trở lên) */}
-      {/* ========================================================= */}
+      {/* 1. SIDEBAR DÀNH CHO LAPTOP & DESKTOP (md:flex) */}
       <aside className="hidden md:flex w-64 bg-[#1E40AF] text-white/90 flex-col shrink-0 p-5 h-screen shadow-lg select-none">
         <div className="flex items-center gap-3 mb-8 shrink-0">
           <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">
@@ -78,10 +76,8 @@ export function Sidebar({ user, activeTab, setActiveTab, onToggleSidebar, onLogo
         </div>
       </aside>
 
-      {/* ========================================================= */}
-      {/* 2. BOTTOM NAVIGATION BAR CỐ ĐỊNH Ở ĐÁY CHO MOBILE         */}
-      {/* ========================================================= */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-white/95 backdrop-blur-2xl border-t border-slate-200/90 shadow-[0_-4px_24px_rgba(15,23,42,0.08)] px-1.5 pt-1.5 pb-2.5 flex items-center justify-around select-none">
+      {/* 2. BOTTOM NAVIGATION BAR CỐ ĐỊNH Ở ĐÁY CHO MOBILE VÀ IPAD (md:hidden) */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-white/95 backdrop-blur-2xl border-t border-slate-200/90 shadow-[0_-4px_24px_rgba(15,23,42,0.08)] px-1 pt-1 pb-2 flex items-center justify-between select-none">
         {menuItems.map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.key;
@@ -90,21 +86,40 @@ export function Sidebar({ user, activeTab, setActiveTab, onToggleSidebar, onLogo
               key={item.key}
               type="button"
               onClick={() => setActiveTab(item.key)}
-              className={"flex-1 flex flex-col items-center justify-center py-1 rounded-xl transition-all cursor-pointer relative " + (
+              className={"flex-1 flex flex-col items-center justify-center py-1 transition-all cursor-pointer " + (
                 isActive 
                   ? "text-[#1D4ED8]" 
                   : "text-slate-400 hover:text-slate-600 active:scale-95"
               )}
             >
               <div className={"p-1 rounded-xl transition-all " + (isActive ? "bg-blue-50" : "")}>
-                <Icon className={"w-5 h-5 transition-transform " + (isActive ? "scale-110 text-[#1D4ED8]" : "")} />
+                <Icon className={"w-4.5 h-4.5 transition-transform " + (isActive ? "scale-110 text-[#1D4ED8]" : "")} />
               </div>
-              <span className={"text-[10px] tracking-tight mt-0.5 leading-none " + (isActive ? "font-black" : "font-semibold")}>
+              <span className={"text-[9px] tracking-tight mt-0.5 leading-none " + (isActive ? "font-black" : "font-semibold")}>
                 {item.label}
               </span>
             </button>
           );
         })}
+
+        {/* Nút Đăng xuất tiện lợi ngay trên thanh mobile */}
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("Bạn có chắc chắn muốn đăng xuất?")) {
+              onLogout?.();
+            }
+          }}
+          className="flex-1 flex flex-col items-center justify-center py-1 text-rose-500 hover:text-rose-600 active:scale-95 transition-all cursor-pointer"
+          title="Đăng xuất"
+        >
+          <div className="p-1 rounded-xl hover:bg-rose-50">
+            <LogOut className="w-4.5 h-4.5" />
+          </div>
+          <span className="text-[9px] font-bold tracking-tight mt-0.5 leading-none">
+            Thoát
+          </span>
+        </button>
       </nav>
     </>
   );
