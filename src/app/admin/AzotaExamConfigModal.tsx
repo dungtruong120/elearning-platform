@@ -328,7 +328,7 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG KHÔI PHỤC TOÀN DIỆN CẢ PHƯƠNG ÁN A,B,C,D VÀ LỜI GIẢI GỐC "KHI ĐÓ:", "CÓ ."
+// BỘ TỰ ĐỘNG KHÔI PHỤC TOÀN DIỆN PHƯƠNG ÁN A,B,C,D VÀ LỜI GIẢI GỐC
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
@@ -543,7 +543,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI (FIX LỖI TRÙNG LẶP CÂU)
+// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -575,7 +575,6 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
     }
   }
 
-  // TÌM CHÍNH XÁC VỊ TRÍ CÁC CÂU BẰNG TỪ KHÓA BẮT ĐẦU HOẶC CHỮ CÂU CÓ SẴN
   const qSplitRegex = /(?:^|[\r\n]+)(?:(?:Câu|Bài|Question)\s*\d+[:.]?\s*|(?:(?=(?:Cho\s+(?:hình|tứ\s+diện|chóp|lăng\s+trụ)|Trong\s+không\s+gian|Xét\s+tính))))/gi;
   const rawPieces = norm.split(qSplitRegex).filter(c => c && c.trim().length > 15);
 
@@ -1205,6 +1204,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
+  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1484,7 +1484,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
-                              {/* SỬA TRIỆT ĐỂ: TRUYỀN BIẾN CHUẨN XÁC, KHÔNG CÓ NGOẶC KÉP */}
+                              {/* SỬA TRIỆT ĐỂ: TRUYỀN BIẾN CHUẨN XÁC, TUYỆT ĐỐI KHÔNG CÓ NGOẶC KÉP */}
                               <TokenViewer content="{q.prompt_html}" mediaMap="{mediaMap}"/>
                             </div>
 
