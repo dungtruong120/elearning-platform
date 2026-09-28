@@ -34,42 +34,61 @@ export async function POST(req: Request) {
 
     const cleanKey = String(key).trim();
     
-    // Ghép URL thuần túy để tránh dính markdown link
-    const baseUrl = "https://generativelanguage.googleapis.com/v1beta/models/";
-    const modelName = "gemini-3.8-flash";
-    const requestUrl = baseUrl + modelName + ":generateContent?key=" + cleanKey;
+    // Luân chuyển model qua cụm có sẵn ổn định nhất, không bị nghẽn 503
+    const candidateModels = [
+      "gemini-2.5-flash",
+      "gemini-3.8-flash",
+      "gemini-1.5-flash"
+    ];
 
-    const response = await fetch(requestUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192
+    let outputText = "";
+    let lastError = "";
+
+    for (const model of candidateModels) {
+      try {
+        const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text }]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 8192
+            }
+          })
+        });
+
+        const resText = await response.text();
+        let data: any = {};
+        try {
+          data = JSON.parse(resText);
+        } catch {
+          lastError = "Lỗi phản hồi server";
+          continue;
         }
-      })
-    });
 
-    const resText = await response.text();
-    let data: any = {};
-    try {
-      data = JSON.parse(resText);
-    } catch {
-      return NextResponse.json({ error: "Phản hồi server không hợp lệ: " + resText.slice(0, 100) }, { status: 502 });
+        if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+          outputText = data.candidates[0].content.parts[0].text;
+          break;
+        } else {
+          lastError = data?.error?.message || ("Lỗi model " + model);
+        }
+      } catch (e: any) {
+        lastError = e?.message || "Lỗi kết nối";
+      }
     }
 
-    if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      return NextResponse.json({ result: data.candidates[0].content.parts[0].text });
-    } else {
-      const errMsg = data?.error?.message || "Lỗi xử lý từ Google AI";
-      return NextResponse.json({ error: errMsg }, { status: 400 });
+    if (!outputText) {
+      return NextResponse.json({ error: lastError || "Máy chủ AI đang bận, vui lòng thử lại sau giây lát!" }, { status: 400 });
     }
+
+    return NextResponse.json({ result: outputText });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Lỗi máy chủ" }, { status: 500 });
   }
