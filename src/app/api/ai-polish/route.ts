@@ -30,18 +30,19 @@ export async function POST(req: Request) {
       "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
     const cleanKey = String(key).trim();
-    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + cleanKey;
+    // Danh sách model luân chuyển để tránh nghẽn tải cụm 3.8
+    const candidateModels = [
+      "gemini-3.5-flash-lite",
+      "gemini-3.7-flash",
+      "gemini-3.8-flash"
+    ];
 
     let outputText = "";
     let lastError = "";
 
-    // Thử tối đa 2 lần nếu Google gặp tình trạng bận đột xuất (High Demand)
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (const model of candidateModels) {
       try {
-        if (attempt > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-        }
-
+        const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -62,17 +63,17 @@ export async function POST(req: Request) {
         const data = await response.json();
         if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
           outputText = data.candidates[0].content.parts[0].text;
-          break;
+          break; // Thành công, thoát vòng lặp
         } else {
-          lastError = data?.error?.message || "Lỗi xử lý từ Google AI";
+          lastError = data?.error?.message || ("Lỗi model " + model);
         }
       } catch (e: any) {
-        lastError = e?.message || "Lỗi kết nối mạng";
+        lastError = e?.message || "Lỗi kết nối";
       }
     }
 
     if (!outputText) {
-      return NextResponse.json({ error: lastError || "Máy chủ AI đang bận, vui lòng bấm lại sau vài giây!" }, { status: 400 });
+      return NextResponse.json({ error: lastError || "Máy chủ AI đang bảo trì, vui lòng thử lại sau giây lát!" }, { status: 400 });
     }
 
     return NextResponse.json({ result: outputText });
