@@ -57,7 +57,7 @@ Nhiệm vụ của bạn:
         { status: response.status }
       );
     }
-
+    
     const outputText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     return NextResponse.json({ result: outputText });
   } catch (err: any) {
