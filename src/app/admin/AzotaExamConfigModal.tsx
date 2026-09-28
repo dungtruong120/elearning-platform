@@ -383,10 +383,7 @@ export async function extractDocxDirectly(file: File) {
   const docFile = zip.files["word/document.xml"];
   if (!docFile) throw new Error("File Word không hợp lệ.");
   const docXml = new DOMParser().parseFromString(await docFile.async("string"), "text/xml");
-  const paragraphs = Array.from(docXml.getElementsByTagName("w:p"));
-  const rawLines: string[] = [];
 
-  // TRÍCH XUẤT THÔNG MINH: NẾU OLE MATHTYPE KHÔNG PARSE ĐƯỢC THÌ TỰ ĐỘNG LẤY TEXT THAY THẾ (KHÔNG BAO GIỜ BỎ RỖNG DÒNG)
   const processOleObject = (objNode: Element): string => {
     const allDescendants = Array.from(objNode.getElementsByTagName("*"));
     let oleRId = "";
@@ -413,7 +410,7 @@ export async function extractDocxDirectly(file: File) {
     return "";
   };
 
-  paragraphs.forEach(p => {
+  const processParagraphNode = (p: Element): string => {
     let line = "";
     Array.from(p.childNodes).forEach(child => {
       const el = child as Element;
@@ -448,12 +445,44 @@ export async function extractDocxDirectly(file: File) {
         });
       }
     });
+    return line.trim();
+  };
 
-    line = line.trim();
-    if (line) {
-      rawLines.push(repairMathTypeGlitch(line));
-    }
-  });
+  // Quét đệ quy toàn bộ tài liệu bao gồm cả đoạn văn nằm trong Table (w:tbl -> w:tc -> w:p)
+  const rawLines: string[] = [];
+  const body = docXml.getElementsByTagName("w:body")[0] || docXml.documentElement;
+
+  const traverseNodes = (parent: Element) => {
+    Array.from(parent.childNodes).forEach(node => {
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const el = node as Element;
+      const name = el.localName || el.nodeName?.split(":").pop() || "";
+
+      if (name === "p") {
+        const line = processParagraphNode(el);
+        if (line) rawLines.push(repairMathTypeGlitch(line));
+      } else if (name === "tbl") {
+        // Duyệt từng dòng bảng (tr) và ghép các ô (tc) thành dòng liền mạch A. B. C. D.
+        const rows = Array.from(el.getElementsByTagNameNS("*", "tr"));
+        rows.forEach(tr => {
+          const cells = Array.from(tr.getElementsByTagNameNS("*", "tc"));
+          const cellTexts: string[] = [];
+          cells.forEach(tc => {
+            const pList = Array.from(tc.getElementsByTagNameNS("*", "p"));
+            const pTexts = pList.map(p => processParagraphNode(p as Element)).filter(Boolean);
+            if (pTexts.length > 0) cellTexts.push(pTexts.join(" "));
+          });
+          if (cellTexts.length > 0) {
+            rawLines.push(repairMathTypeGlitch(cellTexts.join("\t")));
+          }
+        });
+      } else {
+        traverseNodes(el);
+      }
+    });
+  };
+
+  traverseNodes(body);
 
   return { text: rawLines.join("\n").normalize("NFC"), mediaMap };
 }
@@ -887,7 +916,6 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     ];
   }
 
-  // Tự động phân bổ đúng 10.0 điểm
   const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
   if (totalQ > 0) {
     const basePt = Number((10 / totalQ).toFixed(2));
@@ -1646,7 +1674,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
