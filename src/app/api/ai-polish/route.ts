@@ -16,20 +16,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const systemPrompt = "Bạn là chuyên gia chuyển đổi và phục hồi đề thi Toán học Việt Nam từ file Word trích xuất MathType sang LaTeX chuẩn KaTeX.\n" +
+    const systemPrompt = "Bạn là chuyên gia chuyển đổi đề thi Toán học Việt Nam từ định dạng Word/MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
       "Nhiệm vụ của bạn:\n" +
-      "1. XÓA BỎ HOÀN TOÀN các cặp dấu ngoặc rỗng do lỗi trích xuất như: '\\left(\\right)', '()', '[]', '{}'. Ví dụ: '$\\left(\\right)ABCD.A\'$' -> chuyển thành '$ABCD.A\'$'.\n" +
-      "2. KHÔI PHỤC ĐẦY ĐỦ CÁC TỌA ĐỘ VÀ CÔNG THỨC TOÁN Ở TẤT CẢ CÂU VÀ CÁC PHƯƠNG ÁN A, B, C, D:\n" +
-      "   - Các tọa độ điểm không gian Oxyz: viết dưới dạng $M\\left(0; \\frac{1}{2}; 1\\right)$, $N\\left(\\frac{1}{2}; 0; 1\\right)$, $P\\left(1; \\frac{1}{2}; 0\\right)$, $Q\\left(1; 1; \\frac{1}{2}\\right)$. Tuyệt đối không để trống dòng A. B. C. D.\n" +
-      "   - Các ký hiệu hình học: \\vec{a}, \\overrightarrow{AB}, \\parallel, \\perp, \\angle, ^\\circ\n" +
-      "   - Phân số: \\frac{a}{b}, căn thức: \\sqrt{...}, \\sqrt[n]{...}\n" +
-      "   - Tập hợp: \\mathbb{R}, \\in, \\notin, \\subset, \\cup, \\cap, \\emptyset\n" +
-      "   - So sánh: sửa 'a>>', 'a><' thành $a > 0$, $a < 0$.\n" +
-      "3. TUYỆT ĐỐI GIỮ NGUYÊN các thẻ ảnh có định dạng [img:$...$] hoặc [img:https://...], không được xóa hoặc thay đổi tên thẻ ảnh.\n" +
-      "4. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
-      "5. Chỉ trả về nội dung đề thi đã sửa, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block (```).";
+      "1. Sửa toàn bộ các công thức toán bị lỗi do trích xuất MathType:\n" +
+      "   - Khôi phục các tọa độ điểm trong không gian Oxyz: ví dụ M(0; 1/2; 1) -> $M\\left(0; \\frac{1}{2}; 1\\right)$. Điền đầy đủ tọa độ vào các phương án A. B. C. D.\n" +
+      "   - Các biểu thức rỗng như $x^{{}}$ -> khôi phục thành $x_1, x_2$ hoặc lũy thừa đúng ngữ cảnh bài toán.\n" +
+      "   - Các biểu thức dính lỗi như $3a.0^{{}}$ -> sửa thành $3a \\cdot 0$ hoặc $3a_0$.\n" +
+      "   - Các so sánh bị lỗi như $a>>$, $a><$, $a>$ -> sửa thành $a > 0$, $a < 0$.\n" +
+      "   - Hàm số bị lỗi như y=(^{E}), y=(^{3}) -> sửa thành $y = ax^3 + bx^2 + cx + d$ hoặc hàm phân thức đúng theo ngữ cảnh bài toán.\n" +
+      "   - Bảng biến thiên, giới hạn, tích phân, đạo hàm: đưa tất cả vào cặp dấu $...$ (inline) hoặc $$...$$ (khối).\n" +
+      "2. TUYỆT ĐỐI GIỮ NGUYÊN các thẻ ảnh có định dạng [img:$...$] hoặc [img:https://...], không được xóa hoặc thay đổi tên thẻ ảnh.\n" +
+      "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
+      "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
-    const apiUrl = "[https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=)" + key.trim();
+    // URL gọi trực tiếp không qua markdown link
+    const cleanKey = String(key).trim();
+    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + cleanKey;
 
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -52,8 +54,8 @@ export async function POST(req: Request) {
     if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
       return NextResponse.json({ result: data.candidates[0].content.parts[0].text });
     } else {
-      const errMsg = data?.error?.message || "Lỗi xử lý từ Google AI API";
-      return NextResponse.json({ error: errMsg }, { status: 400 });
+      const lastError = data?.error?.message || "Lỗi gọi model Gemini AI";
+      return NextResponse.json({ error: lastError }, { status: 400 });
     }
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Lỗi máy chủ" }, { status: 500 });
