@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -139,8 +139,7 @@ const SYMBOL_MAP: Record<number, string> = {
   0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
   0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
   0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
-  0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
-  0x2220: "\\angle ", 0x00B0: "^\\circ "
+  0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp "
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
@@ -378,7 +377,6 @@ export async function extractDocxDirectly(file: File) {
   if (!docFile) throw new Error("File Word không hợp lệ.");
   const docXml = new DOMParser().parseFromString(await docFile.async("string"), "text/xml");
 
-  // XỬ LÝ DUAL-FALLBACK CHO CÔNG THỨC MATHTYPE OLE
   const processOleObject = (objNode: Element): string => {
     const allDescendants = Array.from(objNode.getElementsByTagName("*"));
     let oleRId = "";
@@ -394,7 +392,6 @@ export async function extractDocxDirectly(file: File) {
       return " " + oleCache[oleRId] + " ";
     }
 
-    // Fallback 1: Trích xuất ảnh chụp MathType nếu có trong thẻ imagedata / blip
     for (const el of allDescendants) {
       const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
       if (rId && targetToToken[rId]) {
@@ -402,7 +399,6 @@ export async function extractDocxDirectly(file: File) {
       }
     }
 
-    // Fallback 2: Lấy text thay thế nếu có
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
@@ -495,7 +491,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & CÂU HỎI TOÀN DIỆN (CHỐNG CẮT XÉN)
+// 2. BÓC TÁCH SECTION & CÂU HỎI (HỖ TRỢ ĐẦY ĐỦ CẢ TIÊU ĐỀ LA MÃ I. VÀ PHẦN I.)
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -507,7 +503,8 @@ export function normalizeOptionsSmart(text: string): string {
   return res;
 }
 
-const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+))\s*[:\-]?[^\r\n]*)/gi;
+// REGEX TIÊU ĐỀ PHẦN: NHẬN DIỆN CẢ "I. TRẮC NGHIỆM" VÀ "PHẦN I. TRẮC NGHIỆM"
+const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+)|(?:I{1,3}|IV)\.)\s*[:\-]?[^\r\n]*)/gi;
 
 function getSectionTypeFromTitle(title: string): QuestionType {
   if (/đúng\s*sai|true\s*false/i.test(title)) return "true_false";
@@ -923,7 +920,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     ];
   }
 
-  // Phân bổ tròn đều 10.0 điểm
+  // Tự động chia đều đúng 10.0 điểm
   const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
   if (totalQ > 0) {
     const basePt = Number((10 / totalQ).toFixed(2));
@@ -1207,7 +1204,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
-  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1681,7 +1677,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
