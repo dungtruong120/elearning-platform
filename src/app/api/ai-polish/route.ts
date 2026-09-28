@@ -28,37 +28,53 @@ export async function POST(req: Request) {
       "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
       "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
-    // Gọi trực tiếp model đời mới của Google
-    const targetModel = "gemini-2.5-flash";
-    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + targetModel + ":generateContent?key=" + key;
+    // Danh sách model thế hệ 3
+    const candidateModels = [
+      "gemini-3.0-flash",
+      "gemini-3.0-flash-lite",
+      "gemini-3.5-flash-lite",
+      "gemini-2.0-flash"
+    ];
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192
+    let outputText = "";
+    let lastError = "";
+
+    for (const model of candidateModels) {
+      try {
+        const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + key;
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text }]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 8192
+            }
+          })
+        });
+
+        const data = await response.json();
+        if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+          outputText = data.candidates[0].content.parts[0].text;
+          break;
+        } else {
+          lastError = data?.error?.message || ("Lỗi model " + model);
         }
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data?.error?.message || "Lỗi khi gọi Gemini API" },
-        { status: response.status }
-      );
+      } catch (e: any) {
+        lastError = e?.message || "Lỗi kết nối";
+      }
     }
 
-    const outputText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    if (!outputText) {
+      return NextResponse.json({ error: lastError || "Không gọi được model AI" }, { status: 400 });
+    }
+
     return NextResponse.json({ result: outputText });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Lỗi máy chủ" }, { status: 500 });
