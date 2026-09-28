@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC (GIỮ NGUYÊN BẢN GỐC)
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -40,7 +40,14 @@ function isCleanLatex(latex: string): boolean {
   const trimmed = latex.trim();
   if (trimmed.length < 1) return false;
 
-  if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)" || trimmed === "$$") {
+  // Cho phép cặp ngoặc tọa độ toán học không rỗng
+  if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)") {
+    return false;
+  }
+
+  if (trimmed.includes("\\langle") || 
+      trimmed.includes("\\rangle") || 
+      /\\sqrt\{\s*\}/.test(trimmed)) {
     return false;
   }
 
@@ -130,22 +137,6 @@ class MTEFStreamReader {
   }
 }
 
-const MATHTYPE_FULL_SYMBOLS: Record<number, string> = {
-  0x03B1: "\\alpha", 0x03B2: "\\beta", 0x03B3: "\\gamma", 0x03B4: "\\delta", 0x03B5: "\\epsilon",
-  0x03B6: "\\zeta", 0x03B7: "\\eta", 0x03B8: "\\theta", 0x03B9: "\\iota", 0x03BA: "\\kappa",
-  0x03BB: "\\lambda", 0x03BC: "\\mu", 0x03BD: "\\nu", 0x03BE: "\\xi", 0x03C0: "\\pi",
-  0x03C1: "\\rho", 0x03C3: "\\sigma", 0x03C4: "\\tau", 0x03C5: "\\upsilon", 0x03C6: "\\varphi",
-  0x03C7: "\\chi", 0x03C8: "\\psi", 0x03C9: "\\omega", 0x0394: "\\Delta", 0x03A9: "\\Omega",
-  0x00B1: "\\pm ", 0x00D7: "\\times ", 0x00F7: "\\div ", 0x2264: "\\le ", 0x2265: "\\ge ", 
-  0x2260: "\\ne ", 0x2248: "\\approx ", 0x2261: "\\equiv ", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
-  0x2220: "\\angle ", 0x00B0: "^\\circ ", 0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x21D4: "\\Leftrightarrow ",
-  0x221E: "+\\infty ", 0x2208: "\\in ", 0x2209: "\\notin ", 0x2282: "\\subset ", 0x2283: "\\supset ",
-  0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ", 0x2200: "\\forall ", 0x2203: "\\exists ",
-  0x211D: "\\mathbb{R}", 0x2124: "\\mathbb{Z}", 0x2115: "\\mathbb{N}", 0x211A: "\\mathbb{Q}",
-  0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<", 0x003B: "; ", 0x002C: ", ",
-  0x22C5: "\\cdot ", 0x221A: "\\sqrt"
-};
-
 function decodeMtefToLatex(uint8: Uint8Array): string {
   if (!uint8 || uint8.length < 10) return "";
   let start = -1;
@@ -186,6 +177,18 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
 
   const reader = new MTEFStreamReader(uint8.subarray(offset));
 
+  const SYMBOL_MAP: Record<number, string> = {
+    0x03B1: "\\alpha", 0x03B2: "\\beta", 0x03B3: "\\gamma", 0x03B4: "\\delta",
+    0x03C0: "\\pi", 0x03B8: "\\theta", 0x03BB: "\\lambda", 0x03BC: "\\mu",
+    0x03C3: "\\sigma", 0x03C9: "\\omega", 0x0394: "\\Delta", 0x03A9: "\\Omega",
+    0x00B1: "\\pm ", 0x00D7: "\\times ", 0x00F7: "\\div ", 0x2264: "\\le ",
+    0x2265: "\\ge ", 0x2260: "\\ne ", 0x221E: "+\\infty ", 0x2208: "\\in ",
+    0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
+    0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
+    0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
+    0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp "
+  };
+
   const parseLine = (): string => {
     const res: string[] = [];
     reader.readByte();
@@ -209,8 +212,8 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           if (emb === 5) res.push("'");
           else if (emb === 6) res.push("''");
         }
-        if (MATHTYPE_FULL_SYMBOLS[chCode]) {
-          res.push(MATHTYPE_FULL_SYMBOLS[chCode]);
+        if (SYMBOL_MAP[chCode]) {
+          res.push(SYMBOL_MAP[chCode]);
         } else if (chCode >= 32 && chCode <= 126) {
           res.push(String.fromCharCode(chCode));
         } else if (chCode >= 0x0370 && chCode <= 0x03FF) {
@@ -260,6 +263,9 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
             const sup = parseLine();
             res.push("_{" + sub + "}^{" + sup + "}");
           }
+        } else if (selector === 15) { 
+          const body = parseLine();
+          res.push("\\int " + body);
         } else if (selector === 16) { 
           const body = parseLine();
           res.push("\\sum " + body);
@@ -286,7 +292,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
 
   try {
     let raw = parseLine().trim();
-    raw = raw.replace(/\\left\(\s*\\right\)|\(\s*\)|\[\s*\]|\{\s*\}|\\langle\s*\(\)\s*|\\sqrt\{\s*\}/g, "").trim();
+    raw = raw.replace(/\\left\(\s*\\right\)|\(\s*\)|\\langle\s*\(\)\s*|\\sqrt\{\s*\}/g, "").trim();
     if (raw) {
       raw = raw.replace(/--/g, "-").replace(/\+-/g, "-");
       return "$" + raw + "$";
@@ -308,7 +314,6 @@ export function repairMathTypeGlitch(raw: string): string {
 
   text = text.replace(/\\left\(\s*\\right\)/g, "");
   text = text.replace(/\(\s*\)/g, "");
-  text = text.replace(/\$\s*\$/g, "");
 
   text = text.replace(/([a-zA-Z0-9\)\}])\s*>>\s*(\$|\s|\.|\,|$)/g, "$1 > 0$2");
   text = text.replace(/([a-zA-Z0-9\)\}])\s*><\s*(\$|\s|\.|\,|$)/g, "$1 < 0$2");
@@ -388,7 +393,7 @@ export async function extractDocxDirectly(file: File) {
     for (const el of allDescendants) {
       const tag = (el.localName || el.nodeName).toLowerCase();
       if (tag.includes("oleobject")) {
-        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id") || "";
+        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || "";
       }
     }
 
@@ -418,7 +423,7 @@ export async function extractDocxDirectly(file: File) {
         } else {
           Array.from(el.getElementsByTagNameNS("*", "t")).forEach((t: any) => { line += t.textContent || ""; });
           Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
+            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
             if (rId && targetToToken[rId]) {
               line += " " + targetToToken[rId] + " ";
             }
@@ -426,7 +431,7 @@ export async function extractDocxDirectly(file: File) {
         }
       } else if (name === "drawing") {
         Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
+          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
           if (rId && targetToToken[rId]) {
             line += " " + targetToToken[rId] + " ";
           }
@@ -872,6 +877,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     ];
   }
 
+  // Tự động phân bổ đúng 10.0 điểm
   const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
   if (totalQ > 0) {
     const basePt = Number((10 / totalQ).toFixed(2));
@@ -892,7 +898,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
+// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -1155,6 +1161,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
+  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1355,7 +1362,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
             title="Đóng trình cấu hình"
           >
-            <X className="w-6 h-6"/>
+            <X className="w-6 h-6" />
           </button>
         </div>
       </header>
@@ -1363,7 +1370,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       <main className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[#F8FAFC]">
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
-            <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
+            <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
             <div className="text-center space-y-1">
               <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
               <p className="text-xs text-slate-500">Tự động nhận diện đầy đủ các phần thi và công thức toán...</p>
@@ -1374,7 +1381,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <span className="text-xs font-black uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
-                  <Eye className="w-4 h-4"/> Xem trước đề thi (Preview)
+                  <Eye className="w-4 h-4" /> Xem trước đề thi (Preview)
                 </span>
                 <span className="text-xs text-slate-500 font-bold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-lg border border-blue-200/50">
                   {totalQuestions} câu hỏi • {sections.length} phần thi
@@ -1427,7 +1434,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
-                              <TokenViewer content="{q.prompt_html}" mediaMap="{mediaMap}"/>
+                              {/* RENDER NỘI DUNG CHUẨN XÁC KHÔNG DÍNH DẤU NGOẶC KÉP */}
+                              <TokenViewer content={q.prompt_html} mediaMap={mediaMap} />
                             </div>
 
                             {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
@@ -1450,7 +1458,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                         {opt.key}
                                       </span>
                                       <div className="flex-1 min-w-0">
-                                        <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
+                                        {/* RENDER LỰA CHỌN CHUẨN XÁC */}
+                                        <TokenViewer content={opt.text_html} mediaMap={mediaMap} inline={true} />
                                       </div>
                                     </div>
                                   );
@@ -1477,7 +1486,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                           <td className="py-2.5 px-3">
                                             <div className="flex items-start gap-2">
                                               <span className="font-bold text-blue-600">{opt.key})</span>
-                                              <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
+                                              <TokenViewer content={opt.text_html} mediaMap={mediaMap} inline={true} />
                                             </div>
                                           </td>
                                           <td className="py-2.5 px-3 text-center align-middle">
@@ -1485,7 +1494,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                               onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
                                               className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
-                                              <Check className="w-4 h-4"/>
+                                              <Check className="w-4 h-4" />
                                             </div>
                                           </td>
                                           <td className="py-2.5 px-3 text-center align-middle">
@@ -1493,7 +1502,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                               onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
                                               className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
-                                              <X className="w-4 h-4"/>
+                                              <X className="w-4 h-4" />
                                             </div>
                                           </td>
                                         </tr>
@@ -1524,12 +1533,12 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                   onClick={() => toggleSolution(q.id)}
                                   className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50/50 px-2.5 py-1.5 rounded-lg border border-indigo-100 transition-colors"
                                 >
-                                  <BookOpen className="w-3.5 h-3.5"/>
+                                  <BookOpen className="w-3.5 h-3.5" />
                                   <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
                                 </button>
                                 {isSolOpen && (
                                   <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
-                                    <TokenViewer content="{q.solution_html}" mediaMap="{mediaMap}"/>
+                                    <TokenViewer content={q.solution_html} mediaMap={mediaMap} />
                                   </div>
                                 )}
                               </div>
@@ -1546,7 +1555,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-slate-50/50 shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 shrink-0">
                 <div className="flex items-center gap-2">
-                  <Edit3 className="w-4 h-4 text-slate-700"/>
+                  <Edit3 className="w-4 h-4 text-slate-700" />
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700">
                     Word Raw
                   </span>
@@ -1560,7 +1569,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
                     title="Gọi AI Gemini tự động quét và sửa toàn bộ lỗi MathType thành chuẩn LaTeX"
                   >
-                    {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Wand2 className="w-3.5 h-3.5"/>}
+                    {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
                     <span>Sửa lỗi công thức AI</span>
                   </button>
 
@@ -1570,7 +1579,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
                     title="Chèn ảnh từ máy tính vào vị trí con trỏ chuột"
                   >
-                    <ImagePlus className="w-3.5 h-3.5 text-blue-600"/>
+                    <ImagePlus className="w-3.5 h-3.5 text-blue-600" />
                     <span>Tải ảnh</span>
                   </button>
 
@@ -1580,7 +1589,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
                     title="Dán đường link (URL) ảnh từ internet"
                   >
-                    <LinkIcon className="w-3.5 h-3.5 text-indigo-600"/>
+                    <LinkIcon className="w-3.5 h-3.5 text-indigo-600" />
                     <span>Chèn Link Ảnh</span>
                   </button>
                 </div>
@@ -1603,7 +1612,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-blue-600"/>
+                  <Calculator className="w-5 h-5 text-blue-600" />
                   Cấu hình Ma trận đáp án & Thang điểm 10.0 (Auto-Balance)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -1617,22 +1626,23 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   onClick={handleAutoDistribute10Points}
                   className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 >
-                  <RefreshCw className="w-3.5 h-3.5"/>
+                  <RefreshCw className="w-3.5 h-3.5" />
                   <span>Chia đều 10 điểm</span>
                 </button>
 
                 <div className="px-3.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border-emerald-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600"/>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Tổng điểm: 10.00 / 10.0 (Cố định)</span>
                 </div>
               </div>
             </div>
 
+            {/* CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Percent className="w-4 h-4 text-indigo-700"/>
+                    <Percent className="w-4 h-4 text-indigo-700" />
                     <h4 className="font-black text-xs sm:text-sm text-indigo-950 uppercase">
                       Cấu hình tỷ lệ % điểm từng ý (Phần Đúng / Sai)
                     </h4>
@@ -1835,7 +1845,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           onClick={() => setStep(step === 3 ? 2 : 1)}
           className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-40 cursor-pointer hover:bg-slate-50 transition-all flex items-center gap-1.5"
         >
-          <ArrowLeft className="w-4 h-4"/> Quay lại
+          <ArrowLeft className="w-4 h-4" /> Quay lại
         </button>
 
         <div className="flex items-center gap-3">
@@ -1846,7 +1856,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer transition-all"
             >
               <span>Tiếp tục ({totalQuestions} câu)</span>
-              <ArrowRight className="w-4 h-4"/>
+              <ArrowRight className="w-4 h-4" />
             </button>
           ) : (
             <button
@@ -1866,7 +1876,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               }}
               className="px-7 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition-all flex items-center gap-2"
             >
-              <Check className="w-4 h-4"/>
+              <Check className="w-4 h-4" />
               <span>Lưu & Xuất Bản Đề Thi</span>
             </button>
           )}
