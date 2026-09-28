@@ -16,22 +16,24 @@ export async function POST(req: Request) {
       );
     }
 
-    const systemPrompt = "Bạn là chuyên gia chuyển đổi và phục hồi đề thi Toán học Việt Nam từ định dạng Word/MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
+    const systemPrompt = "Bạn là chuyên gia khôi phục và biên tập đề thi Toán học Việt Nam từ file Word trích xuất MathType sang LaTeX chuẩn KaTeX.\n" +
       "Nhiệm vụ của bạn:\n" +
-      "1. Sửa toàn bộ tất cả các công thức toán bị lỗi hoặc sót do trích xuất MathType binary:\n" +
-      "   - Tọa độ điểm trong không gian Oxyz: ví dụ 'M(0;1/2;1); N(1/2;0;1); P(1;1/2;0); Q(1;1/2;1)' -> chuyển thành LaTeX chuẩn KaTeX: $M\\left(0; \\frac{1}{2}; 1\\right); N\\left(\\frac{1}{2}; 0; 1\\right); P\\left(1; \\frac{1}{2}; 0\\right); Q\\left(1; \\frac{1}{2}; 1\\right)$. TUYỆT ĐỐI KHÔNG BỎ SÓT các tọa độ trong các phương án A, B, C, D.\n" +
-      "   - Các biểu thức rỗng như $x^{{}}$ -> khôi phục thành $x_1, x_2$ hoặc lũy thừa đúng ngữ cảnh bài toán.\n" +
-      "   - Các biểu thức dính lỗi như $3a.0^{{}}$ -> sửa thành $3a \\cdot 0$ hoặc $3a_0$.\n" +
-      "   - Các so sánh bị lỗi như $a>>$, $a><$, $a>$ -> sửa thành $a > 0$, $a < 0$.\n" +
-      "   - Hàm số bị lỗi như y=(^{E}), y=(^{3}) -> sửa thành $y = ax^3 + bx^2 + cx + d$ hoặc hàm phân thức đúng theo ngữ cảnh bài toán.\n" +
-      "   - Vecto, tích vô hướng, góc giữa hai mặt phẳng, khoảng cách, phân số, căn bậc hai, tích phân, đạo hàm, bảng biến thiên: đưa tất cả vào cặp dấu $...$ (inline) hoặc $$...$$ (khối).\n" +
-      "2. TUYỆT ĐỐI GIỮ NGUYÊN các thẻ ảnh có định dạng [img:$...$] hoặc [img:https://...], không được xóa hoặc thay đổi tên thẻ ảnh.\n" +
-      "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
-      "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
+      "1. XÓA BỎ HOÀN TOÀN các cặp dấu ngoặc rỗng do lỗi trích xuất như: '\\left(\\right)', '()', '[]', '{}'. Ví dụ: '$\\left(\\right)ABCD.A\'$' -> chuyển thành '$ABCD.A\'$'.\n" +
+      "2. KHÔI PHỤC TOÀN BỘ CÁC PHƯƠNG ÁN A, B, C, D VÀ TỌA ĐỘ BỊ MẤT:\n" +
+      "   - Các tọa độ điểm không gian Oxyz: viết dưới dạng $M\\left(0; \\frac{1}{2}; 1\\right)$, $N\\left(\\frac{1}{2}; 0; 1\\right)$, $P\\left(1; \\frac{1}{2}; 0\\right)$, $Q\\left(1; 1; \\frac{1}{2}\\right)$. Tuyệt đối không để trống dòng A. B. C. D.\n" +
+      "3. Sửa triệt để các ký hiệu toán học:\n" +
+      "   - Phân số: \\frac{a}{b}\n" +
+      "   - Căn thức: \\sqrt{...}, \\sqrt[n]{...}\n" +
+      "   - Ký hiệu hình học: \\vec{a}, \\overrightarrow{AB}, \\parallel, \\perp, \\widehat{ABC}, ^\\circ\n" +
+      "   - Tập hợp: \\mathbb{R}, \\in, \\notin, \\subset, \\cup, \\cap, \\emptyset\n" +
+      "   - So sánh: sửa 'a>>', 'a><' thành $a > 0$, $a < 0$.\n" +
+      "4. TUYỆT ĐỐI GIỮ NGUYÊN các thẻ ảnh dạng [img:$...$] hoặc [img:https://...], không xóa hay sửa tên thẻ ảnh.\n" +
+      "5. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
+      "6. Chỉ trả về nội dung đề thi đã sửa, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block (```).";
 
+    // Sử dụng model được chỉ định chính xác bởi hệ thống Google API
     const candidateModels = [
-      "gemini-3.8-flash",
-      "gemini-2.5-flash"
+      "gemini-3.8-flash"
     ];
 
     let outputText = "";
@@ -39,7 +41,7 @@ export async function POST(req: Request) {
 
     for (const model of candidateModels) {
       try {
-        const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + key;
+        const apiUrl = "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + model + ":generateContent?key=" + key;
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
