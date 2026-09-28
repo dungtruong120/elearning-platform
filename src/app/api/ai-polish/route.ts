@@ -54,11 +54,10 @@ export async function POST(req: Request) {
 
     for (const model of candidateModels) {
       try {
-        const urlOrigin = "[https://generativelanguage.googleapis.com](https://generativelanguage.googleapis.com)";
-        const urlPath = "/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
-        const apiUrl = urlOrigin + urlPath;
+        // Chuỗi URL thuần túy, tuyệt đối không có markdown link
+        const endpoint = "https://" + "[generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + model + ":generateContent?key=" + cleanKey;
 
-        const response = await fetch(apiUrl, {
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
