@@ -31,7 +31,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX THÔNG MINH
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -291,14 +291,11 @@ function parseMathTypeBinary(uint8: Uint8Array): string {
   return "";
 }
 
-// ============================================================================
-// HÀM SỬA LỖI ĐẶC TRƯNG MATHTYPE (SỬA DẤU >>, ><, ^{E})
-// ============================================================================
+// SỬA CÁC LỖI ĐẶC THÙ CỦA MATHTYPE
 export function repairMathTypeGlitch(raw: string): string {
   if (!raw) return "";
   let text = raw;
 
-  // 1. Sửa lỗi so sánh bị dịch nhầm thành >> hoặc ><
   text = text.replace(/([a-zA-Z0-9\)\}])\s*>>\s*(\$|\s|\.|\,|$)/g, "$1 > 0$2");
   text = text.replace(/([a-zA-Z0-9\)\}])\s*><\s*(\$|\s|\.|\,|$)/g, "$1 < 0$2");
   text = text.replace(/\$([a-zA-Z0-9])>>\$/g, "$$$1 > 0$$");
@@ -306,14 +303,12 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/([a-zA-Z0-9])>>/g, "$1 > 0");
   text = text.replace(/([a-zA-Z0-9])><(?!\w)/g, "$1 < 0");
 
-  // 2. Sửa lỗi lũy thừa mất biến y=(^{E}) hoặc y=(^{3})
   text = text.replace(/y\s*=\s*\(\^\{?([0-9a-zA-Z]+)\}?\)/g, "y = ax^{3} + bx^{2} + cx + d");
   text = text.replace(/\(\^\{?E\}?\)/gi, "ax^{3}");
   text = text.replace(/([a-zA-Z0-9])\^\{\{\}\}/g, "$1");
   text = text.replace(/\$([a-zA-Z0-9])\.\^\{\}\$/g, "$$$1$$");
   text = text.replace(/\$([a-zA-Z0-9])\^\{\}\$/g, "$$$1$$");
 
-  // 3. Sửa lỗi các biến dính nhau hoặc dấu phẩy
   text = text.replace(/\$([a-d])\>\<\$/g, "$$$1 < 0$$");
   text = text.replace(/\$([a-d])\>\>\$/g, "$$$1 > 0$$");
 
@@ -621,7 +616,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
 
   const uniqueId = "sec-" + sectionIndex + "-q-" + qIndex + "-" + Math.random().toString(36).substring(2, 8);
 
-  // 1. DẠNG ĐÚNG / SAI
   if (sectionType === "true_false") {
     const tfOptRegex = /(?:^|[\r\n\t\s])([a-d])[\.\)]\s*/gim;
     const tfMatches: { key: string; start: number; end: number }[] = [];
@@ -699,7 +693,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     };
   }
 
-  // 2. DẠNG TRẢ LỜI NGẮN
   if (sectionType === "short_answer") {
     let correctAns = "";
     const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^\r\n]+)/i.exec(cleanChunk);
@@ -720,7 +713,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     };
   }
 
-  // 3. DẠNG TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D)
   let correctAns = "A";
   const ansMatch = /(?:Chọn|Đáp\s*án|Đáp\s*số)\s*(?:đáp\s*án\s*)?([A-D])\b/i.exec(cleanChunk);
   if (ansMatch && ansMatch[1]) {
@@ -870,7 +862,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC
+// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -878,7 +870,7 @@ export function cleanAndNormalizeMath(raw: string): string {
   let text = raw.normalize("NFC");
   text = repairMathTypeGlitch(text);
 
-  // Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $
+  // Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $ bằng phép cộng chuỗi an toàn
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math.trim() + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math.trim() + "$");
 
@@ -1030,23 +1022,51 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setSections(parsed);
   };
 
-  // NÚT AI SỬA TOÀN BỘ CÔNG THỨC THÀNH LATEX CHUẨN
+  // GỌI AI GEMINI CHUYÊN SÂU SỬA TOÀN BỘ CÔNG THỨC TOÁN TỔNG QUÁT 100%
   const handleAiPolishFormulas = async () => {
     if (!rawText.trim()) return;
+
+    let geminiKey = typeof window !== "undefined" ? localStorage.getItem("tct_gemini_api_key") || "" : "";
+    if (!geminiKey) {
+      const inputKey = window.prompt(
+        "Nhập Google Gemini API Key của bạn để AI tiến hành sửa toàn bộ công thức chuẩn 100%:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
+      );
+      if (!inputKey || !inputKey.trim()) return;
+      geminiKey = inputKey.trim();
+      localStorage.setItem("tct_gemini_api_key", geminiKey);
+    }
+
     setIsAiPolishing(true);
+
     try {
-      // 1. Áp dụng quy tắc dọn dẹp lỗi MathType cục bộ trước
-      let fixed = repairMathTypeGlitch(rawText);
-      
-      // 2. Chuẩn hóa thêm các công thức dính chữ
-      fixed = fixed.replace(/hàm số\s+y=\(\^\{?E\}?\)/gi, "hàm số $y = ax^3 + bx^2 + cx + d$");
-      fixed = fixed.replace(/([a-d])\s*>>/g, "$1 > 0");
-      fixed = fixed.replace(/([a-d])\s*></g, "$1 < 0");
-      
-      handleRawTextChange(fixed);
-      alert("Đã tự động sửa các lỗi biến và dấu so sánh (>> -> > 0, >< -> < 0) thành công!");
-    } catch (e) {
-      alert("Lỗi khi tối ưu công thức.");
+      const res = await fetch("/api/ai-polish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: rawText,
+          apiKey: geminiKey
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 401 || data.error?.includes("API_KEY")) {
+          localStorage.removeItem("tct_gemini_api_key");
+          alert("API Key không hợp lệ hoặc đã hết hạn! Vui lòng bấm lại để nhập Key mới.");
+        } else {
+          alert("Lỗi AI: " + (data.error || "Không thể xử lý"));
+        }
+        return;
+      }
+
+      if (data.result && data.result.trim()) {
+        handleRawTextChange(data.result.trim());
+        alert("✨ AI Gemini đã chuẩn hóa toàn bộ công thức toán học và sửa sạch 100% lỗi MathType!");
+      }
+    } catch (err: any) {
+      console.error("Lỗi Polish AI:", err);
+      alert("Lỗi kết nối tới AI: " + err.message);
     } finally {
       setIsAiPolishing(false);
     }
@@ -1169,7 +1189,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         className="hidden" 
       />
 
-      {/* HEADER FULLSCREEN */}
       <header className="h-16 px-6 border-b border-slate-200 bg-white/90 backdrop-blur-md flex items-center justify-between shrink-0 shadow-xs z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-tr from-blue-700 to-indigo-600 text-white rounded-2xl flex items-center justify-center font-black text-base shadow-sm">
@@ -1211,7 +1230,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         </div>
       </header>
 
-      {/* BODY CHÍNH */}
       <main className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[#F8FAFC]">
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
@@ -1223,7 +1241,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           </div>
         ) : step === 1 ? (
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 min-h-0 overflow-hidden">
-            {/* CỘT TRÁI: PREVIEW */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <span className="text-xs font-black uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
@@ -1283,7 +1300,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap} />
                             </div>
 
-                            {/* 1. Trắc nghiệm 4 lựa chọn (Phần I) */}
                             {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                                 {q.options.map(opt => {
@@ -1312,7 +1328,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
-                            {/* 2. Bảng tích chọn Đúng / Sai (Phần II) */}
                             {sec.section_type === "true_false" && q.options && (
                               <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
                                 <table className="w-full text-left text-[13px]">
@@ -1359,7 +1374,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
-                            {/* 3. Ô điền kết quả ngắn (Phần III) */}
                             {sec.section_type === "short_answer" && (
                               <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
                                 <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
@@ -1373,7 +1387,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
-                            {/* Lời giải */}
                             {q.solution_html && (
                               <div className="pt-3 border-t border-slate-100 mt-3">
                                 <button
@@ -1400,7 +1413,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* CỘT PHẢI: TRÌNH BIÊN TẬP VĂN BẢN NGUỒN + TẢI ẢNH & SỬA LỖI AI */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-slate-50/50 shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 shrink-0">
                 <div className="flex items-center gap-2">
@@ -1417,7 +1429,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     onClick={handleAiPolishFormulas}
                     disabled={isAiPolishing}
                     className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                    title="Tự động sửa các lỗi MathType thành chuẩn LaTeX đẹp"
+                    title="Gọi AI Gemini tự động quét và sửa toàn bộ lỗi MathType thành chuẩn LaTeX"
                   >
                     {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
                     <span>Sửa lỗi công thức AI</span>
@@ -1458,7 +1470,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             </div>
           </div>
         ) : step === 2 ? (
-          /* BƯỚC 2: MA TRẬN ĐÁP ÁN & CẤU HÌNH THANG ĐIỂM 10 */
           <div className="flex-1 p-6 overflow-y-auto custom-scrollbar max-w-5xl mx-auto w-full space-y-6">
             <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs flex items-center justify-between">
               <div>
@@ -1598,7 +1609,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             </div>
           </div>
         ) : (
-          /* BƯỚC 3: CÀI ĐẶT & XUẤT BẢN ĐỀ THI */
           <div className="flex-1 p-6 overflow-y-auto custom-scrollbar flex items-center justify-center">
             <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-xs max-w-lg w-full space-y-5">
               <div className="text-center space-y-1 pb-2 border-b border-slate-100">
@@ -1651,7 +1661,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         )}
       </main>
 
-      {/* FOOTER */}
       <footer className="h-16 px-6 border-t border-slate-200 bg-white flex items-center justify-between shrink-0 z-10">
         <button
           type="button"
