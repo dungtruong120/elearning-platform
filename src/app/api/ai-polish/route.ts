@@ -29,11 +29,12 @@ export async function POST(req: Request) {
       "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
       "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
-    // Danh sách model thế hệ mới, tự động luân chuyển nếu một model bị quá tải (503 High Demand)
+    // Danh sách model thế hệ mới, tự động luân chuyển nếu một model gặp lỗi High Demand (503)
     const candidateModels = [
+      "gemini-3.5-flash",
       "gemini-3.8-flash",
-      "gemini-3.5-flash-lite",
-      "gemini-3.5-flash"
+      "gemini-3.1-flash-lite",
+      "gemini-3-flash"
     ];
 
     let outputText = "";
@@ -63,10 +64,9 @@ export async function POST(req: Request) {
         const data = await response.json();
         if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
           outputText = data.candidates[0].content.parts[0].text;
-          break; // Thành công, ngắt vòng lặp
+          break;
         } else {
           lastError = data?.error?.message || ("Lỗi model " + model);
-          // Nếu model quá tải (high demand) hoặc hết quota tạm thời, tiếp tục thử model tiếp theo trong danh sách
         }
       } catch (e: any) {
         lastError = e?.message || "Lỗi kết nối";
