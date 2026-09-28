@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -40,13 +40,7 @@ function isCleanLatex(latex: string): boolean {
   const trimmed = latex.trim();
   if (trimmed.length < 1) return false;
 
-  if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)") {
-    return false;
-  }
-
-  if (trimmed.includes("\\langle") || 
-      trimmed.includes("\\rangle") || 
-      /\\sqrt\{\s*\}/.test(trimmed)) {
+  if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)" || trimmed === "$$") {
     return false;
   }
 
@@ -354,7 +348,7 @@ export async function extractDocxDirectly(file: File) {
   for (const [rId, path] of Object.entries(relsMap)) {
     const zipPath = path.startsWith("word/") ? path : ("word/" + path);
     const fileEntry = zip.files[zipPath];
-    if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
+    if (fileEntry && /\.(png|jpe?g|gif|webp|svg|wmf|emf)$/i.test(zipPath)) {
       const b64 = await fileEntry.async("base64");
       const key = "img_" + (imgCount++);
       let ext = "jpeg";
@@ -384,6 +378,7 @@ export async function extractDocxDirectly(file: File) {
   if (!docFile) throw new Error("File Word không hợp lệ.");
   const docXml = new DOMParser().parseFromString(await docFile.async("string"), "text/xml");
 
+  // XỬ LÝ DUAL-FALLBACK CHO CÔNG THỨC MATHTYPE OLE
   const processOleObject = (objNode: Element): string => {
     const allDescendants = Array.from(objNode.getElementsByTagName("*"));
     let oleRId = "";
@@ -399,7 +394,15 @@ export async function extractDocxDirectly(file: File) {
       return " " + oleCache[oleRId] + " ";
     }
 
-    // Fallback: Tìm thẻ text dự phòng nếu nhị phân MathType không parse được
+    // Fallback 1: Trích xuất ảnh chụp MathType nếu có trong thẻ imagedata / blip
+    for (const el of allDescendants) {
+      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+      if (rId && targetToToken[rId]) {
+        return " " + targetToToken[rId] + " ";
+      }
+    }
+
+    // Fallback 2: Lấy text thay thế nếu có
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
@@ -435,6 +438,12 @@ export async function extractDocxDirectly(file: File) {
               line += " " + targetToToken[rId] + " ";
             }
           });
+          Array.from(el.getElementsByTagNameNS("*", "imagedata")).forEach((imgData: any) => {
+            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+            if (rId && targetToToken[rId]) {
+              line += " " + targetToToken[rId] + " ";
+            }
+          });
         }
       } else if (name === "drawing") {
         Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
@@ -448,7 +457,6 @@ export async function extractDocxDirectly(file: File) {
     return line.trim();
   };
 
-  // Quét đệ quy toàn bộ tài liệu bao gồm cả đoạn văn nằm trong Table (w:tbl -> w:tc -> w:p)
   const rawLines: string[] = [];
   const body = docXml.getElementsByTagName("w:body")[0] || docXml.documentElement;
 
@@ -462,7 +470,6 @@ export async function extractDocxDirectly(file: File) {
         const line = processParagraphNode(el);
         if (line) rawLines.push(repairMathTypeGlitch(line));
       } else if (name === "tbl") {
-        // Duyệt từng dòng bảng (tr) và ghép các ô (tc) thành dòng liền mạch A. B. C. D.
         const rows = Array.from(el.getElementsByTagNameNS("*", "tr"));
         rows.forEach(tr => {
           const cells = Array.from(tr.getElementsByTagNameNS("*", "tc"));
@@ -488,7 +495,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & CÂU HỎI
+// 2. BÓC TÁCH SECTION & CÂU HỎI TOÀN DIỆN (CHỐNG CẮT XÉN)
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -500,7 +507,7 @@ export function normalizeOptionsSmart(text: string): string {
   return res;
 }
 
-const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+)|(?:I{1,3}|IV)\.)\s*[:\-]?[^\r\n]*)/gi;
+const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+))\s*[:\-]?[^\r\n]*)/gi;
 
 function getSectionTypeFromTitle(title: string): QuestionType {
   if (/đúng\s*sai|true\s*false/i.test(title)) return "true_false";
@@ -916,6 +923,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     ];
   }
 
+  // Phân bổ tròn đều 10.0 điểm
   const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
   if (totalQ > 0) {
     const basePt = Number((10 / totalQ).toFixed(2));
@@ -1472,7 +1480,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
-                              {/* RENDER NỘI DUNG CHUẨN XÁC */}
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap} />
                             </div>
 
@@ -1674,6 +1681,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
+            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
