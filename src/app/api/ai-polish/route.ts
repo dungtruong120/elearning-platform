@@ -16,10 +16,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const systemPrompt = "Bạn là chuyên gia chuyển đổi đề thi Toán học Việt Nam từ định dạng Word/MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
+    const systemPrompt = "Bạn là chuyên gia chuyển đổi và phục hồi đề thi Toán học Việt Nam từ định dạng Word/MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
       "Nhiệm vụ của bạn:\n" +
-      "1. Sửa toàn bộ các công thức toán bị lỗi do trích xuất MathType:\n" +
-      "   - Khôi phục các tọa độ điểm trong không gian Oxyz: ví dụ M(0; 1/2; 1) -> $M\\left(0; \\frac{1}{2}; 1\\right)$. Điền đầy đủ tọa độ vào các phương án A. B. C. D.\n" +
+      "1. Sửa toàn bộ các công thức toán bị lỗi hoặc sót do trích xuất MathType:\n" +
+      "   - Khôi phục các tọa độ điểm trong không gian Oxyz: ví dụ 'M(0;1/2;1); N(1/2;0;1); P(1;1/2;0); Q(1;1/2;1)' -> chuyển thành LaTeX chuẩn KaTeX: $M\\left(0; \\frac{1}{2}; 1\\right); N\\left(\\frac{1}{2}; 0; 1\\right); P\\left(1; \\frac{1}{2}; 0\\right); Q\\left(1; 1; \\frac{1}{2}\\right)$. TUYỆT ĐỐI KHÔNG ĐỂ RỖNG CÁC PHƯƠNG ÁN A, B, C, D.\n" +
       "   - Các biểu thức rỗng như $x^{{}}$ -> khôi phục thành $x_1, x_2$ hoặc lũy thừa đúng ngữ cảnh bài toán.\n" +
       "   - Các biểu thức dính lỗi như $3a.0^{{}}$ -> sửa thành $3a \\cdot 0$ hoặc $3a_0$.\n" +
       "   - Các so sánh bị lỗi như $a>>$, $a><$, $a>$ -> sửa thành $a > 0$, $a < 0$.\n" +
@@ -29,34 +29,55 @@ export async function POST(req: Request) {
       "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
       "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
-    // URL gọi trực tiếp không qua markdown link
+    // Danh sách model thế hệ mới, tự động luân chuyển nếu một model bị quá tải (503 High Demand)
+    const candidateModels = [
+      "gemini-3.8-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash"
+    ];
+
+    let outputText = "";
+    let lastError = "";
     const cleanKey = String(key).trim();
-    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" + cleanKey;
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192
+    for (const model of candidateModels) {
+      try {
+        const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text }]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 8192
+            }
+          })
+        });
+
+        const data = await response.json();
+        if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+          outputText = data.candidates[0].content.parts[0].text;
+          break; // Thành công, ngắt vòng lặp
+        } else {
+          lastError = data?.error?.message || ("Lỗi model " + model);
+          // Nếu model quá tải (high demand) hoặc hết quota tạm thời, tiếp tục thử model tiếp theo trong danh sách
         }
-      })
-    });
-
-    const data = await response.json();
-    if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      return NextResponse.json({ result: data.candidates[0].content.parts[0].text });
-    } else {
-      const lastError = data?.error?.message || "Lỗi gọi model Gemini AI";
-      return NextResponse.json({ error: lastError }, { status: 400 });
+      } catch (e: any) {
+        lastError = e?.message || "Lỗi kết nối";
+      }
     }
+
+    if (!outputText) {
+      return NextResponse.json({ error: lastError || "Không thể kết nối tới AI" }, { status: 400 });
+    }
+
+    return NextResponse.json({ result: outputText });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Lỗi máy chủ" }, { status: 500 });
   }
