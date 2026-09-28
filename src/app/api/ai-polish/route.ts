@@ -28,12 +28,32 @@ export async function POST(req: Request) {
       "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
       "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
-    // Danh sách model cập nhật theo chuẩn mới của Google API
-    const candidateModels = [
+    // Ưu tiên model được chính hệ thống Google AI gợi ý
+    let candidateModels = [
       "gemini-3.8-flash",
-      "gemini-2.5-flash",
-      "gemini-1.5-flash"
+      "gemini-2.5-flash"
     ];
+
+    // Fallback thông minh: Tự động lấy danh sách model thực tế từ API nếu cần
+    try {
+      const listRes = await fetch("https://generativelanguage.googleapis.com/v1beta/models?key=" + key);
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        if (listData?.models && Array.isArray(listData.models)) {
+          const supported = listData.models
+            .filter((m: any) => m.supportedGenerationMethods?.includes("generateContent"))
+            .map((m: any) => m.name.replace("models/", ""))
+            .filter((name: string) => name.includes("flash") || name.includes("gemini"));
+
+          if (supported.length > 0) {
+            // Đưa các model hợp lệ thực tế lên danh sách thử nghiệm
+            candidateModels = Array.from(new Set([...candidateModels, ...supported]));
+          }
+        }
+      }
+    } catch (e) {
+      // Bỏ qua nếu không gọi được listModels, tiếp tục dùng danh sách mặc định
+    }
 
     let outputText = "";
     let lastError = "";
