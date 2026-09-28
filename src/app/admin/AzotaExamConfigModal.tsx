@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -139,7 +139,8 @@ const SYMBOL_MAP: Record<number, string> = {
   0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
   0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
   0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
-  0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp "
+  0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
+  0x2220: "\\angle ", 0x00B0: "^\\circ "
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
@@ -355,6 +356,8 @@ export async function extractDocxDirectly(file: File) {
       else if (zipPath.toLowerCase().endsWith("svg")) ext = "svg+xml";
       else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
       else if (zipPath.toLowerCase().endsWith("webp")) ext = "webp";
+      else if (zipPath.toLowerCase().endsWith("wmf")) ext = "wmf";
+      else if (zipPath.toLowerCase().endsWith("emf")) ext = "emf";
       mediaMap[key] = "data:image/" + ext + ";base64," + b64;
       targetToToken[rId] = "[img:$" + key + "$]";
     }
@@ -392,13 +395,7 @@ export async function extractDocxDirectly(file: File) {
       return " " + oleCache[oleRId] + " ";
     }
 
-    for (const el of allDescendants) {
-      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
-      if (rId && targetToToken[rId]) {
-        return " " + targetToToken[rId] + " ";
-      }
-    }
-
+    // Nếu binary MathType không xuất trực tiếp được, lấy text dự phòng
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
@@ -406,6 +403,15 @@ export async function extractDocxDirectly(file: File) {
     if (fallbackText) {
       return " $" + fallbackText + "$ ";
     }
+
+    // Fallback sang ảnh nếu không có text
+    for (const el of allDescendants) {
+      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+      if (rId && targetToToken[rId]) {
+        return " " + targetToToken[rId] + " ";
+      }
+    }
+
     return "";
   };
 
@@ -977,15 +983,14 @@ export function TokenViewer({
   if (!content) return null;
   const readyContent = cleanAndNormalizeMath(content);
 
-  // TOKENIZER ƯU TIÊN THẺ ẢNH TRƯỚC, KHÔNG ĐỂ DẤU $ TRONG [img:$...$] BỊ NUỐT NHẦM SANG MATH
-  const parts = readyContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
+  // TÁCH CHUẨN: ƯU TIÊN THẺ ẢNH [img:...], KHÔNG ĐỂ DẤU $ BỊ NUỐT NHẦM SANG MATH
+  const parts = readyContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[^\$]+?\$)/g);
 
   return (
     <div className={inline ? "inline leading-relaxed text-slate-800 text-[13px] break-words" : "leading-relaxed text-slate-800 text-[14px] whitespace-pre-wrap break-words"}>
       {parts.map((part, idx) => {
         if (!part) return null;
 
-        // Render Hình ảnh / Snapshot MathType
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
         if (imgMatch && imgMatch[1]) {
           let rawKey = imgMatch[1].trim();
@@ -1001,7 +1006,6 @@ export function TokenViewer({
               key={idx} 
               src={src} 
               alt="Công thức" 
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
             />
           ) : (
@@ -1009,14 +1013,12 @@ export function TokenViewer({
               <img 
                 src={src} 
                 alt="Hình minh họa" 
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
                 className="max-h-72 max-w-full rounded-xl border border-slate-200/90 bg-white shadow-sm p-1.5 object-contain inline-block" 
               />
             </div>
           );
         }
 
-        // Render KaTeX chuẩn xác
         if (part.startsWith("$") && part.endsWith("$")) {
           const isDisplay = part.startsWith("$$");
           let mathStr = isDisplay ? part.slice(2, -2) : part.slice(1, -1);
