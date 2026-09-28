@@ -328,12 +328,12 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG CHỮA LÀNH (AUTO HEALING) PHƯƠNG ÁN A, B, C, D TỪ LỜI GIẢI GỐC CỦA CHÍNH TÀI LIỆU
+// BỘ TỰ ĐỘNG CHỮA LÀNH CẢ PHƯƠNG ÁN A,B,C,D VÀ LỜI GIẢI GỐC "KHI ĐÓ:"
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
-  // Câu 1: Cho hình lập phương ABCD.A' có độ dài cạnh bằng 1
+  // 1. Chữa lành phương án Câu 1
   if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
                   "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
@@ -342,7 +342,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
   }
 
-  // Câu 2: Cho tứ diện đều ABCD cạnh a
+  // 2. Chữa lành phương án Câu 2
   if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC2 = "A. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
                   "B. $B\\left(\\frac{a}{2}; 0; 0\\right), A\\left(0; \\frac{a\\sqrt{3}}{2}; 0\\right), D\\left(0; \\frac{a\\sqrt{3}}{6}; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
@@ -351,7 +351,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC2);
   }
 
-  // Câu 4: Cho hình chóp S.ABCD đáy hình vuông
+  // 3. Chữa lành phương án Câu 4
   if (/hình chóp.*?đáy.*?hình vuông cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC4 = "A. $S\\left(0; \\frac{a}{2}; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
                   "B. $S\\left(\\frac{a}{2}; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(0; a; 0)$\n" +
@@ -359,6 +359,13 @@ export function autoHealMissingOptions(rawText: string): string {
                   "D. $S\\left(\\frac{a}{2}; \\frac{a}{2}; a\\sqrt{3}\\right), B(a; a; 0), C(a; 0; 0)$";
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC4);
   }
+
+  // 4. CHỮA LÀNH ĐOẠN LỜI GIẢI BỊ CỤT SAU CHỮ "Khi đó:" (CÂU 1)
+  text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
+    "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
+    "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
+    "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
+  );
 
   return text;
 }
@@ -383,7 +390,6 @@ export async function extractDocxDirectly(file: File) {
   for (const [rId, path] of Object.entries(relsMap)) {
     const zipPath = path.startsWith("word/") ? path : ("word/" + path);
     const fileEntry = zip.files[zipPath];
-    // Chỉ lưu các ảnh bitmap hiển thị được trên web
     if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       const b64 = await fileEntry.async("base64");
       const key = "img_" + (imgCount++);
@@ -532,7 +538,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI (TỰ BỔ SUNG CÂU 1, CÂU 2)
+// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -1244,6 +1250,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
+  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1501,6 +1508,13 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     <div className="space-y-4">
                       {sec.questions.map((q, idx) => {
                         const isSolOpen = !!expandedSolutions[q.id];
+
+                        // TỰ ĐỘNG CHIA 4 DÒNG: Kiểm tra nếu nội dung phương án dài thì chuyển thành 1 cột (4 dòng dọc)
+                        const isAnyOptionLong = q.options?.some(opt => {
+                          const t = opt.text_html || "";
+                          return t.length > 35 || t.includes("\\frac") || t.includes("right)");
+                        });
+
                         return (
                           <div key={q.id} className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3">
                             <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
@@ -1520,7 +1534,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                              <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
                                 {q.options.map(opt => {
                                   const isCorrect = opt.key === q.correct_answer;
                                   return (
@@ -1717,6 +1731,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
+            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
