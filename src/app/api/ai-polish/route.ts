@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-// Cấu hình cho phép Vercel Serverless Function chạy tối đa 60 giây thay vì bị timeout sau 15 giây
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
@@ -20,19 +19,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const systemPrompt = "Bạn là chuyên gia chuẩn hóa đề thi Toán học Việt Nam từ định dạng Word/MathType sang KaTeX.\n" +
-      "Nhiệm vụ:\n" +
-      "1. Xóa sạch mọi cặp ngoặc rỗng do lỗi trích xuất như '()', '[]', '{}', '\\left(\\right)'.\n" +
-      "2. Khôi phục các tọa độ điểm không gian Oxyz: ví dụ 'M(0;1/2;1)' thành '\(M\\left(0; \\frac{1}{2}; 1\\right)\)'. Điền đầy đủ tọa độ vào các phương án A. B. C. D.\n" +
-      "3. Sửa các ký hiệu: phân số \\frac{a}{b}, căn thức \\sqrt{...}, vectơ, song song \\parallel, vuông góc \\perp, góc ^\\circ.\n" +
-      "4. TUYỆT ĐỐI GIỮ NGUYÊN các thẻ ảnh dạng [img:\(...\)] hoặc [img:https://...].\n" +
-      "5. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
-      "6. Chỉ trả về nội dung đề thi đã sửa, KHÔNG thêm lời chào, KHÔNG bọc trong markdown block (```).";
+    const systemPrompt = "Bạn là chuyên gia chuyển đổi và phục hồi đề thi Toán học Việt Nam từ định dạng Word/MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
+      "Nhiệm vụ của bạn:\n" +
+      "1. Sửa toàn bộ các công thức toán bị lỗi hoặc sót do trích xuất MathType:\n" +
+      "   - Khôi phục các tọa độ điểm trong không gian Oxyz: ví dụ 'M(0;1/2;1); N(1/2;0;1); P(1;1/2;0); Q(1;1/2;1)' -> chuyển thành LaTeX chuẩn KaTeX: $M\\left(0; \\frac{1}{2}; 1\\right); N\\left(\\frac{1}{2}; 0; 1\\right); P\\left(1; \\frac{1}{2}; 0\\right); Q\\left(1; 1; \\frac{1}{2}\\right)$. TUYỆT ĐỐI KHÔNG ĐỂ RỖNG CÁC PHƯƠNG ÁN A, B, C, D.\n" +
+      "   - Các biểu thức rỗng như $x^{{}}$ -> khôi phục thành $x_1, x_2$ hoặc lũy thừa đúng ngữ cảnh bài toán.\n" +
+      "   - Các biểu thức dính lỗi như $3a.0^{{}}$ -> sửa thành $3a \\cdot 0$ hoặc $3a_0$.\n" +
+      "   - Các so sánh bị lỗi như $a>>$, $a><$, $a>$ -> sửa thành $a > 0$, $a < 0$.\n" +
+      "   - Hàm số bị lỗi như y=(^{E}), y=(^{3}) -> sửa thành $y = ax^3 + bx^2 + cx + d$ hoặc hàm phân thức đúng theo ngữ cảnh bài toán.\n" +
+      "   - Bảng biến thiên, giới hạn, tích phân, đạo hàm: đưa tất cả vào cặp dấu $...$ (inline) hoặc $$...$$ (khối).\n" +
+      "2. TUYỆT ĐỐI GIỮ NGUYÊN các thẻ ảnh có định dạng [img:$...$] hoặc [img:https://...], không được xóa hoặc thay đổi tên thẻ ảnh.\n" +
+      "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
+      "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
     const cleanKey = String(key).trim();
-    const apiUrl = "[https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=)" + cleanKey;
+    
+    // Ghép URL thuần túy để tránh dính markdown link
+    const baseUrl = "https://generativelanguage.googleapis.com/v1beta/models/";
+    const modelName = "gemini-3.8-flash";
+    const requestUrl = baseUrl + modelName + ":generateContent?key=" + cleanKey;
 
-    const response = await fetch(apiUrl, {
+    const response = await fetch(requestUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -49,12 +56,12 @@ export async function POST(req: Request) {
       })
     });
 
-    const rawResText = await response.text();
+    const resText = await response.text();
     let data: any = {};
     try {
-      data = JSON.parse(rawResText);
+      data = JSON.parse(resText);
     } catch {
-      return NextResponse.json({ error: "Phản hồi từ Google AI không hợp lệ: " + rawResText.slice(0, 120) }, { status: 502 });
+      return NextResponse.json({ error: "Phản hồi server không hợp lệ: " + resText.slice(0, 100) }, { status: 502 });
     }
 
     if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
