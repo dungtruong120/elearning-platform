@@ -28,12 +28,11 @@ export async function POST(req: Request) {
       "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
       "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
-    // Danh sách model thế hệ 3
+    // Danh sách model cập nhật theo chuẩn mới của Google API
     const candidateModels = [
-      "gemini-3.0-flash",
-      "gemini-3.0-flash-lite",
-      "gemini-3.5-flash-lite",
-      "gemini-2.0-flash"
+      "gemini-3.8-flash",
+      "gemini-2.5-flash",
+      "gemini-1.5-flash"
     ];
 
     let outputText = "";
