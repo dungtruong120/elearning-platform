@@ -28,7 +28,9 @@ export async function POST(req: Request) {
       "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
       "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
 
-    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + key;
+    // Gọi trực tiếp model đời mới của Google
+    const targetModel = "gemini-2.5-flash";
+    const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + targetModel + ":generateContent?key=" + key;
 
     const response = await fetch(apiUrl, {
       method: "POST",
