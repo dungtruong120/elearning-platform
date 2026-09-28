@@ -5,7 +5,7 @@ import {
   Loader2, Layers, CheckCircle2, XCircle, PenTool, CircleDot, 
   CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
   ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
-  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator
+  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -31,7 +31,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX THÔNG MINH
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -169,7 +169,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
     0x2265: "\\ge ", 0x2260: "\\ne ", 0x221E: "+\\infty ", 0x2208: "\\in ",
     0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
     0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
-    0x2212: "-", 0x2013: "-", 0x2014: "-"
+    0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<"
   };
 
   const parseLine = (): string => {
@@ -291,6 +291,35 @@ function parseMathTypeBinary(uint8: Uint8Array): string {
   return "";
 }
 
+// ============================================================================
+// HÀM SỬA LỖI ĐẶC TRƯNG MATHTYPE (SỬA DẤU >>, ><, ^{E})
+// ============================================================================
+export function repairMathTypeGlitch(raw: string): string {
+  if (!raw) return "";
+  let text = raw;
+
+  // 1. Sửa lỗi so sánh bị dịch nhầm thành >> hoặc ><
+  text = text.replace(/([a-zA-Z0-9\)\}])\s*>>\s*(\$|\s|\.|\,|$)/g, "$1 > 0$2");
+  text = text.replace(/([a-zA-Z0-9\)\}])\s*><\s*(\$|\s|\.|\,|$)/g, "$1 < 0$2");
+  text = text.replace(/\$([a-zA-Z0-9])>>\$/g, "$$$1 > 0$$");
+  text = text.replace(/\$([a-zA-Z0-9])><\$/g, "$$$1 < 0$$");
+  text = text.replace(/([a-zA-Z0-9])>>/g, "$1 > 0");
+  text = text.replace(/([a-zA-Z0-9])><(?!\w)/g, "$1 < 0");
+
+  // 2. Sửa lỗi lũy thừa mất biến y=(^{E}) hoặc y=(^{3})
+  text = text.replace(/y\s*=\s*\(\^\{?([0-9a-zA-Z]+)\}?\)/g, "y = ax^{3} + bx^{2} + cx + d");
+  text = text.replace(/\(\^\{?E\}?\)/gi, "ax^{3}");
+  text = text.replace(/([a-zA-Z0-9])\^\{\{\}\}/g, "$1");
+  text = text.replace(/\$([a-zA-Z0-9])\.\^\{\}\$/g, "$$$1$$");
+  text = text.replace(/\$([a-zA-Z0-9])\^\{\}\$/g, "$$$1$$");
+
+  // 3. Sửa lỗi các biến dính nhau hoặc dấu phẩy
+  text = text.replace(/\$([a-d])\>\<\$/g, "$$$1 < 0$$");
+  text = text.replace(/\$([a-d])\>\>\$/g, "$$$1 > 0$$");
+
+  return text;
+}
+
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -397,7 +426,9 @@ export async function extractDocxDirectly(file: File) {
     });
 
     line = line.trim();
-    if (line) rawLines.push(line);
+    if (line) {
+      rawLines.push(repairMathTypeGlitch(line));
+    }
   });
 
   return { text: rawLines.join("\n").normalize("NFC"), mediaMap };
@@ -571,6 +602,7 @@ export function injectQuestionLabelsIfMissing(rawText: string): string {
 function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: string, sectionType: QuestionType, sectionIndex: number): ExtendedParsedQuestion {
   let norm = chunk.normalize("NFC").trim();
   norm = norm.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
+  norm = repairMathTypeGlitch(norm);
   norm = normalizeOptionsSmart(norm);
 
   const cleanChunk = (norm || "")
@@ -764,6 +796,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
   if (!rawText || !rawText.trim()) return [];
   let text = rawText.normalize("NFC").trim();
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
+  text = repairMathTypeGlitch(text);
 
   const readyText = injectQuestionLabelsIfMissing(text);
 
@@ -837,18 +870,19 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX CÚ PHÁP BUILD)
+// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
   if (!raw) return "";
   let text = raw.normalize("NFC");
+  text = repairMathTypeGlitch(text);
 
-  // 1. Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $ bằng phép cộng chuỗi an toàn
+  // Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math.trim() + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math.trim() + "$");
 
-  // 2. Chuyển đổi hệ phương trình \left\{ \begin{align} ... \end{align} \right. thành \begin{cases} ... \end{cases} chuẩn KaTeX
+  // Chuyển đổi hệ phương trình \left\{ \begin{align} ... \end{align} \right. thành \begin{cases} ... \end{cases}
   text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
     const cleanBody = body.replace(/&/g, "").trim();
     return "$$\\begin{cases} " + cleanBody + " \\end{cases}$$";
@@ -859,11 +893,8 @@ export function cleanAndNormalizeMath(raw: string): string {
     return "$$" + match + "$$";
   });
 
-  // 3. Tự động thêm dấu cách sau các lệnh LaTeX dính nhau
   text = text.replace(/(\\right\.)([a-zA-Z\\])/g, "$1 $2");
   text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
-
-  // 4. Dọn sạch rác MathType thừa
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
 
   return text;
@@ -946,7 +977,7 @@ export function TokenViewer({
 }
 
 // ============================================================================
-// 4. COMPONENT MODAL AZOTA CHÍNH (FULL MÀN HÌNH + THANG ĐIỂM 10 + CHÈN ẢNH)
+// 4. COMPONENT MODAL AZOTA CHÍNH
 // ============================================================================
 
 interface AzotaExamConfigModalProps {
@@ -960,6 +991,7 @@ interface AzotaExamConfigModalProps {
 export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: AzotaExamConfigModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState<boolean>(false);
+  const [isAiPolishing, setIsAiPolishing] = useState<boolean>(false);
   const [examTitle, setExamTitle] = useState<string>("");
   const [duration, setDuration] = useState<number>(50);
   const [category, setCategory] = useState<string>(PRACTICE_CATEGORIES[0]);
@@ -978,7 +1010,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       extractDocxDirectly(file)
         .then(res => {
           setMediaMap(res.mediaMap);
-          const labeledText = injectQuestionLabelsIfMissing(res.text);
+          const repaired = repairMathTypeGlitch(res.text);
+          const labeledText = injectQuestionLabelsIfMissing(repaired);
           setRawText(labeledText);
           const parsed = parseExamHierarchical(labeledText);
           setSections(parsed);
@@ -995,6 +1028,28 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setRawText(newText);
     const parsed = parseExamHierarchical(newText);
     setSections(parsed);
+  };
+
+  // NÚT AI SỬA TOÀN BỘ CÔNG THỨC THÀNH LATEX CHUẨN
+  const handleAiPolishFormulas = async () => {
+    if (!rawText.trim()) return;
+    setIsAiPolishing(true);
+    try {
+      // 1. Áp dụng quy tắc dọn dẹp lỗi MathType cục bộ trước
+      let fixed = repairMathTypeGlitch(rawText);
+      
+      // 2. Chuẩn hóa thêm các công thức dính chữ
+      fixed = fixed.replace(/hàm số\s+y=\(\^\{?E\}?\)/gi, "hàm số $y = ax^3 + bx^2 + cx + d$");
+      fixed = fixed.replace(/([a-d])\s*>>/g, "$1 > 0");
+      fixed = fixed.replace(/([a-d])\s*></g, "$1 < 0");
+      
+      handleRawTextChange(fixed);
+      alert("Đã tự động sửa các lỗi biến và dấu so sánh (>> -> > 0, >< -> < 0) thành công!");
+    } catch (e) {
+      alert("Lỗi khi tối ưu công thức.");
+    } finally {
+      setIsAiPolishing(false);
+    }
   };
 
   const handleUpdateAnswer = (qId: string, newAns: string) => {
@@ -1345,7 +1400,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* CỘT PHẢI: TRÌNH BIÊN TẬP VĂN BẢN NGUỒN */}
+            {/* CỘT PHẢI: TRÌNH BIÊN TẬP VĂN BẢN NGUỒN + TẢI ẢNH & SỬA LỖI AI */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-slate-50/50 shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 shrink-0">
                 <div className="flex items-center gap-2">
@@ -1356,6 +1411,18 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 </div>
                 
                 <div className="flex items-center gap-2">
+                  {/* NÚT AI SỬA TOÀN BỘ CÔNG THỨC */}
+                  <button
+                    type="button"
+                    onClick={handleAiPolishFormulas}
+                    disabled={isAiPolishing}
+                    className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                    title="Tự động sửa các lỗi MathType thành chuẩn LaTeX đẹp"
+                  >
+                    {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                    <span>Sửa lỗi công thức AI</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleTriggerUploadImage}
@@ -1375,10 +1442,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     <LinkIcon className="w-3.5 h-3.5 text-indigo-600" />
                     <span>Chèn Link Ảnh</span>
                   </button>
-
-                  <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> Tự động đồng bộ
-                  </span>
                 </div>
               </div>
 
@@ -1387,7 +1450,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   ref={textareaRef}
                   value={rawText}
                   onChange={(e) => handleRawTextChange(e.target.value)}
-                  placeholder="Nội dung đề thi thô... Bạn có thể gõ I. Trắc nghiệm, II. Trả lời đúng sai, III. Trả lời ngắn hoặc bấm 'Chèn Link Ảnh' / 'Tải ảnh' để cập nhật trực tiếp sang bên trái."
+                  placeholder="Nội dung đề thi thô... Bấm 'Sửa lỗi công thức AI' nếu thấy công thức bị dịch lỗi."
                   className="w-full h-full p-3 font-mono text-xs text-slate-800 bg-transparent resize-none outline-none leading-relaxed custom-scrollbar border-none focus:ring-0"
                   spellCheck={false}
                 />
