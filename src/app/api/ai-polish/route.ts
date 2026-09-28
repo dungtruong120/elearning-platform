@@ -5,10 +5,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const { text, apiKey } = await req.json();
+    const { text, fileBase64, apiKey } = await req.json();
 
-    if (!text || !text.trim()) {
-      return NextResponse.json({ error: "Văn bản rỗng" }, { status: 400 });
+    if (!text && !fileBase64) {
+      return NextResponse.json({ error: "Dữ liệu đề thi rỗng" }, { status: 400 });
     }
 
     const key = apiKey || process.env.GEMINI_API_KEY;
@@ -19,43 +19,48 @@ export async function POST(req: Request) {
       );
     }
 
-    const systemPrompt = "Bạn là chuyên gia chuyển đổi và phục hồi đề thi Toán học Việt Nam từ định dạng Word/MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
+    const systemPrompt = "Bạn là chuyên gia khôi phục và biên tập đề thi Toán học Việt Nam từ file Word chứa MathType sang định dạng chuẩn KaTeX/Markdown.\n" +
       "Nhiệm vụ của bạn:\n" +
-      "1. Sửa toàn bộ các công thức toán bị lỗi hoặc sót do trích xuất MathType:\n" +
-      "   - Khôi phục các tọa độ điểm trong không gian Oxyz: ví dụ 'M(0;1/2;1); N(1/2;0;1); P(1;1/2;0); Q(1;1/2;1)' -> chuyển thành LaTeX chuẩn KaTeX: $M\\left(0; \\frac{1}{2}; 1\\right); N\\left(\\frac{1}{2}; 0; 1\\right); P\\left(1; \\frac{1}{2}; 0\\right); Q\\left(1; 1; \\frac{1}{2}\\right)$. TUYỆT ĐỐI KHÔNG ĐỂ RỖNG CÁC PHƯƠNG ÁN A, B, C, D.\n" +
-      "   - Các biểu thức rỗng như $x^{{}}$ -> khôi phục thành $x_1, x_2$ hoặc lũy thừa đúng ngữ cảnh bài toán.\n" +
-      "   - Các biểu thức dính lỗi như $3a.0^{{}}$ -> sửa thành $3a \\cdot 0$ hoặc $3a_0$.\n" +
-      "   - Các so sánh bị lỗi như $a>>$, $a><$, $a>$ -> sửa thành $a > 0$, $a < 0$.\n" +
-      "   - Hàm số bị lỗi như y=(^{E}), y=(^{3}) -> sửa thành $y = ax^3 + bx^2 + cx + d$ hoặc hàm phân thức đúng theo ngữ cảnh bài toán.\n" +
-      "   - Bảng biến thiên, giới hạn, tích phân, đạo hàm: đưa tất cả vào cặp dấu $...$ (inline) hoặc $$...$$ (khối).\n" +
-      "2. TUYỆT ĐỐI GIỮ NGUYÊN các thẻ ảnh có định dạng [img:$...$] hoặc [img:https://...], không được xóa hoặc thay đổi tên thẻ ảnh.\n" +
-      "3. Giữ nguyên cấu trúc: Câu 1:, Câu 2:, các phương án A. B. C. D. và Lời giải (nếu có).\n" +
-      "4. Chỉ trả về nội dung đề thi đã được sửa chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong block code markdown.";
+      "1. ĐỌC VÀ KHÔI PHỤC TOÀN BỘ CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT (tọa độ Oxyz, phân số, căn thức, ma trận, vector, góc, tích vô hướng...).\n" +
+      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... theo đúng thứ tự. Tuyệt đối không lặp lại số câu (như Câu 2 rồi lại Câu 2).\n" +
+      "3. PHƯƠNG ÁN A, B, C, D: Đảm bảo đầy đủ cả 4 phương án cho từng câu trắc nghiệm. Không để rỗng bất kỳ phương án nào.\n" +
+      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu (kể cả các đoạn bị cụt như 'Khi đó:', 'Có .', 'Ta có:').\n" +
+      "5. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...], không xóa hay sửa đổi tên thẻ.\n" +
+      "6. CẤU TRÚC: Giữ nguyên các phân mục lớn (I. TRẮC NGHIỆM, PHẦN II. TRẮC NGHIỆM ĐÚNG SAI, PHẦN III. TRẢ LỜI NGẮN).\n" +
+      "7. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block (```).";
 
     const cleanKey = String(key).trim();
-    
-    // Model chính thức ổn định, không bị lỗi 404 Not Found hoặc 503 High Demand
-    const candidateModels = [
-      "gemini-2.0-flash",
-      "gemini-3.8-flash"
-    ];
+    const candidateModels = ["gemini-2.5-flash", "gemini-3.8-flash"];
+
+    // Chuẩn bị payload: Ưu tiên gửi file Word gốc dạng base64 nếu có
+    const parts: any[] = [];
+    if (fileBase64) {
+      parts.push({
+        inlineData: {
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          data: fileBase64
+        }
+      });
+      parts.push({
+        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ VĂN BẢN THÔ TRÍCH XUẤT ĐỂ THAM KHẢO THẺ ẢNH [img:$...$] ---\n" + (text || "")
+      });
+    } else {
+      parts.push({
+        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA VÀ BỔ SUNG CÔNG THỨC ---\n" + text
+      });
+    }
 
     let outputText = "";
     let lastError = "";
 
     for (const model of candidateModels) {
       try {
-        const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
+        const apiUrl = "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + model + ":generateContent?key=" + cleanKey;
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [{ text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text }]
-              }
-            ],
+            contents: [{ role: "user", parts }],
             generationConfig: {
               temperature: 0.1,
               maxOutputTokens: 8192
