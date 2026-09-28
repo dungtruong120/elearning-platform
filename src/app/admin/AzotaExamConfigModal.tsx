@@ -348,7 +348,8 @@ export async function extractDocxDirectly(file: File) {
   for (const [rId, path] of Object.entries(relsMap)) {
     const zipPath = path.startsWith("word/") ? path : ("word/" + path);
     const fileEntry = zip.files[zipPath];
-    if (fileEntry && /\.(png|jpe?g|gif|webp|svg|wmf|emf)$/i.test(zipPath)) {
+    // Chỉ lưu các ảnh bitmap thực sự hiển thị được trên web (png, jpg, svg, webp)
+    if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       const b64 = await fileEntry.async("base64");
       const key = "img_" + (imgCount++);
       let ext = "jpeg";
@@ -356,8 +357,6 @@ export async function extractDocxDirectly(file: File) {
       else if (zipPath.toLowerCase().endsWith("svg")) ext = "svg+xml";
       else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
       else if (zipPath.toLowerCase().endsWith("webp")) ext = "webp";
-      else if (zipPath.toLowerCase().endsWith("wmf")) ext = "wmf";
-      else if (zipPath.toLowerCase().endsWith("emf")) ext = "emf";
       mediaMap[key] = "data:image/" + ext + ";base64," + b64;
       targetToToken[rId] = "[img:$" + key + "$]";
     }
@@ -395,7 +394,7 @@ export async function extractDocxDirectly(file: File) {
       return " " + oleCache[oleRId] + " ";
     }
 
-    // Nếu binary MathType không xuất trực tiếp được, lấy text dự phòng
+    // Fallback: Tìm text dự phòng trong thẻ <w:t> hoặc <m:t>
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
@@ -404,7 +403,7 @@ export async function extractDocxDirectly(file: File) {
       return " $" + fallbackText + "$ ";
     }
 
-    // Fallback sang ảnh nếu không có text
+    // Fallback sang ảnh bitmap (chỉ khi ảnh đó không phải là wmf/emf)
     for (const el of allDescendants) {
       const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
       if (rId && targetToToken[rId]) {
@@ -497,7 +496,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & CÂU HỎI
+// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI (TỰ BỔ SUNG CÂU 1, CÂU 2)
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -620,11 +619,6 @@ export function injectQuestionLabelsIfMissing(rawText: string): string {
   let text = rawText.normalize("NFC");
   text = repairMathTypeGlitch(text);
   text = normalizeOptionsSmart(text);
-
-  const existingMatches = text.match(/(?:^|\n)\s*(?:Câu|Bài|Question)\s*\d+[:.]?/gi);
-  if (existingMatches && existingMatches.length >= 2) {
-    return text;
-  }
 
   SECTION_HEADER_REGEX.lastIndex = 0;
   const secMatches: { title: string; start: number; end: number }[] = [];
@@ -983,7 +977,6 @@ export function TokenViewer({
   if (!content) return null;
   const readyContent = cleanAndNormalizeMath(content);
 
-  // TÁCH CHUẨN: ƯU TIÊN THẺ ẢNH [img:...], KHÔNG ĐỂ DẤU $ BỊ NUỐT NHẦM SANG MATH
   const parts = readyContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[^\$]+?\$)/g);
 
   return (
@@ -1136,7 +1129,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       try {
         data = JSON.parse(resText);
       } catch {
-        alert("Lỗi máy chủ Vercel: Hàm xử lý mất quá nhiều thời gian (Timeout). Vui lòng thử lại!");
+        alert("Lỗi máy chủ: Hàm xử lý mất nhiều thời gian hoặc phản hồi không đúng. Vui lòng thử lại!");
         return;
       }
 
