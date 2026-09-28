@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -871,7 +871,6 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 
   let sectionsResult: ExtendedExamSection[] = [];
   if (secMatches.length > 0) {
-    // Đảm bảo số thứ tự câu tăng dần liên tục qua các phần
     let currentGlobalNum = 1;
     for (let i = 0; i < secMatches.length; i++) {
       const secTitle = secMatches[i].title;
@@ -1063,7 +1062,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
 
-      // Chuyển file sang Base64 để sẵn sàng gửi cho AI đọc trực tiếp
       const reader = new FileReader();
       reader.onload = (e) => {
         const res = e.target?.result as string;
@@ -1113,7 +1111,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setIsAiPolishing(true);
 
     try {
-      // GỬI KÈM FILE WORD GỐC DẠNG BASE64 ĐỂ GEMINI TỰ ĐỌC TRỰC TIẾP
       const res = await fetch("/api/ai-polish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1208,7 +1205,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
-  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1467,7 +1463,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                       {sec.questions.map((q, idx) => {
                         const isSolOpen = !!expandedSolutions[q.id];
 
-                        // TỰ ĐỘNG CHIA 4 DÒNG NẾU NỘI DUNG DÀI ĐỂ KHÔNG BỊ TRÀN CHỮ
+                        // TỰ ĐỘNG CHIA 4 DÒNG: Nếu phương án dài thì chia 1 cột dọc (mỗi câu 1 dòng)
                         const isAnyOptionLong = q.options?.some(opt => {
                           const t = opt.text_html || "";
                           return t.length > 30 || t.includes("\\frac") || t.includes("right)");
@@ -1488,6 +1484,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
+                              {/* SỬA TRIỆT ĐỂ: TRUYỀN BIẾN CHUẨN XÁC, KHÔNG CÓ NGOẶC KÉP */}
                               <TokenViewer content="{q.prompt_html}" mediaMap="{mediaMap}"/>
                             </div>
 
