@@ -34,11 +34,10 @@ export async function POST(req: Request) {
 
     const cleanKey = String(key).trim();
     
-    // Luân chuyển model qua cụm có sẵn ổn định nhất, không bị nghẽn 503
+    // Model chính thức ổn định, không bị lỗi 404 Not Found hoặc 503 High Demand
     const candidateModels = [
-      "gemini-2.5-flash",
-      "gemini-3.8-flash",
-      "gemini-1.5-flash"
+      "gemini-2.0-flash",
+      "gemini-3.8-flash"
     ];
 
     let outputText = "";
