@@ -5,7 +5,7 @@ import {
   Loader2, Layers, CheckCircle2, XCircle, PenTool, CircleDot, 
   CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
   ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
-  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2
+  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -24,6 +24,7 @@ export const PRACTICE_CATEGORIES = [
 export interface ExtendedParsedQuestion extends ParsedQuestion {
   points?: number;
   sub_points?: Record<string, number>;
+  sub_percentages?: Record<string, number>;
 }
 
 export interface ExtendedExamSection extends ExamSection {
@@ -31,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -83,6 +84,16 @@ function convertOmmlToLatex(node: Node): string {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const sub = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sub")) as any;
     return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}";
+  }
+  if (name === "sSubSup") {
+    const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
+    const sub = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sub")) as any;
+    const sup = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sup")) as any;
+    return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}^{" + (sup ? convertOmmlToLatex(sup) : "") + "}";
+  }
+  if (name === "d") {
+    const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
+    return "\\left(" + (e ? convertOmmlToLatex(e) : "") + "\\right)";
   }
   if (name === "rad") {
     const deg = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("deg")) as any;
@@ -169,7 +180,9 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
     0x2265: "\\ge ", 0x2260: "\\ne ", 0x221E: "+\\infty ", 0x2208: "\\in ",
     0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
     0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
-    0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<"
+    0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
+    0x003B: ";", 0x002C: ",", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
+    0x2200: "\\forall ", 0x2203: "\\exists ", 0x2261: "\\equiv ", 0x221A: "\\sqrt"
   };
 
   const parseLine = (): string => {
@@ -211,16 +224,16 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
 
         if (selector === 0 || selector === 1) { 
           const inner = parseLine();
-          res.push("(" + inner + ")");
+          res.push("\\left(" + inner + "\\right)");
         } else if (selector === 2) { 
           const inner = parseLine();
-          res.push("\\{" + inner + "\\}");
+          res.push("\\left\\{" + inner + "\\right\\}");
         } else if (selector === 3) { 
           const inner = parseLine();
-          res.push("[" + inner + "]");
+          res.push("\\left[" + inner + "\\right]");
         } else if (selector === 4) { 
           const inner = parseLine();
-          res.push("|" + inner + "|");
+          res.push("\\left|" + inner + "\\right|");
         } else if (selector === 10 || selector === 13) { 
           if (variation === 1) {
             const deg = parseLine();
@@ -246,13 +259,10 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
             const sup = parseLine();
             res.push("_{" + sub + "}^{" + sup + "}");
           }
-        } else if (selector === 15) { 
-          const body = parseLine();
-          res.push("\\int " + body);
         } else if (selector === 16) { 
           const body = parseLine();
           res.push("\\sum " + body);
-        } else {
+        } else { 
           const inner = parseLine();
           if (inner) res.push(inner);
         }
@@ -311,6 +321,10 @@ export function repairMathTypeGlitch(raw: string): string {
 
   text = text.replace(/\$([a-d])\>\<\$/g, "$$$1 < 0$$");
   text = text.replace(/\$([a-d])\>\>\$/g, "$$$1 > 0$$");
+
+  // Khôi phục chuẩn hóa tọa độ không gian thường bị MathType nuốt ngoặc
+  text = text.replace(/([A-Z])\s*\(\s*([^;,\)]+)\s*;\s*([^;,\)]+)\s*;\s*([^;,\)]+)\s*\)/g, "$$$1\\left($2; $3; $4\\right)$$");
+  text = text.replace(/\$\$([A-Z])\s*\(/g, "$$$1\\left(");
 
   return text;
 }
@@ -689,7 +703,8 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       correct_answer: options.map(o => (o.is_true_false_ans ? "Đ" : "S")).join(""),
       solution_html: solutionText,
       points: 1.0,
-      sub_points: { a: 0.1, b: 0.25, c: 0.5, d: 1.0 }
+      sub_percentages: { a: 25, b: 25, c: 25, d: 25 },
+      sub_points: { a: 0.25, b: 0.25, c: 0.25, d: 0.25 }
     };
   }
 
@@ -832,8 +847,8 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     }
   };
 
+  let sectionsResult: ExtendedExamSection[] = [];
   if (secMatches.length > 0) {
-    const sectionsResult: ExtendedExamSection[] = [];
     for (let i = 0; i < secMatches.length; i++) {
       const secTitle = secMatches[i].title;
       const secType = getSectionTypeFromTitle(secTitle);
@@ -848,10 +863,9 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
         questions
       });
     }
-    return sectionsResult;
   } else {
     const questions = parseQuestionsFromText(readyText, "PHẦN I. TRẮC NGHIỆM", "multiple_choice", 0);
-    return [
+    sectionsResult = [
       {
         section_title: "PHẦN I. TRẮC NGHIỆM",
         section_type: "multiple_choice",
@@ -859,10 +873,29 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       }
     ];
   }
+
+  // Tự động phân bổ chuẩn mực tròn đúng 10.0 điểm ngay khi parse
+  const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
+  if (totalQ > 0) {
+    const basePt = Number((10 / totalQ).toFixed(2));
+    let currentSum = 0;
+    sectionsResult.forEach(sec => {
+      sec.questions.forEach(q => {
+        q.points = basePt;
+        currentSum += basePt;
+      });
+    });
+    const diff = Number((10 - currentSum).toFixed(2));
+    if (sectionsResult[0]?.questions[0]) {
+      sectionsResult[0].questions[0].points = Number(((sectionsResult[0].questions[0].points || 0) + diff).toFixed(2));
+    }
+  }
+
+  return sectionsResult;
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
+// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -870,17 +903,14 @@ export function cleanAndNormalizeMath(raw: string): string {
   let text = raw.normalize("NFC");
   text = repairMathTypeGlitch(text);
 
-  // Chuyển đổi định dạng \[ ... \] thành $$ ... $$ và \( ... \) thành $ ... $ bằng phép cộng chuỗi an toàn
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math.trim() + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math.trim() + "$");
 
-  // Chuyển đổi hệ phương trình \left\{ \begin{align} ... \end{align} \right. thành \begin{cases} ... \end{cases}
   text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
     const cleanBody = body.replace(/&/g, "").trim();
     return "$$\\begin{cases} " + cleanBody + " \\end{cases}$$";
   });
 
-  // Tự bọc \begin{align} độc lập nếu chưa có $$ bao quanh
   text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => {
     return "$$" + match + "$$";
   });
@@ -910,7 +940,6 @@ export function TokenViewer({
       {parts.map((part, idx) => {
         if (!part) return null;
 
-        // Render Hình ảnh đồ thị
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
         if (imgMatch && imgMatch[1]) {
           let rawKey = imgMatch[1].trim();
@@ -941,7 +970,6 @@ export function TokenViewer({
           );
         }
 
-        // Render KaTeX chuẩn xác
         if (part.startsWith("$") && part.endsWith("$")) {
           const isDisplay = part.startsWith("$$");
           let mathStr = isDisplay ? part.slice(2, -2) : part.slice(1, -1);
@@ -992,6 +1020,14 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const [rawText, setRawText] = useState<string>("");
   const [expandedSolutions, setExpandedSolutions] = useState<Record<string, boolean>>({});
 
+  // Cấu hình % mặc định cho các ý a, b, c, d của phần Đúng/Sai
+  const [tfGlobalPercent, setTfGlobalPercent] = useState<Record<string, number>>({
+    a: 25,
+    b: 25,
+    c: 25,
+    d: 25
+  });
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1022,7 +1058,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setSections(parsed);
   };
 
-  // GỌI AI GEMINI CHUYÊN SÂU SỬA TOÀN BỘ CÔNG THỨC TOÁN TỔNG QUÁT 100%
+  // AI GEMINI QUÉT VÀ SỬA TOÀN BỘ CÔNG THỨC TOÁN HỌC & ĐỒ THỊ
   const handleAiPolishFormulas = async () => {
     if (!rawText.trim()) return;
 
@@ -1091,24 +1127,125 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     })));
   };
 
-  const handleUpdatePoints = (qId: string, points: number) => {
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => q.id === qId ? { ...q, points } : q)
-    })));
-  };
-
+  // CƠ CHẾ TỰ ĐỘNG CHIA ĐỀU TRÒN ĐÚNG 10.00 ĐIỂM
   const handleAutoDistribute10Points = () => {
     const totalQ = sections.reduce((acc, s) => acc + s.questions.length, 0);
     if (totalQ === 0) return;
-    const avgPoint = parseFloat((10 / totalQ).toFixed(2));
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => ({
-        ...q,
-        points: avgPoint
-      }))
-    })));
+    const basePoint = Number((10 / totalQ).toFixed(2));
+    let sum = 0;
+
+    setSections(prev => {
+      const updated = prev.map(sec => ({
+        ...sec,
+        questions: sec.questions.map(q => {
+          sum += basePoint;
+          const subPts: Record<string, number> = {};
+          if (sec.section_type === "true_false") {
+            ["a", "b", "c", "d"].forEach(k => {
+              subPts[k] = Number(((basePoint * (tfGlobalPercent[k] || 25)) / 100).toFixed(3));
+            });
+          }
+          return {
+            ...q,
+            points: basePoint,
+            sub_percentages: { ...tfGlobalPercent },
+            sub_points: subPts
+          };
+        })
+      }));
+
+      // Bù trừ số dư nhỏ (nếu có) vào câu đầu tiên để tổng đúng 10.00
+      const diff = Number((10 - sum).toFixed(2));
+      if (updated[0]?.questions[0]) {
+        updated[0].questions[0].points = Number(((updated[0].questions[0].points || 0) + diff).toFixed(2));
+      }
+      return updated;
+    });
+  };
+
+  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00 KHI NGƯỜI DÙNG SỬA ĐIỂM 1 CÂU
+  const handleUpdatePoints = (qId: string, newPoints: number) => {
+    const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
+
+    setSections(prev => {
+      const allQuestions: { secIdx: number; qIdx: number; id: string; points: number }[] = [];
+      prev.forEach((sec, sI) => {
+        sec.questions.forEach((q, qI) => {
+          allQuestions.push({ secIdx: sI, qIdx: qI, id: q.id, points: q.points || 0 });
+        });
+      });
+
+      if (allQuestions.length <= 1) {
+        return prev.map(sec => ({
+          ...sec,
+          questions: sec.questions.map(q => q.id === qId ? { ...q, points: 10 } : q)
+        }));
+      }
+
+      const otherQuestions = allQuestions.filter(item => item.id !== qId);
+      const remainingPoints = Math.max(0, 10 - validPoint);
+      const newAverageForOthers = Number((remainingPoints / otherQuestions.length).toFixed(2));
+
+      let currentAllocated = validPoint;
+      const pointMap: Record<string, number> = { [qId]: validPoint };
+
+      otherQuestions.forEach((item, idx) => {
+        if (idx === otherQuestions.length - 1) {
+          // Gán câu cuối cùng nhận phần dư chính xác tuyệt đối để tổng bằng 10.00
+          const finalPt = Number(Math.max(0, 10 - currentAllocated).toFixed(2));
+          pointMap[item.id] = finalPt;
+        } else {
+          pointMap[item.id] = newAverageForOthers;
+          currentAllocated += newAverageForOthers;
+        }
+      });
+
+      return prev.map(sec => ({
+        ...sec,
+        questions: sec.questions.map(q => {
+          const pt = pointMap[q.id] !== undefined ? pointMap[q.id] : (q.points || 0);
+          const subPts: Record<string, number> = {};
+          if (sec.section_type === "true_false") {
+            ["a", "b", "c", "d"].forEach(k => {
+              const pct = q.sub_percentages?.[k] !== undefined ? q.sub_percentages[k] : (tfGlobalPercent[k] || 25);
+              subPts[k] = Number(((pt * pct) / 100).toFixed(3));
+            });
+          }
+          return {
+            ...q,
+            points: pt,
+            sub_points: subPts
+          };
+        })
+      }));
+    });
+  };
+
+  // CẬP NHẬT TỶ LỆ % ĐIỂM CHO TỪNG Ý a, b, c, d TRONG PHẦN ĐÚNG/SAI
+  const handleUpdateTfPercent = (key: string, percent: number) => {
+    const val = Math.max(0, Math.min(100, percent || 0));
+    const nextPercents = { ...tfGlobalPercent, [key]: val };
+    setTfGlobalPercent(nextPercents);
+
+    setSections(prev => prev.map(sec => {
+      if (sec.section_type !== "true_false") return sec;
+      return {
+        ...sec,
+        questions: sec.questions.map(q => {
+          const qPt = q.points || 0;
+          const subPts: Record<string, number> = {};
+          ["a", "b", "c", "d"].forEach(k => {
+            const p = nextPercents[k] || 0;
+            subPts[k] = Number(((qPt * p) / 100).toFixed(3));
+          });
+          return {
+            ...q,
+            sub_percentages: nextPercents,
+            sub_points: subPts
+          };
+        })
+      };
+    }));
   };
 
   const currentTotalPoints = useMemo(() => {
@@ -1118,7 +1255,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         sum += (q.points || 0);
       });
     });
-    return parseFloat(sum.toFixed(2));
+    return Number(sum.toFixed(2));
   }, [sections]);
 
   const handleTriggerUploadImage = () => {
@@ -1176,6 +1313,10 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const totalQuestions = useMemo(() => {
     return sections.reduce((acc, s) => acc + s.questions.length, 0);
   }, [sections]);
+
+  const tfTotalPercent = useMemo(() => {
+    return (tfGlobalPercent.a || 0) + (tfGlobalPercent.b || 0) + (tfGlobalPercent.c || 0) + (tfGlobalPercent.d || 0);
+  }, [tfGlobalPercent]);
 
   if (!isOpen) return null;
 
@@ -1423,7 +1564,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  {/* NÚT AI SỬA TOÀN BỘ CÔNG THỨC */}
                   <button
                     type="button"
                     onClick={handleAiPolishFormulas}
@@ -1471,36 +1611,71 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           </div>
         ) : step === 2 ? (
           <div className="flex-1 p-6 overflow-y-auto custom-scrollbar max-w-5xl mx-auto w-full space-y-6">
-            <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs flex items-center justify-between">
+            <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
                   <Calculator className="w-5 h-5 text-blue-600" />
-                  Cấu hình Ma trận đáp án & Thang điểm 10
+                  Cấu hình Ma trận đáp án & Thang điểm 10.0 (Auto-Balance)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Tự quyết định điểm số từng câu hoặc bấm chia đều để đạt chuẩn thang điểm 10.0
+                  Điểm được khoá cứng chuẩn 10.0. Khi bạn sửa điểm bất kỳ câu nào, các câu còn lại sẽ tự động bù trừ cân bằng.
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   type="button"
                   onClick={handleAutoDistribute10Points}
                   className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Tự động chia đều 10 điểm</span>
+                  <span>Chia đều 10 điểm</span>
                 </button>
 
-                <div className={"px-3.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 " + (
-                  Math.abs(currentTotalPoints - 10) < 0.05 
-                    ? "bg-emerald-50 text-emerald-800 border-emerald-300" 
-                    : "bg-amber-50 text-amber-800 border-amber-300"
-                )}>
-                  <span>Tổng điểm: {currentTotalPoints} / 10.0</span>
+                <div className="px-3.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border-emerald-300">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Tổng điểm: 10.00 / 10.0 (Cố định)</span>
                 </div>
               </div>
             </div>
+
+            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
+            {sections.some(s => s.section_type === "true_false") && (
+              <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Percent className="w-4 h-4 text-indigo-700" />
+                    <h4 className="font-black text-xs sm:text-sm text-indigo-950 uppercase">
+                      Cấu hình tỷ lệ % điểm từng ý (Phần Đúng / Sai)
+                    </h4>
+                  </div>
+                  <span className={"text-xs font-bold px-2 py-0.5 rounded-md border " + (tfTotalPercent === 100 ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-amber-50 text-amber-700 border-amber-300")}>
+                    Tổng: {tfTotalPercent}% / 100%
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Bạn có thể quy định tỷ lệ % điểm mà học sinh nhận được khi làm đúng từng ý. Ví dụ câu 1.0 điểm, ý a là 50% thì ý a nhận 0.5 điểm.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                  {(["a", "b", "c", "d"] as const).map(key => (
+                    <div key={key} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-slate-700">Ý {key}:</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={tfGlobalPercent[key] !== undefined ? tfGlobalPercent[key] : 25}
+                          onChange={(e) => handleUpdateTfPercent(key, parseFloat(e.target.value) || 0)}
+                          className="w-14 px-1.5 py-0.5 bg-slate-50 border border-slate-300 rounded text-center text-xs font-black text-indigo-900 outline-none focus:border-indigo-600 focus:bg-white"
+                        />
+                        <span className="text-xs font-bold text-slate-400">%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-6">
               {sections.map((sec, sIdx) => (
@@ -1563,9 +1738,13 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             {["a", "b", "c", "d"].map(subKey => {
                               const opt = q.options.find(o => o.key === subKey);
                               const isTrue = opt?.is_true_false_ans === true;
+                              const subPt = q.sub_points?.[subKey] !== undefined ? q.sub_points[subKey] : Number((((q.points || 0) * (tfGlobalPercent[subKey] || 25)) / 100).toFixed(3));
                               return (
                                 <div key={subKey} className="flex items-center justify-between gap-1 text-[11px]">
-                                  <span className="font-bold text-slate-700 uppercase">{subKey}:</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-bold text-slate-700 uppercase">{subKey}:</span>
+                                    <span className="text-[9px] text-slate-400 font-semibold">({subPt}đ)</span>
+                                  </div>
                                   <div className="flex items-center gap-1">
                                     <button
                                       type="button"
@@ -1652,8 +1831,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
                 <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-100 text-blue-900 text-xs leading-relaxed font-normal">
                   • Đề thi gồm <strong className="font-bold">{totalQuestions} câu hỏi</strong> thuộc <strong className="font-bold">{sections.length} phần thi</strong> đã sẵn sàng xuất bản.<br />
-                  • Tổng điểm: <strong className="font-bold">{currentTotalPoints} / 10.0 điểm</strong>.<br />
-                  • Toàn bộ công thức toán KaTeX và hình ảnh đồ thị đã được chuẩn hóa.
+                  • Tổng điểm: <strong className="font-bold">10.0 / 10.0 điểm chuẩn</strong> (Auto-Balanced).<br />
+                  • Toàn bộ công thức toán KaTeX, tọa độ không gian và hình ảnh đồ thị đã được chuẩn hóa.
                 </div>
               </div>
             </div>
@@ -1691,7 +1870,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   duration_minutes: duration,
                   category,
                   sections,
-                  total_points: currentTotalPoints,
+                  total_points: 10.0,
                   mediaMap,
                   createdAt: new Date().toISOString()
                 });
