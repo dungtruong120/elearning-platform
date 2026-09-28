@@ -491,7 +491,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & CÂU HỎI (HỖ TRỢ ĐẦY ĐỦ CẢ TIÊU ĐỀ LA MÃ I. VÀ PHẦN I.)
+// 2. BÓC TÁCH SECTION & CÂU HỎI
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -503,7 +503,6 @@ export function normalizeOptionsSmart(text: string): string {
   return res;
 }
 
-// REGEX TIÊU ĐỀ PHẦN: NHẬN DIỆN CẢ "I. TRẮC NGHIỆM" VÀ "PHẦN I. TRẮC NGHIỆM"
 const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+)|(?:I{1,3}|IV)\.)\s*[:\-]?[^\r\n]*)/gi;
 
 function getSectionTypeFromTitle(title: string): QuestionType {
@@ -920,7 +919,6 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     ];
   }
 
-  // Tự động chia đều đúng 10.0 điểm
   const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
   if (totalQ > 0) {
     const basePt = Number((10 / totalQ).toFixed(2));
@@ -978,13 +976,16 @@ export function TokenViewer({
 }) {
   if (!content) return null;
   const readyContent = cleanAndNormalizeMath(content);
-  const parts = readyContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$$|\$[\s\S]*?\$)/g);
+
+  // TOKENIZER ƯU TIÊN THẺ ẢNH TRƯỚC, KHÔNG ĐỂ DẤU $ TRONG [img:$...$] BỊ NUỐT NHẦM SANG MATH
+  const parts = readyContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
 
   return (
     <div className={inline ? "inline leading-relaxed text-slate-800 text-[13px] break-words" : "leading-relaxed text-slate-800 text-[14px] whitespace-pre-wrap break-words"}>
       {parts.map((part, idx) => {
         if (!part) return null;
 
+        // Render Hình ảnh / Snapshot MathType
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
         if (imgMatch && imgMatch[1]) {
           let rawKey = imgMatch[1].trim();
@@ -999,7 +1000,7 @@ export function TokenViewer({
             <img 
               key={idx} 
               src={src} 
-              alt="Ảnh" 
+              alt="Công thức" 
               onError={(e) => { e.currentTarget.style.display = "none"; }}
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
             />
@@ -1015,6 +1016,7 @@ export function TokenViewer({
           );
         }
 
+        // Render KaTeX chuẩn xác
         if (part.startsWith("$") && part.endsWith("$")) {
           const isDisplay = part.startsWith("$$");
           let mathStr = isDisplay ? part.slice(2, -2) : part.slice(1, -1);
@@ -1127,7 +1129,14 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         })
       });
 
-      const data = await res.json();
+      const resText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(resText);
+      } catch {
+        alert("Lỗi máy chủ Vercel: Hàm xử lý mất quá nhiều thời gian (Timeout). Vui lòng thử lại!");
+        return;
+      }
 
       if (!res.ok) {
         if (res.status === 401 || data.error?.includes("API_KEY")) {
@@ -1204,6 +1213,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
+  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1677,6 +1687,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
+            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
