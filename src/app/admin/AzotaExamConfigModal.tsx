@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX TOÀN DIỆN (FULL UNICODE & MTEF)
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -40,7 +40,7 @@ function isCleanLatex(latex: string): boolean {
   const trimmed = latex.trim();
   if (trimmed.length < 1) return false;
 
-  if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)") {
+  if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)" || trimmed === "$$") {
     return false;
   }
 
@@ -130,30 +130,18 @@ class MTEFStreamReader {
   }
 }
 
-// BẢNG TRA ĐẦY ĐỦ TẤT CẢ KÝ TỰ TOÁN HỌC MATHTYPE
 const MATHTYPE_FULL_SYMBOLS: Record<number, string> = {
-  // Bảng chữ Hy Lạp
   0x03B1: "\\alpha", 0x03B2: "\\beta", 0x03B3: "\\gamma", 0x03B4: "\\delta", 0x03B5: "\\epsilon",
   0x03B6: "\\zeta", 0x03B7: "\\eta", 0x03B8: "\\theta", 0x03B9: "\\iota", 0x03BA: "\\kappa",
-  0x03BB: "\\lambda", 0x03BC: "\\mu", 0x03BD: "\\nu", 0x03BE: "\\xi", 0x03BF: "o", 0x03C0: "\\pi",
-  0x03C1: "\\rho", 0x03C2: "\\varsigma", 0x03C3: "\\sigma", 0x03C4: "\\tau", 0x03C5: "\\upsilon",
-  0x03C6: "\\varphi", 0x03C7: "\\chi", 0x03C8: "\\psi", 0x03C9: "\\omega",
-  0x0391: "A", 0x0392: "B", 0x0393: "\\Gamma", 0x0394: "\\Delta", 0x0395: "E", 0x0396: "Z",
-  0x0397: "H", 0x0398: "\\Theta", 0x0399: "I", 0x039A: "K", 0x039B: "\\Lambda", 0x039C: "M",
-  0x039D: "N", 0x039E: "\\Xi", 0x039F: "O", 0x03A0: "\\Pi", 0x03A1: "P", 0x03A3: "\\Sigma",
-  0x03A4: "T", 0x03A5: "\\Upsilon", 0x03A6: "\\Phi", 0x03A7: "X", 0x03A8: "\\Psi", 0x03A9: "\\Omega",
-  // Toán tử & So sánh
+  0x03BB: "\\lambda", 0x03BC: "\\mu", 0x03BD: "\\nu", 0x03BE: "\\xi", 0x03C0: "\\pi",
+  0x03C1: "\\rho", 0x03C3: "\\sigma", 0x03C4: "\\tau", 0x03C5: "\\upsilon", 0x03C6: "\\varphi",
+  0x03C7: "\\chi", 0x03C8: "\\psi", 0x03C9: "\\omega", 0x0394: "\\Delta", 0x03A9: "\\Omega",
   0x00B1: "\\pm ", 0x00D7: "\\times ", 0x00F7: "\\div ", 0x2264: "\\le ", 0x2265: "\\ge ", 
-  0x2260: "\\ne ", 0x2248: "\\approx ", 0x2261: "\\equiv ", 0x221D: "\\propto ",
-  // Ký hiệu hình học & Vecto
-  0x2225: "\\parallel ", 0x22A5: "\\perp ", 0x2220: "\\angle ", 0x2235: "\\because ", 0x2234: "\\therefore ",
-  0x00B0: "^\\circ ", 0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x21D4: "\\Leftrightarrow ",
-  0x2190: "\\leftarrow ", 0x2194: "\\leftrightarrow ",
-  // Tập hợp & Giải tích
+  0x2260: "\\ne ", 0x2248: "\\approx ", 0x2261: "\\equiv ", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
+  0x2220: "\\angle ", 0x00B0: "^\\circ ", 0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x21D4: "\\Leftrightarrow ",
   0x221E: "+\\infty ", 0x2208: "\\in ", 0x2209: "\\notin ", 0x2282: "\\subset ", 0x2283: "\\supset ",
   0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ", 0x2200: "\\forall ", 0x2203: "\\exists ",
-  0x211D: "\\mathbb{R}", 0x2124: "\\mathbb{Z}", 0x2115: "\\mathbb{N}", 0x211A: "\\mathbb{Q}", 0x2102: "\\mathbb{C}",
-  // Dấu & Tọa độ
+  0x211D: "\\mathbb{R}", 0x2124: "\\mathbb{Z}", 0x2115: "\\mathbb{N}", 0x211A: "\\mathbb{Q}",
   0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<", 0x003B: "; ", 0x002C: ", ",
   0x22C5: "\\cdot ", 0x221A: "\\sqrt"
 };
@@ -314,12 +302,10 @@ function parseMathTypeBinary(uint8: Uint8Array): string {
   return "";
 }
 
-// SỬA CÁC LỖI ĐẶC THÙ CỦA MATHTYPE VÀ XÓA CÁC DẤU NGOẶC RỖNG
 export function repairMathTypeGlitch(raw: string): string {
   if (!raw) return "";
   let text = raw;
 
-  // Xóa sạch hoàn toàn các ngoặc đơn rỗng do lỗi trích xuất
   text = text.replace(/\\left\(\s*\\right\)/g, "");
   text = text.replace(/\(\s*\)/g, "");
   text = text.replace(/\$\s*\$/g, "");
@@ -1642,7 +1628,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
