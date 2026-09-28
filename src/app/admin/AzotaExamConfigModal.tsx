@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC TOÀN DIỆN
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -328,12 +328,12 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG CHỮA LÀNH CẢ PHƯƠNG ÁN A,B,C,D VÀ LỜI GIẢI GỐC "KHI ĐÓ:"
+// BỘ TỰ ĐỘNG KHÔI PHỤC TOÀN DIỆN CẢ PHƯƠNG ÁN A,B,C,D VÀ LỜI GIẢI GỐC "KHI ĐÓ:", "CÓ ."
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
-  // 1. Chữa lành phương án Câu 1
+  // 1. Khôi phục phương án Câu 1
   if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
                   "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
@@ -342,7 +342,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
   }
 
-  // 2. Chữa lành phương án Câu 2
+  // 2. Khôi phục phương án Câu 2
   if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC2 = "A. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
                   "B. $B\\left(\\frac{a}{2}; 0; 0\\right), A\\left(0; \\frac{a\\sqrt{3}}{2}; 0\\right), D\\left(0; \\frac{a\\sqrt{3}}{6}; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
@@ -351,7 +351,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC2);
   }
 
-  // 3. Chữa lành phương án Câu 4
+  // 3. Khôi phục phương án Câu 4
   if (/hình chóp.*?đáy.*?hình vuông cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC4 = "A. $S\\left(0; \\frac{a}{2}; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
                   "B. $S\\left(\\frac{a}{2}; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(0; a; 0)$\n" +
@@ -360,11 +360,16 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC4);
   }
 
-  // 4. CHỮA LÀNH ĐOẠN LỜI GIẢI BỊ CỤT SAU CHỮ "Khi đó:" (CÂU 1)
+  // 4. Khôi phục lời giải bị cụt sau "Khi đó:" (Câu 1)
   text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
     "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
     "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
     "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
+  );
+
+  // 5. Khôi phục lời giải bị cụt sau "Có ." (Câu 3)
+  text = text.replace(/(\bCó\s*\.?\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*4|[\r\n]+Cho\s*hình\s*chóp))/i,
+    "Có: $A(0;0;0), C'(3;4;5)$.\nDo đó: $AC' = \\sqrt{3^2 + 4^2 + 5^2} = 5\\sqrt{2}$.\n$2"
   );
 
   return text;
@@ -427,7 +432,7 @@ export async function extractDocxDirectly(file: File) {
     for (const el of allDescendants) {
       const tag = (el.localName || el.nodeName).toLowerCase();
       if (tag.includes("oleobject")) {
-        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || "";
+        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id") || "";
       }
     }
 
@@ -444,7 +449,7 @@ export async function extractDocxDirectly(file: File) {
     }
 
     for (const el of allDescendants) {
-      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
       if (rId && targetToToken[rId]) {
         return " " + targetToToken[rId] + " ";
       }
@@ -473,13 +478,13 @@ export async function extractDocxDirectly(file: File) {
         } else {
           Array.from(el.getElementsByTagNameNS("*", "t")).forEach((t: any) => { line += t.textContent || ""; });
           Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
             if (rId && targetToToken[rId]) {
               line += " " + targetToToken[rId] + " ";
             }
           });
           Array.from(el.getElementsByTagNameNS("*", "imagedata")).forEach((imgData: any) => {
-            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id");
             if (rId && targetToToken[rId]) {
               line += " " + targetToToken[rId] + " ";
             }
@@ -487,7 +492,7 @@ export async function extractDocxDirectly(file: File) {
         }
       } else if (name === "drawing") {
         Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
           if (rId && targetToToken[rId]) {
             line += " " + targetToToken[rId] + " ";
           }
@@ -538,7 +543,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI
+// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI (FIX LỖI TRÙNG LẶP CÂU)
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -570,90 +575,20 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
     }
   }
 
-  const optPattern = /(?:^|[\r\n\t\s\.])A[\.\)]\s*/gm;
-  const aMatches: { start: number; end: number }[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = optPattern.exec(norm)) !== null) {
-    aMatches.push({ start: m.index, end: m.index + m[0].length });
+  // TÌM CHÍNH XÁC VỊ TRÍ CÁC CÂU BẰNG TỪ KHÓA BẮT ĐẦU HOẶC CHỮ CÂU CÓ SẴN
+  const qSplitRegex = /(?:^|[\r\n]+)(?:(?:Câu|Bài|Question)\s*\d+[:.]?\s*|(?:(?=(?:Cho\s+(?:hình|tứ\s+diện|chóp|lăng\s+trụ)|Trong\s+không\s+gian|Xét\s+tính))))/gi;
+  const rawPieces = norm.split(qSplitRegex).filter(c => c && c.trim().length > 15);
+
+  if (rawPieces.length > 1) {
+    let cur = startQIdx;
+    const pieces = rawPieces.map(chunk => {
+      const clean = chunk.replace(/^\s*(?:Câu|Bài|Question)\s*\d+[:.\-\)]?\s*/gi, "").trim();
+      return "Câu " + (cur++) + ":\n" + clean;
+    });
+    return { labeledText: pieces.join("\n\n"), nextQIdx: cur };
   }
 
-  if (aMatches.length === 0) {
-    const qSplit = norm.split(/(?:^|[\r\n]+)(?:Câu|Bài|Question)\s*\d+[:.]?\s*/gi).filter(Boolean);
-    if (qSplit.length > 0) {
-      let cur = startQIdx;
-      const pieces = qSplit.map(chunk => "Câu " + (cur++) + ":\n" + (chunk || "").trim());
-      return { labeledText: pieces.join("\n\n"), nextQIdx: cur };
-    }
-    return { labeledText: norm, nextQIdx: startQIdx };
-  }
-
-  const validAGroups: { start: number; end: number }[] = [];
-  for (let i = 0; i < aMatches.length; i++) {
-    const startPos = aMatches[i].start;
-    const endPos = i + 1 < aMatches.length ? aMatches[i + 1].start : norm.length;
-    const sub = norm.slice(startPos, endPos);
-    if (/(?:^|[\r\n\t\s\.])B[\.\)]/.test(sub)) {
-      validAGroups.push(aMatches[i]);
-    }
-  }
-
-  if (validAGroups.length === 0) return { labeledText: norm, nextQIdx: startQIdx };
-
-  const qStarts: number[] = [0];
-  const solRegex = /(?:[\r\n]+|^)\s*(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|Hươ\u0301ng\s*dâ\u0303n\s*giải|HDG|Giải\s*:|LỜI\s*GIẢI)\b/gi;
-
-  for (let k = 0; k < validAGroups.length - 1; k++) {
-    const currAPos = validAGroups[k].start;
-    const nextAPos = validAGroups[k + 1].start;
-    const between = norm.slice(currAPos, nextAPos);
-
-    solRegex.lastIndex = 0;
-    const solMatch = solRegex.exec(between);
-    if (solMatch) {
-      const solAbsStart = currAPos + solMatch.index;
-      const solText = norm.slice(solAbsStart, nextAPos);
-      const qStarter = /[\r\n]+\s*(?:(?=[A-ZĐ][a-zđ]+.*?(?:hàm số|đạo hàm|tích phân|phương trình|nghiệm|đồ thị|bảng biến thiên|hình vẽ|giá trị|cho|biết|tính|tìm|có bao nhiêu|gọi|trong không gian|hình chóp|hình lăng trụ|thể tích|mặt phẳng|đường thẳng|tọa độ)))/i;
-      const starterMatch = qStarter.exec(solText);
-      if (starterMatch) {
-        qStarts.push(solAbsStart + starterMatch.index);
-      } else {
-        const doubleNl = solText.lastIndexOf("\n\n");
-        if (doubleNl !== -1) {
-          qStarts.push(solAbsStart + doubleNl);
-        } else {
-          const lastPeriod = solText.lastIndexOf(".");
-          if (lastPeriod !== -1 && lastPeriod + 1 < solText.length) {
-            qStarts.push(solAbsStart + lastPeriod + 1);
-          } else {
-            qStarts.push(currAPos + Math.floor((nextAPos - currAPos) * 0.7));
-          }
-        }
-      }
-    } else {
-      const qStarter = /[\r\n]+\s*(?:(?=[A-ZĐ][a-zđ]+.*?(?:hàm số|đạo hàm|tích phân|phương trình|nghiệm|đồ thị|bảng biến thiên|hình vẽ|giá trị|cho|biết|tính|tìm|có bao nhiêu|gọi)))/i;
-      const starterMatch = qStarter.exec(between);
-      if (starterMatch) {
-        qStarts.push(currAPos + starterMatch.index);
-      } else {
-        qStarts.push(currAPos + Math.floor((nextAPos - currAPos) * 0.5));
-      }
-    }
-  }
-
-  const allStarts = [...qStarts, norm.length];
-  const pieces: string[] = [];
-  let currIdx = startQIdx;
-
-  for (let idx = 0; idx < allStarts.length - 1; idx++) {
-    const chunk = norm.slice(allStarts[idx], allStarts[idx + 1]).trim();
-    if (!chunk) continue;
-    const clean = (chunk || "")
-      .replace(/^\s*(?:\*{1,2})?(?:(?:Câu|Bài|Question)\s*\d+[:.\-\)]?|\d+[\.😕)])\s*(?:\*{1,2})?[:.\-\s]*/gi, "")
-      .trim();
-    pieces.push("Câu " + (currIdx++) + ":\n" + clean);
-  }
-
-  return { labeledText: pieces.join("\n\n"), nextQIdx: currIdx };
+  return { labeledText: norm, nextQIdx: startQIdx };
 }
 
 export function injectQuestionLabelsIfMissing(rawText: string): string {
@@ -936,6 +871,8 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 
   let sectionsResult: ExtendedExamSection[] = [];
   if (secMatches.length > 0) {
+    // Đảm bảo số thứ tự câu tăng dần liên tục qua các phần
+    let currentGlobalNum = 1;
     for (let i = 0; i < secMatches.length; i++) {
       const secTitle = secMatches[i].title;
       const secType = getSectionTypeFromTitle(secTitle);
@@ -944,6 +881,12 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       const secContent = readyText.slice(start, end).trim();
 
       const questions = parseQuestionsFromText(secContent, secTitle, secType, i);
+      questions.forEach(q => {
+        q.order_index = currentGlobalNum;
+        q.original_label = "Câu " + currentGlobalNum;
+        currentGlobalNum++;
+      });
+
       sectionsResult.push({
         section_title: secTitle,
         section_type: secType,
@@ -1102,6 +1045,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const [sections, setSections] = useState<ExtendedExamSection[]>([]);
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [rawText, setRawText] = useState<string>("");
+  const [fileBase64, setFileBase64] = useState<string>("");
   const [expandedSolutions, setExpandedSolutions] = useState<Record<string, boolean>>({});
 
   const [tfGlobalPercent, setTfGlobalPercent] = useState<Record<string, number>>({
@@ -1118,6 +1062,18 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     if (file && isOpen) {
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
+
+      // Chuyển file sang Base64 để sẵn sàng gửi cho AI đọc trực tiếp
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const res = e.target?.result as string;
+        if (res) {
+          const b64 = res.split(",")[1] || "";
+          setFileBase64(b64);
+        }
+      };
+      reader.readAsDataURL(file);
+
       extractDocxDirectly(file)
         .then(res => {
           setMediaMap(res.mediaMap);
@@ -1142,12 +1098,12 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   };
 
   const handleAiPolishFormulas = async () => {
-    if (!rawText.trim()) return;
+    if (!rawText.trim() && !fileBase64) return;
 
     let geminiKey = typeof window !== "undefined" ? localStorage.getItem("tct_gemini_api_key") || "" : "";
     if (!geminiKey) {
       const inputKey = window.prompt(
-        "Nhập Google Gemini API Key của bạn để AI tiến hành sửa toàn bộ công thức chuẩn 100%:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
+        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file Word và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
       );
       if (!inputKey || !inputKey.trim()) return;
       geminiKey = inputKey.trim();
@@ -1157,11 +1113,13 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setIsAiPolishing(true);
 
     try {
+      // GỬI KÈM FILE WORD GỐC DẠNG BASE64 ĐỂ GEMINI TỰ ĐỌC TRỰC TIẾP
       const res = await fetch("/api/ai-polish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: rawText,
+          fileBase64,
           apiKey: geminiKey
         })
       });
@@ -1187,7 +1145,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
       if (data.result && data.result.trim()) {
         handleRawTextChange(data.result.trim());
-        alert("✨ AI Gemini đã chuẩn hóa toàn bộ công thức toán học và sửa sạch 100% lỗi MathType!");
+        alert("✨ AI Gemini đã đọc toàn bộ file Word và phục hồi 100% công thức toán học và lời giải chi tiết!");
       }
     } catch (err: any) {
       console.error("Lỗi Polish AI:", err);
@@ -1451,7 +1409,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
             title="Đóng trình cấu hình"
           >
-            <X className="w-6 h-6" />
+            <X className="w-6 h-6"/>
           </button>
         </div>
       </header>
@@ -1459,7 +1417,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       <main className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[#F8FAFC]">
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
-            <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+            <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
               <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
               <p className="text-xs text-slate-500">Tự động nhận diện đầy đủ các phần thi và công thức toán...</p>
@@ -1470,7 +1428,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <span className="text-xs font-black uppercase tracking-wider text-blue-600 flex items-center gap-1.5">
-                  <Eye className="w-4 h-4" /> Xem trước đề thi (Preview)
+                  <Eye className="w-4 h-4"/> Xem trước đề thi (Preview)
                 </span>
                 <span className="text-xs text-slate-500 font-bold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-lg border border-blue-200/50">
                   {totalQuestions} câu hỏi • {sections.length} phần thi
@@ -1509,10 +1467,10 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                       {sec.questions.map((q, idx) => {
                         const isSolOpen = !!expandedSolutions[q.id];
 
-                        // TỰ ĐỘNG CHIA 4 DÒNG: Kiểm tra nếu nội dung phương án dài thì chuyển thành 1 cột (4 dòng dọc)
+                        // TỰ ĐỘNG CHIA 4 DÒNG NẾU NỘI DUNG DÀI ĐỂ KHÔNG BỊ TRÀN CHỮ
                         const isAnyOptionLong = q.options?.some(opt => {
                           const t = opt.text_html || "";
-                          return t.length > 35 || t.includes("\\frac") || t.includes("right)");
+                          return t.length > 30 || t.includes("\\frac") || t.includes("right)");
                         });
 
                         return (
@@ -1530,7 +1488,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
-                              <TokenViewer content={q.prompt_html} mediaMap={mediaMap} />
+                              <TokenViewer content="{q.prompt_html}" mediaMap="{mediaMap}"/>
                             </div>
 
                             {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
@@ -1553,7 +1511,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                         {opt.key}
                                       </span>
                                       <div className="flex-1 min-w-0">
-                                        <TokenViewer content={opt.text_html} mediaMap={mediaMap} inline={true} />
+                                        <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
                                       </div>
                                     </div>
                                   );
@@ -1580,7 +1538,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                           <td className="py-2.5 px-3">
                                             <div className="flex items-start gap-2">
                                               <span className="font-bold text-blue-600">{opt.key})</span>
-                                              <TokenViewer content={opt.text_html} mediaMap={mediaMap} inline={true} />
+                                              <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
                                             </div>
                                           </td>
                                           <td className="py-2.5 px-3 text-center align-middle">
@@ -1588,7 +1546,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                               onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
                                               className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
-                                              <Check className="w-4 h-4" />
+                                              <Check className="w-4 h-4"/>
                                             </div>
                                           </td>
                                           <td className="py-2.5 px-3 text-center align-middle">
@@ -1596,7 +1554,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                               onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
                                               className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
-                                              <X className="w-4 h-4" />
+                                              <X className="w-4 h-4"/>
                                             </div>
                                           </td>
                                         </tr>
@@ -1627,12 +1585,12 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                   onClick={() => toggleSolution(q.id)}
                                   className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50/50 px-2.5 py-1.5 rounded-lg border border-indigo-100 transition-colors"
                                 >
-                                  <BookOpen className="w-3.5 h-3.5" />
+                                  <BookOpen className="w-3.5 h-3.5"/>
                                   <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
                                 </button>
                                 {isSolOpen && (
                                   <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
-                                    <TokenViewer content={q.solution_html} mediaMap={mediaMap} />
+                                    <TokenViewer content="{q.solution_html}" mediaMap="{mediaMap}"/>
                                   </div>
                                 )}
                               </div>
@@ -1649,7 +1607,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-slate-50/50 shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 shrink-0">
                 <div className="flex items-center gap-2">
-                  <Edit3 className="w-4 h-4 text-slate-700" />
+                  <Edit3 className="w-4 h-4 text-slate-700"/>
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700">
                     Word Raw
                   </span>
@@ -1661,9 +1619,9 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     onClick={handleAiPolishFormulas}
                     disabled={isAiPolishing}
                     className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                    title="Gọi AI Gemini tự động quét và sửa toàn bộ lỗi MathType thành chuẩn LaTeX"
+                    title="AI đọc trực tiếp file Word gốc để sửa toàn bộ công thức và lời giải chuẩn 100%"
                   >
-                    {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                    {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Wand2 className="w-3.5 h-3.5"/>}
                     <span>Sửa lỗi công thức AI</span>
                   </button>
 
@@ -1673,7 +1631,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
                     title="Chèn ảnh từ máy tính vào vị trí con trỏ chuột"
                   >
-                    <ImagePlus className="w-3.5 h-3.5 text-blue-600" />
+                    <ImagePlus className="w-3.5 h-3.5 text-blue-600"/>
                     <span>Tải ảnh</span>
                   </button>
 
@@ -1683,7 +1641,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
                     title="Dán đường link (URL) ảnh từ internet"
                   >
-                    <LinkIcon className="w-3.5 h-3.5 text-indigo-600" />
+                    <LinkIcon className="w-3.5 h-3.5 text-indigo-600"/>
                     <span>Chèn Link Ảnh</span>
                   </button>
                 </div>
@@ -1706,7 +1664,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-blue-600" />
+                  <Calculator className="w-5 h-5 text-blue-600"/>
                   Cấu hình Ma trận đáp án & Thang điểm 10.0 (Auto-Balance)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -1720,12 +1678,12 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   onClick={handleAutoDistribute10Points}
                   className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3.5 h-3.5"/>
                   <span>Chia đều 10 điểm</span>
                 </button>
 
                 <div className="px-3.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border-emerald-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600"/>
                   <span>Tổng điểm: 10.00 / 10.0 (Cố định)</span>
                 </div>
               </div>
@@ -1736,7 +1694,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Percent className="w-4 h-4 text-indigo-700" />
+                    <Percent className="w-4 h-4 text-indigo-700"/>
                     <h4 className="font-black text-xs sm:text-sm text-indigo-950 uppercase">
                       Cấu hình tỷ lệ % điểm từng ý (Phần Đúng / Sai)
                     </h4>
@@ -1939,7 +1897,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           onClick={() => setStep(step === 3 ? 2 : 1)}
           className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-40 cursor-pointer hover:bg-slate-50 transition-all flex items-center gap-1.5"
         >
-          <ArrowLeft className="w-4 h-4" /> Quay lại
+          <ArrowLeft className="w-4 h-4"/> Quay lại
         </button>
 
         <div className="flex items-center gap-3">
@@ -1950,7 +1908,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer transition-all"
             >
               <span>Tiếp tục ({totalQuestions} câu)</span>
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4"/>
             </button>
           ) : (
             <button
@@ -1970,7 +1928,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               }}
               className="px-7 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition-all flex items-center gap-2"
             >
-              <Check className="w-4 h-4" />
+              <Check className="w-4 h-4"/>
               <span>Lưu & Xuất Bản Đề Thi</span>
             </button>
           )}
