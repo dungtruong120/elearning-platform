@@ -11,26 +11,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Dữ liệu đề thi rỗng" }, { status: 400 });
     }
 
-    const key = apiKey || process.env.GEMINI_API_KEY;
-    if (!key) {
+    const rawKey = apiKey || process.env.GEMINI_API_KEY || "";
+    // Làm sạch API Key hoàn toàn để loại bỏ khoảng trắng hoặc ký tự ẩn
+    const cleanKey = String(rawKey).replace(/\s+/g, "").trim();
+
+    if (!cleanKey) {
       return NextResponse.json(
         { error: "Chưa cấu hình GEMINI_API_KEY. Vui lòng nhập API Key!" },
         { status: 401 }
       );
     }
 
-    const systemPrompt = "Bạn là chuyên gia khôi phục đề thi Toán học từ file Word MathType sang LaTeX KaTeX.\n" +
-      "Nhiệm vụ:\n" +
-      "1. Khôi phục các tọa độ Oxyz, phân số, căn thức, ma trận, vector, góc bị mất.\n" +
-      "2. Đánh số lần lượt Câu 1, Câu 2, Câu 3... không lặp lại số câu.\n" +
-      "3. Điền đầy đủ 4 phương án A, B, C, D cho từng câu, tuyệt đối không để rỗng.\n" +
-      "4. Khôi phục trọn vẹn Lời giải chi tiết của tất cả các câu.\n" +
-      "5. Giữ nguyên 100% các thẻ ảnh [img:$...$].\n" +
-      "6. Chỉ trả về nội dung đề thi, không thêm lời chào, không bọc trong ```.";
+    const systemPrompt =
+      "Bạn là chuyên gia khôi phục và biên tập đề thi Toán học Việt Nam từ file Word chứa MathType sang định dạng chuẩn KaTeX/Markdown.\n" +
+      "Nhiệm vụ của bạn:\n" +
+      "1. ĐỌC VÀ KHÔI PHỤC TOÀN BỘ CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT (tọa độ Oxyz, phân số, căn thức, ma trận, vector, góc, tích vô hướng...).\n" +
+      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... theo đúng thứ tự. Tuyệt đối không lặp lại số câu.\n" +
+      "3. PHƯƠNG ÁN A, B, C, D: Đảm bảo đầy đủ cả 4 phương án cho từng câu trắc nghiệm. Không để rỗng bất kỳ phương án nào.\n" +
+      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu (kể cả các đoạn bị cụt như 'Khi đó:', 'Có .', 'Ta có:').\n" +
+      "5. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...], không xóa hay sửa đổi tên thẻ.\n" +
+      "6. CẤU TRÚC: Giữ nguyên các phân mục lớn (I. TRẮC NGHIỆM, PHẦN II. TRẮC NGHIỆM ĐÚNG SAI, PHẦN III. TRẢ LỜI NGẮN).\n" +
+      "7. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block (```).";
 
-    const cleanKey = String(key).trim();
     const parts: any[] = [];
-
     if (fileBase64) {
       parts.push({
         inlineData: {
@@ -39,44 +42,63 @@ export async function POST(req: Request) {
         }
       });
       parts.push({
-        text: systemPrompt + "\n\n--- THAM KHẢO THẺ ẢNH [img:$...$] TỪ BẢN GỐC ---\n" + (text || "")
+        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ VĂN BẢN THÔ TRÍCH XUẤT ĐỂ THAM KHẢO THẺ ẢNH [img:$...$] ---\n" + (text || "")
       });
     } else {
       parts.push({
-        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA ---\n" + text
+        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA VÀ BỔ SUNG CÔNG THỨC ---\n" + text
       });
     }
 
-    // URL trực tiếp tuyệt đối không dính markdown link
-    const targetUrl = new URL("[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent)");
-    targetUrl.searchParams.set("key", cleanKey);
+    const candidateModels = ["gemini-2.5-flash", "gemini-3.8-flash"];
+    let resultText = "";
+    let lastError = "";
 
-    const response = await fetch(targetUrl.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192
+    for (const model of candidateModels) {
+      try {
+        // Dùng template string nối chuỗi an toàn tuyệt đối, không thể dính lỗi Invalid URI
+        const endpoint = [https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent?key=${cleanKey};
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts }],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 8192
+            }
+          })
+        });
+
+        const resText = await response.text();
+        let data: any = {};
+        try {
+          data = JSON.parse(resText);
+        } catch {
+          lastError = "Lỗi phản hồi server: " + resText.slice(0, 100);
+          continue;
         }
-      })
-    });
 
-    const resText = await response.text();
-    let data: any = {};
-    try {
-      data = JSON.parse(resText);
-    } catch {
-      return NextResponse.json({ error: "Lỗi phản hồi server: " + resText.slice(0, 100) }, { status: 502 });
+        if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+          resultText = data.candidates[0].content.parts[0].text;
+          break;
+        } else {
+          lastError = data?.error?.message || ("Lỗi model " + model);
+        }
+      } catch (err: any) {
+        lastError = err?.message || String(err);
+      }
     }
 
-    if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      return NextResponse.json({ result: data.candidates[0].content.parts[0].text });
-    } else {
-      const errMsg = data?.error?.message || "Lỗi xử lý từ Google AI";
-      return NextResponse.json({ error: errMsg }, { status: 400 });
+    if (!resultText) {
+      return NextResponse.json(
+        { error: lastError || "Máy chủ AI đang bận, vui lòng thử lại sau giây lát!" },
+        { status: 400 }
+      );
     }
+
+    return NextResponse.json({ result: resultText });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Lỗi máy chủ" }, { status: 500 });
   }
