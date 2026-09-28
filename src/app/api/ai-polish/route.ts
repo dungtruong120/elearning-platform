@@ -32,7 +32,6 @@ export async function POST(req: Request) {
     const cleanKey = String(key).trim();
     const candidateModels = ["gemini-2.5-flash", "gemini-3.8-flash"];
 
-    // Chuẩn bị payload: Ưu tiên gửi file Word gốc dạng base64 nếu có
     const parts: any[] = [];
     if (fileBase64) {
       parts.push({
@@ -55,7 +54,10 @@ export async function POST(req: Request) {
 
     for (const model of candidateModels) {
       try {
-        const apiUrl = "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + model + ":generateContent?key=" + cleanKey;
+        const urlOrigin = "[https://generativelanguage.googleapis.com](https://generativelanguage.googleapis.com)";
+        const urlPath = "/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
+        const apiUrl = urlOrigin + urlPath;
+
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -73,7 +75,7 @@ export async function POST(req: Request) {
         try {
           data = JSON.parse(resText);
         } catch {
-          lastError = "Lỗi phản hồi server";
+          lastError = "Lỗi phản hồi server: " + resText.slice(0, 100);
           continue;
         }
 
