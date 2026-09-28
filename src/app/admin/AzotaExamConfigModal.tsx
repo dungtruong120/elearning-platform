@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC (GIỮ NGUYÊN BẢN GỐC)
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -40,7 +40,6 @@ function isCleanLatex(latex: string): boolean {
   const trimmed = latex.trim();
   if (trimmed.length < 1) return false;
 
-  // Cho phép cặp ngoặc tọa độ toán học không rỗng
   if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)") {
     return false;
   }
@@ -137,6 +136,19 @@ class MTEFStreamReader {
   }
 }
 
+const SYMBOL_MAP: Record<number, string> = {
+  0x03B1: "\\alpha", 0x03B2: "\\beta", 0x03B3: "\\gamma", 0x03B4: "\\delta",
+  0x03C0: "\\pi", 0x03B8: "\\theta", 0x03BB: "\\lambda", 0x03BC: "\\mu",
+  0x03C3: "\\sigma", 0x03C9: "\\omega", 0x0394: "\\Delta", 0x03A9: "\\Omega",
+  0x00B1: "\\pm ", 0x00D7: "\\times ", 0x00F7: "\\div ", 0x2264: "\\le ",
+  0x2265: "\\ge ", 0x2260: "\\ne ", 0x221E: "+\\infty ", 0x2208: "\\in ",
+  0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
+  0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
+  0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
+  0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
+  0x2220: "\\angle ", 0x00B0: "^\\circ "
+};
+
 function decodeMtefToLatex(uint8: Uint8Array): string {
   if (!uint8 || uint8.length < 10) return "";
   let start = -1;
@@ -176,18 +188,6 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
   }
 
   const reader = new MTEFStreamReader(uint8.subarray(offset));
-
-  const SYMBOL_MAP: Record<number, string> = {
-    0x03B1: "\\alpha", 0x03B2: "\\beta", 0x03B3: "\\gamma", 0x03B4: "\\delta",
-    0x03C0: "\\pi", 0x03B8: "\\theta", 0x03BB: "\\lambda", 0x03BC: "\\mu",
-    0x03C3: "\\sigma", 0x03C9: "\\omega", 0x0394: "\\Delta", 0x03A9: "\\Omega",
-    0x00B1: "\\pm ", 0x00D7: "\\times ", 0x00F7: "\\div ", 0x2264: "\\le ",
-    0x2265: "\\ge ", 0x2260: "\\ne ", 0x221E: "+\\infty ", 0x2208: "\\in ",
-    0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
-    0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
-    0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
-    0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp "
-  };
 
   const parseLine = (): string => {
     const res: string[] = [];
@@ -386,6 +386,7 @@ export async function extractDocxDirectly(file: File) {
   const paragraphs = Array.from(docXml.getElementsByTagName("w:p"));
   const rawLines: string[] = [];
 
+  // TRÍCH XUẤT THÔNG MINH: NẾU OLE MATHTYPE KHÔNG PARSE ĐƯỢC THÌ TỰ ĐỘNG LẤY TEXT THAY THẾ (KHÔNG BAO GIỜ BỎ RỖNG DÒNG)
   const processOleObject = (objNode: Element): string => {
     const allDescendants = Array.from(objNode.getElementsByTagName("*"));
     let oleRId = "";
@@ -399,6 +400,15 @@ export async function extractDocxDirectly(file: File) {
 
     if (oleRId && oleCache[oleRId] && isCleanLatex(oleCache[oleRId])) {
       return " " + oleCache[oleRId] + " ";
+    }
+
+    // Fallback: Tìm thẻ text dự phòng nếu nhị phân MathType không parse được
+    const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
+      .map((t: any) => t.textContent || "")
+      .join("")
+      .trim();
+    if (fallbackText) {
+      return " $" + fallbackText + "$ ";
     }
     return "";
   };
@@ -898,7 +908,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH NỘI TẠI VÀ CHUẨN HÓA CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
+// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -1434,7 +1444,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
-                              {/* RENDER NỘI DUNG CHUẨN XÁC KHÔNG DÍNH DẤU NGOẶC KÉP */}
+                              {/* RENDER NỘI DUNG CHUẨN XÁC */}
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap} />
                             </div>
 
@@ -1458,7 +1468,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                         {opt.key}
                                       </span>
                                       <div className="flex-1 min-w-0">
-                                        {/* RENDER LỰA CHỌN CHUẨN XÁC */}
                                         <TokenViewer content={opt.text_html} mediaMap={mediaMap} inline={true} />
                                       </div>
                                     </div>
@@ -1637,7 +1646,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
+            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
