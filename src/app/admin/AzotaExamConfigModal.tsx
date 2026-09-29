@@ -432,7 +432,7 @@ export async function extractDocxDirectly(file: File) {
     for (const el of allDescendants) {
       const tag = (el.localName || el.nodeName).toLowerCase();
       if (tag.includes("oleobject")) {
-        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id") || "";
+        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || "";
       }
     }
 
@@ -449,7 +449,7 @@ export async function extractDocxDirectly(file: File) {
     }
 
     for (const el of allDescendants) {
-      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
+      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
       if (rId && targetToToken[rId]) {
         return " " + targetToToken[rId] + " ";
       }
@@ -478,13 +478,13 @@ export async function extractDocxDirectly(file: File) {
         } else {
           Array.from(el.getElementsByTagNameNS("*", "t")).forEach((t: any) => { line += t.textContent || ""; });
           Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
+            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
             if (rId && targetToToken[rId]) {
               line += " " + targetToToken[rId] + " ";
             }
           });
           Array.from(el.getElementsByTagNameNS("*", "imagedata")).forEach((imgData: any) => {
-            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id");
+            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
             if (rId && targetToToken[rId]) {
               line += " " + targetToToken[rId] + " ";
             }
@@ -492,7 +492,7 @@ export async function extractDocxDirectly(file: File) {
         }
       } else if (name === "drawing") {
         Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
+          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
           if (rId && targetToToken[rId]) {
             line += " " + targetToToken[rId] + " ";
           }
@@ -1463,7 +1463,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                       {sec.questions.map((q, idx) => {
                         const isSolOpen = !!expandedSolutions[q.id];
 
-                        // TỰ ĐỘNG CHIA 4 DÒNG: Nếu phương án dài thì chia 1 cột dọc (mỗi câu 1 dòng)
                         const isAnyOptionLong = q.options?.some(opt => {
                           const t = opt.text_html || "";
                           return t.length > 30 || t.includes("\\frac") || t.includes("right)");
@@ -1484,8 +1483,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
-                              {/* SỬA TRIỆT ĐỂ: TRUYỀN BIẾN CHUẨN XÁC, TUYỆT ĐỐI KHÔNG CÓ NGOẶC KÉP */}
-                              <TokenViewer content="{q.prompt_html}" mediaMap="{mediaMap}"/>
+                              {/* SỬA TRIỆT ĐỂ: TRUYỀN BIẾN CHUẨN XÁC, KHÔNG BỌC NGOẶC KÉP */}
+                              <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
                             </div>
 
                             {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
@@ -1508,7 +1507,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                         {opt.key}
                                       </span>
                                       <div className="flex-1 min-w-0">
-                                        <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
+                                        <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
                                       </div>
                                     </div>
                                   );
@@ -1535,7 +1534,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                           <td className="py-2.5 px-3">
                                             <div className="flex items-start gap-2">
                                               <span className="font-bold text-blue-600">{opt.key})</span>
-                                              <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
+                                              <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
                                             </div>
                                           </td>
                                           <td className="py-2.5 px-3 text-center align-middle">
@@ -1587,7 +1586,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                 </button>
                                 {isSolOpen && (
                                   <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
-                                    <TokenViewer content="{q.solution_html}" mediaMap="{mediaMap}"/>
+                                    <TokenViewer content={q.solution_html} mediaMap={mediaMap}/>
                                   </div>
                                 )}
                               </div>
@@ -1686,7 +1685,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
