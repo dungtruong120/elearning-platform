@@ -5,15 +5,16 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const { text, fileBase64, apiKey } = await req.json();
+    const body = await req.json();
+    const text = body?.text || "";
+    const fileBase64 = body?.fileBase64 || "";
+    const apiKey = body?.apiKey || process.env.GEMINI_API_KEY || "";
+
+    const cleanKey = String(apiKey).replace(/\s+/g, "").trim();
 
     if (!text && !fileBase64) {
       return NextResponse.json({ error: "Dữ liệu đề thi rỗng" }, { status: 400 });
     }
-
-    const rawKey = apiKey || process.env.GEMINI_API_KEY || "";
-    // Làm sạch API Key hoàn toàn để loại bỏ khoảng trắng hoặc ký tự ẩn
-    const cleanKey = String(rawKey).replace(/\s+/g, "").trim();
 
     if (!cleanKey) {
       return NextResponse.json(
@@ -28,10 +29,10 @@ export async function POST(req: Request) {
       "1. ĐỌC VÀ KHÔI PHỤC TOÀN BỘ CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT (tọa độ Oxyz, phân số, căn thức, ma trận, vector, góc, tích vô hướng...).\n" +
       "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... theo đúng thứ tự. Tuyệt đối không lặp lại số câu.\n" +
       "3. PHƯƠNG ÁN A, B, C, D: Đảm bảo đầy đủ cả 4 phương án cho từng câu trắc nghiệm. Không để rỗng bất kỳ phương án nào.\n" +
-      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu (kể cả các đoạn bị cụt như 'Khi đó:', 'Có .', 'Ta có:').\n" +
-      "5. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...], không xóa hay sửa đổi tên thẻ.\n" +
+      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu.\n" +
+      "5. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...].\n" +
       "6. CẤU TRÚC: Giữ nguyên các phân mục lớn (I. TRẮC NGHIỆM, PHẦN II. TRẮC NGHIỆM ĐÚNG SAI, PHẦN III. TRẢ LỜI NGẮN).\n" +
-      "7. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block (```).";
+      "7. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block.";
 
     const parts: any[] = [];
     if (fileBase64) {
@@ -42,11 +43,11 @@ export async function POST(req: Request) {
         }
       });
       parts.push({
-        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ VĂN BẢN THÔ TRÍCH XUẤT ĐỂ THAM KHẢO THẺ ẢNH [img:$...$] ---\n" + (text || "")
+        text: systemPrompt + "\n\n--- VĂN BẢN THÔ ---\n" + text
       });
     } else {
       parts.push({
-        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA VÀ BỔ SUNG CÔNG THỨC ---\n" + text
+        text: systemPrompt + "\n\n--- ĐỀ THI ---\n" + text
       });
     }
 
@@ -56,8 +57,7 @@ export async function POST(req: Request) {
 
     for (const model of candidateModels) {
       try {
-        // Dùng template string nối chuỗi an toàn tuyệt đối, không thể dính lỗi Invalid URI
-        const endpoint = [https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent?key=${cleanKey};
+        const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
 
         const response = await fetch(endpoint, {
           method: "POST",
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
         try {
           data = JSON.parse(resText);
         } catch {
-          lastError = "Lỗi phản hồi server: " + resText.slice(0, 100);
+          lastError = "Lỗi phản hồi từ Google AI";
           continue;
         }
 
@@ -92,14 +92,11 @@ export async function POST(req: Request) {
     }
 
     if (!resultText) {
-      return NextResponse.json(
-        { error: lastError || "Máy chủ AI đang bận, vui lòng thử lại sau giây lát!" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: lastError || "Máy chủ AI đang bận!" }, { status: 400 });
     }
 
     return NextResponse.json({ result: resultText });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Lỗi máy chủ" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Lỗi máy chủ nội bộ" }, { status: 500 });
   }
 }
