@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML GỐC CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML TỔNG QUÁT CHO MỌI FILE WORD
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -353,72 +353,7 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG CHỮA LÀNH CÁC VỊ TRÍ CÔNG THỨC KHUYẾT
-export function autoHealMissingOptions(rawText: string): string {
-  if (!rawText) return "";
-  let text = rawText;
-
-  text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
-
-  // 1. Phục hồi đầy đủ các phương án và đề bài Câu 1
-  if (/hình lập phương.*?độ dài cạnh bằng/i.test(text)) {
-    text = text.replace(/Cho hình lập phương\s*(?:có độ dài cạnh bằng\s*\.?|độ dài cạnh bằng\s*\.?)/i, "Cho hình lập phương $ABCD.A'B'C'D'$ có độ dài cạnh bằng $1$. Gọi $M, N, P, Q$ lần lượt là trung điểm của $AB, BC, C'D', D'A'$. Chọn hệ tọa độ $Oxyz$ ");
-  }
-
-  if (/hình lập phương.*?cạnh bằng/i.test(text) && /A\.\s*[\r\n]+B\./.test(text)) {
-    const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
-                  "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
-                  "C. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$\n" +
-                  "D. $M\\left(\\frac{1}{2}; 0; 1\\right), N\\left(0; \\frac{1}{2}; 1\\right), P\\left(\\frac{1}{2}; 1; 0\\right), Q\\left(1; \\frac{1}{2}; 0\\right)$";
-    text = text.replace(/A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./i, optC1);
-  }
-
-  // 2. Lời giải Câu 1 bị cụt sau chữ "Khi đó:"
-  text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
-    "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
-    "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
-    "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
-  );
-
-  // 3. Câu 2
-  if (/Cho tứ diện đều.*?cạnh/i.test(text) && !text.includes("ABCD")) {
-    text = text.replace(/Cho tứ diện đều\s*cạnh/i, "Cho tứ diện đều $ABCD$ cạnh $a$. $K$ là trung điểm $BC$, chọn hệ tọa độ $Oxyz$ ");
-  }
-
-  // 4. Câu 5
-  text = text.replace(/A\.\s*\$MG=\$\.?/g, "A. $MG = a\\sqrt{3}$");
-  text = text.replace(/B\.\s*\$MG=\$\.?/g, "B. $MG = \\frac{a\\sqrt{14}}{6}$");
-  text = text.replace(/C\.\s*\$MG=\s*2\$\.?/g, "C. $MG = \\frac{a\\sqrt{2}}{2}$");
-  text = text.replace(/D\.\s*\$MG=\s*2\$\.?/g, "D. $MG = a\\sqrt{2}$");
-
-  // 5. Câu 6
-  text = text.replace(/(Độ dài\s*\.\s*)([\r\n]+Câu\s*7)/i, "Độ dài đoạn thẳng: $A'G = \\frac{a\\sqrt{6}}{3}$.\n$2");
-
-  // 6. Câu 7
-  text = text.replace(/AB\s*=\s*\([A-Z0-9]+\)/gi, "AB = a, BC = 2a");
-  text = text.replace(/\$SA=\$/g, "$SA = a\\sqrt{3}$");
-  text = text.replace(/SA\s*=\s*(và|vuông)/g, "SA = a\\sqrt{3} $1");
-  text = text.replace(/A\.\s*\$C'G=\$\.?/g, "A. $C'G = \\frac{a\\sqrt{21}}{3}$");
-  text = text.replace(/B\.\s*\$C'G=\$\.?/g, "B. $C'G = \\frac{a\\sqrt{19}}{3}$");
-  text = text.replace(/C\.\s*\$C'G=\$\.?/g, "C. $C'G = \\frac{a\\sqrt{15}}{3}$");
-  text = text.replace(/D\.\s*\$C'G=\$\.?/g, "D. $C'G = a\\sqrt{2}$");
-  text = text.replace(/Độ dài\s*\$CG\$\s*là\s*\.\s*([\r\n]+Câu\s*8)/i, "Độ dài $C'G$ là: $C'G = \\frac{a\\sqrt{21}}{3}$.\n$1");
-
-  // 7. Câu 8
-  text = text.replace(/\$?OA\s*=\s*\\left\(=\\right\)\$?|\$?OA\s*=\s*\(=?\)\$?|OA\s*=\s*\(=?\)/gi, "$OA = OB = OC = a$");
-  text = text.replace(/\$120\^\\circ\$\s*\./g, "$120^\\circ$");
-  text = text.replace(/Khi đó:\s*\.\s*([\r\n]+PHẦN\s*II)/i, "Khi đó: $\\cos(\\vec{u}, \\vec{v}) = -\\frac{1}{2} \\Rightarrow$ góc tạo bởi hai vecto là $120^\\circ$.\n$1");
-
-  // 8. Câu 12 & 13 (Phần III)
-  text = text.replace(/ABCD\.A'\s*có\s*và\s*\.\s*Tính\s*\./gi, "ABCD.A'B'C'D' có $AB = 3, AD = 4, AA' = 5$. Tính độ dài đoạn thẳng $AC'$.");
-  text = text.replace(/Đáp số:\s*\-\$-/g, "Đáp số: $5\\sqrt{2}$");
-  text = text.replace(/\\frac\{\}\{\s*4\s*27\s*\}/g, "\\frac{64}{27}");
-  text = text.replace(/\$V\^\{\\left\(SBq\\right\)\}\$/g, "$V_{S.ABCD}$");
-
-  return text;
-}
-
-// BỘ TRÍCH XUẤT CHUẨN GỐC TỪ FILE WORD (.DOCX)
+// BỘ TRÍCH XUẤT CHUẨN XÁC ĐỆ QUY TỪ TẬP TIN WORD (DOCX)
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -484,6 +419,7 @@ export async function extractDocxDirectly(file: File) {
       return " " + oleCache[oleRId] + " ";
     }
 
+    // Fallback: nếu không parse được OLE, lấy toàn bộ text con bên trong
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
@@ -492,6 +428,7 @@ export async function extractDocxDirectly(file: File) {
       return " $" + fallbackText + "$ ";
     }
 
+    // Fallback hình ảnh nếu đối tượng OLE có ảnh đính kèm
     for (const el of allDescendants) {
       const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
       if (rId && targetToToken[rId]) {
@@ -502,47 +439,52 @@ export async function extractDocxDirectly(file: File) {
     return "";
   };
 
-  const processParagraphNode = (p: Element): string => {
+  // QUÉT TOÀN BỘ CÂY DOM CỦA MỖI PARAGRAPH
+  const extractParagraphContent = (p: Element): string => {
     let line = "";
-    Array.from(p.childNodes).forEach(child => {
-      const el = child as Element;
-      const name = el.localName || el.nodeName?.split(":").pop() || "";
 
-      if (name === "oMath" || name === "oMathPara") {
+    const traverse = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) return;
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+      const el = node as Element;
+      const tag = el.localName || el.nodeName?.split(":").pop() || "";
+
+      // 1. Thẻ OMML Equation
+      if (tag === "oMath" || tag === "oMathPara") {
         const latex = convertOmmlToLatex(el).trim();
         if (latex) line += " $" + latex + "$ ";
-      } else if (name === "object") {
-        line += processOleObject(el);
-      } else if (name === "r") {
-        const objects = Array.from(el.getElementsByTagNameNS("*", "object"));
-        if (objects.length > 0) {
-          objects.forEach(obj => {
-            line += processOleObject(obj as Element);
-          });
-        } else {
-          Array.from(el.getElementsByTagNameNS("*", "t")).forEach((t: any) => { line += t.textContent || ""; });
-          Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
-            if (rId && targetToToken[rId]) {
-              line += " " + targetToToken[rId] + " ";
-            }
-          });
-          Array.from(el.getElementsByTagNameNS("*", "imagedata")).forEach((imgData: any) => {
-            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
-            if (rId && targetToToken[rId]) {
-              line += " " + targetToToken[rId] + " ";
-            }
-          });
-        }
-      } else if (name === "drawing") {
-        Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
-          if (rId && targetToToken[rId]) {
-            line += " " + targetToToken[rId] + " ";
-          }
-        });
+        return; // Đã xử lý toàn bộ nhánh OMML
       }
-    });
+
+      // 2. Thẻ MathType OLE Object
+      if (tag === "object") {
+        line += processOleObject(el);
+        return; // Đã xử lý toàn bộ nhánh Object
+      }
+
+      // 3. Thẻ hình ảnh (blip hoặc imagedata)
+      if (tag === "blip" || tag === "imagedata") {
+        const rId = el.getAttribute("r:embed") || el.getAttribute("r:id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+        if (rId && targetToToken[rId]) {
+          line += " " + targetToToken[rId] + " ";
+        }
+        return;
+      }
+
+      // 4. Thẻ text đơn giản
+      if (tag === "t") {
+        line += el.textContent || "";
+        return;
+      }
+
+      // 5. Nếu là các container (w:r, w:fldSimple, w:drawing, v:shape...), tiếp tục duyệt con
+      for (let i = 0; i < el.childNodes.length; i++) {
+        traverse(el.childNodes[i]);
+      }
+    };
+
+    traverse(p);
     return line.trim();
   };
 
@@ -556,7 +498,7 @@ export async function extractDocxDirectly(file: File) {
       const name = el.localName || el.nodeName?.split(":").pop() || "";
 
       if (name === "p") {
-        const line = processParagraphNode(el);
+        const line = extractParagraphContent(el);
         if (line) rawLines.push(repairMathTypeGlitch(line));
       } else if (name === "tbl") {
         const rows = Array.from(el.getElementsByTagNameNS("*", "tr"));
@@ -565,7 +507,7 @@ export async function extractDocxDirectly(file: File) {
           const cellTexts: string[] = [];
           cells.forEach(tc => {
             const pList = Array.from(tc.getElementsByTagNameNS("*", "p"));
-            const pTexts = pList.map(p => processParagraphNode(p as Element)).filter(Boolean);
+            const pTexts = pList.map(p => extractParagraphContent(p as Element)).filter(Boolean);
             if (pTexts.length > 0) cellTexts.push(pTexts.join(" "));
           });
           if (cellTexts.length > 0) {
@@ -581,9 +523,7 @@ export async function extractDocxDirectly(file: File) {
   traverseNodes(body);
 
   const initialText = rawLines.join("\n").normalize("NFC");
-  const healedText = autoHealMissingOptions(initialText);
-
-  return { text: healedText, mediaMap };
+  return { text: initialText, mediaMap };
 }
 
 // ============================================================================
