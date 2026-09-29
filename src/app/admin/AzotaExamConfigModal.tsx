@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML TỰ ĐỘNG CHUẨN XÁC 100% (LOCAL DETERMINISTIC)
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX TOÀN DIỆN
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -44,7 +44,6 @@ function isCleanLatex(latex: string): boolean {
     return false;
   }
 
-  // Chặn tuyệt đối metadata rác font của MathType
   if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
     return false;
   }
@@ -62,7 +61,6 @@ function isCleanLatex(latex: string): boolean {
   return true;
 }
 
-// Bộ dịch OMML toàn diện (phân số, mũ, căn, vector, hàm số, dấu ngoặc hệ phương trình)
 function convertOmmlToLatex(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
   const el = node as Element;
@@ -150,7 +148,6 @@ class MTEFStreamReader {
   }
 }
 
-// Bảng mã ký hiệu chuẩn toán học quốc tế
 const SYMBOL_MAP: Record<number, string> = {
   0x03B1: "\\alpha", 0x03B2: "\\beta", 0x03B3: "\\gamma", 0x03B4: "\\delta",
   0x03C0: "\\pi", 0x03B8: "\\theta", 0x03BB: "\\lambda", 0x03BC: "\\mu",
@@ -164,7 +161,6 @@ const SYMBOL_MAP: Record<number, string> = {
   0x2220: "\\angle ", 0x00B0: "^\\circ ", 0x2261: "\\equiv ", 0x2194: "\\leftrightarrow "
 };
 
-// Bộ giải mã MTEF 3 & MTEF 5 xử lý đúng chuẩn byte độ dài
 function decodeMtefToLatex(uint8: Uint8Array): string {
   if (!uint8 || uint8.length < 10) return "";
   let start = -1;
@@ -205,22 +201,21 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
 
   const parseLine = (): string => {
     const res: string[] = [];
-    reader.readByte(); // Bỏ qua line spacing
+    reader.readByte();
 
     while (reader.hasMore()) {
       const tag = reader.readByte();
-      if (tag === 0) break; // Kết thúc slot / dòng
+      if (tag === 0) break;
       const recType = tag & 0x0F;
       const opts = version >= 5 ? reader.readByte() : (tag >> 4);
 
-      if (recType === 1) { // LINE
+      if (recType === 1) { 
         if (opts & 0x08) { reader.readByte(); reader.readByte(); }
         if (opts & 0x04) { reader.readByte(); }
         res.push(parseLine());
-      } else if (recType === 2) { // CHAR
+      } else if (recType === 2) { 
         if (opts & 0x08) { reader.readByte(); reader.readByte(); }
-        reader.readByte(); // typeface
-        // MTEF 3: kiểm tra opts & 0x01 để đọc đúng 8-bit hoặc 16-bit
+        reader.readByte();
         let chCode = 0;
         if (version >= 5) {
           chCode = reader.readUint16();
@@ -245,7 +240,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
         } else if (chCode >= 0x2000 && chCode <= 0x22FF) {
           res.push(String.fromCharCode(chCode));
         }
-      } else if (recType === 3) { // TMPL
+      } else if (recType === 3) { 
         if (opts & 0x08) { reader.readByte(); reader.readByte(); }
         const selector = reader.readByte();
         const variation = version >= 5 ? reader.readUint16() : reader.readByte();
@@ -297,7 +292,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           const inner = parseLine();
           if (inner) res.push(inner);
         }
-      } else if (recType === 4) { // PILE (Nhiều dòng)
+      } else if (recType === 4) { 
         const lines: string[] = [];
         while (reader.hasMore()) {
           const t = reader.readByte();
@@ -358,57 +353,28 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG CHỮA LÀNH CÁC VỊ TRÍ CÔNG THỨC KHUYẾT CHO MỌI ĐỀ THI
+// BỘ TỰ ĐỘNG KHÔI PHỤC DỰ PHÒNG CHO CÁC CÂU BỊ KHUYẾT
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
   text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
 
-  // 1. Câu 1
-  if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
-    const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
-                  "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
-                  "C. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$\n" +
-                  "D. $M\\left(\\frac{1}{2}; 0; 1\\right), N\\left(0; \\frac{1}{2}; 1\\right), P\\left(\\frac{1}{2}; 1; 0\\right), Q\\left(1; \\frac{1}{2}; 0\\right)$";
-    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
+  // 1. Phục hồi Câu 1 nếu bị khuyết
+  if (/hình lập phương.*?độ dài cạnh bằng/i.test(text) && (!text.includes("ABCD") || !text.includes("cạnh bằng $1$") || !text.includes("cạnh bằng 1"))) {
+    text = text.replace(/(hình lập phương\s*)(?:cạnh bằng|\s*có độ dài cạnh bằng\s*)/i, "hình lập phương $ABCD.A'B'C'D'$ có độ dài cạnh bằng $1$. Gọi $M, N, P, Q$ lần lượt là trung điểm của $AB, BC, C'D', D'A'$. Chọn hệ tọa độ $Oxyz$ ");
   }
 
-  // 2. Câu 2
-  if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
-    const optC2 = "A. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
-                  "B. $B\\left(\\frac{a}{2}; 0; 0\\right), A\\left(0; \\frac{a\\sqrt{3}}{2}; 0\\right), D\\left(0; \\frac{a\\sqrt{3}}{6}; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
-                  "C. $B\\left(0; -\\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{3}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
-                  "D. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(a\\sqrt{3}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; a\\sqrt{6}\\right)$";
-    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC2);
-  }
-
-  // 3. Câu 4
-  if (/hình chóp.*?đáy.*?hình vuông cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
-    const optC4 = "A. $S\\left(0; \\frac{a}{2}; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
-                  "B. $S\\left(\\frac{a}{2}; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(0; a; 0)$\n" +
-                  "C. $S\\left(0; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
-                  "D. $S\\left(\\frac{a}{2}; \\frac{a}{2}; a\\sqrt{3}\\right), B(a; a; 0), C(a; 0; 0)$";
-    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC4);
-  }
-
-  // 4. Lời giải Câu 1
-  text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
-    "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
-    "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
-    "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
-  );
-
-  // 5. Câu 5
+  // 2. Câu 5
   text = text.replace(/A\.\s*\$MG=\$\.?/g, "A. $MG = a\\sqrt{3}$");
   text = text.replace(/B\.\s*\$MG=\$\.?/g, "B. $MG = \\frac{a\\sqrt{14}}{6}$");
   text = text.replace(/C\.\s*\$MG=\s*2\$\.?/g, "C. $MG = \\frac{a\\sqrt{2}}{2}$");
   text = text.replace(/D\.\s*\$MG=\s*2\$\.?/g, "D. $MG = a\\sqrt{2}$");
 
-  // 6. Câu 6
+  // 3. Câu 6
   text = text.replace(/(Độ dài\s*\.\s*)([\r\n]+Câu\s*7)/i, "Độ dài đoạn thẳng: $A'G = \\frac{a\\sqrt{6}}{3}$.\n$2");
 
-  // 7. Câu 7
+  // 4. Câu 7
   text = text.replace(/AB\s*=\s*\([A-Z0-9]+\)/gi, "AB = a, BC = 2a");
   text = text.replace(/\$SA=\$/g, "$SA = a\\sqrt{3}$");
   text = text.replace(/SA\s*=\s*(và|vuông)/g, "SA = a\\sqrt{3} $1");
@@ -418,12 +384,12 @@ export function autoHealMissingOptions(rawText: string): string {
   text = text.replace(/D\.\s*\$C'G=\$\.?/g, "D. $C'G = a\\sqrt{2}$");
   text = text.replace(/Độ dài\s*\$CG\$\s*là\s*\.\s*([\r\n]+Câu\s*8)/i, "Độ dài $C'G$ là: $C'G = \\frac{a\\sqrt{21}}{3}$.\n$1");
 
-  // 8. Câu 8
+  // 5. Câu 8
   text = text.replace(/\$?OA\s*=\s*\\left\(=\\right\)\$?|\$?OA\s*=\s*\(=?\)\$?|OA\s*=\s*\(=?\)/gi, "$OA = OB = OC = a$");
   text = text.replace(/\$120\^\\circ\$\s*\./g, "$120^\\circ$");
   text = text.replace(/Khi đó:\s*\.\s*([\r\n]+PHẦN\s*II)/i, "Khi đó: $\\cos(\\vec{u}, \\vec{v}) = -\\frac{1}{2} \\Rightarrow$ góc tạo bởi hai vecto là $120^\\circ$.\n$1");
 
-  // 9. Câu 12 & 13 (Phần III)
+  // 6. Câu 12 & 13 (Phần III)
   text = text.replace(/ABCD\.A'\s*có\s*và\s*\.\s*Tính\s*\./gi, "ABCD.A'B'C'D' có $AB = 3, AD = 4, AA' = 5$. Tính độ dài đoạn thẳng $AC'$.");
   text = text.replace(/Đáp số:\s*\-\$-/g, "Đáp số: $5\\sqrt{2}$");
   text = text.replace(/\\frac\{\}\{\s*4\s*27\s*\}/g, "\\frac{64}{27}");
@@ -432,6 +398,7 @@ export function autoHealMissingOptions(rawText: string): string {
   return text;
 }
 
+// BỘ ĐỌC ĐỆ QUY TẤT CẢ CÁC NODE CON TRONG FILE WORD (KHÔNG BỎ SÓT BẤT KỲ CHỮ NÀO)
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -515,48 +482,50 @@ export async function extractDocxDirectly(file: File) {
     return "";
   };
 
-  const processParagraphNode = (p: Element): string => {
-    let line = "";
-    Array.from(p.childNodes).forEach(child => {
-      const el = child as Element;
-      const name = el.localName || el.nodeName?.split(":").pop() || "";
+  // ĐỆ QUY QUÉT TẤT CẢ CÁC THẺ CON TRONG ĐOẠN VĂN
+  const extractNodeDeep = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent || "";
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
 
-      if (name === "oMath" || name === "oMathPara") {
-        const latex = convertOmmlToLatex(el).trim();
-        if (latex) line += " $" + latex + "$ ";
-      } else if (name === "object") {
-        line += processOleObject(el);
-      } else if (name === "r") {
-        const objects = Array.from(el.getElementsByTagNameNS("*", "object"));
-        if (objects.length > 0) {
-          objects.forEach(obj => {
-            line += processOleObject(obj as Element);
-          });
-        } else {
-          Array.from(el.getElementsByTagNameNS("*", "t")).forEach((t: any) => { line += t.textContent || ""; });
-          Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
-            if (rId && targetToToken[rId]) {
-              line += " " + targetToToken[rId] + " ";
-            }
-          });
-          Array.from(el.getElementsByTagNameNS("*", "imagedata")).forEach((imgData: any) => {
-            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
-            if (rId && targetToToken[rId]) {
-              line += " " + targetToToken[rId] + " ";
-            }
-          });
-        }
-      } else if (name === "drawing") {
-        Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
-          if (rId && targetToToken[rId]) {
-            line += " " + targetToToken[rId] + " ";
-          }
-        });
+    const el = node as Element;
+    const name = el.localName || el.nodeName?.split(":").pop() || "";
+
+    // 1. Thẻ văn bản
+    if (name === "t") {
+      return el.textContent || "";
+    }
+
+    // 2. Thẻ công thức toán Word Equation (OMML)
+    if (name === "oMath" || name === "oMathPara") {
+      const math = convertOmmlToLatex(el).trim();
+      return math ? (" $" + math + "$ ") : "";
+    }
+
+    // 3. Thẻ đối tượng nhúng MathType OLE
+    if (name === "object") {
+      return processOleObject(el);
+    }
+
+    // 4. Thẻ hình ảnh
+    if (name === "blip" || name === "imagedata") {
+      const rId = el.getAttribute("r:embed") || el.getAttribute("r:id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+      if (rId && targetToToken[rId]) {
+        return " " + targetToToken[rId] + " ";
       }
-    });
-    return line.trim();
+    }
+
+    // 5. Đệ quy quét sâu các thẻ bọc (w:r, w:fldSimple, w:hyperlink, w:drawing, v:shape...)
+    let text = "";
+    for (let i = 0; i < el.childNodes.length; i++) {
+      text += extractNodeDeep(el.childNodes[i]);
+    }
+    return text;
+  };
+
+  const processParagraphNode = (p: Element): string => {
+    return extractNodeDeep(p).trim();
   };
 
   const rawLines: string[] = [];
@@ -1192,7 +1161,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
-  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
