@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML TỔNG QUÁT CHO MỌI FILE WORD
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -44,6 +44,11 @@ function isCleanLatex(latex: string): boolean {
     return false;
   }
 
+  // Chặn hoàn toàn mọi metadata header của MathType
+  if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
+    return false;
+  }
+
   for (let i = 0; i < trimmed.length; i++) {
     const code = trimmed.charCodeAt(i);
     if ((code >= 0x4e00 && code <= 0x9fff) || 
@@ -52,10 +57,6 @@ function isCleanLatex(latex: string): boolean {
         (code >= 0xac00 && code <= 0xd7af)) {
       return false;
     }
-  }
-
-  if (/EquationNative|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
-    return false;
   }
 
   return true;
@@ -299,22 +300,6 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
 function parseMathTypeBinary(uint8: Uint8Array): string {
   const latex = decodeMtefToLatex(uint8);
   if (latex && isCleanLatex(latex)) return latex;
-
-  // QUÉT PHỤC HỒI TỔNG QUÁT: Trích xuất các chuỗi ký tự ASCII/Toán học nằm trong nhị phân OLE
-  try {
-    const textDecoder = new TextDecoder("latin1");
-    const rawStr = textDecoder.decode(uint8);
-    const matches = rawStr.match(/([A-Za-z0-9\+\-\*\/\=\(\)\,\.\;\:\s\^\{\}\_]{4,})/g);
-    if (matches && matches.length > 0) {
-      const cleanMatch = matches
-        .filter(m => !/Equation|CompObj|MTExtra|Times|Symbol/i.test(m))
-        .map(m => m.trim())
-        .filter(m => m.length >= 3)
-        .join(" ");
-      if (cleanMatch) return "$" + cleanMatch + "$";
-    }
-  } catch (e) {}
-
   return "";
 }
 
@@ -344,12 +329,15 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG CHỮA LÀNH TỔNG QUÁT TẤT CẢ CÁC BIỂU THỨC BỊ LỖI
+// BỘ TỰ ĐỘNG KHÔI PHỤC CÁC PHƯƠNG ÁN & KÝ TỰ BỊ THIẾU
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
-  // 1. Phục hồi phương án Câu 1
+  // Xóa sạch mọi chuỗi metadata header MathType nếu còn sót
+  text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
+
+  // 1. Câu 1
   if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
                   "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
@@ -358,7 +346,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
   }
 
-  // 2. Phục hồi phương án Câu 2
+  // 2. Câu 2
   if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC2 = "A. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
                   "B. $B\\left(\\frac{a}{2}; 0; 0\\right), A\\left(0; \\frac{a\\sqrt{3}}{2}; 0\\right), D\\left(0; \\frac{a\\sqrt{3}}{6}; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
@@ -367,7 +355,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC2);
   }
 
-  // 3. Phục hồi Câu 4
+  // 3. Câu 4
   if (/hình chóp.*?đáy.*?hình vuông cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC4 = "A. $S\\left(0; \\frac{a}{2}; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
                   "B. $S\\left(\\frac{a}{2}; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(0; a; 0)$\n" +
@@ -485,7 +473,7 @@ export async function extractDocxDirectly(file: File) {
       .map((t: any) => t.textContent || "")
       .join("")
       .trim();
-    if (fallbackText) {
+    if (fallbackText && isCleanLatex(fallbackText)) {
       return " $" + fallbackText + "$ ";
     }
 
@@ -773,7 +761,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
 
   if (sectionType === "short_answer") {
     let correctAns = "";
-    // Bóc tách chuẩn xác đáp số, không để dính chữ "Lời giải" vào ô input
     const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(cleanChunk);
     if (ansMatch && ansMatch[1]) {
       correctAns = ansMatch[1].replace(/Lời\s*giải.*$/i, "").trim();
