@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const text = body?.text || "";
     const fileBase64 = body?.fileBase64 || "";
-    const fileType = body?.fileType || "docx"; // 'pdf' hoặc 'docx'
+    const fileType = body?.fileType || "docx";
     const apiKey = body?.apiKey || process.env.GEMINI_API_KEY || "";
 
     const cleanKey = String(apiKey).replace(/\s+/g, "").trim();
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       "   - Khôi phục toàn bộ nội dung Lời giải chi tiết từ Câu 1 đến câu cuối cùng.\n" +
       "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC:\n" +
       "   - Đánh số lần lượt Câu 1, Câu 2, Câu 3... liên tục theo đúng thứ tự đề thi.\n" +
-      "   - Tuyệt đối không lặp lại số câu (như Câu 2 rồi lại Câu 2).\n" +
+      "   - Tuyệt đối không lặp lại số câu.\n" +
       "3. PHẦN III TRẢ LỜI NGẮN:\n" +
       "   - Ghi định dạng chuẩn: 'Đáp số: <giá trị>', không chèn chữ 'Lời giải' vào ô đáp số.\n" +
       "4. GIỮ NGUYÊN CÁC THẺ ẢNH:\n" +
@@ -42,10 +42,10 @@ export async function POST(req: Request) {
 
     const parts: any[] = [];
     if (fileBase64) {
-      const mimeType = fileType === "pdf" 
-        ? "application/pdf" 
+      const mimeType = fileType === "pdf"
+        ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-      
+
       parts.push({
         inlineData: {
           mimeType,
@@ -69,11 +69,15 @@ export async function POST(req: Request) {
     let resultText = "";
     let lastError = "";
 
+    // Tạo URL an toàn tuyệt đối bằng mảng mã ASCII để ngăn chặn mọi trình biên tập tự sinh markdown link [...]()
+    const domainChars = [103,101,110,101,114,97,116,105,118,101,108,97,110,103,117,97,103,101,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109];
+    const host = String.fromCharCode(...domainChars);
+
     for (const model of candidateModels) {
       try {
-        const endpoint = "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + model + ":generateContent?key=" + cleanKey;
+        const fullUrl = "https://" + host + "/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
 
-        const response = await fetch(endpoint, {
+        const response = await fetch(fullUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
