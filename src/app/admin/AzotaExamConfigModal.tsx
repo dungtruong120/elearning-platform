@@ -5,7 +5,7 @@ import {
   Loader2, Layers, CheckCircle2, XCircle, PenTool, CircleDot, 
   CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
   ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
-  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent
+  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent, FileText
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -44,7 +44,6 @@ function isCleanLatex(latex: string): boolean {
     return false;
   }
 
-  // Chặn hoàn toàn mọi metadata header của MathType
   if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
     return false;
   }
@@ -334,7 +333,6 @@ export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
-  // Xóa sạch mọi chuỗi metadata header MathType nếu còn sót
   text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
 
   // 1. Câu 1
@@ -461,7 +459,7 @@ export async function extractDocxDirectly(file: File) {
     for (const el of allDescendants) {
       const tag = (el.localName || el.nodeName).toLowerCase();
       if (tag.includes("oleobject")) {
-        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || "";
+        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id") || "";
       }
     }
 
@@ -478,7 +476,7 @@ export async function extractDocxDirectly(file: File) {
     }
 
     for (const el of allDescendants) {
-      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id") || el.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
       if (rId && targetToToken[rId]) {
         return " " + targetToToken[rId] + " ";
       }
@@ -507,13 +505,13 @@ export async function extractDocxDirectly(file: File) {
         } else {
           Array.from(el.getElementsByTagNameNS("*", "t")).forEach((t: any) => { line += t.textContent || ""; });
           Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
             if (rId && targetToToken[rId]) {
               line += " " + targetToToken[rId] + " ";
             }
           });
           Array.from(el.getElementsByTagNameNS("*", "imagedata")).forEach((imgData: any) => {
-            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "id");
             if (rId && targetToToken[rId]) {
               line += " " + targetToToken[rId] + " ";
             }
@@ -521,7 +519,7 @@ export async function extractDocxDirectly(file: File) {
         }
       } else if (name === "drawing") {
         Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
-          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("[http://schemas.openxmlformats.org/officeDocument/2006/relationships](http://schemas.openxmlformats.org/officeDocument/2006/relationships)", "embed");
           if (rId && targetToToken[rId]) {
             line += " " + targetToToken[rId] + " ";
           }
@@ -761,6 +759,7 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
 
   if (sectionType === "short_answer") {
     let correctAns = "";
+    // Nhận diện đáp số chuẩn xác, không lấy dính chữ Lời giải
     const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(cleanChunk);
     if (ansMatch && ansMatch[1]) {
       correctAns = ansMatch[1].replace(/Lời\s*giải.*$/i, "").trim();
@@ -1073,6 +1072,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [rawText, setRawText] = useState<string>("");
   const [fileBase64, setFileBase64] = useState<string>("");
+  const [fileType, setFileType] = useState<"docx" | "pdf">("docx");
   const [expandedSolutions, setExpandedSolutions] = useState<Record<string, boolean>>({});
 
   const [tfGlobalPercent, setTfGlobalPercent] = useState<Record<string, number>>({
@@ -1089,6 +1089,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     if (file && isOpen) {
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
+      const isPdf = file.name.toLowerCase().endsWith(".pdf");
+      setFileType(isPdf ? "pdf" : "docx");
 
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -1100,20 +1102,27 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       };
       reader.readAsDataURL(file);
 
-      extractDocxDirectly(file)
-        .then(res => {
-          setMediaMap(res.mediaMap);
-          const repaired = repairMathTypeGlitch(res.text);
-          const labeledText = injectQuestionLabelsIfMissing(repaired);
-          setRawText(labeledText);
-          const parsed = parseExamHierarchical(labeledText);
-          setSections(parsed);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Lỗi đọc file Word:", err);
-          setLoading(false);
-        });
+      if (isPdf) {
+        // Với file PDF: Khởi tạo khung chờ và hướng dẫn người dùng bấm nút AI để bóc tách thị giác
+        const placeholder = "Đã nạp file PDF: " + file.name + "\n\nBấm nút [Sửa lỗi công thức AI] ở góc trên bên phải để AI Gemini đọc trực tiếp toàn bộ trang PDF, bóc tách công thức Toán và lời giải chuẩn 100%!";
+        setRawText(placeholder);
+        setLoading(false);
+      } else {
+        extractDocxDirectly(file)
+          .then(res => {
+            setMediaMap(res.mediaMap);
+            const repaired = repairMathTypeGlitch(res.text);
+            const labeledText = injectQuestionLabelsIfMissing(repaired);
+            setRawText(labeledText);
+            const parsed = parseExamHierarchical(labeledText);
+            setSections(parsed);
+            setLoading(false);
+          })
+          .catch(err => {
+            console.error("Lỗi đọc file Word:", err);
+            setLoading(false);
+          });
+      }
     }
   }, [file, isOpen]);
 
@@ -1129,7 +1138,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     let geminiKey = typeof window !== "undefined" ? localStorage.getItem("tct_gemini_api_key") || "" : "";
     if (!geminiKey) {
       const inputKey = window.prompt(
-        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file Word và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
+        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
       );
       if (!inputKey || !inputKey.trim()) return;
       geminiKey = inputKey.trim();
@@ -1145,6 +1154,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         body: JSON.stringify({
           text: rawText,
           fileBase64,
+          fileType,
           apiKey: geminiKey
         })
       });
@@ -1170,7 +1180,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
       if (data.result && data.result.trim()) {
         handleRawTextChange(data.result.trim());
-        alert("✨ AI Gemini đã đọc toàn bộ file Word và phục hồi 100% công thức toán học và lời giải chi tiết!");
+        alert("✨ AI Gemini đã đọc toàn bộ file và phục hồi 100% công thức toán học và lời giải chi tiết!");
       }
     } catch (err: any) {
       console.error("Lỗi Polish AI:", err);
@@ -1407,7 +1417,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
               Azota All-In-One Exam Engine
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60">
-                Fullscreen Pro
+                {fileType === "pdf" ? "PDF Vision Pro" : "Word Engine"}
               </span>
             </h2>
             <p className="text-xs text-slate-500 font-medium">
@@ -1444,7 +1454,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
             <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
-              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
+              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi...</p>
               <p className="text-xs text-slate-500">Tự động nhận diện đầy đủ các phần thi và công thức toán...</p>
             </div>
           </div>
@@ -1461,170 +1471,182 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                {sections.map((sec, sIdx) => (
-                  <div key={"sec-pv-" + sIdx} className="space-y-4">
-                    <div className="p-4 bg-gradient-to-r from-blue-50 via-indigo-50/40 to-slate-50 rounded-2xl border border-blue-200/80 flex items-center justify-between shadow-2xs">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
-                          {sIdx + 1}
-                        </div>
-                        <div>
-                          <h4 className="font-black text-sm text-slate-900 uppercase tracking-wide">
-                            {sec.section_title}
-                          </h4>
-                          <p className="text-[11px] font-semibold text-blue-700">
-                            {sec.questions.length} câu hỏi • {
-                              sec.section_type === "true_false" 
-                                ? "Trắc nghiệm Đúng / Sai" 
-                                : sec.section_type === "short_answer" 
-                                  ? "Trả lời ngắn" 
-                                  : "Trắc nghiệm nhiều lựa chọn (A, B, C, D)"
-                            }
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-2xs">
-                        {sec.questions.length} câu
-                      </span>
-                    </div>
-
-                    <div className="space-y-4">
-                      {sec.questions.map((q, idx) => {
-                        const isSolOpen = !!expandedSolutions[q.id];
-
-                        const isAnyOptionLong = q.options?.some(opt => {
-                          const t = opt.text_html || "";
-                          return t.length > 30 || t.includes("\\frac") || t.includes("right)");
-                        });
-
-                        return (
-                          <div key={q.id} className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3">
-                            <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
-                              <span className="font-black text-xs text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200/60">
-                                {q.original_label || ("Câu " + (idx + 1))}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
-                                  {q.correct_answer || "A"}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="py-1">
-                              <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
-                            </div>
-
-                            {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
-                              <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
-                                {q.options.map(opt => {
-                                  const isCorrect = opt.key === q.correct_answer;
-                                  return (
-                                    <div 
-                                      key={opt.key}
-                                      onClick={() => handleUpdateAnswer(q.id, opt.key)}
-                                      className={"p-3 rounded-xl border text-xs flex items-center gap-2.5 transition-all cursor-pointer " + (
-                                        isCorrect 
-                                          ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-300" 
-                                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-                                      )}
-                                    >
-                                      <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
-                                        isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                                      )}>
-                                        {opt.key}
-                                      </span>
-                                      <div className="flex-1 min-w-0">
-                                        <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {sec.section_type === "true_false" && q.options && (
-                              <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-                                <table className="w-full text-left text-[13px]">
-                                  <thead className="bg-slate-50 border-b border-slate-200">
-                                    <tr>
-                                      <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 bg-white">
-                                    {q.options.map(opt => {
-                                      const isTrue = opt.is_true_false_ans === true;
-                                      const isFalse = opt.is_true_false_ans === false;
-                                      return (
-                                        <tr key={opt.key} className="hover:bg-slate-50/50">
-                                          <td className="py-2.5 px-3">
-                                            <div className="flex items-start gap-2">
-                                              <span className="font-bold text-blue-600">{opt.key})</span>
-                                              <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
-                                            </div>
-                                          </td>
-                                          <td className="py-2.5 px-3 text-center align-middle">
-                                            <div 
-                                              onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
-                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
-                                            >
-                                              <Check className="w-4 h-4"/>
-                                            </div>
-                                          </td>
-                                          <td className="py-2.5 px-3 text-center align-middle">
-                                            <div 
-                                              onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
-                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
-                                            >
-                                              <X className="w-4 h-4"/>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-
-                            {sec.section_type === "short_answer" && (
-                              <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
-                                <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
-                                <input 
-                                  type="text"
-                                  value={q.correct_answer || ""}
-                                  onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
-                                  placeholder="Nhập đáp án số hoặc chữ..."
-                                  className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600"
-                                />
-                              </div>
-                            )}
-
-                            {q.solution_html && (
-                              <div className="pt-3 border-t border-slate-100 mt-3">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleSolution(q.id)}
-                                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50/50 px-2.5 py-1.5 rounded-lg border border-indigo-100 transition-colors"
-                                >
-                                  <BookOpen className="w-3.5 h-3.5"/>
-                                  <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
-                                </button>
-                                {isSolOpen && (
-                                  <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
-                                    <TokenViewer content={q.solution_html} mediaMap={mediaMap}/>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                {sections.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-3">
+                    <FileText className="w-12 h-12 text-blue-500 opacity-60"/>
+                    <h4 className="text-sm font-bold text-slate-800">Đề thi đang sẵn sàng để AI bóc tách</h4>
+                    <p className="text-xs text-slate-500 max-w-sm">
+                      {fileType === "pdf" 
+                        ? "Bạn đang tải file PDF. Hãy bấm nút 'Sửa lỗi công thức AI' ở góc phải để AI phân tích toàn bộ trang tài liệu."
+                        : "Bấm 'Sửa lỗi công thức AI' để quét và khôi phục toàn bộ công thức toán học."}
+                    </p>
                   </div>
-                ))}
+                ) : (
+                  sections.map((sec, sIdx) => (
+                    <div key={"sec-pv-" + sIdx} className="space-y-4">
+                      <div className="p-4 bg-gradient-to-r from-blue-50 via-indigo-50/40 to-slate-50 rounded-2xl border border-blue-200/80 flex items-center justify-between shadow-2xs">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+                            {sIdx + 1}
+                          </div>
+                          <div>
+                            <h4 className="font-black text-sm text-slate-900 uppercase tracking-wide">
+                              {sec.section_title}
+                            </h4>
+                            <p className="text-[11px] font-semibold text-blue-700">
+                              {sec.questions.length} câu hỏi • {
+                                sec.section_type === "true_false" 
+                                  ? "Trắc nghiệm Đúng / Sai" 
+                                  : sec.section_type === "short_answer" 
+                                    ? "Trả lời ngắn" 
+                                    : "Trắc nghiệm nhiều lựa chọn (A, B, C, D)"
+                              }
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-xl border border-slate-200 shadow-2xs">
+                          {sec.questions.length} câu
+                        </span>
+                      </div>
+
+                      <div className="space-y-4">
+                        {sec.questions.map((q, idx) => {
+                          const isSolOpen = !!expandedSolutions[q.id];
+
+                          const isAnyOptionLong = q.options?.some(opt => {
+                            const t = opt.text_html || "";
+                            return t.length > 30 || t.includes("\\frac") || t.includes("right)");
+                          });
+
+                          return (
+                            <div key={q.id} className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3">
+                              <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                                <span className="font-black text-xs text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200/60">
+                                  {q.original_label || ("Câu " + (idx + 1))}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-slate-500">Đáp án:</span>
+                                  <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
+                                    {q.correct_answer || "A"}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="py-1">
+                                <TokenViewer content="{q.prompt_html}" mediaMap="{mediaMap}"/>
+                              </div>
+
+                              {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
+                                <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
+                                  {q.options.map(opt => {
+                                    const isCorrect = opt.key === q.correct_answer;
+                                    return (
+                                      <div 
+                                        key={opt.key}
+                                        onClick={() => handleUpdateAnswer(q.id, opt.key)}
+                                        className={"p-3 rounded-xl border text-xs flex items-center gap-2.5 transition-all cursor-pointer " + (
+                                          isCorrect 
+                                            ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-300" 
+                                            : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                                        )}
+                                      >
+                                        <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
+                                          isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
+                                        )}>
+                                          {opt.key}
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                          <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {sec.section_type === "true_false" && q.options && (
+                                <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+                                  <table className="w-full text-left text-[13px]">
+                                    <thead className="bg-slate-50 border-b border-slate-200">
+                                      <tr>
+                                        <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
+                                        <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
+                                        <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 bg-white">
+                                      {q.options.map(opt => {
+                                        const isTrue = opt.is_true_false_ans === true;
+                                        const isFalse = opt.is_true_false_ans === false;
+                                        return (
+                                          <tr key={opt.key} className="hover:bg-slate-50/50">
+                                            <td className="py-2.5 px-3">
+                                              <div className="flex items-start gap-2">
+                                                <span className="font-bold text-blue-600">{opt.key})</span>
+                                                <TokenViewer content="{opt.text_html}" inline="{true}" mediaMap="{mediaMap}"/>
+                                              </div>
+                                            </td>
+                                            <td className="py-2.5 px-3 text-center align-middle">
+                                              <div 
+                                                onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
+                                                className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                              >
+                                                <Check className="w-4 h-4"/>
+                                              </div>
+                                            </td>
+                                            <td className="py-2.5 px-3 text-center align-middle">
+                                              <div 
+                                                onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
+                                                className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                              >
+                                                <X className="w-4 h-4"/>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {sec.section_type === "short_answer" && (
+                                <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
+                                  <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
+                                  <input 
+                                    type="text"
+                                    value={q.correct_answer || ""}
+                                    onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
+                                    placeholder="Nhập đáp án số hoặc chữ..."
+                                    className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600"
+                                  />
+                                </div>
+                              )}
+
+                              {q.solution_html && (
+                                <div className="pt-3 border-t border-slate-100 mt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleSolution(q.id)}
+                                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50/50 px-2.5 py-1.5 rounded-lg border border-indigo-100 transition-colors"
+                                  >
+                                    <BookOpen className="w-3.5 h-3.5"/>
+                                    <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
+                                  </button>
+                                  {isSolOpen && (
+                                    <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
+                                      <TokenViewer content="{q.solution_html}" mediaMap="{mediaMap}"/>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -1633,7 +1655,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 <div className="flex items-center gap-2">
                   <Edit3 className="w-4 h-4 text-slate-700"/>
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                    Word Raw
+                    {fileType === "pdf" ? "PDF RAW" : "Word Raw"}
                   </span>
                 </div>
                 
@@ -1643,7 +1665,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     onClick={handleAiPolishFormulas}
                     disabled={isAiPolishing}
                     className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                    title="AI đọc trực tiếp file Word gốc để sửa toàn bộ công thức và lời giải chuẩn 100%"
+                    title="AI đọc trực tiếp file (Word/PDF) để sửa toàn bộ công thức và lời giải chuẩn 100%"
                   >
                     {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Wand2 className="w-3.5 h-3.5"/>}
                     <span>Sửa lỗi công thức AI</span>
