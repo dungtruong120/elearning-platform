@@ -13,8 +13,8 @@ const beVietnamPro = Be_Vietnam_Pro({
 });
 
 export const metadata: Metadata = {
-  title: "EduNexus - Nền Tảng Học Trực Tuyến & Luyện Thi Chuẩn Hóa",
-  description: "Hệ thống học tập, luyện thi HSA, TSA, THPT và đánh giá năng lực",
+  title: "TCT study",
+  description: "Hệ thống TCT",
 };
 
 export default function RootLayout({
