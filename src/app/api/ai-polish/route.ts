@@ -27,11 +27,12 @@ export async function POST(req: Request) {
       "Bạn là chuyên gia khôi phục và biên tập đề thi Toán học Việt Nam từ file Word chứa MathType sang định dạng chuẩn KaTeX/Markdown.\n" +
       "Nhiệm vụ của bạn:\n" +
       "1. ĐỌC VÀ KHÔI PHỤC TOÀN BỘ CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT:\n" +
-      "   - Các biểu thức rỗng như $SA=$, $C'G=$, $OA=\\left(=\\right)$, AB = (BE) -> sửa thành các giá trị độ dài và biểu thức đúng theo ngữ cảnh đề bài.\n" +
+      "   - Các biểu thức rỗng như $MG=$, $SA=$, $C'G=$, có và . Tính . -> sửa thành các giá trị độ dài và biểu thức đúng theo ngữ cảnh đề bài.\n" +
+      "   - Sửa các phân số rỗng như \\frac{}{4 27} thành \\frac{4}{27} hoặc biểu thức đúng.\n" +
       "   - Khôi phục tọa độ Oxyz, căn thức, phân số ở tất cả các phương án A, B, C, D.\n" +
       "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... theo đúng thứ tự.\n" +
       "3. PHƯƠNG ÁN A, B, C, D: Đảm bảo đầy đủ cả 4 phương án cho từng câu trắc nghiệm. Không để rỗng bất kỳ phương án nào.\n" +
-      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu (kể cả các đoạn bị cụt như 'Khi đó:', 'Độ dài CG là .').\n" +
+      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu.\n" +
       "5. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...].\n" +
       "6. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block.";
 
@@ -52,11 +53,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // Các model ổn định nhất, không bị lỗi High Demand (503)
+    // Ưu tiên các model có hạ tầng ổn định nhất, không bị dính High Demand Spike
     const candidateModels = [
       "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-3.8-flash"
+      "gemini-2.0-flash"
     ];
 
     let resultText = "";
