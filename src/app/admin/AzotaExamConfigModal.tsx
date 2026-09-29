@@ -328,7 +328,7 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG KHÔI PHỤC TOÀN DIỆN CÁC KÝ TỰ BỊ KHUYẾT Ở TẤT CẢ CÁC CÂU (CÂU 1 -> CÂU 😎
+// BỘ TỰ ĐỘNG KHÔI PHỤC TOÀN BỘ CÁC CÂU BỊ KHUYẾT KÝ TỰ TỪ 1 ĐẾN 13
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
@@ -360,17 +360,18 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC4);
   }
 
-  // 4. Lời giải Câu 1 bị cụt sau "Khi đó:"
+  // 4. Lời giải Câu 1
   text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
     "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
     "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
     "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
   );
 
-  // 5. Lời giải Câu 3 bị cụt sau "Có ."
-  text = text.replace(/(\bCó\s*\.?\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*4|[\r\n]+Cho\s*hình\s*chóp))/i,
-    "Có: $A(0;0;0), C'(3;4;5)$.\nDo đó: $AC' = \\sqrt{3^2 + 4^2 + 5^2} = 5\\sqrt{2}$.\n$2"
-  );
+  // 5. KHÔI PHỤC CÂU 5 (Ảnh 1): Sửa lỗi $MG=$, $MG=2$
+  text = text.replace(/A\.\s*\$MG=\$\.?/g, "A. $MG = a\\sqrt{3}$");
+  text = text.replace(/B\.\s*\$MG=\$\.?/g, "B. $MG = \\frac{a\\sqrt{14}}{6}$");
+  text = text.replace(/C\.\s*\$MG=\s*2\$\.?/g, "C. $MG = \\frac{a\\sqrt{2}}{2}$");
+  text = text.replace(/D\.\s*\$MG=\s*2\$\.?/g, "D. $MG = a\\sqrt{2}$");
 
   // 6. KHÔI PHỤC CÂU 6: Bị khuyết biểu thức độ dài sau chữ "Độ dài ."
   text = text.replace(/(Độ dài\s*\.\s*)([\r\n]+Câu\s*7)/i, "Độ dài đoạn thẳng: $A'G = \\frac{a\\sqrt{6}}{3}$.\n$2");
@@ -389,6 +390,12 @@ export function autoHealMissingOptions(rawText: string): string {
   text = text.replace(/\$?OA\s*=\s*\\left\(=\\right\)\$?|\$?OA\s*=\s*\(=?\)\$?|OA\s*=\s*\(=?\)/gi, "$OA = OB = OC = a$");
   text = text.replace(/\$120\^\\circ\$\s*\./g, "$120^\\circ$");
   text = text.replace(/Khi đó:\s*\.\s*([\r\n]+PHẦN\s*II)/i, "Khi đó: $\\cos(\\vec{u}, \\vec{v}) = -\\frac{1}{2} \\Rightarrow$ góc tạo bởi hai vecto là $120^\\circ$.\n$1");
+
+  // 9. KHÔI PHỤC CÂU 12 & CÂU 13 (PHẦN III - TRẢ LỜI NGẮN)
+  text = text.replace(/ABCD\.A'\s*có\s*và\s*\.\s*Tính\s*\./gi, "ABCD.A'B'C'D' có $AB = 3, AD = 4, AA' = 5$. Tính độ dài đoạn thẳng $AC'$.");
+  text = text.replace(/Đáp số:\s*\-\$-/g, "Đáp số: $5\\sqrt{2}$");
+  text = text.replace(/\\frac\{\}\{\s*4\s*27\s*\}/g, "\\frac{4}{27}");
+  text = text.replace(/\$V\^\{\\left\(SBq\\right\)\}\$/g, "$V_{S.ABCD}$");
 
   return text;
 }
@@ -750,9 +757,10 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
 
   if (sectionType === "short_answer") {
     let correctAns = "";
-    const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^\r\n]+)/i.exec(cleanChunk);
+    // Chỉ lấy giá trị đáp số, loại bỏ chữ "Lời giải" thừa nếu có
+    const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(cleanChunk);
     if (ansMatch && ansMatch[1]) {
-      correctAns = ansMatch[1].trim();
+      correctAns = ansMatch[1].replace(/Lời\s*giải.*$/i, "").trim();
     }
     return {
       id: uniqueId,
@@ -1702,6 +1710,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
+            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
