@@ -1,4 +1,3 @@
-```typescript
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -27,21 +26,23 @@ export async function POST(req: Request) {
       );
     }
 
-    const systemPrompt =
-      "Bạn là chuyên gia số 1 về bóc tách, chuẩn hóa và phục hồi đề thi Toán học Việt Nam sang Markdown và LaTeX chuẩn KaTeX.\n" +
-      "Nhiệm vụ của bạn:\n" +
-      "1. ĐỌC TOÀN BỘ NỘI DUNG TỪ TỆP ĐÍNH KÈM (PDF/DOCX) HOẶC VĂN BẢN ĐƯỢC CUNG CẤP:\n" +
-      "   - Chuyển mọi công thức toán học (tọa độ Oxyz, phân số, căn thức, ma trận, bảng biến thiên, vectơ, góc) sang KaTeX chuẩn: kẹp trong $...$ hoặc $$...$$.\n" +
-      "   - Khôi phục trọn vẹn mọi biểu thức bị sót, không để rỗng các phương án A, B, C, D.\n" +
-      "   - Khôi phục toàn bộ nội dung Lời giải chi tiết từ Câu 1 đến câu cuối cùng.\n" +
-      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC:\n" +
-      "   - Đánh số lần lượt Câu 1, Câu 2, Câu 3... liên tục theo đúng thứ tự đề thi.\n" +
-      "   - Tuyệt đối không lặp lại số câu.\n" +
-      "3. PHẦN III TRẢ LỜI NGẮN:\n" +
-      "   - Ghi định dạng chuẩn: 'Đáp số: <giá trị>', không chèn chữ 'Lời giải' vào ô đáp số.\n" +
-      "4. GIỮ NGUYÊN CÁC THẺ ẢNH:\n" +
-      "   - Giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...] nếu có trong đề bài tham khảo.\n" +
-      "5. Chỉ trả về nội dung đề thi đã sửa và phục hồi chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block (```).";
+    const promptLines = [
+      "Ban la chuyen gia so 1 ve boc tach, chuan hoa va phuc hoi de thi Toan hoc Viet Nam sang Markdown va LaTeX chuan KaTeX.",
+      "Nhiem vu cua ban:",
+      "1. DOC TOAN BO NOI DUNG TU TEP DINH KEM (PDF/DOCX) HOAC VAN BAN DUOC CUNG CAP:",
+      "   - Chuyen moi cong thuc toan hoc (toa do Oxyz, phan so, can thuc, ma tran, bang bien thien, vecto, goc) sang KaTeX: kep trong $...$ hoac $$...$$.",
+      "   - Khoi phuc tron ven moi bieu thuc bi sot, khong de rong cac phuong an A, B, C, D.",
+      "   - Khoi phuc toan bo noi dung Loi giai chi tiet tu Cau 1 den cau cuoi cung.",
+      "2. DANH SO THU TU CAU CHUAN XAC:",
+      "   - Danh so lan luot Cau 1, Cau 2, Cau 3... lien tuc theo dung thu tu de thi.",
+      "   - Tuyet doi khong lap lai so cau.",
+      "3. PHAN III TRA LOI NGAN:",
+      "   - Ghi dinh dang chuan: 'Dap so: <gia tri>', khong chen chu 'Loi giai' vao o dap so.",
+      "4. GIU NGUYEN CAC THE ANH:",
+      "   - Giu nguyen cac the anh dang [img:$...$] hoac [img:https://...] neu co trong de bai tham khao.",
+      "5. Chi tra ve noi dung de thi da sua va phuc hoi chuan xac, KHONG them loi chao, KHONG boc trong the markdown code block."
+    ];
+    const systemPrompt = promptLines.join("\n");
 
     const parts: any[] = [];
     if (fileBase64) {
@@ -56,11 +57,11 @@ export async function POST(req: Request) {
         }
       });
       parts.push({
-        text: systemPrompt + (text ? "\n\n--- DƯỚI ĐÂY LÀ VĂN BẢN THAM KHẢO VỊ TRÍ THẺ ẢNH NẾU CÓ ---\n" + text : "")
+        text: systemPrompt + (text ? "\n\n--- DANH SACH ANH VA VAN BAN THO THAM KHAO ---\n" + text : "")
       });
     } else {
       parts.push({
-        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA VÀ KHÔI PHỤC ---\n" + text
+        text: systemPrompt + "\n\n--- DE THI CAN SUA VA KHOI PHUC ---\n" + text
       });
     }
 
@@ -71,7 +72,6 @@ export async function POST(req: Request) {
     let resultText = "";
     let lastError = "";
 
-    // Thực hiện gọi API với cơ chế tự động thử lại tối đa 3 lần nếu gặp quá tải cục bộ
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const response = await fetch(fullUrl, {
@@ -100,7 +100,6 @@ export async function POST(req: Request) {
           break;
         } else {
           lastError = data?.error?.message || "Máy chủ AI đang phản hồi chậm";
-          // Nếu gặp lỗi quá tải tải cao điểm (high demand), tạm dừng và thử lại
           if (resText.includes("high demand") || response.status === 503 || response.status === 429) {
             await sleep(1500 * attempt);
             continue;
