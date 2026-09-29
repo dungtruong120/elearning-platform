@@ -53,7 +53,7 @@ const DEFAULT_ACCOUNTS = [
   {
     id: "admin-master",
     email: "hieu0986357867@gmail.com",
-    full_name: "Thầy Nam (Quản Trị TCT)",
+    full_name: "Thầy Dũng (Quản Trị TCT)",
     role: "admin" as const,
     grade: "Admin",
     school: "Hệ thống TCT",
@@ -183,7 +183,7 @@ export default function RootPage() {
 
       const adminUser = {
         id: "admin-master",
-        full_name: "Thầy Nam (Quản Trị TCT)",
+        full_name: "Thầy Dũng (Quản Trị TCT)",
         email: ADMIN_ACCOUNT.email,
         role: "admin",
         approval_status: "approved"
@@ -335,7 +335,7 @@ export default function RootPage() {
       <div className="h-screen w-full flex items-center justify-center bg-[#F8FAFC]">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-3 border-slate-200 border-t-[#1D4ED8] rounded-full animate-spin" />
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase">dungtruong.tct</p>
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase">TCT Study</p>
         </div>
       </div>
     );
@@ -378,7 +378,7 @@ export default function RootPage() {
           </div>
           <div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              Đăng Nhập dungtruong.tct
+              Đăng Nhập TCT Study
             </h1>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
               Cổng học tập & thi thử Toán trực tuyến
