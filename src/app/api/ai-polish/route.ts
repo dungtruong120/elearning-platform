@@ -8,6 +8,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const text = body?.text || "";
     const fileBase64 = body?.fileBase64 || "";
+    const fileType = body?.fileType || "docx"; // 'pdf' hoặc 'docx'
     const apiKey = body?.apiKey || process.env.GEMINI_API_KEY || "";
 
     const cleanKey = String(apiKey).replace(/\s+/g, "").trim();
@@ -24,27 +25,35 @@ export async function POST(req: Request) {
     }
 
     const systemPrompt =
-      "Bạn là chuyên gia khôi phục và chuẩn hóa đề thi Toán học Việt Nam từ định dạng Word MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
+      "Bạn là chuyên gia số 1 về bóc tách, chuẩn hóa và phục hồi đề thi Toán học Việt Nam sang Markdown và LaTeX chuẩn KaTeX.\n" +
       "Nhiệm vụ của bạn:\n" +
-      "1. ĐỌC VÀ KHÔI PHỤC TỔNG QUÁT MỌI CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT:\n" +
-      "   - Khôi phục mọi ký tự MathType bị lỗi rỗng, dấu bằng rỗng 😊), các biểu thức tọa độ không gian Oxyz, vectơ, phân số, căn thức, ma trận, bảng biến thiên.\n" +
-      "   - Đảm bảo các phương án A, B, C, D có nội dung toán học đầy đủ, không để rỗng bất kỳ phương án nào.\n" +
-      "   - Khôi phục trọn vẹn Lời giải chi tiết của tất cả các câu từ Câu 1 đến câu cuối cùng.\n" +
-      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... liên tục, không lặp lại số câu.\n" +
-      "3. PHẦN III TRẢ LỜI NGẮN: Ghi rõ 'Đáp số: <giá trị>', không chèn chữ 'Lời giải' vào sau dấu hai chấm của đáp số.\n" +
-      "4. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...].\n" +
-      "5. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block.";
+      "1. ĐỌC TOÀN BỘ NỘI DUNG TỪ TỆP ĐÍNH KÈM (PDF/DOCX) HOẶC VĂN BẢN ĐƯỢC CUNG CẤP:\n" +
+      "   - Chuyển mọi công thức toán học (tọa độ Oxyz, phân số, căn thức, ma trận, bảng biến thiên, vectơ, góc) sang KaTeX chuẩn: kẹp trong $...$ hoặc $$...$$.\n" +
+      "   - Khôi phục trọn vẹn mọi biểu thức bị sót, không để rỗng các phương án A, B, C, D.\n" +
+      "   - Khôi phục toàn bộ nội dung Lời giải chi tiết từ Câu 1 đến câu cuối cùng.\n" +
+      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC:\n" +
+      "   - Đánh số lần lượt Câu 1, Câu 2, Câu 3... liên tục theo đúng thứ tự đề thi.\n" +
+      "   - Tuyệt đối không lặp lại số câu (như Câu 2 rồi lại Câu 2).\n" +
+      "3. PHẦN III TRẢ LỜI NGẮN:\n" +
+      "   - Ghi định dạng chuẩn: 'Đáp số: <giá trị>', không chèn chữ 'Lời giải' vào ô đáp số.\n" +
+      "4. GIỮ NGUYÊN CÁC THẺ ẢNH:\n" +
+      "   - Giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...] nếu có trong đề bài tham khảo.\n" +
+      "5. Chỉ trả về nội dung đề thi đã sửa và phục hồi chuẩn xác, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block (```).";
 
     const parts: any[] = [];
     if (fileBase64) {
+      const mimeType = fileType === "pdf" 
+        ? "application/pdf" 
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      
       parts.push({
         inlineData: {
-          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          mimeType,
           data: fileBase64
         }
       });
       parts.push({
-        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ VĂN BẢN THÔ TRÍCH XUẤT ĐỂ THAM KHẢO VỊ TRÍ ẢNH ---\n" + text
+        text: systemPrompt + (text ? "\n\n--- DƯỚI ĐÂY LÀ VĂN BẢN THAM KHẢO VỊ TRÍ THẺ ẢNH NẾU CÓ ---\n" + text : "")
       });
     } else {
       parts.push({
@@ -62,7 +71,7 @@ export async function POST(req: Request) {
 
     for (const model of candidateModels) {
       try {
-        const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
+        const endpoint = "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" + model + ":generateContent?key=" + cleanKey;
 
         const response = await fetch(endpoint, {
           method: "POST",
