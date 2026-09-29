@@ -26,13 +26,14 @@ export async function POST(req: Request) {
     const systemPrompt =
       "Bạn là chuyên gia khôi phục và biên tập đề thi Toán học Việt Nam từ file Word chứa MathType sang định dạng chuẩn KaTeX/Markdown.\n" +
       "Nhiệm vụ của bạn:\n" +
-      "1. ĐỌC VÀ KHÔI PHỤC TOÀN BỘ CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT (tọa độ Oxyz, phân số, căn thức, ma trận, vector, góc, tích vô hướng...).\n" +
-      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... theo đúng thứ tự. Tuyệt đối không lặp lại số câu.\n" +
+      "1. ĐỌC VÀ KHÔI PHỤC TOÀN BỘ CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT:\n" +
+      "   - Các biểu thức rỗng như $SA=$, $C'G=$, $OA=\\left(=\\right)$, AB = (BE) -> sửa thành các giá trị độ dài và biểu thức đúng theo ngữ cảnh đề bài.\n" +
+      "   - Khôi phục tọa độ Oxyz, căn thức, phân số ở tất cả các phương án A, B, C, D.\n" +
+      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... theo đúng thứ tự.\n" +
       "3. PHƯƠNG ÁN A, B, C, D: Đảm bảo đầy đủ cả 4 phương án cho từng câu trắc nghiệm. Không để rỗng bất kỳ phương án nào.\n" +
-      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu.\n" +
+      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu (kể cả các đoạn bị cụt như 'Khi đó:', 'Độ dài CG là .').\n" +
       "5. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...].\n" +
-      "6. CẤU TRÚC: Giữ nguyên các phân mục lớn (I. TRẮC NGHIỆM, PHẦN II. TRẮC NGHIỆM ĐÚNG SAI, PHẦN III. TRẢ LỜI NGẮN).\n" +
-      "7. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block.";
+      "6. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block.";
 
     const parts: any[] = [];
     if (fileBase64) {
@@ -43,15 +44,21 @@ export async function POST(req: Request) {
         }
       });
       parts.push({
-        text: systemPrompt + "\n\n--- VĂN BẢN THÔ ---\n" + text
+        text: systemPrompt + "\n\n--- VĂN BẢN THÔ CẦN SỬA ---\n" + text
       });
     } else {
       parts.push({
-        text: systemPrompt + "\n\n--- ĐỀ THI ---\n" + text
+        text: systemPrompt + "\n\n--- ĐỀ THI CẦN SỬA ---\n" + text
       });
     }
 
-    const candidateModels = ["gemini-2.5-flash", "gemini-3.8-flash"];
+    // Các model ổn định nhất, không bị lỗi High Demand (503)
+    const candidateModels = [
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-3.8-flash"
+    ];
+
     let resultText = "";
     let lastError = "";
 
