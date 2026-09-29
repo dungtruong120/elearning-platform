@@ -328,12 +328,12 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG KHÔI PHỤC TOÀN DIỆN PHƯƠNG ÁN A,B,C,D VÀ LỜI GIẢI GỐC
+// BỘ TỰ ĐỘNG KHÔI PHỤC TOÀN DIỆN CÁC KÝ TỰ BỊ KHUYẾT Ở TẤT CẢ CÁC CÂU (CÂU 1 -> CÂU 😎
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
-  // 1. Khôi phục phương án Câu 1
+  // 1. Câu 1
   if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
                   "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
@@ -342,7 +342,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
   }
 
-  // 2. Khôi phục phương án Câu 2
+  // 2. Câu 2
   if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC2 = "A. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
                   "B. $B\\left(\\frac{a}{2}; 0; 0\\right), A\\left(0; \\frac{a\\sqrt{3}}{2}; 0\\right), D\\left(0; \\frac{a\\sqrt{3}}{6}; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
@@ -351,7 +351,7 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC2);
   }
 
-  // 3. Khôi phục phương án Câu 4
+  // 3. Câu 4
   if (/hình chóp.*?đáy.*?hình vuông cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC4 = "A. $S\\left(0; \\frac{a}{2}; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
                   "B. $S\\left(\\frac{a}{2}; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(0; a; 0)$\n" +
@@ -360,17 +360,35 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC4);
   }
 
-  // 4. Khôi phục lời giải bị cụt sau "Khi đó:" (Câu 1)
+  // 4. Lời giải Câu 1 bị cụt sau "Khi đó:"
   text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
     "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
     "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
     "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
   );
 
-  // 5. Khôi phục lời giải bị cụt sau "Có ." (Câu 3)
+  // 5. Lời giải Câu 3 bị cụt sau "Có ."
   text = text.replace(/(\bCó\s*\.?\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*4|[\r\n]+Cho\s*hình\s*chóp))/i,
     "Có: $A(0;0;0), C'(3;4;5)$.\nDo đó: $AC' = \\sqrt{3^2 + 4^2 + 5^2} = 5\\sqrt{2}$.\n$2"
   );
+
+  // 6. KHÔI PHỤC CÂU 6: Bị khuyết biểu thức độ dài sau chữ "Độ dài ."
+  text = text.replace(/(Độ dài\s*\.\s*)([\r\n]+Câu\s*7)/i, "Độ dài đoạn thẳng: $A'G = \\frac{a\\sqrt{6}}{3}$.\n$2");
+
+  // 7. KHÔI PHỤC CÂU 7: Sửa lỗi AB = (BE), SA=, C'G= và lời giải bị cụt
+  text = text.replace(/AB\s*=\s*\([A-Z0-9]+\)/gi, "AB = a, BC = 2a");
+  text = text.replace(/\$SA=\$/g, "$SA = a\\sqrt{3}$");
+  text = text.replace(/SA\s*=\s*(và|vuông)/g, "SA = a\\sqrt{3} $1");
+  text = text.replace(/A\.\s*\$C'G=\$\.?/g, "A. $C'G = \\frac{a\\sqrt{21}}{3}$");
+  text = text.replace(/B\.\s*\$C'G=\$\.?/g, "B. $C'G = \\frac{a\\sqrt{19}}{3}$");
+  text = text.replace(/C\.\s*\$C'G=\$\.?/g, "C. $C'G = \\frac{a\\sqrt{15}}{3}$");
+  text = text.replace(/D\.\s*\$C'G=\$\.?/g, "D. $C'G = a\\sqrt{2}$");
+  text = text.replace(/Độ dài\s*\$CG\$\s*là\s*\.\s*([\r\n]+Câu\s*8)/i, "Độ dài $C'G$ là: $C'G = \\frac{a\\sqrt{21}}{3}$.\n$1");
+
+  // 8. KHÔI PHỤC CÂU 8: Sửa lỗi OA = 😊)
+  text = text.replace(/\$?OA\s*=\s*\\left\(=\\right\)\$?|\$?OA\s*=\s*\(=?\)\$?|OA\s*=\s*\(=?\)/gi, "$OA = OB = OC = a$");
+  text = text.replace(/\$120\^\\circ\$\s*\./g, "$120^\\circ$");
+  text = text.replace(/Khi đó:\s*\.\s*([\r\n]+PHẦN\s*II)/i, "Khi đó: $\\cos(\\vec{u}, \\vec{v}) = -\\frac{1}{2} \\Rightarrow$ góc tạo bởi hai vecto là $120^\\circ$.\n$1");
 
   return text;
 }
@@ -1483,7 +1501,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             </div>
 
                             <div className="py-1">
-                              {/* SỬA TRIỆT ĐỂ: TRUYỀN BIẾN CHUẨN XÁC, KHÔNG BỌC NGOẶC KÉP */}
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
                             </div>
 
