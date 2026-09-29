@@ -24,17 +24,16 @@ export async function POST(req: Request) {
     }
 
     const systemPrompt =
-      "Bạn là chuyên gia khôi phục và biên tập đề thi Toán học Việt Nam từ file Word chứa MathType sang định dạng chuẩn KaTeX/Markdown.\n" +
+      "Bạn là chuyên gia khôi phục và chuẩn hóa đề thi Toán học Việt Nam từ định dạng Word MathType sang Markdown/LaTeX chuẩn KaTeX.\n" +
       "Nhiệm vụ của bạn:\n" +
-      "1. ĐỌC VÀ KHÔI PHỤC TOÀN BỘ CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT:\n" +
-      "   - Các biểu thức rỗng như $MG=$, $SA=$, $C'G=$, có và . Tính . -> sửa thành các giá trị độ dài và biểu thức đúng theo ngữ cảnh đề bài.\n" +
-      "   - Sửa các phân số rỗng như \\frac{}{4 27} thành \\frac{4}{27} hoặc biểu thức đúng.\n" +
-      "   - Khôi phục tọa độ Oxyz, căn thức, phân số ở tất cả các phương án A, B, C, D.\n" +
-      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... theo đúng thứ tự.\n" +
-      "3. PHƯƠNG ÁN A, B, C, D: Đảm bảo đầy đủ cả 4 phương án cho từng câu trắc nghiệm. Không để rỗng bất kỳ phương án nào.\n" +
-      "4. LỜI GIẢI CHI TIẾT: Khôi phục trọn vẹn phần Lời giải chi tiết của tất cả các câu.\n" +
-      "5. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...].\n" +
-      "6. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block.";
+      "1. ĐỌC VÀ KHÔI PHỤC TỔNG QUÁT MỌI CÔNG THỨC TOÁN BỊ MẤT HOẶC BỊ SÓT:\n" +
+      "   - Khôi phục mọi ký tự MathType bị lỗi rỗng, dấu bằng rỗng 😊), các biểu thức tọa độ không gian Oxyz, vectơ, phân số, căn thức, ma trận, bảng biến thiên.\n" +
+      "   - Đảm bảo các phương án A, B, C, D có nội dung toán học đầy đủ, không để rỗng bất kỳ phương án nào.\n" +
+      "   - Khôi phục trọn vẹn Lời giải chi tiết của tất cả các câu từ Câu 1 đến câu cuối cùng.\n" +
+      "2. ĐÁNH SỐ THỨ TỰ CÂU CHUẨN XÁC: Đánh số lần lượt Câu 1, Câu 2, Câu 3... liên tục, không lặp lại số câu.\n" +
+      "3. PHẦN III TRẢ LỜI NGẮN: Ghi rõ 'Đáp số: <giá trị>', không chèn chữ 'Lời giải' vào sau dấu hai chấm của đáp số.\n" +
+      "4. GIỮ NGUYÊN CÁC THẺ ẢNH: Tuyệt đối giữ nguyên các thẻ ảnh dạng [img:$...$] hoặc [img:https://...].\n" +
+      "5. Chỉ trả về nội dung đề thi đã sửa và phục hồi, KHÔNG thêm lời chào, KHÔNG bọc trong markdown code block.";
 
     const parts: any[] = [];
     if (fileBase64) {
@@ -45,15 +44,14 @@ export async function POST(req: Request) {
         }
       });
       parts.push({
-        text: systemPrompt + "\n\n--- VĂN BẢN THÔ CẦN SỬA ---\n" + text
+        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ VĂN BẢN THÔ TRÍCH XUẤT ĐỂ THAM KHẢO VỊ TRÍ ẢNH ---\n" + text
       });
     } else {
       parts.push({
-        text: systemPrompt + "\n\n--- ĐỀ THI CẦN SỬA ---\n" + text
+        text: systemPrompt + "\n\n--- DƯỚI ĐÂY LÀ ĐỀ THI CẦN SỬA VÀ KHÔI PHỤC ---\n" + text
       });
     }
 
-    // Ưu tiên các model có hạ tầng ổn định nhất, không bị dính High Demand Spike
     const candidateModels = [
       "gemini-2.5-flash",
       "gemini-2.0-flash"
