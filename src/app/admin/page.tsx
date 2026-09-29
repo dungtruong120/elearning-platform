@@ -690,7 +690,7 @@ function AdminDashboardContent() {
       isoDate: newSessionForm.isoDate, 
       displayDate: newSessionForm.displayDate, 
       shiftId: "custom", 
-      shiftName: "Ca học",
+      shiftName: "Ca học", 
       timeSlot: "19:30 - 21:00", 
       meetingUrl: "", 
       guideImagesText: "", 
@@ -798,7 +798,6 @@ function AdminDashboardContent() {
     return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
-  // FIX TRIỆT ĐỂ: TRÁNH GỌI .toFixed TRÊN GIÁ TRỊ STRING GÂY CRASH
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
     const filteredAttempts = (allAttempts || []).filter(att => {
@@ -1174,9 +1173,10 @@ function AdminDashboardContent() {
                         <p className="text-2xl font-black text-slate-900">{(practiceExams || []).length}</p>
                       </div>
                     </div>
+                    {/* TẢI ĐỀ THI LUYỆN ĐỀ: CHẤP NHẬN CẢ DOCX LẪN PDF */}
                     <label className="flex items-center gap-2 px-6 py-3.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[13px] font-bold rounded-2xl shadow-md transition-all cursor-pointer">
-                      <UploadCloud className="w-5 h-5" /> + Tải lên Đề thi mới (.docx)
-                      <input type="file" accept=".docx" className="hidden" onChange={(e) => {
+                      <UploadCloud className="w-5 h-5" /> + Tải lên Đề thi mới (.docx / .pdf)
+                      <input type="file" accept=".docx,.pdf" className="hidden" onChange={(e) => {
                         if (e.target.files?.[0]) { setTestFile(e.target.files[0]); setUploadMode("practice"); }
                         e.target.value = "";
                       }} />
@@ -2510,7 +2510,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL AZOTA */}
+      {/* MODAL AZOTA CONFIG */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
@@ -2574,21 +2574,56 @@ function AdminDashboardContent() {
         />
       )}
 
+      {/* POPUP PHƯƠNG THỨC UPLOAD: HỖ TRỢ CẢ FILE WORD VÀ FILE PDF ĐỂ TRÍCH XUẤT */}
       {uploadMethodModal && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-[24px] p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-[28px] p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2">
-                Thêm {uploadMethodModal.type === 'homework_files' ? 'BTVN' : 'Đề Kiểm Tra'}
-              </h3>
-              <button type="button" onClick={() => setUploadMethodModal(null)} className="text-slate-400 hover:text-rose-500"><X className="w-5 h-5"/></button>
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  Thêm {uploadMethodModal.type === 'homework_files' ? 'Bài tập về nhà (BTVN)' : 'Đề Kiểm Tra'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Chọn phương thức nạp đề thi để hệ thống tự động bóc tách</p>
+              </div>
+              <button type="button" onClick={() => setUploadMethodModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer p-1"><X className="w-5 h-5"/></button>
             </div>
+            
             <div className="flex flex-col gap-3 mt-4">
-              <label className="relative p-4 border border-blue-200 bg-blue-50/50 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group">
-                <div className="p-3 bg-white rounded-xl shadow-sm group-hover:scale-105 transition-transform"><FileUp className="w-6 h-6 text-blue-600" /></div>
-                <div>
-                  <div className="font-bold text-blue-900 text-[14px]">Tải lên file Word (.docx)</div>
-                  <div className="text-xs text-blue-700/80 mt-1 leading-relaxed">Hệ thống Azota sẽ tự động bóc tách trắc nghiệm trực tuyến chấm tự động.</div>
+              {/* NÚT TẢI PDF (KHUYẾN NGHỊ VÌ KHÔNG BỊ LỖI MATHTYPE) */}
+              <label className="relative p-4 border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl hover:bg-indigo-100/60 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
+                <div className="p-3 bg-white text-indigo-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-indigo-950 text-[14px]">Tải lên file PDF (.pdf)</span>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
+                  </div>
+                  <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
+                    AI Gemini Vision sẽ quét trang PDF trực tiếp, khôi phục 100% MathType, phân số, căn thức và toạ độ Oxyz mà không bị trượt byte.
+                  </div>
+                </div>
+                <input type="file" accept=".pdf" className="hidden" onChange={(e) => {
+                  if (e.target.files?.[0]) {
+                    setTestFile(e.target.files[0]);
+                    setUploadMode("course");
+                    setAzotaTarget({ lessonId: uploadMethodModal.lessonId, type: uploadMethodModal.type });
+                    setUploadMethodModal(null);
+                  }
+                  e.target.value = '';
+                }}/>
+              </label>
+
+              {/* NÚT TẢI FILE WORD (.DOCX) */}
+              <label className="relative p-4 border border-blue-200 bg-blue-50/40 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
+                <div className="p-3 bg-white text-blue-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
+                  <FileUp className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-extrabold text-blue-950 text-[14px]">Tải lên file Word (.docx)</div>
+                  <div className="text-xs text-blue-800/80 mt-1 leading-relaxed">
+                    Hệ thống sẽ trích xuất nhanh cấu trúc văn bản và thẻ ảnh đồ thị từ file Word gốc.
+                  </div>
                 </div>
                 <input type="file" accept=".docx" className="hidden" onChange={(e) => {
                   if (e.target.files?.[0]) {
@@ -2601,11 +2636,16 @@ function AdminDashboardContent() {
                 }}/>
               </label>
               
-              <button onClick={() => { setDriveLinkModal(uploadMethodModal); setUploadMethodModal(null); }} className="p-4 border border-emerald-200 bg-emerald-50/50 rounded-2xl hover:bg-emerald-100/50 transition cursor-pointer flex items-start gap-4 text-left group">
-                <div className="p-3 bg-white rounded-xl shadow-sm group-hover:scale-105 transition-transform"><LinkIcon className="w-6 h-6 text-emerald-600" /></div>
-                <div>
-                  <div className="font-bold text-emerald-900 text-[14px]">Đính kèm Link Google Drive</div>
-                  <div className="text-xs text-emerald-700/80 mt-1 leading-relaxed">Dán link file PDF/Word để học sinh xem hoặc tự làm (không chấm tự động).</div>
+              {/* NÚT GẮN LINK DRIVE FILE PDF/WORD */}
+              <button onClick={() => { setDriveLinkModal(uploadMethodModal); setUploadMethodModal(null); }} className="p-4 border border-emerald-200 bg-emerald-50/40 rounded-2xl hover:bg-emerald-100/50 transition cursor-pointer flex items-start gap-4 text-left group shadow-2xs">
+                <div className="p-3 bg-white text-emerald-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
+                  <LinkIcon className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-extrabold text-emerald-950 text-[14px]">Đính kèm Link Google Drive</div>
+                  <div className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
+                    Dán link file PDF/Word để học sinh tải về hoặc tự làm thủ công (không chấm tự động).
+                  </div>
                 </div>
               </button>
             </div>
@@ -2756,7 +2796,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL THÊM NGÀY HỌC - TỰ DO TÙY BIẾN KHUNG GIỜ */}
+      {/* MODAL THÊM NGÀY HỌC */}
       {isAddDateModalOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleAddNewAttendanceDate} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
