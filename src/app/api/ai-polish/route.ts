@@ -1,7 +1,10 @@
+```typescript
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function POST(req: Request) {
   try {
@@ -61,22 +64,16 @@ export async function POST(req: Request) {
       });
     }
 
-    const candidateModels = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash"
-    ];
+    const host = String.fromCharCode(103,101,110,101,114,97,116,105,118,101,108,97,110,103,117,97,103,101,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109);
+    const targetModel = "gemini-3.8-flash";
+    const fullUrl = "https://" + host + "/v1beta/models/" + targetModel + ":generateContent?key=" + cleanKey;
 
     let resultText = "";
     let lastError = "";
 
-    // Tạo URL an toàn tuyệt đối bằng mảng mã ASCII để ngăn chặn mọi trình biên tập tự sinh markdown link [...]()
-    const domainChars = [103,101,110,101,114,97,116,105,118,101,108,97,110,103,117,97,103,101,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109];
-    const host = String.fromCharCode(...domainChars);
-
-    for (const model of candidateModels) {
+    // Thực hiện gọi API với cơ chế tự động thử lại tối đa 3 lần nếu gặp quá tải cục bộ
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const fullUrl = "https://" + host + "/v1beta/models/" + model + ":generateContent?key=" + cleanKey;
-
         const response = await fetch(fullUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -94,7 +91,7 @@ export async function POST(req: Request) {
         try {
           data = JSON.parse(resText);
         } catch {
-          lastError = "Lỗi phản hồi từ Google AI";
+          lastError = "Lỗi phản hồi cấu trúc dữ liệu từ máy chủ";
           continue;
         }
 
@@ -102,15 +99,22 @@ export async function POST(req: Request) {
           resultText = data.candidates[0].content.parts[0].text;
           break;
         } else {
-          lastError = data?.error?.message || ("Lỗi model " + model);
+          lastError = data?.error?.message || "Máy chủ AI đang phản hồi chậm";
+          // Nếu gặp lỗi quá tải tải cao điểm (high demand), tạm dừng và thử lại
+          if (resText.includes("high demand") || response.status === 503 || response.status === 429) {
+            await sleep(1500 * attempt);
+            continue;
+          }
+          break;
         }
       } catch (err: any) {
         lastError = err?.message || String(err);
+        await sleep(1500 * attempt);
       }
     }
 
     if (!resultText) {
-      return NextResponse.json({ error: lastError || "Máy chủ AI đang bận!" }, { status: 400 });
+      return NextResponse.json({ error: lastError || "Máy chủ AI hiện tại đang bận, vui lòng thử lại sau vài giây!" }, { status: 400 });
     }
 
     return NextResponse.json({ result: resultText });
