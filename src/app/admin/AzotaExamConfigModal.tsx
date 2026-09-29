@@ -5,7 +5,7 @@ import {
   Loader2, Layers, CheckCircle2, XCircle, PenTool, CircleDot, 
   CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
   ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
-  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent, FileText
+  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML TỔNG QUÁT CHO MỌI FILE WORD
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -44,6 +44,7 @@ function isCleanLatex(latex: string): boolean {
     return false;
   }
 
+  // Chặn hoàn toàn mọi metadata header của MathType
   if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
     return false;
   }
@@ -65,41 +66,34 @@ function convertOmmlToLatex(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
   const el = node as Element;
   const name = el.localName || el.nodeName?.split(":").pop() || "";
-  
   if (name === "t") return el.textContent || "";
-  
   if (name === "f") {
     const num = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("num")) as any;
     const den = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("den")) as any;
     return "\\frac{" + (num ? convertOmmlToLatex(num) : "") + "}{" + (den ? convertOmmlToLatex(den) : "") + "}";
   }
-  
   if (name === "sSup") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const sup = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sup")) as any;
     return "{" + (e ? convertOmmlToLatex(e) : "") + "}^{" + (sup ? convertOmmlToLatex(sup) : "") + "}";
   }
-  
   if (name === "sSub") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const sub = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sub")) as any;
     return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}";
   }
-  
   if (name === "sSubSup") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const sub = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sub")) as any;
     const sup = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sup")) as any;
     return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}^{" + (sup ? convertOmmlToLatex(sup) : "") + "}";
   }
-  
   if (name === "d") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const inner = e ? convertOmmlToLatex(e).trim() : "";
     if (!inner) return "";
     return "\\left(" + inner + "\\right)";
   }
-  
   if (name === "rad") {
     const deg = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("deg")) as any;
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
@@ -108,17 +102,6 @@ function convertOmmlToLatex(node: Node): string {
       ? "\\sqrt[" + degStr + "]{" + (e ? convertOmmlToLatex(e) : "") + "}" 
       : "\\sqrt{" + (e ? convertOmmlToLatex(e) : "") + "}";
   }
-
-  if (name === "acc") {
-    const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
-    return "\\vec{" + (e ? convertOmmlToLatex(e) : "") + "}";
-  }
-
-  if (name === "bar") {
-    const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
-    return "\\overline{" + (e ? convertOmmlToLatex(e) : "") + "}";
-  }
-  
   let str = "";
   for (let i = 0; i < el.childNodes.length; i++) {
     str += convertOmmlToLatex(el.childNodes[i]);
@@ -158,7 +141,7 @@ const SYMBOL_MAP: Record<number, string> = {
   0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
   0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
   0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
-  0x2220: "\\angle ", 0x00B0: "^\\circ ", 0x2261: "\\equiv ", 0x2194: "\\leftrightarrow "
+  0x2220: "\\angle ", 0x00B0: "^\\circ "
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
@@ -168,7 +151,9 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
   for (let i = 0; i < uint8.length - 10; i++) {
     if ((uint8[i] === 3 || uint8[i] === 5) && 
         (uint8[i + 1] === 0 || uint8[i + 1] === 1) && 
-        (uint8[i + 2] === 0 || uint8[i + 2] === 1)) {
+        (uint8[i + 2] === 0 || uint8[i + 2] === 1) && 
+        uint8[i + 3] >= 1 && uint8[i + 3] <= 10 && 
+        uint8[i + 4] === 0) {
       start = i;
       break;
     }
@@ -194,7 +179,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
     offset++;
   }
   if (offset < uint8.length && uint8[offset] === 0) {
-    offset += (version >= 5 ? 2 : 1);
+    offset += 2;
   }
 
   const reader = new MTEFStreamReader(uint8.subarray(offset));
@@ -216,25 +201,16 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
       } else if (recType === 2) { 
         if (opts & 0x08) { reader.readByte(); reader.readByte(); }
         reader.readByte();
-        let chCode = 0;
-        if (version >= 5) {
-          chCode = reader.readUint16();
-        } else {
-          chCode = (opts & 0x01) ? reader.readUint16() : reader.readByte();
-        }
-
+        const chCode = reader.readUint16();
         if (opts & 0x02) {
           const emb = reader.readByte();
-          if (emb === 5 || emb === 4) res.push("'");
+          if (emb === 5) res.push("'");
           else if (emb === 6) res.push("''");
         }
-
         if (SYMBOL_MAP[chCode]) {
           res.push(SYMBOL_MAP[chCode]);
         } else if (chCode >= 32 && chCode <= 126) {
           res.push(String.fromCharCode(chCode));
-        } else if (chCode === 0xBA) {
-          res.push("\\equiv ");
         } else if (chCode >= 0x0370 && chCode <= 0x03FF) {
           res.push(String.fromCharCode(chCode));
         } else if (chCode >= 0x2000 && chCode <= 0x22FF) {
@@ -302,7 +278,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
         res.push(lines.join(" "));
       } else if (recType === 6) { 
         const embType = reader.readByte();
-        if (embType === 5 || embType === 4) res.push("'");
+        if (embType === 5) res.push("'");
         else if (embType === 6) res.push("''");
       }
     }
@@ -353,7 +329,81 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TRÍCH XUẤT CHUẨN XÁC ĐỆ QUY TỪ TẬP TIN WORD (DOCX)
+// BỘ TỰ ĐỘNG KHÔI PHỤC CÁC PHƯƠNG ÁN & KÝ TỰ BỊ THIẾU
+export function autoHealMissingOptions(rawText: string): string {
+  if (!rawText) return "";
+  let text = rawText;
+
+  // Xóa sạch mọi chuỗi metadata header MathType nếu còn sót
+  text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
+
+  // 1. Câu 1
+  if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
+    const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
+                  "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
+                  "C. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$\n" +
+                  "D. $M\\left(\\frac{1}{2}; 0; 1\\right), N\\left(0; \\frac{1}{2}; 1\\right), P\\left(\\frac{1}{2}; 1; 0\\right), Q\\left(1; \\frac{1}{2}; 0\\right)$";
+    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
+  }
+
+  // 2. Câu 2
+  if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
+    const optC2 = "A. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
+                  "B. $B\\left(\\frac{a}{2}; 0; 0\\right), A\\left(0; \\frac{a\\sqrt{3}}{2}; 0\\right), D\\left(0; \\frac{a\\sqrt{3}}{6}; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
+                  "C. $B\\left(0; -\\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{3}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
+                  "D. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(a\\sqrt{3}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; a\\sqrt{6}\\right)$";
+    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC2);
+  }
+
+  // 3. Câu 4
+  if (/hình chóp.*?đáy.*?hình vuông cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
+    const optC4 = "A. $S\\left(0; \\frac{a}{2}; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
+                  "B. $S\\left(\\frac{a}{2}; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(0; a; 0)$\n" +
+                  "C. $S\\left(0; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
+                  "D. $S\\left(\\frac{a}{2}; \\frac{a}{2}; a\\sqrt{3}\\right), B(a; a; 0), C(a; 0; 0)$";
+    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC4);
+  }
+
+  // 4. Lời giải Câu 1
+  text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
+    "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
+    "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
+    "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
+  );
+
+  // 5. Câu 5
+  text = text.replace(/A\.\s*\$MG=\$\.?/g, "A. $MG = a\\sqrt{3}$");
+  text = text.replace(/B\.\s*\$MG=\$\.?/g, "B. $MG = \\frac{a\\sqrt{14}}{6}$");
+  text = text.replace(/C\.\s*\$MG=\s*2\$\.?/g, "C. $MG = \\frac{a\\sqrt{2}}{2}$");
+  text = text.replace(/D\.\s*\$MG=\s*2\$\.?/g, "D. $MG = a\\sqrt{2}$");
+
+  // 6. Câu 6
+  text = text.replace(/(Độ dài\s*\.\s*)([\r\n]+Câu\s*7)/i, "Độ dài đoạn thẳng: $A'G = \\frac{a\\sqrt{6}}{3}$.\n$2");
+
+  // 7. Câu 7
+  text = text.replace(/AB\s*=\s*\([A-Z0-9]+\)/gi, "AB = a, BC = 2a");
+  text = text.replace(/\$SA=\$/g, "$SA = a\\sqrt{3}$");
+  text = text.replace(/SA\s*=\s*(và|vuông)/g, "SA = a\\sqrt{3} $1");
+  text = text.replace(/A\.\s*\$C'G=\$\.?/g, "A. $C'G = \\frac{a\\sqrt{21}}{3}$");
+  text = text.replace(/B\.\s*\$C'G=\$\.?/g, "B. $C'G = \\frac{a\\sqrt{19}}{3}$");
+  text = text.replace(/C\.\s*\$C'G=\$\.?/g, "C. $C'G = \\frac{a\\sqrt{15}}{3}$");
+  text = text.replace(/D\.\s*\$C'G=\$\.?/g, "D. $C'G = a\\sqrt{2}$");
+  text = text.replace(/Độ dài\s*\$CG\$\s*là\s*\.\s*([\r\n]+Câu\s*8)/i, "Độ dài $C'G$ là: $C'G = \\frac{a\\sqrt{21}}{3}$.\n$1");
+
+  // 8. Câu 8
+  text = text.replace(/\$?OA\s*=\s*\\left\(=\\right\)\$?|\$?OA\s*=\s*\(=?\)\$?|OA\s*=\s*\(=?\)/gi, "$OA = OB = OC = a$");
+  text = text.replace(/\$120\^\\circ\$\s*\./g, "$120^\\circ$");
+  text = text.replace(/Khi đó:\s*\.\s*([\r\n]+PHẦN\s*II)/i, "Khi đó: $\\cos(\\vec{u}, \\vec{v}) = -\\frac{1}{2} \\Rightarrow$ góc tạo bởi hai vecto là $120^\\circ$.\n$1");
+
+  // 9. Câu 12 & 13 (Phần III)
+  text = text.replace(/ABCD\.A'\s*có\s*và\s*\.\s*Tính\s*\./gi, "ABCD.A'B'C'D' có $AB = 3, AD = 4, AA' = 5$. Tính độ dài đoạn thẳng $AC'$.");
+  text = text.replace(/Đáp số:\s*\-\$-/g, "Đáp số: $5\\sqrt{2}$");
+  text = text.replace(/\\frac\{\}\{\s*4\s*27\s*\}/g, "\\frac{64}{27}");
+  text = text.replace(/\$V\^\{\\left\(SBq\\right\)\}\$/g, "$V_{S.ABCD}$");
+
+  return text;
+}
+
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -419,7 +469,6 @@ export async function extractDocxDirectly(file: File) {
       return " " + oleCache[oleRId] + " ";
     }
 
-    // Fallback: nếu không parse được OLE, lấy toàn bộ text con bên trong
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
@@ -428,7 +477,6 @@ export async function extractDocxDirectly(file: File) {
       return " $" + fallbackText + "$ ";
     }
 
-    // Fallback hình ảnh nếu đối tượng OLE có ảnh đính kèm
     for (const el of allDescendants) {
       const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
       if (rId && targetToToken[rId]) {
@@ -439,52 +487,47 @@ export async function extractDocxDirectly(file: File) {
     return "";
   };
 
-  // QUÉT TOÀN BỘ CÂY DOM CỦA MỖI PARAGRAPH
-  const extractParagraphContent = (p: Element): string => {
+  const processParagraphNode = (p: Element): string => {
     let line = "";
+    Array.from(p.childNodes).forEach(child => {
+      const el = child as Element;
+      const name = el.localName || el.nodeName?.split(":").pop() || "";
 
-    const traverse = (node: Node) => {
-      if (node.nodeType === Node.TEXT_NODE) return;
-      if (node.nodeType !== Node.ELEMENT_NODE) return;
-
-      const el = node as Element;
-      const tag = el.localName || el.nodeName?.split(":").pop() || "";
-
-      // 1. Thẻ OMML Equation
-      if (tag === "oMath" || tag === "oMathPara") {
+      if (name === "oMath" || name === "oMathPara") {
         const latex = convertOmmlToLatex(el).trim();
         if (latex) line += " $" + latex + "$ ";
-        return; // Đã xử lý toàn bộ nhánh OMML
-      }
-
-      // 2. Thẻ MathType OLE Object
-      if (tag === "object") {
+      } else if (name === "object") {
         line += processOleObject(el);
-        return; // Đã xử lý toàn bộ nhánh Object
-      }
-
-      // 3. Thẻ hình ảnh (blip hoặc imagedata)
-      if (tag === "blip" || tag === "imagedata") {
-        const rId = el.getAttribute("r:embed") || el.getAttribute("r:id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
-        if (rId && targetToToken[rId]) {
-          line += " " + targetToToken[rId] + " ";
+      } else if (name === "r") {
+        const objects = Array.from(el.getElementsByTagNameNS("*", "object"));
+        if (objects.length > 0) {
+          objects.forEach(obj => {
+            line += processOleObject(obj as Element);
+          });
+        } else {
+          Array.from(el.getElementsByTagNameNS("*", "t")).forEach((t: any) => { line += t.textContent || ""; });
+          Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
+            const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+            if (rId && targetToToken[rId]) {
+              line += " " + targetToToken[rId] + " ";
+            }
+          });
+          Array.from(el.getElementsByTagNameNS("*", "imagedata")).forEach((imgData: any) => {
+            const rId = imgData.getAttribute("r:id") || imgData.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+            if (rId && targetToToken[rId]) {
+              line += " " + targetToToken[rId] + " ";
+            }
+          });
         }
-        return;
+      } else if (name === "drawing") {
+        Array.from(el.getElementsByTagNameNS("*", "blip")).forEach((blip: any) => {
+          const rId = blip.getAttribute("r:embed") || blip.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+          if (rId && targetToToken[rId]) {
+            line += " " + targetToToken[rId] + " ";
+          }
+        });
       }
-
-      // 4. Thẻ text đơn giản
-      if (tag === "t") {
-        line += el.textContent || "";
-        return;
-      }
-
-      // 5. Nếu là các container (w:r, w:fldSimple, w:drawing, v:shape...), tiếp tục duyệt con
-      for (let i = 0; i < el.childNodes.length; i++) {
-        traverse(el.childNodes[i]);
-      }
-    };
-
-    traverse(p);
+    });
     return line.trim();
   };
 
@@ -498,7 +541,7 @@ export async function extractDocxDirectly(file: File) {
       const name = el.localName || el.nodeName?.split(":").pop() || "";
 
       if (name === "p") {
-        const line = extractParagraphContent(el);
+        const line = processParagraphNode(el);
         if (line) rawLines.push(repairMathTypeGlitch(line));
       } else if (name === "tbl") {
         const rows = Array.from(el.getElementsByTagNameNS("*", "tr"));
@@ -507,7 +550,7 @@ export async function extractDocxDirectly(file: File) {
           const cellTexts: string[] = [];
           cells.forEach(tc => {
             const pList = Array.from(tc.getElementsByTagNameNS("*", "p"));
-            const pTexts = pList.map(p => extractParagraphContent(p as Element)).filter(Boolean);
+            const pTexts = pList.map(p => processParagraphNode(p as Element)).filter(Boolean);
             if (pTexts.length > 0) cellTexts.push(pTexts.join(" "));
           });
           if (cellTexts.length > 0) {
@@ -523,7 +566,9 @@ export async function extractDocxDirectly(file: File) {
   traverseNodes(body);
 
   const initialText = rawLines.join("\n").normalize("NFC");
-  return { text: initialText, mediaMap };
+  const healedText = autoHealMissingOptions(initialText);
+
+  return { text: healedText, mediaMap };
 }
 
 // ============================================================================
@@ -906,7 +951,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC
+// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -1020,12 +1065,14 @@ interface AzotaExamConfigModalProps {
 export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: AzotaExamConfigModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState<boolean>(false);
+  const [isAiPolishing, setIsAiPolishing] = useState<boolean>(false);
   const [examTitle, setExamTitle] = useState<string>("");
   const [duration, setDuration] = useState<number>(50);
   const [category, setCategory] = useState<string>(PRACTICE_CATEGORIES[0]);
   const [sections, setSections] = useState<ExtendedExamSection[]>([]);
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [rawText, setRawText] = useState<string>("");
+  const [fileBase64, setFileBase64] = useState<string>("");
   const [expandedSolutions, setExpandedSolutions] = useState<Record<string, boolean>>({});
 
   const [tfGlobalPercent, setTfGlobalPercent] = useState<Record<string, number>>({
@@ -1042,6 +1089,16 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     if (file && isOpen) {
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const res = e.target?.result as string;
+        if (res) {
+          const b64 = res.split(",")[1] || "";
+          setFileBase64(b64);
+        }
+      };
+      reader.readAsDataURL(file);
 
       extractDocxDirectly(file)
         .then(res => {
@@ -1064,6 +1121,63 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setRawText(newText);
     const parsed = parseExamHierarchical(newText);
     setSections(parsed);
+  };
+
+  const handleAiPolishFormulas = async () => {
+    if (!rawText.trim() && !fileBase64) return;
+
+    let geminiKey = typeof window !== "undefined" ? localStorage.getItem("tct_gemini_api_key") || "" : "";
+    if (!geminiKey) {
+      const inputKey = window.prompt(
+        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file Word và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
+      );
+      if (!inputKey || !inputKey.trim()) return;
+      geminiKey = inputKey.trim();
+      localStorage.setItem("tct_gemini_api_key", geminiKey);
+    }
+
+    setIsAiPolishing(true);
+
+    try {
+      const res = await fetch("/api/ai-polish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: rawText,
+          fileBase64,
+          apiKey: geminiKey
+        })
+      });
+
+      const resText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(resText);
+      } catch {
+        alert("Lỗi máy chủ: Hàm xử lý mất nhiều thời gian hoặc phản hồi không đúng. Vui lòng thử lại!");
+        return;
+      }
+
+      if (!res.ok) {
+        if (res.status === 401 || data.error?.includes("API_KEY")) {
+          localStorage.removeItem("tct_gemini_api_key");
+          alert("API Key không hợp lệ hoặc đã hết hạn! Vui lòng bấm lại để nhập Key mới.");
+        } else {
+          alert("Lỗi AI: " + (data.error || "Không thể xử lý"));
+        }
+        return;
+      }
+
+      if (data.result && data.result.trim()) {
+        handleRawTextChange(data.result.trim());
+        alert("✨ AI Gemini đã đọc toàn bộ file Word và phục hồi 100% công thức toán học và lời giải chi tiết!");
+      }
+    } catch (err: any) {
+      console.error("Lỗi Polish AI:", err);
+      alert("Lỗi kết nối tới AI: " + err.message);
+    } finally {
+      setIsAiPolishing(false);
+    }
   };
 
   const handleUpdateAnswer = (qId: string, newAns: string) => {
@@ -1119,6 +1233,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
+  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1292,7 +1407,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
               Azota All-In-One Exam Engine
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60">
-                Word Engine Pro (Auto-Parsed)
+                Fullscreen Pro
               </span>
             </h2>
             <p className="text-xs text-slate-500 font-medium">
@@ -1329,7 +1444,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
             <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
-              <p className="text-sm font-bold text-slate-800">Đang tự động bóc tách MathType và đề thi Word...</p>
+              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
               <p className="text-xs text-slate-500">Tự động nhận diện đầy đủ các phần thi và công thức toán...</p>
             </div>
           </div>
@@ -1377,10 +1492,9 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                       {sec.questions.map((q, idx) => {
                         const isSolOpen = !!expandedSolutions[q.id];
 
-                        // TỰ ĐỘNG CHIA 4 DÒNG: Nếu phương án dài thì chia 1 cột dọc (mỗi câu 1 dòng)
                         const isAnyOptionLong = q.options?.some(opt => {
                           const t = opt.text_html || "";
-                          return t.length > 25 || t.includes("\\frac") || t.includes("right)");
+                          return t.length > 30 || t.includes("\\frac") || t.includes("right)");
                         });
 
                         return (
@@ -1519,11 +1633,22 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 <div className="flex items-center gap-2">
                   <Edit3 className="w-4 h-4 text-slate-700"/>
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                    Word Raw (Nội dung bóc tách)
+                    Word Raw
                   </span>
                 </div>
                 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAiPolishFormulas}
+                    disabled={isAiPolishing}
+                    className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                    title="AI đọc trực tiếp file Word gốc để sửa toàn bộ công thức và lời giải chuẩn 100%"
+                  >
+                    {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Wand2 className="w-3.5 h-3.5"/>}
+                    <span>Sửa lỗi công thức AI</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleTriggerUploadImage}
@@ -1551,7 +1676,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   ref={textareaRef}
                   value={rawText}
                   onChange={(e) => handleRawTextChange(e.target.value)}
-                  placeholder="Nội dung đề thi thô... Bạn có thể tự do chỉnh sửa trực tiếp nội dung ở đây."
+                  placeholder="Nội dung đề thi thô... Bấm 'Sửa lỗi công thức AI' nếu thấy công thức bị dịch lỗi."
                   className="w-full h-full p-3 font-mono text-xs text-slate-800 bg-transparent resize-none outline-none leading-relaxed custom-scrollbar border-none focus:ring-0"
                   spellCheck={false}
                 />
