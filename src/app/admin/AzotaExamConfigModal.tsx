@@ -328,23 +328,6 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-export function autoHealMissingOptions(rawText: string): string {
-  if (!rawText) return "";
-  let text = rawText;
-
-  text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
-
-  if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
-    const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
-                  "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
-                  "C. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$\n" +
-                  "D. $M\\left(\\frac{1}{2}; 0; 1\\right), N\\left(0; \\frac{1}{2}; 1\\right), P\\left(\\frac{1}{2}; 1; 0\\right), Q\\left(1; \\frac{1}{2}; 0\\right)$";
-    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
-  }
-
-  return text;
-}
-
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -506,14 +489,11 @@ export async function extractDocxDirectly(file: File) {
 
   traverseNodes(body);
 
-  const initialText = rawLines.join("\n").normalize("NFC");
-  const healedText = autoHealMissingOptions(initialText);
-
-  return { text: healedText, mediaMap };
+  return { text: rawLines.join("\n").normalize("NFC"), mediaMap };
 }
 
 // ============================================================================
-// 1.5 ENGINE CẮT PDF CAO CẤP: NỐI TRANG THÔNG MINH, TÁCH LỜI GIẢI & ĐỌC ĐÁP ÁN
+// 1.5 BỘ TÁCH & CẮT PDF CHÍNH XÁC: LOẠI BỎ LỜI GIẢI, ĐỌC ĐÁP ÁN, PHÂN PHẦN
 // ============================================================================
 
 function loadPdfJsScript(): Promise<any> {
@@ -624,7 +604,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       const pdfY = tx[5];
       const canvasY = Math.round(viewport.height - (pdfY * SCALE));
 
-      if (canvasY < 45 || canvasY > viewport.height - 75) continue;
+      if (canvasY < 35 || canvasY > viewport.height - 65) continue;
 
       let matchedY = Object.keys(lineBuckets).map(Number).find(y => Math.abs(y - canvasY) <= 6);
       if (matchedY === undefined) {
@@ -683,7 +663,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
         pageIdx: line.pageIdx,
         type: "question",
         qNum: parseInt(qMatch[1], 10),
-        yPos: Math.max(0, line.yPos - 25),
+        yPos: Math.max(0, line.yPos - 24),
         fullText: t
       });
       continue;
@@ -705,7 +685,6 @@ export async function processPdfExamDirectly(file: File): Promise<{
     return a.yPos - b.yPos;
   });
 
-  // HÀM CẮT GHÉP LIÊN TRANG (Xử lý trường hợp câu hỏi bị ngắt ngang qua 2 trang)
   const cropMultiPageArea = (startPage: number, startY: number, endPage: number, endY: number): string => {
     if (startPage === endPage) {
       const srcCanvas = pageCanvases[startPage];
@@ -722,13 +701,12 @@ export async function processPdfExamDirectly(file: File): Promise<{
       return autoTrimCanvasWhitespace(cropped);
     }
 
-    // Nối canvas giữa 2 trang liên tiếp
     const canvas1 = pageCanvases[startPage];
     const canvas2 = pageCanvases[endPage];
     if (!canvas1 || !canvas2) return "";
 
-    const h1 = Math.max(20, (canvas1.height - 75) - startY);
-    const h2 = Math.max(20, endY - 45);
+    const h1 = Math.max(20, (canvas1.height - 65) - startY);
+    const h2 = Math.max(20, endY - 40);
 
     const merged = document.createElement("canvas");
     merged.width = Math.max(canvas1.width, canvas2.width);
@@ -740,7 +718,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
     mCtx.fillRect(0, 0, merged.width, merged.height);
 
     mCtx.drawImage(canvas1, 0, startY, canvas1.width, h1, 0, 0, canvas1.width, h1);
-    mCtx.drawImage(canvas2, 0, 45, canvas2.width, h2, 0, h1 + 10, canvas2.width, h2);
+    mCtx.drawImage(canvas2, 0, 40, canvas2.width, h2, 0, h1 + 10, canvas2.width, h2);
 
     return autoTrimCanvasWhitespace(merged);
   };
@@ -804,9 +782,8 @@ export async function processPdfExamDirectly(file: File): Promise<{
         }
       }
 
-      // Xác định điểm kết thúc của câu hỏi
       let qEndPage = startPage;
-      let qEndY = pageCanvases[startPage].height - 75;
+      let qEndY = pageCanvases[startPage].height - 65;
 
       if (solMarker) {
         qEndPage = solMarker.pageIdx;
@@ -816,7 +793,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
         qEndY = Math.max(20, nextQuestionMarker.yPos - 12);
       }
 
-      // 1. Cắt riêng ảnh ĐỀ BÀI (hỗ trợ liên trang nếu đề bị tràn qua 2 trang)
+      // 1. CẮT ẢNH ĐỀ BÀI (Chỉ đề và phương án, NGẮT NGAY TRƯỚC LỜI GIẢI)
       const promptImg = cropMultiPageArea(startPage, startY, qEndPage, qEndY);
       const promptKey = "img_pdf_q_" + qNum + "_" + i;
       mediaMap[promptKey] = promptImg;
@@ -825,12 +802,12 @@ export async function processPdfExamDirectly(file: File): Promise<{
       let solText = "";
       let solutionHtml = "";
 
-      // 2. Cắt riêng ảnh LỜI GIẢI nếu có
+      // 2. CẮT ẢNH LỜI GIẢI RIÊNG BIỆT (bắt đầu từ chữ Lời giải)
       if (solMarker) {
         const solStartPage = solMarker.pageIdx;
         const solStartY = solMarker.yPos;
         let solEndPage = solStartPage;
-        let solEndY = pageCanvases[solStartPage].height - 75;
+        let solEndY = pageCanvases[solStartPage].height - 65;
 
         if (nextQuestionMarker) {
           solEndPage = nextQuestionMarker.pageIdx;
@@ -859,7 +836,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       let optionsList: QuestionOption[] = [];
 
       if (finalType === "true_false") {
-        // Tách chuỗi Đúng/Sai (Đ/S/S/S)
+        // Tự động nhận diện chuỗi Đ/S (Đ/S/S/S)
         const tfMatch = blockAllText.match(/Đáp\s*án\s*:\s*([ĐSđs\/\s]+)/i);
         let tfSeq = ["S", "S", "S", "S"];
         if (tfMatch && tfMatch[1]) {
@@ -968,7 +945,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI (CHO WORD .DOCX)
+// 2. BÓC TÁCH CHO FILE WORD .DOCX
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
@@ -986,74 +963,6 @@ function getSectionTypeFromTitle(title: string): QuestionType {
   if (/đúng\s*sai|true\s*false/i.test(title)) return "true_false";
   if (/trả\s*lời\s*ngắn|điền\s*khuyết|short\s*answer/i.test(title)) return "short_answer";
   return "multiple_choice";
-}
-
-function processBodyAndNumberQuestions(text: string, startQIdx: number, secType: QuestionType): { labeledText: string; nextQIdx: number } {
-  const norm = normalizeOptionsSmart(text);
-
-  if (secType === "true_false") {
-    const qSplit = norm.split(/(?:^|[\r\n]+)(?:Câu|Bài|Question)\s*\d+[:.]?\s*/gi).filter(Boolean);
-    if (qSplit.length > 1) {
-      let cur = startQIdx;
-      const pieces = qSplit.map(chunk => "Câu " + (cur++) + ":\n" + (chunk || "").trim());
-      return { labeledText: pieces.join("\n\n"), nextQIdx: cur };
-    }
-  }
-
-  const qSplitRegex = /(?:^|[\r\n]+)(?:(?:Câu|Bài|Question)\s*\d+[:.]?\s*|(?:(?=(?:Cho\s+(?:hình|tứ\s+diện|chóp|lăng\s+trụ)|Trong\s+không\s+gian|Xét\s+tính))))/gi;
-  const rawPieces = norm.split(qSplitRegex).filter(c => c && c.trim().length > 15);
-
-  if (rawPieces.length > 1) {
-    let cur = startQIdx;
-    const pieces = rawPieces.map(chunk => {
-      const clean = chunk.replace(/^\s*(?:Câu|Bài|Question)\s*\d+[:.\-\)]?\s*/gi, "").trim();
-      return "Câu " + (cur++) + ":\n" + clean;
-    });
-    return { labeledText: pieces.join("\n\n"), nextQIdx: cur };
-  }
-
-  return { labeledText: norm, nextQIdx: startQIdx };
-}
-
-export function injectQuestionLabelsIfMissing(rawText: string): string {
-  if (!rawText) return "";
-  let text = rawText.normalize("NFC");
-  text = repairMathTypeGlitch(text);
-  text = normalizeOptionsSmart(text);
-
-  SECTION_HEADER_REGEX.lastIndex = 0;
-  const secMatches: { title: string; start: number; end: number }[] = [];
-  let sm: RegExpExecArray | null;
-  while ((sm = SECTION_HEADER_REGEX.exec(text)) !== null) {
-    if (sm[1]) {
-      secMatches.push({ title: sm[1].trim(), start: sm.index, end: sm.index + sm[0].length });
-    }
-  }
-
-  if (secMatches.length > 0) {
-    const parts: string[] = [];
-    if (secMatches[0].start > 0) {
-      const pre = text.slice(0, secMatches[0].start).trim();
-      if (pre) parts.push(pre);
-    }
-
-    let globalQIdx = 1;
-    for (let i = 0; i < secMatches.length; i++) {
-      const secHeader = secMatches[i].title;
-      const secType = getSectionTypeFromTitle(secHeader);
-      const start = secMatches[i].end;
-      const end = i + 1 < secMatches.length ? secMatches[i + 1].start : text.length;
-      const secBody = text.slice(start, end).trim();
-
-      const { labeledText, nextQIdx } = processBodyAndNumberQuestions(secBody, globalQIdx, secType);
-      globalQIdx = nextQIdx;
-      parts.push(secHeader + "\n\n" + labeledText);
-    }
-    return parts.join("\n\n");
-  } else {
-    const { labeledText } = processBodyAndNumberQuestions(text, 1, "multiple_choice");
-    return labeledText;
-  }
 }
 
 function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: string, sectionType: QuestionType, sectionIndex: number): ExtendedParsedQuestion {
@@ -1078,13 +987,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
   const uniqueId = "sec-" + sectionIndex + "-q-" + qIndex + "-" + Math.random().toString(36).substring(2, 8);
 
   if (sectionType === "true_false") {
-    const tfOptRegex = /(?:^|[\r\n\t\s])([a-d])[\.\)]\s*/gim;
-    const tfMatches: { key: string; start: number; end: number }[] = [];
-    let tm: RegExpExecArray | null;
-    while ((tm = tfOptRegex.exec(promptAndOpts)) !== null) {
-      if (tm[1]) tfMatches.push({ key: tm[1].toLowerCase(), start: tm.index, end: tm.index + tm[0].length });
-    }
-
     const options: QuestionOption[] = [
       { key: "a", text_html: "", is_true_false_ans: false },
       { key: "b", text_html: "", is_true_false_ans: false },
@@ -1092,62 +994,15 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       { key: "d", text_html: "", is_true_false_ans: false }
     ];
 
-    let promptHtml = promptAndOpts;
-    let tfAIdx = -1;
-    for (let i = 0; i <= tfMatches.length - 4; i++) {
-      if (tfMatches[i].key === "a" && 
-          tfMatches[i + 1].key === "b" && 
-          tfMatches[i + 2].key === "c" && 
-          tfMatches[i + 3].key === "d") {
-        tfAIdx = i;
-        break;
-      }
-    }
-
-    if (tfAIdx !== -1) {
-      const mA = tfMatches[tfAIdx];
-      const mB = tfMatches[tfAIdx + 1];
-      const mC = tfMatches[tfAIdx + 2];
-      const mD = tfMatches[tfAIdx + 3];
-
-      promptHtml = promptAndOpts.slice(0, mA.start).trim();
-      const rawOpts = [
-        promptAndOpts.slice(mA.end, mB.start).trim(),
-        promptAndOpts.slice(mB.end, mC.start).trim(),
-        promptAndOpts.slice(mC.end, mD.start).trim(),
-        promptAndOpts.slice(mD.end).trim()
-      ];
-
-      for (let i = 0; i < 4; i++) {
-        let t = rawOpts[i];
-        let ansVal: boolean | null = null;
-        if (/\[(Đúng|Đ)\]/i.test(t)) { ansVal = true; t = t.replace(/\[(Đúng|Đ)\]/i, "").trim(); }
-        else if (/\[(Sai|S)\]/i.test(t)) { ansVal = false; t = t.replace(/\[(Sai|S)\]/i, "").trim(); }
-        options[i].text_html = t;
-        if (ansVal !== null) options[i].is_true_false_ans = ansVal;
-      }
-    }
-
-    if (solutionText) {
-      for (let i = 0; i < 4; i++) {
-        const subKey = options[i].key;
-        const guessRegex = new RegExp("(?:^|[\\s\\n,.])(?:[Ýý]\\s*)?" + subKey + "[\\)\\.:\\s]+(?:là\\s+(?:mệnh\\s*đề\\s*)?)?([Đđ]úng|[Ss]ai|[ĐđSs])\\b", "i");
-        const guessMatch = solutionText.match(guessRegex);
-        if (guessMatch && options[i].is_true_false_ans === false) {
-          options[i].is_true_false_ans = /[Đđ]úng|[Đđ]/.test(guessMatch[1]);
-        }
-      }
-    }
-
     return {
       id: uniqueId,
       order_index: qIndex,
       section_title: sectionTitle,
       type: "true_false",
       original_label: "Câu " + qIndex,
-      prompt_html: promptHtml,
+      prompt_html: promptAndOpts,
       options,
-      correct_answer: options.map(o => (o.is_true_false_ans ? "Đ" : "S")).join(""),
+      correct_answer: "SSSS",
       solution_html: solutionText,
       points: 1.0,
       sub_percentages: { a: 25, b: 25, c: 25, d: 25 },
@@ -1181,27 +1036,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     correctAns = ansMatch[1].toUpperCase();
   }
 
-  const optRegex = /(?:^|[\r\n\t\s\.])([A-D])[\.\)]\s*/gm;
-  const optMatches: { key: string; start: number; end: number }[] = [];
-  let om: RegExpExecArray | null;
-  while ((om = optRegex.exec(promptAndOpts)) !== null) {
-    if (om[1]) {
-      optMatches.push({ key: om[1].toUpperCase(), start: om.index, end: om.index + om[0].length });
-    }
-  }
-
-  let optAIdx = -1;
-  for (let i = 0; i <= optMatches.length - 4; i++) {
-    if (optMatches[i].key === "A" && 
-        optMatches[i + 1].key === "B" && 
-        optMatches[i + 2].key === "C" && 
-        optMatches[i + 3].key === "D") {
-      optAIdx = i;
-      break;
-    }
-  }
-
-  let promptHtml = promptAndOpts;
   const options: QuestionOption[] = [
     { key: "A", text_html: "" },
     { key: "B", text_html: "" },
@@ -1209,36 +1043,13 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     { key: "D", text_html: "" }
   ];
 
-  if (optAIdx !== -1) {
-    const mA = optMatches[optAIdx];
-    const mB = optMatches[optAIdx + 1];
-    const mC = optMatches[optAIdx + 2];
-    const mD = optMatches[optAIdx + 3];
-
-    promptHtml = promptAndOpts.slice(0, mA.start).trim();
-    const textA = promptAndOpts.slice(mA.end, mB.start).trim();
-    const textB = promptAndOpts.slice(mB.end, mC.start).trim();
-    const textC = promptAndOpts.slice(mC.end, mD.start).trim();
-    const textD = promptAndOpts.slice(mD.end).trim();
-
-    const cleanOpt = (s: string) => (s || "")
-      .replace(/^\.+|\.+$/g, "")
-      .replace(/\\left\(\s*\\right\)|\(\s*\)/g, "")
-      .trim();
-
-    options[0].text_html = cleanOpt(textA);
-    options[1].text_html = cleanOpt(textB);
-    options[2].text_html = cleanOpt(textC);
-    options[3].text_html = cleanOpt(textD);
-  }
-
   return {
     id: uniqueId,
     order_index: qIndex,
     section_title: sectionTitle,
     type: "multiple_choice",
     original_label: "Câu " + qIndex,
-    prompt_html: promptHtml,
+    prompt_html: promptAndOpts,
     options,
     correct_answer: correctAns,
     solution_html: solutionText,
@@ -1251,13 +1062,11 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
   let text = rawText.normalize("NFC").trim();
   text = repairMathTypeGlitch(text);
 
-  const readyText = injectQuestionLabelsIfMissing(text);
-
   SECTION_HEADER_REGEX.lastIndex = 0;
   const secMatches: { title: string; start: number; end: number }[] = [];
   let sm: RegExpExecArray | null;
 
-  while ((sm = SECTION_HEADER_REGEX.exec(readyText)) !== null) {
+  while ((sm = SECTION_HEADER_REGEX.exec(text)) !== null) {
     if (sm[1]) {
       secMatches.push({ title: sm[1].trim(), start: sm.index, end: sm.index + sm[0].length });
     }
@@ -1300,8 +1109,8 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       const secTitle = secMatches[i].title;
       const secType = getSectionTypeFromTitle(secTitle);
       const start = secMatches[i].end;
-      const end = i + 1 < secMatches.length ? secMatches[i + 1].start : readyText.length;
-      const secContent = readyText.slice(start, end).trim();
+      const end = i + 1 < secMatches.length ? secMatches[i + 1].start : text.length;
+      const secContent = text.slice(start, end).trim();
 
       const questions = parseQuestionsFromText(secContent, secTitle, secType, i);
       questions.forEach(q => {
@@ -1317,7 +1126,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       });
     }
   } else {
-    const questions = parseQuestionsFromText(readyText, "PHẦN I. TRẮC NGHIỆM", "multiple_choice", 0);
+    const questions = parseQuestionsFromText(text, "PHẦN I. TRẮC NGHIỆM", "multiple_choice", 0);
     sectionsResult = [
       {
         section_title: "PHẦN I. TRẮC NGHIỆM",
@@ -1327,27 +1136,11 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     ];
   }
 
-  const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
-  if (totalQ > 0) {
-    const basePt = Number((10 / totalQ).toFixed(2));
-    let currentSum = 0;
-    sectionsResult.forEach(sec => {
-      sec.questions.forEach(q => {
-        q.points = basePt;
-        currentSum += basePt;
-      });
-    });
-    const diff = Number((10 - currentSum).toFixed(2));
-    if (sectionsResult[0]?.questions[0]) {
-      sectionsResult[0].questions[0].points = Number(((sectionsResult[0].questions[0].points || 0) + diff).toFixed(2));
-    }
-  }
-
   return sectionsResult;
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
+// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -1413,7 +1206,7 @@ export function TokenViewer({
             <div key={idx} className="my-2 flex flex-col items-start justify-start w-full">
               <img 
                 src={src} 
-                alt="Nội dung câu hỏi" 
+                alt="Nội dung" 
                 className="max-h-[600px] w-auto max-w-full rounded-xl border border-slate-200/90 bg-white shadow-2xs p-1 object-contain inline-block" 
               />
             </div>
@@ -1489,7 +1282,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       const isPdf = file.name.toLowerCase().endsWith(".pdf");
 
       if (isPdf) {
-        // NẠP TRỰC TIẾP TỪ PDF: TỰ ĐỘNG CẮT GHÉP LIÊN TRANG & TÁCH LỜI GIẢI
         processPdfExamDirectly(file)
           .then(res => {
             setMediaMap(res.mediaMap);
@@ -1517,9 +1309,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           .then(res => {
             setMediaMap(res.mediaMap);
             const repaired = repairMathTypeGlitch(res.text);
-            const labeledText = injectQuestionLabelsIfMissing(repaired);
-            setRawText(labeledText);
-            const parsed = parseExamHierarchical(labeledText);
+            setRawText(repaired);
+            const parsed = parseExamHierarchical(repaired);
             setSections(parsed);
             setLoading(false);
           })
