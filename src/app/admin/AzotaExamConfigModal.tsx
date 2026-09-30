@@ -289,8 +289,6 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
     raw = raw.replace(/\\left\(\s*\\right\)|\(\s*\)|\\langle\s*\(\)\s*|\\sqrt\{\s*\}/g, "").trim();
     if (raw) {
       raw = raw.replace(/--/g, "-").replace(/\+-/g, "-");
-      // Nếu chuỗi MTEF chỉ chứa ký tự dang dở như "y=" hoặc "x=" thì coi là không hoàn chỉnh
-      if (/^[a-zA-Z]\s*=$/.test(raw)) return "";
       return "$" + raw + "$";
     }
   } catch (e) {}
@@ -318,19 +316,14 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/([a-zA-Z0-9])>>/g, "$1 > 0");
   text = text.replace(/([a-zA-Z0-9])><(?!\w)/g, "$1 < 0");
 
-  text = text.replace(/y\s*=\s*\(\^\{?([0-9a-zA-Z]+)\}?\)/g, "y = ax^{3} + bx^{2} + cx + d");
-  text = text.replace(/\(\^\{?E\}?\)/gi, "ax^{3}");
   text = text.replace(/([a-zA-Z0-9])\^\{\{\}\}/g, "$1");
   text = text.replace(/\$([a-zA-Z0-9])\.\^\{\}\$/g, "$$$1$$");
   text = text.replace(/\$([a-zA-Z0-9])\^\{\}\$/g, "$$$1$$");
 
-  text = text.replace(/\$([a-d])\>\<\$/g, "$$$1 < 0$$");
-  text = text.replace(/\$([a-d])\>\>\$/g, "$$$1 > 0$$");
-
   return text;
 }
 
-// BỘ TRÍCH XUẤT FILE WORD (.DOCX) CHUẨN XÁC VỚI CƠ CHẾ FALLBACK ẢNH CHO MATHTYPE
+// BỘ TRÍCH XUẤT FILE WORD (.DOCX) CHUẨN XÁC: LỌC BỎ WMF VỠ, GIỮ NGUYÊN HÌNH MINH HỌA
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -351,15 +344,15 @@ export async function extractDocxDirectly(file: File) {
   for (const [rId, path] of Object.entries(relsMap)) {
     const zipPath = path.startsWith("word/") ? path : ("word/" + path);
     const fileEntry = zip.files[zipPath];
-    if (fileEntry && /\.(png|jpe?g|gif|webp|svg|wmf|emf)$/i.test(zipPath)) {
+    // CHỈ LẤY CÁC ĐỊNH DẠNG ẢNH CHUẨN CỦA TRÌNH DUYỆT (BỎ QUA WMF/EMF GÂY VỠ ICON)
+    if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       const b64 = await fileEntry.async("base64");
       const key = "img_" + (imgCount++);
-      let ext = "png";
-      if (zipPath.toLowerCase().endsWith("jpg") || zipPath.toLowerCase().endsWith("jpeg")) ext = "jpeg";
+      let ext = "jpeg";
+      if (zipPath.toLowerCase().endsWith("png")) ext = "png";
       else if (zipPath.toLowerCase().endsWith("svg")) ext = "svg+xml";
       else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
       else if (zipPath.toLowerCase().endsWith("webp")) ext = "webp";
-      else if (zipPath.toLowerCase().endsWith("wmf") || zipPath.toLowerCase().endsWith("emf")) ext = "png";
       
       mediaMap[key] = "data:image/" + ext + ";base64," + b64;
       targetToToken[rId] = "[img:$" + key + "$]";
@@ -394,20 +387,10 @@ export async function extractDocxDirectly(file: File) {
       }
     }
 
-    // 1. Ưu tiên dịch sang LaTeX hoàn chỉnh
     if (oleRId && oleCache[oleRId] && isCleanLatex(oleCache[oleRId])) {
       return " " + oleCache[oleRId] + " ";
     }
 
-    // 2. Nếu MTEF bị rỗng hoặc lỗi, fallback ngay sang ảnh nhúng đi kèm của MathType (như Azota)
-    for (const el of allDescendants) {
-      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
-      if (rId && targetToToken[rId]) {
-        return " " + targetToToken[rId] + " ";
-      }
-    }
-
-    // 3. Fallback đọc text thuần nếu có
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
@@ -416,6 +399,7 @@ export async function extractDocxDirectly(file: File) {
       return " $" + fallbackText + "$ ";
     }
 
+    // Nếu không decode được LaTeX và không có ảnh bitmap chuẩn thì không chèn WMF lỗi
     return "";
   };
 
@@ -502,13 +486,12 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI CHO FILE WORD
+// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
   if (!text) return "";
   let res = text;
-  // Tự động ngắt dòng các phương án nằm cùng một hàng
   res = res.replace(/(\S+)\s*\.([B-D]\.)/g, "$1.\n$2");
   res = res.replace(/(?:\t|[ ]{2,})([A-D]\.|\([A-D]\)|[A-D]\)|[a-d]\))/g, "\n$1");
   res = res.replace(/([^\n\r])\s+([B-D]\.|\([B-D]\)|[B-D]\))/g, "$1\n$2");
@@ -535,7 +518,7 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
     }
   }
 
-  const qSplitRegex = /(?:^|[\r\n]+)(?:(?:Câu|Bài|Question)\s*\d+[:.]?\s*|(?:(?=(?:Cho\s+(?:hình|tứ\s+diện|chóp|lăng\s+trụ)|Trong\s+không\s+gian|Xét\s+tính))))/gi;
+  const qSplitRegex = /(?:^|[\r\n]+)(?:(?:Câu|Bài|Question)\s*\d+[:.]?\s*|(?:(?=(?:Cho\s+(?:hàm\s+số|hình|tứ\s+diện|chóp|lăng\s+trụ)|Trong\s+không\s+gian|Xét\s+tính))))/gi;
   const rawPieces = norm.split(qSplitRegex).filter(c => c && c.trim().length > 15);
 
   if (rawPieces.length > 1) {
@@ -941,15 +924,15 @@ export function TokenViewer({
             <img 
               key={idx} 
               src={src} 
-              alt="Công thức" 
+              alt="Minh họa" 
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
             />
           ) : (
-            <div key={idx} className="my-2 flex flex-col items-center justify-center w-full">
+            <div key={idx} className="my-3 text-center flex flex-col items-center justify-center">
               <img 
                 src={src} 
-                alt="Hình minh họa" 
-                className="max-h-[500px] w-auto max-w-full rounded-xl border border-slate-200/90 bg-white shadow-2xs p-1 object-contain inline-block" 
+                alt="Hình minh họa đề thi" 
+                className="max-h-80 max-w-full rounded-2xl border border-slate-200/90 bg-white shadow-xs p-2 object-contain inline-block" 
               />
             </div>
           );
@@ -1021,7 +1004,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
 
-      // ƯU TIÊN XỬ LÝ TRỰC TIẾP FILE WORD (.DOCX) CHUẨN XÁC
       const reader = new FileReader();
       reader.onload = (e) => {
         const res = e.target?.result as string;
@@ -1044,7 +1026,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         })
         .catch(err => {
           console.error("Lỗi đọc file Word:", err);
-          alert("Lỗi đọc file Word. Vui lòng kiểm tra định dạng .docx!");
+          alert("Lỗi đọc file Word. Vui lòng kiểm tra định dạng file .docx!");
           setLoading(false);
         });
     }
