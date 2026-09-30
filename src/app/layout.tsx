@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import { Be_Vietnam_Pro } from "next/font/google";
 import "katex/dist/katex.min.css";
 import "./globals.css";
-
+export const metadata = {
+  title: "TCT study",
+  description: "Học trực tuyến TCT",
+  icons: {
+    icon: "/images.png", // Dòng này sẽ ép trình duyệt lấy luôn ảnh images.png làm favicon
+  },
+};
 // Tải font Be Vietnam Pro tối ưu cho tiếng Việt với các trọng số từ thường đến cực đậm
 const beVietnamPro = Be_Vietnam_Pro({
   subsets: ["latin", "vietnamese"],
