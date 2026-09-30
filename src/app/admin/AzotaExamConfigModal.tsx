@@ -5,7 +5,7 @@ import {
   Loader2, Layers, CheckCircle2, XCircle, PenTool, CircleDot, 
   CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
   ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
-  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent
+  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent, FileText
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -44,7 +44,6 @@ function isCleanLatex(latex: string): boolean {
     return false;
   }
 
-  // Chặn hoàn toàn mọi metadata header của MathType
   if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
     return false;
   }
@@ -329,15 +328,12 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG KHÔI PHỤC CÁC PHƯƠNG ÁN & KÝ TỰ BỊ THIẾU
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
-  // Xóa sạch mọi chuỗi metadata header MathType nếu còn sót
   text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
 
-  // 1. Câu 1
   if (/hình lập phương.*?cạnh bằng.*?1/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
     const optC1 = "A. $M\\left(0; 1; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 1; 0\\right), P\\left(1; 0; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 0; 1\\right)$\n" +
                   "B. $M\\left(1; 0; \\frac{1}{2}\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(0; 1; \\frac{1}{2}\\right), Q\\left(\\frac{1}{2}; 1; 0\\right)$\n" +
@@ -345,61 +341,6 @@ export function autoHealMissingOptions(rawText: string): string {
                   "D. $M\\left(\\frac{1}{2}; 0; 1\\right), N\\left(0; \\frac{1}{2}; 1\\right), P\\left(\\frac{1}{2}; 1; 0\\right), Q\\left(1; \\frac{1}{2}; 0\\right)$";
     text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC1);
   }
-
-  // 2. Câu 2
-  if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
-    const optC2 = "A. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
-                  "B. $B\\left(\\frac{a}{2}; 0; 0\\right), A\\left(0; \\frac{a\\sqrt{3}}{2}; 0\\right), D\\left(0; \\frac{a\\sqrt{3}}{6}; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
-                  "C. $B\\left(0; -\\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{3}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
-                  "D. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(a\\sqrt{3}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{6}; 0; a\\sqrt{6}\\right)$";
-    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC2);
-  }
-
-  // 3. Câu 4
-  if (/hình chóp.*?đáy.*?hình vuông cạnh.*?a/i.test(text) && /A\.\s*(?:\[img:[^\]]+\]|\s*)\s*[\r\n]+B\./.test(text)) {
-    const optC4 = "A. $S\\left(0; \\frac{a}{2}; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
-                  "B. $S\\left(\\frac{a}{2}; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(0; a; 0)$\n" +
-                  "C. $S\\left(0; 0; \\frac{a\\sqrt{3}}{2}\\right), B(a; a; 0), C(a; 0; 0)$\n" +
-                  "D. $S\\left(\\frac{a}{2}; \\frac{a}{2}; a\\sqrt{3}\\right), B(a; a; 0), C(a; 0; 0)$";
-    text = text.replace(/A\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+B\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+C\.\s*(?:\[img:[^\]]+\])?\s*[\r\n]+D\.\s*(?:\[img:[^\]]+\])?/i, optC4);
-  }
-
-  // 4. Lời giải Câu 1
-  text = text.replace(/(Khi đó:\s*)(?:\[img:[^\]]+\])?(\s*(?:$|[\r\n]+Câu\s*2|[\r\n]+Cho\s*tứ\s*diện))/i, 
-    "$1\n$B'(0;0;0), A'(0;1;0), C'(1;0;0), D'(1;1;0)$\n" +
-    "$B(0;0;1), A(0;1;1), C(1;0;1), D(1;1;1)$\n" +
-    "Ta có: $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$.\n$2"
-  );
-
-  // 5. Câu 5
-  text = text.replace(/A\.\s*\$MG=\$\.?/g, "A. $MG = a\\sqrt{3}$");
-  text = text.replace(/B\.\s*\$MG=\$\.?/g, "B. $MG = \\frac{a\\sqrt{14}}{6}$");
-  text = text.replace(/C\.\s*\$MG=\s*2\$\.?/g, "C. $MG = \\frac{a\\sqrt{2}}{2}$");
-  text = text.replace(/D\.\s*\$MG=\s*2\$\.?/g, "D. $MG = a\\sqrt{2}$");
-
-  // 6. Câu 6
-  text = text.replace(/(Độ dài\s*\.\s*)([\r\n]+Câu\s*7)/i, "Độ dài đoạn thẳng: $A'G = \\frac{a\\sqrt{6}}{3}$.\n$2");
-
-  // 7. Câu 7
-  text = text.replace(/AB\s*=\s*\([A-Z0-9]+\)/gi, "AB = a, BC = 2a");
-  text = text.replace(/\$SA=\$/g, "$SA = a\\sqrt{3}$");
-  text = text.replace(/SA\s*=\s*(và|vuông)/g, "SA = a\\sqrt{3} $1");
-  text = text.replace(/A\.\s*\$C'G=\$\.?/g, "A. $C'G = \\frac{a\\sqrt{21}}{3}$");
-  text = text.replace(/B\.\s*\$C'G=\$\.?/g, "B. $C'G = \\frac{a\\sqrt{19}}{3}$");
-  text = text.replace(/C\.\s*\$C'G=\$\.?/g, "C. $C'G = \\frac{a\\sqrt{15}}{3}$");
-  text = text.replace(/D\.\s*\$C'G=\$\.?/g, "D. $C'G = a\\sqrt{2}$");
-  text = text.replace(/Độ dài\s*\$CG\$\s*là\s*\.\s*([\r\n]+Câu\s*8)/i, "Độ dài $C'G$ là: $C'G = \\frac{a\\sqrt{21}}{3}$.\n$1");
-
-  // 8. Câu 8
-  text = text.replace(/\$?OA\s*=\s*\\left\(=\\right\)\$?|\$?OA\s*=\s*\(=?\)\$?|OA\s*=\s*\(=?\)/gi, "$OA = OB = OC = a$");
-  text = text.replace(/\$120\^\\circ\$\s*\./g, "$120^\\circ$");
-  text = text.replace(/Khi đó:\s*\.\s*([\r\n]+PHẦN\s*II)/i, "Khi đó: $\\cos(\\vec{u}, \\vec{v}) = -\\frac{1}{2} \\Rightarrow$ góc tạo bởi hai vecto là $120^\\circ$.\n$1");
-
-  // 9. Câu 12 & 13 (Phần III)
-  text = text.replace(/ABCD\.A'\s*có\s*và\s*\.\s*Tính\s*\./gi, "ABCD.A'B'C'D' có $AB = 3, AD = 4, AA' = 5$. Tính độ dài đoạn thẳng $AC'$.");
-  text = text.replace(/Đáp số:\s*\-\$-/g, "Đáp số: $5\\sqrt{2}$");
-  text = text.replace(/\\frac\{\}\{\s*4\s*27\s*\}/g, "\\frac{64}{27}");
-  text = text.replace(/\$V\^\{\\left\(SBq\\right\)\}\$/g, "$V_{S.ABCD}$");
 
   return text;
 }
@@ -569,6 +510,194 @@ export async function extractDocxDirectly(file: File) {
   const healedText = autoHealMissingOptions(initialText);
 
   return { text: healedText, mediaMap };
+}
+
+// ============================================================================
+// 1.5 TỰ ĐỘNG BÓC TÁCH & CẮT ẢNH PDF QUA CDN (KHÔNG CẦN CÀI NPM INSTALL TRÊN GITHUB)
+// ============================================================================
+
+function loadPdfJsScript(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).pdfjsLib) {
+      return resolve((window as any).pdfjsLib);
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.onload = () => {
+      const lib = (window as any).pdfjsLib;
+      lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      resolve(lib);
+    };
+    script.onerror = () => reject(new Error("Không thể tải thư viện PDF.js từ CDN"));
+    document.head.appendChild(script);
+  });
+}
+
+export async function extractPdfByVisualCropping(file: File): Promise<{ text: string; mediaMap: Record<string, string> }> {
+  const pdfjsLib = await loadPdfJsScript();
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const numPages = pdf.numPages;
+
+  interface FoundMarker {
+    pageIdx: number;
+    qNum?: number;
+    secTitle?: string;
+    isSol?: boolean;
+    yPos: number;
+    text: string;
+  }
+
+  const markers: FoundMarker[] = [];
+  const pageCanvases: HTMLCanvasElement[] = [];
+  const SCALE = 2.0;
+
+  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: SCALE });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    if (ctx) {
+      await page.render({ canvasContext: ctx, viewport }).promise;
+    }
+    pageCanvases.push(canvas);
+
+    const textContent = await page.getTextContent();
+    for (const item of textContent.items as any[]) {
+      const str = (item.str || "").trim();
+      if (!str) continue;
+
+      const tx = item.transform;
+      const pdfY = tx[5];
+      const canvasY = viewport.height - (pdfY * SCALE);
+
+      const secMatch = str.match(/^(?:Phần|PHẦN)\s*([IVX]+|\d+)/i);
+      if (secMatch) {
+        markers.push({
+          pageIdx: pageNum - 1,
+          secTitle: str,
+          yPos: Math.max(0, canvasY - 15),
+          text: str
+        });
+        continue;
+      }
+
+      const qMatch = str.match(/^(?:Câu|Bài|Question)\s*(\d+)[:.]?/i);
+      if (qMatch) {
+        markers.push({
+          pageIdx: pageNum - 1,
+          qNum: parseInt(qMatch[1], 10),
+          yPos: Math.max(0, canvasY - 15),
+          text: str
+        });
+        continue;
+      }
+
+      if (/^(?:Lời\s*giải|Hướng\s*dẫn\s*giải|HDG|LỜI\s*GIẢI)/i.test(str)) {
+        markers.push({
+          pageIdx: pageNum - 1,
+          isSol: true,
+          yPos: Math.max(0, canvasY - 15),
+          text: str
+        });
+      }
+    }
+  }
+
+  markers.sort((a, b) => {
+    if (a.pageIdx !== b.pageIdx) return a.pageIdx - b.pageIdx;
+    return a.yPos - b.yPos;
+  });
+
+  const mediaMap: Record<string, string> = {};
+  const rawTextParts: string[] = [];
+
+  const cropCanvasArea = (pageIdx: number, startY: number, endY: number): string => {
+    const srcCanvas = pageCanvases[pageIdx];
+    if (!srcCanvas) return "";
+
+    const h = Math.max(20, endY - startY);
+    const cropped = document.createElement("canvas");
+    cropped.width = srcCanvas.width;
+    cropped.height = h;
+
+    const cCtx = cropped.getContext("2d");
+    if (!cCtx) return "";
+
+    cCtx.fillStyle = "#ffffff";
+    cCtx.fillRect(0, 0, cropped.width, cropped.height);
+    cCtx.drawImage(srcCanvas, 0, startY, srcCanvas.width, h, 0, 0, srcCanvas.width, h);
+
+    return cropped.toDataURL("image/png");
+  };
+
+  if (markers.filter(m => m.qNum !== undefined).length === 0) {
+    pageCanvases.forEach((canvas, idx) => {
+      const key = "img_pdf_page_" + (idx + 1);
+      mediaMap[key] = canvas.toDataURL("image/png");
+      rawTextParts.push(Câu ${idx + 1}:\n[img:$${key}$]\nA.\nB.\nC.\nD.\n);
+    });
+    return {
+      text: rawTextParts.join("\n\n"),
+      mediaMap
+    };
+  }
+
+  for (let i = 0; i < markers.length; i++) {
+    const current = markers[i];
+    const next = i + 1 < markers.length ? markers[i + 1] : null;
+
+    if (current.secTitle) {
+      rawTextParts.push(\n\n${current.secTitle}\n);
+      continue;
+    }
+
+    if (current.qNum !== undefined) {
+      const qNum = current.qNum;
+      const startPage = current.pageIdx;
+      const startY = current.yPos;
+
+      let endY = pageCanvases[startPage].height;
+      if (next && next.pageIdx === startPage) {
+        endY = next.yPos;
+      }
+
+      const imgB64 = cropCanvasArea(startPage, startY, endY);
+      const imgKey = img_pdf_q_${qNum};
+      mediaMap[imgKey] = imgB64;
+
+      let blockText = Câu ${qNum}:\n[img:$${imgKey}$]\n;
+
+      if (next && next.isSol) {
+        const solStartPage = next.pageIdx;
+        const solStartY = next.yPos;
+        const nextAfterSol = i + 2 < markers.length ? markers[i + 2] : null;
+        let solEndY = pageCanvases[solStartPage].height;
+        if (nextAfterSol && nextAfterSol.pageIdx === solStartPage) {
+          solEndY = nextAfterSol.yPos;
+        }
+
+        const solB64 = cropCanvasArea(solStartPage, solStartY, solEndY);
+        const solKey = img_pdf_sol_${qNum};
+        mediaMap[solKey] = solB64;
+        blockText += \nLời giải:\n[img:$${solKey}$];
+        i++;
+      }
+
+      blockText += \nA.\nB.\nC.\nD.;
+      rawTextParts.push(blockText);
+    }
+  }
+
+  return {
+    text: rawTextParts.join("\n\n"),
+    mediaMap
+  };
 }
 
 // ============================================================================
@@ -1090,30 +1219,50 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const res = e.target?.result as string;
-        if (res) {
-          const b64 = res.split(",")[1] || "";
-          setFileBase64(b64);
-        }
-      };
-      reader.readAsDataURL(file);
+      const isPdf = file.name.toLowerCase().endsWith(".pdf");
 
-      extractDocxDirectly(file)
-        .then(res => {
-          setMediaMap(res.mediaMap);
-          const repaired = repairMathTypeGlitch(res.text);
-          const labeledText = injectQuestionLabelsIfMissing(repaired);
-          setRawText(labeledText);
-          const parsed = parseExamHierarchical(labeledText);
-          setSections(parsed);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error("Lỗi đọc file Word:", err);
-          setLoading(false);
-        });
+      if (isPdf) {
+        // TỰ ĐỘNG BÓC TÁCH CẮT ẢNH BẰNG CANVAS TỪ FILE PDF (KHÔNG TỐN AI)
+        extractPdfByVisualCropping(file)
+          .then(res => {
+            setMediaMap(res.mediaMap);
+            setRawText(res.text);
+            const parsed = parseExamHierarchical(res.text);
+            setSections(parsed);
+            setLoading(false);
+          })
+          .catch(err => {
+            console.error("Lỗi cắt ảnh đề PDF:", err);
+            alert("Lỗi phân tích file PDF. Vui lòng thử lại hoặc chọn file Word (.docx)!");
+            setLoading(false);
+          });
+      } else {
+        // BÓC TÁCH TỪ FILE WORD (.DOCX) SẴN CÓ
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const res = e.target?.result as string;
+          if (res) {
+            const b64 = res.split(",")[1] || "";
+            setFileBase64(b64);
+          }
+        };
+        reader.readAsDataURL(file);
+
+        extractDocxDirectly(file)
+          .then(res => {
+            setMediaMap(res.mediaMap);
+            const repaired = repairMathTypeGlitch(res.text);
+            const labeledText = injectQuestionLabelsIfMissing(repaired);
+            setRawText(labeledText);
+            const parsed = parseExamHierarchical(labeledText);
+            setSections(parsed);
+            setLoading(false);
+          })
+          .catch(err => {
+            console.error("Lỗi đọc file Word:", err);
+            setLoading(false);
+          });
+      }
     }
   }, [file, isOpen]);
 
@@ -1129,7 +1278,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     let geminiKey = typeof window !== "undefined" ? localStorage.getItem("tct_gemini_api_key") || "" : "";
     if (!geminiKey) {
       const inputKey = window.prompt(
-        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file Word và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
+        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file gốc và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
       );
       if (!inputKey || !inputKey.trim()) return;
       geminiKey = inputKey.trim();
@@ -1170,7 +1319,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
       if (data.result && data.result.trim()) {
         handleRawTextChange(data.result.trim());
-        alert("✨ AI Gemini đã đọc toàn bộ file Word và phục hồi 100% công thức toán học và lời giải chi tiết!");
+        alert("✨ AI Gemini đã đọc toàn bộ file và phục hồi 100% công thức toán học và lời giải chi tiết!");
       }
     } catch (err: any) {
       console.error("Lỗi Polish AI:", err);
@@ -1233,7 +1382,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     });
   };
 
-  // CƠ CHẾ AUTO-BALANCE: CỐ ĐỊNH TỔNG ĐIỂM = 10.00
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
@@ -1315,16 +1463,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       };
     }));
   };
-
-  const currentTotalPoints = useMemo(() => {
-    let sum = 0;
-    sections.forEach(sec => {
-      sec.questions.forEach(q => {
-        sum += (q.points || 0);
-      });
-    });
-    return Number(sum.toFixed(2));
-  }, [sections]);
 
   const handleTriggerUploadImage = () => {
     fileInputRef.current?.click();
@@ -1444,8 +1582,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
             <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
-              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
-              <p className="text-xs text-slate-500">Tự động nhận diện đầy đủ các phần thi và công thức toán...</p>
+              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi...</p>
+              <p className="text-xs text-slate-500">Tự động nhận diện câu hỏi, công thức toán và crop ảnh đề thi...</p>
             </div>
           </div>
         ) : step === 1 ? (
@@ -1593,11 +1731,11 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
                                 <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
                                 <input 
-                                  type="text"
-                                  value={q.correct_answer || ""}
-                                  onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
-                                  placeholder="Nhập đáp án số hoặc chữ..."
-                                  className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600"
+                                  type="text" 
+                                  value={q.correct_answer || ""} 
+                                  onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
+                                  placeholder="Nhập đáp án số hoặc chữ..." 
+                                  className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600" 
                                 />
                               </div>
                             )}
@@ -1633,7 +1771,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 <div className="flex items-center gap-2">
                   <Edit3 className="w-4 h-4 text-slate-700"/>
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                    Word Raw
+                    Nội dung thô (Raw Editor)
                   </span>
                 </div>
                 
@@ -1643,7 +1781,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     onClick={handleAiPolishFormulas}
                     disabled={isAiPolishing}
                     className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                    title="AI đọc trực tiếp file Word gốc để sửa toàn bộ công thức và lời giải chuẩn 100%"
+                    title="AI đọc trực tiếp file gốc để sửa toàn bộ công thức và lời giải chuẩn 100%"
                   >
                     {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Wand2 className="w-3.5 h-3.5"/>}
                     <span>Sửa lỗi công thức AI</span>
@@ -1713,7 +1851,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
             {sections.some(s => s.section_type === "true_false") && (
               <div className="p-5 bg-gradient-to-r from-indigo-50/70 via-blue-50/50 to-white rounded-3xl border border-indigo-200/80 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
