@@ -493,7 +493,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 1.5 BỘ TÁCH & CẮT PDF CHÍNH XÁC: LOẠI BỎ LỜI GIẢI, ĐỌC ĐÁP ÁN, PHÂN PHẦN
+// 1.5 BỘ TÁCH & CẮT PDF CHUẨN XÁC THEO FILE MẪU TCT
 // ============================================================================
 
 function loadPdfJsScript(): Promise<any> {
@@ -604,7 +604,8 @@ export async function processPdfExamDirectly(file: File): Promise<{
       const pdfY = tx[5];
       const canvasY = Math.round(viewport.height - (pdfY * SCALE));
 
-      if (canvasY < 35 || canvasY > viewport.height - 65) continue;
+      // Bỏ qua header & footer ở mép trang
+      if (canvasY < 45 || canvasY > viewport.height - 75) continue;
 
       let matchedY = Object.keys(lineBuckets).map(Number).find(y => Math.abs(y - canvasY) <= 6);
       if (matchedY === undefined) {
@@ -639,7 +640,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
     const t = line.text;
 
     // 1. Nhận diện PHẦN I, PHẦN II, PHẦN III
-    const secMatch = t.match(/^(?:Phần|PHẦN)\s*([IVX]+|\d+)[.:\-]?\s*(.*)$/i);
+    const secMatch = t.match(/^(?:Phần|PHẦN)\s*([IVX]+|\d+)[.:\-]?\s*(.*)$/i) || t.match(/^([IVX]+)\.\s*(TRẮC NGHIỆM.*)$/i);
     if (secMatch) {
       let sType: QuestionType = "multiple_choice";
       if (/đúng\s*sai/i.test(t)) sType = "true_false";
@@ -656,20 +657,20 @@ export async function processPdfExamDirectly(file: File): Promise<{
       continue;
     }
 
-    // 2. Nhận diện "Câu X." hoặc "Bài X."
+    // 2. Nhận diện mốc Câu hỏi (Câu 1., Câu 2.,...)
     const qMatch = t.match(/^(?:Câu|Bài|Question)\s*(\d+)[:.]/i);
     if (qMatch && !/buổi|chương|phương pháp|lý thuyết/i.test(t)) {
       markers.push({
         pageIdx: line.pageIdx,
         type: "question",
         qNum: parseInt(qMatch[1], 10),
-        yPos: Math.max(0, line.yPos - 24),
+        yPos: Math.max(0, line.yPos - 25),
         fullText: t
       });
       continue;
     }
 
-    // 3. Nhận diện LỜI GIẢI
+    // 3. Nhận diện chữ LỜI GIẢI
     if (/^(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|HDG|LỜI\s*GIẢI)[:.]?$/i.test(t)) {
       markers.push({
         pageIdx: line.pageIdx,
@@ -685,6 +686,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
     return a.yPos - b.yPos;
   });
 
+  // HÀM CẮT GHÉP LIÊN TRANG (Hỗ trợ câu hỏi tràn qua 2 trang)
   const cropMultiPageArea = (startPage: number, startY: number, endPage: number, endY: number): string => {
     if (startPage === endPage) {
       const srcCanvas = pageCanvases[startPage];
@@ -705,8 +707,8 @@ export async function processPdfExamDirectly(file: File): Promise<{
     const canvas2 = pageCanvases[endPage];
     if (!canvas1 || !canvas2) return "";
 
-    const h1 = Math.max(20, (canvas1.height - 65) - startY);
-    const h2 = Math.max(20, endY - 40);
+    const h1 = Math.max(20, (canvas1.height - 75) - startY);
+    const h2 = Math.max(20, endY - 45);
 
     const merged = document.createElement("canvas");
     merged.width = Math.max(canvas1.width, canvas2.width);
@@ -718,7 +720,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
     mCtx.fillRect(0, 0, merged.width, merged.height);
 
     mCtx.drawImage(canvas1, 0, startY, canvas1.width, h1, 0, 0, canvas1.width, h1);
-    mCtx.drawImage(canvas2, 0, 40, canvas2.width, h2, 0, h1 + 10, canvas2.width, h2);
+    mCtx.drawImage(canvas2, 0, 45, canvas2.width, h2, 0, h1 + 10, canvas2.width, h2);
 
     return autoTrimCanvasWhitespace(merged);
   };
@@ -782,8 +784,9 @@ export async function processPdfExamDirectly(file: File): Promise<{
         }
       }
 
+      // Xác định điểm ngắt của câu hỏi
       let qEndPage = startPage;
-      let qEndY = pageCanvases[startPage].height - 65;
+      let qEndY = pageCanvases[startPage].height - 75;
 
       if (solMarker) {
         qEndPage = solMarker.pageIdx;
@@ -793,7 +796,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
         qEndY = Math.max(20, nextQuestionMarker.yPos - 12);
       }
 
-      // 1. CẮT ẢNH ĐỀ BÀI (Chỉ đề và phương án, NGẮT NGAY TRƯỚC LỜI GIẢI)
+      // 1. CẮT ẢNH ĐỀ BÀI (NGẮT TRƯỚC DÒNG CHỮ "LỜI GIẢI")
       const promptImg = cropMultiPageArea(startPage, startY, qEndPage, qEndY);
       const promptKey = "img_pdf_q_" + qNum + "_" + i;
       mediaMap[promptKey] = promptImg;
@@ -807,7 +810,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
         const solStartPage = solMarker.pageIdx;
         const solStartY = solMarker.yPos;
         let solEndPage = solStartPage;
-        let solEndY = pageCanvases[solStartPage].height - 65;
+        let solEndY = pageCanvases[solStartPage].height - 75;
 
         if (nextQuestionMarker) {
           solEndPage = nextQuestionMarker.pageIdx;
@@ -836,7 +839,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       let optionsList: QuestionOption[] = [];
 
       if (finalType === "true_false") {
-        // Tự động nhận diện chuỗi Đ/S (Đ/S/S/S)
+        // Tự động nhận diện chuỗi Đ/S (Đ/S/S/D hoặc Đ/S/S/S)
         const tfMatch = blockAllText.match(/Đáp\s*án\s*:\s*([ĐSđs\/\s]+)/i);
         let tfSeq = ["S", "S", "S", "S"];
         if (tfMatch && tfMatch[1]) {
@@ -863,7 +866,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
           "d) [" + (tfSeq[3] === "Đ" ? "Đúng" : "Sai") + "]\n"
         );
       } else if (finalType === "short_answer") {
-        // Tách đáp số phân số, số âm (-4, 1/3, 5\sqrt{2})
+        // Tách đáp số phân số, số âm (-4, 64/27)
         const saMatch = blockAllText.match(/(?:Đáp\s*số|KQ|Kết\s*quả|Đáp\s*án)[:\s]+([^Lời\r\n\t]+)/i);
         if (saMatch && saMatch[1]) {
           parsedCorrectAns = saMatch[1].trim().replace(/^[:\s]+/, "");
@@ -877,7 +880,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
           "Đáp án: " + parsedCorrectAns + "\n"
         );
       } else {
-        // Tự động nhận diện Chọn A, Chọn B, Chọn C, Chọn D
+        // Trắc nghiệm: Tự động bóc "Chọn C", "Chọn D", "Chọn A"...
         const mcMatch = blockAllText.match(/(?:Chọn|Đáp\s*án)\s*([A-D])\b/i);
         if (mcMatch && mcMatch[1]) {
           parsedCorrectAns = mcMatch[1].toUpperCase();
@@ -921,6 +924,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
 
   const validSections = sections.filter(s => s.questions.length > 0);
 
+  // Auto-balance điểm chuẩn 10
   const totalQCount = validSections.reduce((acc, s) => acc + s.questions.length, 0);
   if (totalQCount > 0) {
     const basePt = Number((10 / totalQCount).toFixed(2));
@@ -1694,7 +1698,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </span>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-md border border-emerald-300">
+                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
                                   {q.correct_answer || "Chưa có"}
                                 </span>
                               </div>
@@ -1784,7 +1788,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                   type="text" 
                                   value={q.correct_answer || ""} 
                                   onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
-                                  placeholder="Nhập đáp số (ví dụ: -4, 1/3, 5)..." 
+                                  placeholder="Nhập đáp số (ví dụ: -4, 64/27)..." 
                                   className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600" 
                                 />
                               </div>
