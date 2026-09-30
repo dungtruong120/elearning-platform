@@ -513,7 +513,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 1.5 ENGINE CẮT PDF CAO CẤP: BÓC ĐÚNG TỌA ĐỘ, PHÂN PHẦN THI & KHÔNG DÍNH RÁC
+// 1.5 ENGINE CẮT PDF CAO CẤP: NỐI TRANG THÔNG MINH, TÁCH LỜI GIẢI & ĐỌC ĐÁP ÁN
 // ============================================================================
 
 function loadPdfJsScript(): Promise<any> {
@@ -591,7 +591,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
   interface FoundLine {
     pageIdx: number;
     text: string;
-    yPos: number; // canvas Y coordinate
+    yPos: number;
   }
 
   const allLines: FoundLine[] = [];
@@ -615,7 +615,6 @@ export async function processPdfExamDirectly(file: File): Promise<{
     const textContent = await page.getTextContent();
     const items = textContent.items as any[];
 
-    // Nhóm các item cùng một dòng Y
     const lineBuckets: Record<number, string[]> = {};
     for (const item of items) {
       const str = (item.str || "").trim();
@@ -625,10 +624,8 @@ export async function processPdfExamDirectly(file: File): Promise<{
       const pdfY = tx[5];
       const canvasY = Math.round(viewport.height - (pdfY * SCALE));
 
-      // Bỏ qua header & footer
       if (canvasY < 45 || canvasY > viewport.height - 75) continue;
 
-      // Gom theo bước nhảy 6px để bắt trọn dòng
       let matchedY = Object.keys(lineBuckets).map(Number).find(y => Math.abs(y - canvasY) <= 6);
       if (matchedY === undefined) {
         matchedY = canvasY;
@@ -646,7 +643,6 @@ export async function processPdfExamDirectly(file: File): Promise<{
     });
   }
 
-  // Nhận diện mốc: Section, Câu hỏi, Lời giải
   interface ActionMarker {
     pageIdx: number;
     type: "section" | "question" | "solution";
@@ -662,7 +658,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
   for (const line of allLines) {
     const t = line.text;
 
-    // 1. Mốc Section: PHẦN I, PHẦN II, PHẦN III
+    // 1. Nhận diện PHẦN I, PHẦN II, PHẦN III
     const secMatch = t.match(/^(?:Phần|PHẦN)\s*([IVX]+|\d+)[.:\-]?\s*(.*)$/i);
     if (secMatch) {
       let sType: QuestionType = "multiple_choice";
@@ -680,7 +676,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       continue;
     }
 
-    // 2. Mốc Câu hỏi: Câu X. hoặc Bài X. (Bỏ qua BÀI HỌC 3, BÀI 1: TỌA ĐỘ)
+    // 2. Nhận diện "Câu X." hoặc "Bài X."
     const qMatch = t.match(/^(?:Câu|Bài|Question)\s*(\d+)[:.]/i);
     if (qMatch && !/buổi|chương|phương pháp|lý thuyết/i.test(t)) {
       markers.push({
@@ -693,7 +689,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       continue;
     }
 
-    // 3. Mốc Lời giải
+    // 3. Nhận diện LỜI GIẢI
     if (/^(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|HDG|LỜI\s*GIẢI)[:.]?$/i.test(t)) {
       markers.push({
         pageIdx: line.pageIdx,
@@ -709,28 +705,56 @@ export async function processPdfExamDirectly(file: File): Promise<{
     return a.yPos - b.yPos;
   });
 
-  const cropCanvasArea = (pageIdx: number, startY: number, endY: number): string => {
-    const srcCanvas = pageCanvases[pageIdx];
-    if (!srcCanvas) return "";
+  // HÀM CẮT GHÉP LIÊN TRANG (Xử lý trường hợp câu hỏi bị ngắt ngang qua 2 trang)
+  const cropMultiPageArea = (startPage: number, startY: number, endPage: number, endY: number): string => {
+    if (startPage === endPage) {
+      const srcCanvas = pageCanvases[startPage];
+      if (!srcCanvas) return "";
+      const h = Math.max(20, endY - startY);
+      const cropped = document.createElement("canvas");
+      cropped.width = srcCanvas.width;
+      cropped.height = h;
+      const cCtx = cropped.getContext("2d");
+      if (!cCtx) return "";
+      cCtx.fillStyle = "#ffffff";
+      cCtx.fillRect(0, 0, cropped.width, cropped.height);
+      cCtx.drawImage(srcCanvas, 0, startY, srcCanvas.width, h, 0, 0, srcCanvas.width, h);
+      return autoTrimCanvasWhitespace(cropped);
+    }
 
-    const h = Math.max(20, endY - startY);
-    const cropped = document.createElement("canvas");
-    cropped.width = srcCanvas.width;
-    cropped.height = h;
+    // Nối canvas giữa 2 trang liên tiếp
+    const canvas1 = pageCanvases[startPage];
+    const canvas2 = pageCanvases[endPage];
+    if (!canvas1 || !canvas2) return "";
 
-    const cCtx = cropped.getContext("2d");
-    if (!cCtx) return "";
+    const h1 = Math.max(20, (canvas1.height - 75) - startY);
+    const h2 = Math.max(20, endY - 45);
 
-    cCtx.fillStyle = "#ffffff";
-    cCtx.fillRect(0, 0, cropped.width, cropped.height);
-    cCtx.drawImage(srcCanvas, 0, startY, srcCanvas.width, h, 0, 0, srcCanvas.width, h);
+    const merged = document.createElement("canvas");
+    merged.width = Math.max(canvas1.width, canvas2.width);
+    merged.height = h1 + h2 + 10;
 
-    return autoTrimCanvasWhitespace(cropped);
+    const mCtx = merged.getContext("2d");
+    if (!mCtx) return "";
+    mCtx.fillStyle = "#ffffff";
+    mCtx.fillRect(0, 0, merged.width, merged.height);
+
+    mCtx.drawImage(canvas1, 0, startY, canvas1.width, h1, 0, 0, canvas1.width, h1);
+    mCtx.drawImage(canvas2, 0, 45, canvas2.width, h2, 0, h1 + 10, canvas2.width, h2);
+
+    return autoTrimCanvasWhitespace(merged);
   };
 
-  const getTextBetween = (pageIdx: number, startY: number, endY: number): string => {
+  const getTextBetweenPages = (startPage: number, startY: number, endPage: number, endY: number): string => {
     return allLines
-      .filter(l => l.pageIdx === pageIdx && l.yPos >= startY && l.yPos <= endY)
+      .filter(l => {
+        if (l.pageIdx === startPage && l.pageIdx === endPage) {
+          return l.yPos >= startY && l.yPos <= endY;
+        }
+        if (l.pageIdx === startPage) return l.yPos >= startY;
+        if (l.pageIdx === endPage) return l.yPos <= endY;
+        return l.pageIdx > startPage && l.pageIdx < endPage;
+      })
       .map(l => l.text)
       .join(" ");
   };
@@ -752,7 +776,6 @@ export async function processPdfExamDirectly(file: File): Promise<{
     const item = markers[i];
 
     if (item.type === "section" && item.secTitle) {
-      // Bắt đầu một Section mới
       currentSec = {
         section_title: item.secTitle,
         section_type: item.secType || "multiple_choice",
@@ -768,7 +791,6 @@ export async function processPdfExamDirectly(file: File): Promise<{
       const startPage = item.pageIdx;
       const startY = item.yPos;
 
-      // Tìm mốc kết thúc câu hỏi và mốc lời giải
       let solMarker: ActionMarker | null = null;
       let nextQuestionMarker: ActionMarker | null = null;
 
@@ -782,44 +804,50 @@ export async function processPdfExamDirectly(file: File): Promise<{
         }
       }
 
-      // Điểm kết thúc của câu hỏi: Trước lời giải hoặc trước câu sau
+      // Xác định điểm kết thúc của câu hỏi
+      let qEndPage = startPage;
       let qEndY = pageCanvases[startPage].height - 75;
-      if (solMarker && solMarker.pageIdx === startPage) {
-        qEndY = Math.max(startY + 20, solMarker.yPos - 10);
-      } else if (nextQuestionMarker && nextQuestionMarker.pageIdx === startPage) {
-        qEndY = Math.max(startY + 20, nextQuestionMarker.yPos - 10);
+
+      if (solMarker) {
+        qEndPage = solMarker.pageIdx;
+        qEndY = Math.max(20, solMarker.yPos - 12);
+      } else if (nextQuestionMarker) {
+        qEndPage = nextQuestionMarker.pageIdx;
+        qEndY = Math.max(20, nextQuestionMarker.yPos - 12);
       }
 
-      // Cắt ảnh đề bài
-      const promptImg = cropCanvasArea(startPage, startY, qEndY);
+      // 1. Cắt riêng ảnh ĐỀ BÀI (hỗ trợ liên trang nếu đề bị tràn qua 2 trang)
+      const promptImg = cropMultiPageArea(startPage, startY, qEndPage, qEndY);
       const promptKey = "img_pdf_q_" + qNum + "_" + i;
       mediaMap[promptKey] = promptImg;
 
-      const promptText = getTextBetween(startPage, startY, qEndY);
+      const promptText = getTextBetweenPages(startPage, startY, qEndPage, qEndY);
       let solText = "";
       let solutionHtml = "";
 
-      // Cắt ảnh lời giải nếu có
+      // 2. Cắt riêng ảnh LỜI GIẢI nếu có
       if (solMarker) {
-        const solPage = solMarker.pageIdx;
+        const solStartPage = solMarker.pageIdx;
         const solStartY = solMarker.yPos;
-        let solEndY = pageCanvases[solPage].height - 75;
+        let solEndPage = solStartPage;
+        let solEndY = pageCanvases[solStartPage].height - 75;
 
-        if (nextQuestionMarker && nextQuestionMarker.pageIdx === solPage) {
-          solEndY = Math.max(solStartY + 20, nextQuestionMarker.yPos - 10);
+        if (nextQuestionMarker) {
+          solEndPage = nextQuestionMarker.pageIdx;
+          solEndY = Math.max(20, nextQuestionMarker.yPos - 12);
         }
 
-        const solImg = cropCanvasArea(solPage, solStartY, solEndY);
+        const solImg = cropMultiPageArea(solStartPage, solStartY, solEndPage, solEndY);
         const solKey = "img_pdf_sol_" + qNum + "_" + i;
         mediaMap[solKey] = solImg;
         solutionHtml = "[img:$" + solKey + "$]";
 
-        solText = getTextBetween(solPage, solStartY, solEndY);
+        solText = getTextBetweenPages(solStartPage, solStartY, solEndPage, solEndY);
       }
 
       const blockAllText = promptText + " " + solText;
 
-      // Nhận diện loại câu hỏi chính xác theo ngữ cảnh & section
+      // Nhận diện loại câu hỏi
       let finalType: QuestionType = currentSec.section_type;
       if (/xét\s*tính\s*đúng\s*sai/i.test(blockAllText) || /Đáp\s*án\s*:\s*[ĐSđs\/]+/i.test(blockAllText)) {
         finalType = "true_false";
@@ -872,7 +900,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
           "Đáp án: " + parsedCorrectAns + "\n"
         );
       } else {
-        // Trắc nghiệm 4 lựa chọn A, B, C, D
+        // Tự động nhận diện Chọn A, Chọn B, Chọn C, Chọn D
         const mcMatch = blockAllText.match(/(?:Chọn|Đáp\s*án)\s*([A-D])\b/i);
         if (mcMatch && mcMatch[1]) {
           parsedCorrectAns = mcMatch[1].toUpperCase();
@@ -914,10 +942,8 @@ export async function processPdfExamDirectly(file: File): Promise<{
     }
   }
 
-  // Lọc bỏ các section rỗng nếu có
   const validSections = sections.filter(s => s.questions.length > 0);
 
-  // Auto-balance thang điểm 10 chuẩn
   const totalQCount = validSections.reduce((acc, s) => acc + s.questions.length, 0);
   if (totalQCount > 0) {
     const basePt = Number((10 / totalQCount).toFixed(2));
@@ -1384,11 +1410,11 @@ export function TokenViewer({
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
             />
           ) : (
-            <div key={idx} className="my-2 flex flex-col items-start justify-start">
+            <div key={idx} className="my-2 flex flex-col items-start justify-start w-full">
               <img 
                 src={src} 
-                alt="Nội dung" 
-                className="max-h-[550px] max-w-full rounded-xl border border-slate-200/90 bg-white shadow-xs p-1 object-contain inline-block" 
+                alt="Nội dung câu hỏi" 
+                className="max-h-[600px] w-auto max-w-full rounded-xl border border-slate-200/90 bg-white shadow-2xs p-1 object-contain inline-block" 
               />
             </div>
           );
@@ -1463,7 +1489,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       const isPdf = file.name.toLowerCase().endsWith(".pdf");
 
       if (isPdf) {
-        // XỬ LÝ TRỰC TIẾP TỪ PDF: KHÔNG CHẠY QUA BỘ REGEX TEXT THƯỜNG
+        // NẠP TRỰC TIẾP TỪ PDF: TỰ ĐỘNG CẮT GHÉP LIÊN TRANG & TÁCH LỜI GIẢI
         processPdfExamDirectly(file)
           .then(res => {
             setMediaMap(res.mediaMap);
@@ -1822,7 +1848,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
               <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi...</p>
-              <p className="text-xs text-slate-500">Tự động nhận diện câu hỏi, tách riêng ảnh đề bài & lời giải...</p>
+              <p className="text-xs text-slate-500">Tự động nhận diện câu hỏi, nối trang và tách riêng lời giải...</p>
             </div>
           </div>
         ) : step === 1 ? (
@@ -1888,34 +1914,33 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
                             </div>
 
-                            {/* DẠNG 1: TRẮC NGHIỆM 4 PHƯƠNG ÁN A, B, C, D (Gọn gàng, không có ảnh lặp) */}
+                            {/* DẠNG 1: TRẮC NGHIỆM 4 NÚT CHỌN NHANH A, B, C, D (Gọn gàng đúng chuẩn Azota) */}
                             {sec.section_type === "multiple_choice" && (
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
-                                {["A", "B", "C", "D"].map(k => {
-                                  const isCorrect = k === q.correct_answer;
-                                  return (
-                                    <div 
-                                      key={k}
-                                      onClick={() => handleUpdateAnswer(q.id, k)}
-                                      className={"p-2.5 rounded-xl border text-xs flex items-center justify-center gap-2.5 transition-all cursor-pointer " + (
-                                        isCorrect 
-                                          ? "bg-emerald-50 border-emerald-400 text-emerald-950 font-bold shadow-2xs ring-2 ring-emerald-400" 
-                                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-                                      )}
-                                    >
-                                      <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
-                                        isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                                      )}>
+                              <div className="flex items-center gap-3 pt-2">
+                                <span className="text-xs font-bold text-slate-500">Chọn đáp án:</span>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {["A", "B", "C", "D"].map(k => {
+                                    const isCorrect = k === q.correct_answer;
+                                    return (
+                                      <button
+                                        key={k}
+                                        type="button"
+                                        onClick={() => handleUpdateAnswer(q.id, k)}
+                                        className={"w-10 h-10 rounded-xl font-black text-sm flex items-center justify-center transition-all cursor-pointer " + (
+                                          isCorrect 
+                                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/25 scale-105" 
+                                            : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
+                                        )}
+                                      >
                                         {k}
-                                      </span>
-                                      <span className="font-bold">Phương án {k}</span>
-                                    </div>
-                                  );
-                                })}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             )}
 
-                            {/* DẠNG 2: TRẮC NGHIỆM ĐÚNG / SAI (a, b, c, d) */}
+                            {/* DẠNG 2: BẢNG TICK ĐÚNG / SAI CHO CÁC Ý a, b, c, d */}
                             {sec.section_type === "true_false" && q.options && (
                               <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
                                 <table className="w-full text-left text-[13px]">
