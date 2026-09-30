@@ -493,7 +493,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 1.5 BỘ TÁCH & CẮT PDF CHUẨN XÁC THEO FILE MẪU TCT
+// 1.5 BỘ TÁCH & CẮT PDF CHUẨN XÁC THEO FILE MẪU TCT (TÁCH LỜI GIẢI, ĐỌC ĐÁP ÁN)
 // ============================================================================
 
 function loadPdfJsScript(): Promise<any> {
@@ -639,7 +639,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
   for (const line of allLines) {
     const t = line.text;
 
-    // 1. Nhận diện PHẦN I, PHẦN II, PHẦN III
+    // 1. Nhận diện PHẦN I, PHẦN II, PHẦN III[span_7](start_span)[span_7](end_span)
     const secMatch = t.match(/^(?:Phần|PHẦN)\s*([IVX]+|\d+)[.:\-]?\s*(.*)$/i) || t.match(/^([IVX]+)\.\s*(TRẮC NGHIỆM.*)$/i);
     if (secMatch) {
       let sType: QuestionType = "multiple_choice";
@@ -657,7 +657,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       continue;
     }
 
-    // 2. Nhận diện mốc Câu hỏi (Câu 1., Câu 2.,...)
+    // 2. Nhận diện mốc Câu hỏi (Câu 1., Câu 2.,...)[span_8](start_span)[span_8](end_span)
     const qMatch = t.match(/^(?:Câu|Bài|Question)\s*(\d+)[:.]/i);
     if (qMatch && !/buổi|chương|phương pháp|lý thuyết/i.test(t)) {
       markers.push({
@@ -670,7 +670,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       continue;
     }
 
-    // 3. Nhận diện chữ LỜI GIẢI
+    // 3. Nhận diện chữ LỜI GIẢI[span_9](start_span)[span_9](end_span)
     if (/^(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|HDG|LỜI\s*GIẢI)[:.]?$/i.test(t)) {
       markers.push({
         pageIdx: line.pageIdx,
@@ -796,7 +796,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
         qEndY = Math.max(20, nextQuestionMarker.yPos - 12);
       }
 
-      // 1. CẮT ẢNH ĐỀ BÀI (NGẮT TRƯỚC DÒNG CHỮ "LỜI GIẢI")
+      // 1. CẮT ẢNH ĐỀ BÀI (NGẮT TRƯỚC DÒNG CHỮ "LỜI GIẢI")[span_10](start_span)[span_10](end_span)
       const promptImg = cropMultiPageArea(startPage, startY, qEndPage, qEndY);
       const promptKey = "img_pdf_q_" + qNum + "_" + i;
       mediaMap[promptKey] = promptImg;
@@ -805,7 +805,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       let solText = "";
       let solutionHtml = "";
 
-      // 2. CẮT ẢNH LỜI GIẢI RIÊNG BIỆT (bắt đầu từ chữ Lời giải)
+      // 2. CẮT ẢNH LỜI GIẢI RIÊNG BIỆT (bắt đầu từ chữ Lời giải)[span_11](start_span)[span_11](end_span)
       if (solMarker) {
         const solStartPage = solMarker.pageIdx;
         const solStartY = solMarker.yPos;
@@ -827,7 +827,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
 
       const blockAllText = promptText + " " + solText;
 
-      // Nhận diện loại câu hỏi
+      // Nhận diện loại câu hỏi[span_12](start_span)[span_12](end_span)
       let finalType: QuestionType = currentSec.section_type;
       if (/xét\s*tính\s*đúng\s*sai/i.test(blockAllText) || /Đáp\s*án\s*:\s*[ĐSđs\/]+/i.test(blockAllText)) {
         finalType = "true_false";
@@ -839,7 +839,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
       let optionsList: QuestionOption[] = [];
 
       if (finalType === "true_false") {
-        // Tự động nhận diện chuỗi Đ/S (Đ/S/S/D hoặc Đ/S/S/S)
+        // Tự động nhận diện chuỗi Đ/S (Đ/S/S/D hoặc Đ/S/S/S)[span_13](start_span)[span_13](end_span)
         const tfMatch = blockAllText.match(/Đáp\s*án\s*:\s*([ĐSđs\/\s]+)/i);
         let tfSeq = ["S", "S", "S", "S"];
         if (tfMatch && tfMatch[1]) {
@@ -866,7 +866,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
           "d) [" + (tfSeq[3] === "Đ" ? "Đúng" : "Sai") + "]\n"
         );
       } else if (finalType === "short_answer") {
-        // Tách đáp số phân số, số âm (-4, 64/27)
+        // Tách đáp số phân số, số âm (-4, 64/27)[span_14](start_span)[span_14](end_span)
         const saMatch = blockAllText.match(/(?:Đáp\s*số|KQ|Kết\s*quả|Đáp\s*án)[:\s]+([^Lời\r\n\t]+)/i);
         if (saMatch && saMatch[1]) {
           parsedCorrectAns = saMatch[1].trim().replace(/^[:\s]+/, "");
@@ -880,7 +880,7 @@ export async function processPdfExamDirectly(file: File): Promise<{
           "Đáp án: " + parsedCorrectAns + "\n"
         );
       } else {
-        // Trắc nghiệm: Tự động bóc "Chọn C", "Chọn D", "Chọn A"...
+        // Trắc nghiệm: Tự động bóc "Chọn C", "Chọn D", "Chọn A"...[span_15](start_span)[span_15](end_span)
         const mcMatch = blockAllText.match(/(?:Chọn|Đáp\s*án)\s*([A-D])\b/i);
         if (mcMatch && mcMatch[1]) {
           parsedCorrectAns = mcMatch[1].toUpperCase();
@@ -1698,7 +1698,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </span>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
+                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-md border border-emerald-300">
                                   {q.correct_answer || "Chưa có"}
                                 </span>
                               </div>
