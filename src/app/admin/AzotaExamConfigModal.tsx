@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -514,7 +513,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 1.5 TỰ ĐỘNG BÓC TÁCH & CẮT ẢNH PDF QUA CDN (KHÔNG CẦN CÀI NPM INSTALL TRÊN GITHUB)
+// 1.5 TỰ ĐỘNG BÓC TÁCH & CẮT ẢNH PDF THÔNG MINH (CHỐNG LẸM, XÉN LỀ TRẮNG)
 // ============================================================================
 
 function loadPdfJsScript(): Promise<any> {
@@ -532,6 +531,55 @@ function loadPdfJsScript(): Promise<any> {
     script.onerror = () => reject(new Error("Không thể tải thư viện PDF.js từ CDN"));
     document.head.appendChild(script);
   });
+}
+
+// Hàm xén sạch khoảng trắng xung quanh ảnh canvas (Auto-Crop White Borders)
+function autoTrimCanvasWhitespace(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas.toDataURL("image/png");
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  let top = -1, bottom = -1, left = -1, right = -1;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      // Nhận diện pixel có màu (không phải màu trắng tinh hay gần trắng)
+      if (data[idx] < 245 || data[idx + 1] < 245 || data[idx + 2] < 245) {
+        if (top === -1) top = y;
+        bottom = y;
+        if (left === -1 || x < left) left = x;
+        if (right === -1 || x > right) right = x;
+      }
+    }
+  }
+
+  // Nếu là canvas trắng hoàn toàn
+  if (top === -1) return canvas.toDataURL("image/png");
+
+  // Thêm padding đệm 20px xung quanh để chữ thoáng và đẹp
+  const pad = 20;
+  const cropX = Math.max(0, left - pad);
+  const cropY = Math.max(0, top - pad);
+  const cropW = Math.min(w - cropX, (right - left) + pad * 2);
+  const cropH = Math.min(h - cropY, (bottom - top) + pad * 2);
+
+  const trimmedCanvas = document.createElement("canvas");
+  trimmedCanvas.width = cropW;
+  trimmedCanvas.height = cropH;
+
+  const tCtx = trimmedCanvas.getContext("2d");
+  if (!tCtx) return canvas.toDataURL("image/png");
+
+  tCtx.fillStyle = "#ffffff";
+  tCtx.fillRect(0, 0, cropW, cropH);
+  tCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  return trimmedCanvas.toDataURL("image/png");
 }
 
 export async function extractPdfByVisualCropping(file: File): Promise<{ text: string; mediaMap: Record<string, string> }> {
@@ -552,7 +600,7 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
 
   const markers: FoundMarker[] = [];
   const pageCanvases: HTMLCanvasElement[] = [];
-  const SCALE = 2.0;
+  const SCALE = 2.0; // Scale 2.0 để nét chuẩn Retina
 
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -575,35 +623,43 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
 
       const tx = item.transform;
       const pdfY = tx[5];
+      // Đổi tọa độ PDF sang tọa độ Canvas pixel
       const canvasY = viewport.height - (pdfY * SCALE);
 
+      // Bỏ qua header quá cao hoặc footer quá thấp của trang
+      if (canvasY < 50 || canvasY > viewport.height - 80) continue;
+
+      // 1. Nhận diện PHẦN I, PHẦN II...
       const secMatch = str.match(/^(?:Phần|PHẦN)\s*([IVX]+|\d+)/i);
       if (secMatch) {
         markers.push({
           pageIdx: pageNum - 1,
           secTitle: str,
-          yPos: Math.max(0, canvasY - 15),
+          yPos: Math.max(0, canvasY - 25),
           text: str
         });
         continue;
       }
 
+      // 2. Nhận diện Câu 1, Câu 2...
       const qMatch = str.match(/^(?:Câu|Bài|Question)\s*(\d+)[:.]?/i);
       if (qMatch) {
         markers.push({
           pageIdx: pageNum - 1,
           qNum: parseInt(qMatch[1], 10),
-          yPos: Math.max(0, canvasY - 15),
+          // Lùi lên 28px để không bao giờ bị chém đầu chữ "Câu X"
+          yPos: Math.max(0, canvasY - 28),
           text: str
         });
         continue;
       }
 
+      // 3. Nhận diện Lời giải / Hướng dẫn giải
       if (/^(?:Lời\s*giải|Hướng\s*dẫn\s*giải|HDG|LỜI\s*GIẢI)/i.test(str)) {
         markers.push({
           pageIdx: pageNum - 1,
           isSol: true,
-          yPos: Math.max(0, canvasY - 15),
+          yPos: Math.max(0, canvasY - 25),
           text: str
         });
       }
@@ -634,13 +690,14 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
     cCtx.fillRect(0, 0, cropped.width, cropped.height);
     cCtx.drawImage(srcCanvas, 0, startY, srcCanvas.width, h, 0, 0, srcCanvas.width, h);
 
-    return cropped.toDataURL("image/png");
+    // Tự động xén bỏ khoảng trắng thừa 2 bên và trên dưới
+    return autoTrimCanvasWhitespace(cropped);
   };
 
   if (markers.filter(m => m.qNum !== undefined).length === 0) {
     pageCanvases.forEach((canvas, idx) => {
       const key = "img_pdf_page_" + (idx + 1);
-      mediaMap[key] = canvas.toDataURL("image/png");
+      mediaMap[key] = autoTrimCanvasWhitespace(canvas);
       rawTextParts.push("Câu " + (idx + 1) + ":\n[img:$" + key + "$]\nA.\nB.\nC.\nD.\n");
     });
     return {
@@ -663,9 +720,11 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
       const startPage = current.pageIdx;
       const startY = current.yPos;
 
-      let endY = pageCanvases[startPage].height;
+      // Loại bỏ 85px dưới cùng để không dính footer (số điện thoại, địa chỉ, số trang)
+      let endY = pageCanvases[startPage].height - 85;
       if (next && next.pageIdx === startPage) {
-        endY = next.yPos;
+        // Trừ bớt 10px để không dính đầu chữ của câu tiếp theo
+        endY = Math.max(startY + 30, next.yPos - 10);
       }
 
       const imgB64 = cropCanvasArea(startPage, startY, endY);
@@ -678,9 +737,9 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
         const solStartPage = next.pageIdx;
         const solStartY = next.yPos;
         const nextAfterSol = i + 2 < markers.length ? markers[i + 2] : null;
-        let solEndY = pageCanvases[solStartPage].height;
+        let solEndY = pageCanvases[solStartPage].height - 85;
         if (nextAfterSol && nextAfterSol.pageIdx === solStartPage) {
-          solEndY = nextAfterSol.yPos;
+          solEndY = Math.max(solStartY + 30, nextAfterSol.yPos - 10);
         }
 
         const solB64 = cropCanvasArea(solStartPage, solStartY, solEndY);
@@ -1144,11 +1203,11 @@ export function TokenViewer({
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
             />
           ) : (
-            <div key={idx} className="my-3 text-center flex flex-col items-center justify-center">
+            <div key={idx} className="my-2 flex flex-col items-start justify-start">
               <img 
                 src={src} 
-                alt="Hình minh họa" 
-                className="max-h-72 max-w-full rounded-xl border border-slate-200/90 bg-white shadow-sm p-1.5 object-contain inline-block" 
+                alt="Câu hỏi" 
+                className="max-h-[500px] max-w-full rounded-xl border border-slate-200/90 bg-white shadow-xs p-1 object-contain inline-block" 
               />
             </div>
           );
