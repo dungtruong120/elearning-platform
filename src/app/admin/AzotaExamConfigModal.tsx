@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX TOÀN NĂNG (HỖ TRỢ MỌI PHIÊN BẢN)
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -46,6 +46,16 @@ function isCleanLatex(latex: string): boolean {
 
   if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
     return false;
+  }
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const code = trimmed.charCodeAt(i);
+    if ((code >= 0x4e00 && code <= 0x9fff) || 
+        (code >= 0x3400 && code <= 0x4dbf) || 
+        (code >= 0x3040 && code <= 0x30ff) || 
+        (code >= 0xac00 && code <= 0xd7af)) {
+      return false;
+    }
   }
 
   return true;
@@ -134,10 +144,9 @@ const SYMBOL_MAP: Record<number, string> = {
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
-  if (!uint8 || uint8.length < 😎 return "";
+  if (!uint8 || uint8.length < 8 ) return "";
   let start = -1;
 
-  // Quét tìm header của MTEF
   for (let i = 0; i < uint8.length - 8; i++) {
     if ((uint8[i] === 2 || uint8[i] === 3 || uint8[i] === 5) && 
         (uint8[i + 1] === 0 || uint8[i + 1] === 1) && 
@@ -148,7 +157,6 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
     }
   }
 
-  // Quét tìm CLSID Equation 3.0
   if (start === -1) {
     for (let i = 0; i < uint8.length - 20; i++) {
       if (uint8[i] === 0x1C && uint8[i + 1] === 0x00) {
@@ -316,14 +324,12 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TỰ ĐỘNG KHÔI PHỤC MATHTYPE BỊ TRẮNG TRONG CÁC ĐỀ TỌA ĐỘ HÓA TCT
 export function autoHealMissingOptions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText;
 
   text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
 
-  // Khôi phục Câu 1 nếu bị rỗng 4 phương án
   if (/hình lập phương.*?ABCD.*?độ dài cạnh bằng.*?1/i.test(text) && /A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./.test(text)) {
     const optC1 = "A. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; \\frac{1}{2}; 1\\right)$\n" +
                   "B. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; 1; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$\n" +
@@ -332,7 +338,6 @@ export function autoHealMissingOptions(rawText: string): string {
     text = text.replace(/A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./i, optC1);
   }
 
-  // Khôi phục Câu 2 nếu bị rỗng 4 phương án
   if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./.test(text)) {
     const optC2 = "A. $B\\left(0; -\\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{2}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
                   "B. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{2}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
@@ -344,7 +349,6 @@ export function autoHealMissingOptions(rawText: string): string {
   return text;
 }
 
-// BỘ TRÍCH XUẤT FILE WORD (.DOCX) CHUẨN XÁC
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -1099,7 +1103,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           localStorage.removeItem("tct_gemini_api_key");
           alert("API Key không hợp lệ hoặc đã hết hạn! Vui lòng bấm lại để nhập Key mới.");
         } else if (res.status === 503 || data.error?.includes("high demand") || data.error?.includes("overloaded")) {
-          alert("Máy chủ Google AI hiện đang quá tải tạm thời. Vui lòng bấm thử lại sau 30 giây hoặc sử dụng bản trích xuất tự động hiện tại!");
+          alert("Máy chủ Google AI hiện đang quá tải tạm thời. Vui lòng thử lại sau giây lát!");
         } else {
           alert("Lỗi AI: " + (data.error || "Không thể xử lý"));
         }
