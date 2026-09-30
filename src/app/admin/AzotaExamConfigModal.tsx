@@ -513,7 +513,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 1.5 TỰ ĐỘNG BÓC TÁCH CẮT ẢNH PDF, TÁCH LỜI GIẢI VÀ BÓC ĐÁP ÁN THÔNG MINH
+// 1.5 TỰ ĐỘNG BÓC TÁCH CẮT ẢNH PDF, TÁCH TỪNG PHƯƠNG ÁN & NHẬN DIỆN ĐÁP ÁN CHUẨN
 // ============================================================================
 
 function loadPdfJsScript(): Promise<any> {
@@ -558,7 +558,7 @@ function autoTrimCanvasWhitespace(canvas: HTMLCanvasElement): string {
 
   if (top === -1) return canvas.toDataURL("image/png");
 
-  const pad = 18;
+  const pad = 16;
   const cropX = Math.max(0, left - pad);
   const cropY = Math.max(0, top - pad);
   const cropW = Math.min(w - cropX, (right - left) + pad * 2);
@@ -587,10 +587,12 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
 
   interface FoundMarker {
     pageIdx: number;
+    type: "section" | "question" | "opt" | "solution";
     qNum?: number;
+    key?: string; // A, B, C, D hoặc a, b, c, d
     secTitle?: string;
-    isSol?: boolean;
     yPos: number;
+    xPos: number;
     text: string;
   }
 
@@ -619,13 +621,14 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
       if (!str) continue;
 
       const tx = item.transform;
+      const pdfX = tx[4];
       const pdfY = tx[5];
+      const canvasX = pdfX * SCALE;
       const canvasY = viewport.height - (pdfY * SCALE);
 
-      // Lưu trữ toàn bộ text kèm tọa độ Y để trích xuất đáp án
       pageTexts.push({ pageIdx: pageNum - 1, text: str, yPos: canvasY });
 
-      // Bỏ qua header quá cao hoặc footer quá thấp
+      // Lọc bỏ header quá cao hoặc footer quá thấp
       if (canvasY < 45 || canvasY > viewport.height - 75) continue;
 
       // 1. Nhận diện PHẦN I, PHẦN II, PHẦN III...
@@ -633,31 +636,50 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
       if (secMatch) {
         markers.push({
           pageIdx: pageNum - 1,
+          type: "section",
           secTitle: str,
           yPos: Math.max(0, canvasY - 20),
+          xPos: canvasX,
           text: str
         });
         continue;
       }
 
-      // 2. Nhận diện Câu 1, Câu 2...
+      // 2. Nhận diện mốc Bắt đầu câu hỏi (Chỉ chấp nhận từ Câu X hoặc Bài X)
       const qMatch = str.match(/^(?:Câu|Bài|Question)\s*(\d+)[:.]?/i);
       if (qMatch) {
         markers.push({
           pageIdx: pageNum - 1,
+          type: "question",
           qNum: parseInt(qMatch[1], 10),
           yPos: Math.max(0, canvasY - 24),
+          xPos: canvasX,
           text: str
         });
         continue;
       }
 
-      // 3. Nhận diện mốc Lời giải / Hướng dẫn giải
+      // 3. Nhận diện Lời giải
       if (/^(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|HDG|LỜI\s*GIẢI)[:.]?$/i.test(str)) {
         markers.push({
           pageIdx: pageNum - 1,
-          isSol: true,
+          type: "solution",
           yPos: Math.max(0, canvasY - 15),
+          xPos: canvasX,
+          text: str
+        });
+        continue;
+      }
+
+      // 4. Nhận diện Phương án trắc nghiệm A. B. C. D.
+      const optMatch = str.match(/^([A-D])[\.\)]\s*$/);
+      if (optMatch) {
+        markers.push({
+          pageIdx: pageNum - 1,
+          type: "opt",
+          key: optMatch[1].toUpperCase(),
+          yPos: Math.max(0, canvasY - 15),
+          xPos: canvasX,
           text: str
         });
       }
@@ -676,7 +698,7 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
     const srcCanvas = pageCanvases[pageIdx];
     if (!srcCanvas) return "";
 
-    const h = Math.max(20, endY - startY);
+    const h = Math.max(15, endY - startY);
     const cropped = document.createElement("canvas");
     cropped.width = srcCanvas.width;
     cropped.height = h;
@@ -691,7 +713,6 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
     return autoTrimCanvasWhitespace(cropped);
   };
 
-  // Helper tìm chuỗi text nằm trong khoảng Y của một câu
   const getTextBetween = (pageIdx: number, startY: number, endY: number): string => {
     return pageTexts
       .filter(pt => pt.pageIdx === pageIdx && pt.yPos >= startY && pt.yPos <= endY)
@@ -699,115 +720,129 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
       .join(" ");
   };
 
-  if (markers.filter(m => m.qNum !== undefined).length === 0) {
+  let currentSecTitle = "PHẦN I. TRẮC NGHIỆM";
+
+  // Lọc chỉ lấy các mốc câu hỏi thực sự, bỏ qua các header bài tập ban đầu
+  const qIndices = markers
+    .map((m, idx) => (m.type === "question" ? idx : -1))
+    .filter(idx => idx !== -1);
+
+  if (qIndices.length === 0) {
     pageCanvases.forEach((canvas, idx) => {
       const key = "img_pdf_page_" + (idx + 1);
       mediaMap[key] = autoTrimCanvasWhitespace(canvas);
       rawTextParts.push("Câu " + (idx + 1) + ":\n[img:$" + key + "$]\nA.\nB.\nC.\nD.\n");
     });
-    return {
-      text: rawTextParts.join("\n\n"),
-      mediaMap
-    };
+    return { text: rawTextParts.join("\n\n"), mediaMap };
   }
 
-  let currentSecTitle = "PHẦN I. TRẮC NGHIỆM";
+  // Tự động phân chia phần thi
+  for (let k = 0; k < markers.length; k++) {
+    const m = markers[k];
+    if (m.type === "section" && m.secTitle) {
+      currentSecTitle = m.secTitle;
+      rawTextParts.push("\n\n" + currentSecTitle + "\n");
+    }
+  }
 
-  for (let i = 0; i < markers.length; i++) {
-    const current = markers[i];
-    const next = i + 1 < markers.length ? markers[i + 1] : null;
+  for (let qi = 0; qi < qIndices.length; qi++) {
+    const curIdx = qIndices[qi];
+    const currentQ = markers[curIdx];
+    const nextQ = qi + 1 < qIndices.length ? markers[qIndices[qi + 1]] : null;
 
-    if (current.secTitle) {
-      currentSecTitle = current.secTitle;
-      rawTextParts.push("\n\n" + current.secTitle + "\n");
-      continue;
+    const qNum = currentQ.qNum || (qi + 1);
+    const startPage = currentQ.pageIdx;
+    const startY = currentQ.yPos;
+
+    // Tìm xem giữa câu này và câu sau có mốc "Lời giải" không
+    let solMarker: FoundMarker | null = null;
+    let nextBoundaryY = pageCanvases[startPage].height - 75;
+
+    for (let j = curIdx + 1; j < markers.length; j++) {
+      const cand = markers[j];
+      if (cand.type === "question") break;
+      if (cand.type === "solution" && cand.pageIdx === startPage) {
+        solMarker = cand;
+        break;
+      }
     }
 
-    if (current.qNum !== undefined) {
-      const qNum = current.qNum;
-      const startPage = current.pageIdx;
-      const startY = current.yPos;
-
-      // Xác định điểm dừng của câu hỏi
-      let qEndY = pageCanvases[startPage].height - 75;
-      let hasSolNext = false;
-
-      if (next && next.pageIdx === startPage) {
-        if (next.isSol) {
-          // Nếu mốc tiếp theo là Lời giải, câu hỏi kết thúc TRƯỚC dòng chữ Lời giải
-          qEndY = Math.max(startY + 25, next.yPos - 10);
-          hasSolNext = true;
-        } else {
-          // Kết thúc trước câu tiếp theo
-          qEndY = Math.max(startY + 25, next.yPos - 10);
-        }
-      }
-
-      // Cắt ảnh câu hỏi
-      const imgB64 = cropCanvasArea(startPage, startY, qEndY);
-      const imgKey = "img_pdf_q_" + qNum + "_" + i;
-      mediaMap[imgKey] = imgB64;
-
-      let blockText = "Câu " + qNum + ":\n[img:$" + imgKey + "$]\n";
-
-      // Đọc text trong vùng câu hỏi và lời giải để bóc đáp án tự động
-      let detectedAns = "";
-      let isTrueFalse = /đúng\s*sai/i.test(currentSecTitle);
-      let isShortAns = /trả\s*lời\s*ngắn|điền\s*khuyết/i.test(currentSecTitle);
-
-      // Xử lý Lời giải nếu có
-      if (hasSolNext && next && next.isSol) {
-        const solStartPage = next.pageIdx;
-        const solStartY = next.yPos;
-        const nextAfterSol = i + 2 < markers.length ? markers[i + 2] : null;
-
-        let solEndY = pageCanvases[solStartPage].height - 75;
-        if (nextAfterSol && nextAfterSol.pageIdx === solStartPage) {
-          solEndY = Math.max(solStartY + 25, nextAfterSol.yPos - 10);
-        }
-
-        // Cắt riêng ảnh Lời giải
-        const solB64 = cropCanvasArea(solStartPage, solStartY, solEndY);
-        const solKey = "img_pdf_sol_" + qNum + "_" + i;
-        mediaMap[solKey] = solB64;
-        blockText += "\nLời giải:\n[img:$" + solKey + "$]\n";
-
-        // Quét text vùng lời giải để tìm đáp án (Chọn D, Chọn đáp án B, Đáp số: -4, ...)
-        const solText = getTextBetween(solStartPage, solStartY, solEndY);
-
-        const selMatch = solText.match(/(?:Chọn|Đáp\s*án)\s*([A-D])\b/i);
-        if (selMatch && selMatch[1]) {
-          detectedAns = selMatch[1].toUpperCase();
-        }
-
-        const numMatch = solText.match(/(?:Đáp\s*số|KQ|Kết\s*quả)[:\s]+([\-0-9.,\/a-zA-Z]+)/i);
-        if (numMatch && numMatch[1]) {
-          detectedAns = numMatch[1].trim();
-          isShortAns = true;
-        }
-
-        // Kiểm tra đúng sai
-        if (/a\)\s*(?:Đúng|Sai)|b\)\s*(?:Đúng|Sai)/i.test(solText)) {
-          isTrueFalse = true;
-        }
-
-        i++; // Đã xử lý mốc lời giải
-      }
-
-      // Gắn cấu trúc lựa chọn tương ứng với loại câu hỏi
-      if (isTrueFalse) {
-        blockText += "\na) [img:$" + imgKey + "$]\nb) [img:$" + imgKey + "$]\nc) [img:$" + imgKey + "$]\nd) [img:$" + imgKey + "$]";
-      } else if (isShortAns) {
-        blockText += "\nĐáp án: " + (detectedAns || "");
-      } else {
-        blockText += "\nA.\nB.\nC.\nD.";
-        if (detectedAns) {
-          blockText += "\nChọn " + detectedAns;
-        }
-      }
-
-      rawTextParts.push(blockText);
+    if (nextQ && nextQ.pageIdx === startPage) {
+      nextBoundaryY = Math.max(startY + 20, nextQ.yPos - 10);
     }
+
+    // Câu hỏi chỉ cắt đến trước mốc Lời giải (hoặc trước câu kế tiếp)
+    const promptEndY = solMarker ? Math.max(startY + 20, solMarker.yPos - 12) : nextBoundaryY;
+
+    // 1. Cắt riêng ảnh ĐỀ BÀI (Prompt)
+    const promptImg = cropCanvasArea(startPage, startY, promptEndY);
+    const promptKey = "img_pdf_q_" + qNum + "_" + qi;
+    mediaMap[promptKey] = promptImg;
+
+    let blockText = "Câu " + qNum + ":\n[img:$" + promptKey + "$]\n";
+
+    // 2. Đọc text để bóc tách loại câu và đáp án tự động
+    const promptText = getTextBetween(startPage, startY, promptEndY);
+    let solText = "";
+
+    // 3. Cắt riêng ảnh LỜI GIẢI (nếu có mốc lời giải)
+    if (solMarker) {
+      const solStartPage = solMarker.pageIdx;
+      const solStartY = solMarker.yPos;
+      let solEndY = pageCanvases[solStartPage].height - 75;
+      if (nextQ && nextQ.pageIdx === solStartPage) {
+        solEndY = Math.max(solStartY + 20, nextQ.yPos - 10);
+      }
+
+      const solImg = cropCanvasArea(solStartPage, solStartY, solEndY);
+      const solKey = "img_pdf_sol_" + qNum + "_" + qi;
+      mediaMap[solKey] = solImg;
+      blockText += "\nLời giải:\n[img:$" + solKey + "$]\n";
+
+      solText = getTextBetween(solStartPage, solStartY, solEndY);
+    }
+
+    const fullBlockText = promptText + " " + solText;
+
+    // 4. Nhận diện phần thi và format đáp án
+    const isTrueFalse = /đúng\s*sai|true\s*false/i.test(currentSecTitle) || /xét\s*tính\s*đúng\s*sai/i.test(fullBlockText) || /Đáp\s*án\s*:\s*[ĐSđs\/]+/i.test(fullBlockText);
+    const isShortAns = /trả\s*lời\s*ngắn|điền\s*khuyết/i.test(currentSecTitle) || /(?:Đáp\s*số|KQ|Kết\s*quả)[:\s]+/i.test(fullBlockText);
+
+    if (isTrueFalse) {
+      // Tự động nhận diện chuỗi Đ/S/S/S hoặc từng ý a, b, c, d
+      const tfAnsMatch = fullBlockText.match(/Đáp\s*án\s*:\s*([ĐSđs\/\s]+)/i);
+      let tfAnsSeq = ["S", "S", "S", "S"];
+      if (tfAnsMatch && tfAnsMatch[1]) {
+        const letters = tfAnsMatch[1].replace(/[^ĐSđs]/g, "").toUpperCase().split("");
+        letters.forEach((l, idx) => {
+          if (idx < 4) tfAnsSeq[idx] = l;
+        });
+      }
+
+      blockText += "\na) [" + (tfAnsSeq[0] === "Đ" ? "Đúng" : "Sai") + "] Phương án a\n" +
+                   "b) [" + (tfAnsSeq[1] === "Đ" ? "Đúng" : "Sai") + "] Phương án b\n" +
+                   "c) [" + (tfAnsSeq[2] === "Đ" ? "Đúng" : "Sai") + "] Phương án c\n" +
+                   "d) [" + (tfAnsSeq[3] === "Đ" ? "Đúng" : "Sai") + "] Phương án d";
+    } else if (isShortAns) {
+      // Tự động nhận diện đáp số phân số, số âm (ví dụ: -4, 1/3, 5\sqrt{2})
+      let shortAnsVal = "";
+      const saMatch = fullBlockText.match(/(?:Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n\t]+)/i);
+      if (saMatch && saMatch[1]) {
+        shortAnsVal = saMatch[1].trim().replace(/^[\:\s]+/, "");
+      }
+      blockText += "\nĐáp án: " + (shortAnsVal || "");
+    } else {
+      // Trắc nghiệm A, B, C, D
+      let mcAns = "A";
+      const mcMatch = fullBlockText.match(/(?:Chọn|Đáp\s*án)\s*([A-D])\b/i);
+      if (mcMatch && mcMatch[1]) {
+        mcAns = mcMatch[1].toUpperCase();
+      }
+
+      blockText += "\nA. [img:$" + promptKey + "$]\nB. [img:$" + promptKey + "$]\nC. [img:$" + promptKey + "$]\nD. [img:$" + promptKey + "$]\nChọn " + mcAns;
+    }
+
+    rawTextParts.push(blockText);
   }
 
   return {
@@ -1006,7 +1041,7 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
 
   if (sectionType === "short_answer") {
     let correctAns = "";
-    const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(cleanChunk);
+    const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(cleanChunk + " " + solutionText);
     if (ansMatch && ansMatch[1]) {
       correctAns = ansMatch[1].replace(/Lời\s*giải.*$/i, "").trim();
     }
@@ -1744,11 +1779,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                       {sec.questions.map((q, idx) => {
                         const isSolOpen = !!expandedSolutions[q.id];
 
-                        const isAnyOptionLong = q.options?.some(opt => {
-                          const t = opt.text_html || "";
-                          return t.length > 30 || t.includes("\\frac") || t.includes("right)");
-                        });
-
                         return (
                           <div key={q.id} className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3">
                             <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
@@ -1757,25 +1787,27 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </span>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
-                                  {q.correct_answer || "Chưa chọn"}
+                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-md border border-emerald-300">
+                                  {q.correct_answer || "Chưa có"}
                                 </span>
                               </div>
                             </div>
 
+                            {/* Render ảnh đề bài sạch */}
                             <div className="py-1">
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
                             </div>
 
+                            {/* DẠNG 1: TRẮC NGHIỆM 4 LỰA CHỌN A, B, C, D */}
                             {sec.section_type === "multiple_choice" && (
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
                                 {["A", "B", "C", "D"].map(k => {
                                   const isCorrect = k === q.correct_answer;
                                   return (
                                     <div 
                                       key={k}
                                       onClick={() => handleUpdateAnswer(q.id, k)}
-                                      className={"p-2.5 rounded-xl border text-xs flex items-center justify-center gap-2 transition-all cursor-pointer " + (
+                                      className={"p-2.5 rounded-xl border text-xs flex items-center justify-center gap-2.5 transition-all cursor-pointer " + (
                                         isCorrect 
                                           ? "bg-emerald-50 border-emerald-400 text-emerald-950 font-bold shadow-2xs ring-2 ring-emerald-400" 
                                           : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
@@ -1793,14 +1825,15 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
+                            {/* DẠNG 2: TRẮC NGHIỆM ĐÚNG / SAI (a, b, c, d) */}
                             {sec.section_type === "true_false" && q.options && (
                               <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
                                 <table className="w-full text-left text-[13px]">
                                   <thead className="bg-slate-50 border-b border-slate-200">
                                     <tr>
                                       <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
+                                      <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-20">Đúng</th>
+                                      <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-20">Sai</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 bg-white">
@@ -1816,7 +1849,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                           <td className="py-2.5 px-3 text-center align-middle">
                                             <div 
                                               onClick={() => handleToggleTrueFalseOpt(q.id, subKey, true)}
-                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                              className={"w-7 h-7 mx-auto rounded-lg border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
                                               <Check className="w-4 h-4"/>
                                             </div>
@@ -1824,7 +1857,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                           <td className="py-2.5 px-3 text-center align-middle">
                                             <div 
                                               onClick={() => handleToggleTrueFalseOpt(q.id, subKey, false)}
-                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                              className={"w-7 h-7 mx-auto rounded-lg border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
                                               <X className="w-4 h-4"/>
                                             </div>
@@ -1837,19 +1870,21 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
+                            {/* DẠNG 3: TRẢ LỜI NGẮN / ĐIỀN KHUYẾT */}
                             {sec.section_type === "short_answer" && (
                               <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
-                                <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
+                                <span className="font-bold text-slate-700 whitespace-nowrap">Đáp số:</span>
                                 <input 
                                   type="text" 
                                   value={q.correct_answer || ""} 
                                   onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
-                                  placeholder="Nhập đáp án số hoặc chữ..." 
+                                  placeholder="Nhập đáp số (ví dụ: -4, 1/3, 5)..." 
                                   className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600" 
                                 />
                               </div>
                             )}
 
+                            {/* NÚT XEM LỜI GIẢI GỐC (BẮT ĐẦU TỪ CHỮ LỜI GIẢI) */}
                             {q.solution_html && (
                               <div className="pt-3 border-t border-slate-100 mt-3">
                                 <button
@@ -1858,7 +1893,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                   className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50/50 px-2.5 py-1.5 rounded-lg border border-indigo-100 transition-colors"
                                 >
                                   <BookOpen className="w-3.5 h-3.5"/>
-                                  <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
+                                  <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải chi tiết"}</span>
                                 </button>
                                 {isSolOpen && (
                                   <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
