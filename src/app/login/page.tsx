@@ -73,7 +73,7 @@ export default function LoginPage() {
       ) {
         const adminUser = {
           id: "admin-master",
-          full_name: "Thầy Nam (Quản Trị TCT)",
+          full_name: "Thầy Dũng (Quản Trị TCT)",
           email: ADMIN_CREDENTIALS.email,
           role: "admin" as const,
           approval_status: "approved"
@@ -117,7 +117,7 @@ export default function LoginPage() {
       }
 
       if (foundStudent.approval_status === "pending") {
-        setErrorMsg("Tài khoản của bạn đang chờ Ban Giám Vụ TCT xét duyệt. Vui lòng liên hệ quản trị viên.");
+        setErrorMsg("Tài khoản của bạn đang được xét duyệt. Vui lòng liên hệ quản trị viên.");
         setLoading(false);
         return;
       }
