@@ -193,8 +193,8 @@ export default function LoginPage() {
           <div className="w-14 h-14 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-md shadow-blue-500/20 text-white">
             <GraduationCap className="w-7 h-7" />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Đăng Nhập EduNexus</h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">Cổng thông tin học tập & thi thử Toán TCT</p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Đăng Nhập</h1>
+        
         </div>
 
         {errorMsg && (
