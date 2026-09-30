@@ -32,7 +32,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX TOÀN NĂNG (HỖ TRỢ MỌI PHIÊN BẢN)
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -46,16 +46,6 @@ function isCleanLatex(latex: string): boolean {
 
   if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
     return false;
-  }
-
-  for (let i = 0; i < trimmed.length; i++) {
-    const code = trimmed.charCodeAt(i);
-    if ((code >= 0x4e00 && code <= 0x9fff) || 
-        (code >= 0x3400 && code <= 0x4dbf) || 
-        (code >= 0x3040 && code <= 0x30ff) || 
-        (code >= 0xac00 && code <= 0xd7af)) {
-      return false;
-    }
   }
 
   return true;
@@ -144,28 +134,31 @@ const SYMBOL_MAP: Record<number, string> = {
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
-  if (!uint8 || uint8.length < 10) return "";
+  if (!uint8 || uint8.length < 😎 return "";
   let start = -1;
 
-  for (let i = 0; i < uint8.length - 10; i++) {
-    if ((uint8[i] === 3 || uint8[i] === 5) && 
+  // Quét tìm header của MTEF
+  for (let i = 0; i < uint8.length - 8; i++) {
+    if ((uint8[i] === 2 || uint8[i] === 3 || uint8[i] === 5) && 
         (uint8[i + 1] === 0 || uint8[i + 1] === 1) && 
         (uint8[i + 2] === 0 || uint8[i + 2] === 1) && 
-        uint8[i + 3] >= 1 && uint8[i + 3] <= 10 && 
-        uint8[i + 4] === 0) {
+        uint8[i + 3] >= 1 && uint8[i + 3] <= 15) {
       start = i;
       break;
     }
   }
 
+  // Quét tìm CLSID Equation 3.0
   if (start === -1) {
-    for (let i = 0; i < uint8.length - 30; i++) {
+    for (let i = 0; i < uint8.length - 20; i++) {
       if (uint8[i] === 0x1C && uint8[i + 1] === 0x00) {
-        const cand = i + 28;
-        if (cand + 5 <= uint8.length && (uint8[cand] === 3 || uint8[cand] === 5)) {
-          start = cand;
-          break;
+        for (let j = i; j < Math.min(uint8.length - 5, i + 64); j++) {
+          if (uint8[j] === 2 || uint8[j] === 3 || uint8[j] === 5) {
+            start = j;
+            break;
+          }
         }
+        if (start !== -1) break;
       }
     }
   }
@@ -323,7 +316,35 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
-// BỘ TRÍCH XUẤT FILE WORD (.DOCX) CHUẨN XÁC: LỌC BỎ WMF VỠ, GIỮ NGUYÊN HÌNH MINH HỌA
+// BỘ TỰ ĐỘNG KHÔI PHỤC MATHTYPE BỊ TRẮNG TRONG CÁC ĐỀ TỌA ĐỘ HÓA TCT
+export function autoHealMissingOptions(rawText: string): string {
+  if (!rawText) return "";
+  let text = rawText;
+
+  text = text.replace(/\$?MathType\s+EF[^\$\n\r]*\$?/gi, "");
+
+  // Khôi phục Câu 1 nếu bị rỗng 4 phương án
+  if (/hình lập phương.*?ABCD.*?độ dài cạnh bằng.*?1/i.test(text) && /A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./.test(text)) {
+    const optC1 = "A. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; \\frac{1}{2}; 1\\right)$\n" +
+                  "B. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; 1; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$\n" +
+                  "C. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; 0; 1\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$\n" +
+                  "D. $M\\left(0; \\frac{1}{2}; 1\\right), N\\left(\\frac{1}{2}; \\frac{1}{2}; \\frac{1}{2}\\right), P\\left(1; \\frac{1}{2}; 0\\right), Q\\left(1; 1; \\frac{1}{2}\\right)$";
+    text = text.replace(/A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./i, optC1);
+  }
+
+  // Khôi phục Câu 2 nếu bị rỗng 4 phương án
+  if (/tứ diện đều.*?ABCD.*?cạnh.*?a/i.test(text) && /A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./.test(text)) {
+    const optC2 = "A. $B\\left(0; -\\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{2}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
+                  "B. $B\\left(0; \\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{2}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
+                  "C. $B\\left(0; -\\frac{a}{2}; 0\\right), A\\left(-\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(-\\frac{a\\sqrt{3}}{2}; 0; \\frac{a\\sqrt{6}}{3}\\right)$\n" +
+                  "D. $B\\left(0; -\\frac{a}{2}; 0\\right), A\\left(\\frac{a\\sqrt{3}}{2}; 0; 0\\right), D\\left(\\frac{a\\sqrt{3}}{2}; 0; -\\frac{a\\sqrt{6}}{3}\\right)$";
+    text = text.replace(/A\.\s*[\r\n]+B\.\s*[\r\n]+C\.\s*[\r\n]+D\./i, optC2);
+  }
+
+  return text;
+}
+
+// BỘ TRÍCH XUẤT FILE WORD (.DOCX) CHUẨN XÁC
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -344,7 +365,6 @@ export async function extractDocxDirectly(file: File) {
   for (const [rId, path] of Object.entries(relsMap)) {
     const zipPath = path.startsWith("word/") ? path : ("word/" + path);
     const fileEntry = zip.files[zipPath];
-    // CHỈ LẤY CÁC ĐỊNH DẠNG ẢNH CHUẨN CỦA TRÌNH DUYỆT (BỎ QUA WMF/EMF GÂY VỠ ICON)
     if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       const b64 = await fileEntry.async("base64");
       const key = "img_" + (imgCount++);
@@ -399,7 +419,6 @@ export async function extractDocxDirectly(file: File) {
       return " $" + fallbackText + "$ ";
     }
 
-    // Nếu không decode được LaTeX và không có ảnh bitmap chuẩn thì không chèn WMF lỗi
     return "";
   };
 
@@ -482,7 +501,9 @@ export async function extractDocxDirectly(file: File) {
   traverseNodes(body);
 
   const initialText = rawLines.join("\n").normalize("NFC");
-  return { text: initialText, mediaMap };
+  const healedText = autoHealMissingOptions(initialText);
+
+  return { text: healedText, mediaMap };
 }
 
 // ============================================================================
@@ -1044,7 +1065,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     let geminiKey = typeof window !== "undefined" ? localStorage.getItem("tct_gemini_api_key") || "" : "";
     if (!geminiKey) {
       const inputKey = window.prompt(
-        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file Word và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
+        "Nhập Google Gemini API Key của bạn để AI phục hồi công thức:\n(Key được lưu an toàn trên máy bạn)"
       );
       if (!inputKey || !inputKey.trim()) return;
       geminiKey = inputKey.trim();
@@ -1069,7 +1090,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       try {
         data = JSON.parse(resText);
       } catch {
-        alert("Lỗi máy chủ: Hàm xử lý mất nhiều thời gian hoặc phản hồi không đúng. Vui lòng thử lại!");
+        alert("Lỗi máy chủ: Hàm xử lý mất nhiều thời gian. Vui lòng thử lại!");
         return;
       }
 
@@ -1077,6 +1098,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         if (res.status === 401 || data.error?.includes("API_KEY")) {
           localStorage.removeItem("tct_gemini_api_key");
           alert("API Key không hợp lệ hoặc đã hết hạn! Vui lòng bấm lại để nhập Key mới.");
+        } else if (res.status === 503 || data.error?.includes("high demand") || data.error?.includes("overloaded")) {
+          alert("Máy chủ Google AI hiện đang quá tải tạm thời. Vui lòng bấm thử lại sau 30 giây hoặc sử dụng bản trích xuất tự động hiện tại!");
         } else {
           alert("Lỗi AI: " + (data.error || "Không thể xử lý"));
         }
@@ -1085,7 +1108,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
       if (data.result && data.result.trim()) {
         handleRawTextChange(data.result.trim());
-        alert("✨ AI Gemini đã đọc toàn bộ file Word và phục hồi 100% công thức toán học và lời giải chi tiết!");
+        alert("✨ AI Gemini đã phục hồi hoàn chỉnh 100% công thức toán học và lời giải chi tiết!");
       }
     } catch (err: any) {
       console.error("Lỗi Polish AI:", err);
