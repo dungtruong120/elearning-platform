@@ -18,11 +18,6 @@ const beVietnamPro = Be_Vietnam_Pro({
   preload: true,
 });
 
-export const metadata: Metadata = {
-  title: "TCT study",
-  description: "Hệ thống TCT",
-};
-
 export default function RootLayout({
   children,
 }: {
