@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -518,7 +519,7 @@ export async function extractDocxDirectly(file: File) {
 
 function loadPdfJsScript(): Promise<any> {
   return new Promise((resolve, reject) => {
-    if ((window as any).pdfjsLib) {
+    if (typeof window !== "undefined" && (window as any).pdfjsLib) {
       return resolve((window as any).pdfjsLib);
     }
     const script = document.createElement("script");
@@ -640,7 +641,7 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
     pageCanvases.forEach((canvas, idx) => {
       const key = "img_pdf_page_" + (idx + 1);
       mediaMap[key] = canvas.toDataURL("image/png");
-      rawTextParts.push(Câu ${idx + 1}:\n[img:$${key}$]\nA.\nB.\nC.\nD.\n);
+      rawTextParts.push("Câu " + (idx + 1) + ":\n[img:$" + key + "$]\nA.\nB.\nC.\nD.\n");
     });
     return {
       text: rawTextParts.join("\n\n"),
@@ -653,7 +654,7 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
     const next = i + 1 < markers.length ? markers[i + 1] : null;
 
     if (current.secTitle) {
-      rawTextParts.push(\n\n${current.secTitle}\n);
+      rawTextParts.push("\n\n" + current.secTitle + "\n");
       continue;
     }
 
@@ -668,10 +669,10 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
       }
 
       const imgB64 = cropCanvasArea(startPage, startY, endY);
-      const imgKey = img_pdf_q_${qNum};
+      const imgKey = "img_pdf_q_" + qNum;
       mediaMap[imgKey] = imgB64;
 
-      let blockText = Câu ${qNum}:\n[img:$${imgKey}$]\n;
+      let blockText = "Câu " + qNum + ":\n[img:$" + imgKey + "$]\n";
 
       if (next && next.isSol) {
         const solStartPage = next.pageIdx;
@@ -683,13 +684,13 @@ export async function extractPdfByVisualCropping(file: File): Promise<{ text: st
         }
 
         const solB64 = cropCanvasArea(solStartPage, solStartY, solEndY);
-        const solKey = img_pdf_sol_${qNum};
+        const solKey = "img_pdf_sol_" + qNum;
         mediaMap[solKey] = solB64;
-        blockText += \nLời giải:\n[img:$${solKey}$];
+        blockText += "\nLời giải:\n[img:$" + solKey + "$]";
         i++;
       }
 
-      blockText += \nA.\nB.\nC.\nD.;
+      blockText += "\nA.\nB.\nC.\nD.";
       rawTextParts.push(blockText);
     }
   }
@@ -1222,7 +1223,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       const isPdf = file.name.toLowerCase().endsWith(".pdf");
 
       if (isPdf) {
-        // TỰ ĐỘNG BÓC TÁCH CẮT ẢNH BẰNG CANVAS TỪ FILE PDF (KHÔNG TỐN AI)
         extractPdfByVisualCropping(file)
           .then(res => {
             setMediaMap(res.mediaMap);
@@ -1237,7 +1237,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             setLoading(false);
           });
       } else {
-        // BÓC TÁCH TỪ FILE WORD (.DOCX) SẴN CÓ
         const reader = new FileReader();
         reader.onload = (e) => {
           const res = e.target?.result as string;
