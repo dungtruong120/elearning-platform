@@ -289,6 +289,8 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
     raw = raw.replace(/\\left\(\s*\\right\)|\(\s*\)|\\langle\s*\(\)\s*|\\sqrt\{\s*\}/g, "").trim();
     if (raw) {
       raw = raw.replace(/--/g, "-").replace(/\+-/g, "-");
+      // Nếu chuỗi MTEF chỉ chứa ký tự dang dở như "y=" hoặc "x=" thì coi là không hoàn chỉnh
+      if (/^[a-zA-Z]\s*=$/.test(raw)) return "";
       return "$" + raw + "$";
     }
   } catch (e) {}
@@ -328,6 +330,7 @@ export function repairMathTypeGlitch(raw: string): string {
   return text;
 }
 
+// BỘ TRÍCH XUẤT FILE WORD (.DOCX) CHUẨN XÁC VỚI CƠ CHẾ FALLBACK ẢNH CHO MATHTYPE
 export async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const mediaMap: Record<string, string> = {};
@@ -348,14 +351,16 @@ export async function extractDocxDirectly(file: File) {
   for (const [rId, path] of Object.entries(relsMap)) {
     const zipPath = path.startsWith("word/") ? path : ("word/" + path);
     const fileEntry = zip.files[zipPath];
-    if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
+    if (fileEntry && /\.(png|jpe?g|gif|webp|svg|wmf|emf)$/i.test(zipPath)) {
       const b64 = await fileEntry.async("base64");
       const key = "img_" + (imgCount++);
-      let ext = "jpeg";
-      if (zipPath.toLowerCase().endsWith("png")) ext = "png";
+      let ext = "png";
+      if (zipPath.toLowerCase().endsWith("jpg") || zipPath.toLowerCase().endsWith("jpeg")) ext = "jpeg";
       else if (zipPath.toLowerCase().endsWith("svg")) ext = "svg+xml";
       else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
       else if (zipPath.toLowerCase().endsWith("webp")) ext = "webp";
+      else if (zipPath.toLowerCase().endsWith("wmf") || zipPath.toLowerCase().endsWith("emf")) ext = "png";
+      
       mediaMap[key] = "data:image/" + ext + ";base64," + b64;
       targetToToken[rId] = "[img:$" + key + "$]";
     }
@@ -389,23 +394,26 @@ export async function extractDocxDirectly(file: File) {
       }
     }
 
+    // 1. Ưu tiên dịch sang LaTeX hoàn chỉnh
     if (oleRId && oleCache[oleRId] && isCleanLatex(oleCache[oleRId])) {
       return " " + oleCache[oleRId] + " ";
     }
 
+    // 2. Nếu MTEF bị rỗng hoặc lỗi, fallback ngay sang ảnh nhúng đi kèm của MathType (như Azota)
+    for (const el of allDescendants) {
+      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+      if (rId && targetToToken[rId]) {
+        return " " + targetToToken[rId] + " ";
+      }
+    }
+
+    // 3. Fallback đọc text thuần nếu có
     const fallbackText = Array.from(objNode.getElementsByTagNameNS("*", "t"))
       .map((t: any) => t.textContent || "")
       .join("")
       .trim();
     if (fallbackText && isCleanLatex(fallbackText)) {
       return " $" + fallbackText + "$ ";
-    }
-
-    for (const el of allDescendants) {
-      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
-      if (rId && targetToToken[rId]) {
-        return " " + targetToToken[rId] + " ";
-      }
     }
 
     return "";
@@ -489,472 +497,18 @@ export async function extractDocxDirectly(file: File) {
 
   traverseNodes(body);
 
-  return { text: rawLines.join("\n").normalize("NFC"), mediaMap };
+  const initialText = rawLines.join("\n").normalize("NFC");
+  return { text: initialText, mediaMap };
 }
 
 // ============================================================================
-// 1.5 BỘ TÁCH & CẮT PDF CHUẨN XÁC THEO FILE MẪU TCT (TÁCH LỜI GIẢI, ĐỌC ĐÁP ÁN)
-// ============================================================================
-
-function loadPdfJsScript(): Promise<any> {
-  return new Promise((resolve, reject) => {
-    if (typeof window !== "undefined" && (window as any).pdfjsLib) {
-      return resolve((window as any).pdfjsLib);
-    }
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-    script.onload = () => {
-      const lib = (window as any).pdfjsLib;
-      lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      resolve(lib);
-    };
-    script.onerror = () => reject(new Error("Không thể tải thư viện PDF.js từ CDN"));
-    document.head.appendChild(script);
-  });
-}
-
-function autoTrimCanvasWhitespace(canvas: HTMLCanvasElement): string {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas.toDataURL("image/png");
-
-  const w = canvas.width;
-  const h = canvas.height;
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const data = imgData.data;
-
-  let top = -1, bottom = -1, left = -1, right = -1;
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const idx = (y * w + x) * 4;
-      if (data[idx] < 240 || data[idx + 1] < 240 || data[idx + 2] < 240) {
-        if (top === -1) top = y;
-        bottom = y;
-        if (left === -1 || x < left) left = x;
-        if (right === -1 || x > right) right = x;
-      }
-    }
-  }
-
-  if (top === -1) return canvas.toDataURL("image/png");
-
-  const pad = 12;
-  const cropX = Math.max(0, left - pad);
-  const cropY = Math.max(0, top - pad);
-  const cropW = Math.min(w - cropX, (right - left) + pad * 2);
-  const cropH = Math.min(h - cropY, (bottom - top) + pad * 2);
-
-  const trimmedCanvas = document.createElement("canvas");
-  trimmedCanvas.width = cropW;
-  trimmedCanvas.height = cropH;
-
-  const tCtx = trimmedCanvas.getContext("2d");
-  if (!tCtx) return canvas.toDataURL("image/png");
-
-  tCtx.fillStyle = "#ffffff";
-  tCtx.fillRect(0, 0, cropW, cropH);
-  tCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-  return trimmedCanvas.toDataURL("image/png");
-}
-
-export async function processPdfExamDirectly(file: File): Promise<{
-  sections: ExtendedExamSection[];
-  rawText: string;
-  mediaMap: Record<string, string>;
-}> {
-  const pdfjsLib = await loadPdfJsScript();
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const numPages = pdf.numPages;
-
-  interface FoundLine {
-    pageIdx: number;
-    text: string;
-    yPos: number;
-  }
-
-  const allLines: FoundLine[] = [];
-  const pageCanvases: HTMLCanvasElement[] = [];
-  const SCALE = 2.0;
-
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: SCALE });
-
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-    if (ctx) {
-      await page.render({ canvasContext: ctx, viewport }).promise;
-    }
-    pageCanvases.push(canvas);
-
-    const textContent = await page.getTextContent();
-    const items = textContent.items as any[];
-
-    const lineBuckets: Record<number, string[]> = {};
-    for (const item of items) {
-      const str = (item.str || "").trim();
-      if (!str) continue;
-
-      const tx = item.transform;
-      const pdfY = tx[5];
-      const canvasY = Math.round(viewport.height - (pdfY * SCALE));
-
-      // Bỏ qua header & footer ở mép trang
-      if (canvasY < 45 || canvasY > viewport.height - 75) continue;
-
-      let matchedY = Object.keys(lineBuckets).map(Number).find(y => Math.abs(y - canvasY) <= 6);
-      if (matchedY === undefined) {
-        matchedY = canvasY;
-        lineBuckets[matchedY] = [];
-      }
-      lineBuckets[matchedY].push(str);
-    }
-
-    Object.keys(lineBuckets).map(Number).sort((a, b) => a - b).forEach(y => {
-      allLines.push({
-        pageIdx: pageNum - 1,
-        text: lineBuckets[y].join(" ").trim(),
-        yPos: y
-      });
-    });
-  }
-
-  interface ActionMarker {
-    pageIdx: number;
-    type: "section" | "question" | "solution";
-    secTitle?: string;
-    secType?: QuestionType;
-    qNum?: number;
-    yPos: number;
-    fullText: string;
-  }
-
-  const markers: ActionMarker[] = [];
-
-  for (const line of allLines) {
-    const t = line.text;
-
-    // 1. Nhận diện PHẦN I, PHẦN II, PHẦN III[span_7](start_span)[span_7](end_span)
-    const secMatch = t.match(/^(?:Phần|PHẦN)\s*([IVX]+|\d+)[.:\-]?\s*(.*)$/i) || t.match(/^([IVX]+)\.\s*(TRẮC NGHIỆM.*)$/i);
-    if (secMatch) {
-      let sType: QuestionType = "multiple_choice";
-      if (/đúng\s*sai/i.test(t)) sType = "true_false";
-      else if (/trả\s*lời\s*ngắn|điền\s*khuyết/i.test(t)) sType = "short_answer";
-
-      markers.push({
-        pageIdx: line.pageIdx,
-        type: "section",
-        secTitle: t,
-        secType: sType,
-        yPos: Math.max(0, line.yPos - 20),
-        fullText: t
-      });
-      continue;
-    }
-
-    // 2. Nhận diện mốc Câu hỏi (Câu 1., Câu 2.,...)[span_8](start_span)[span_8](end_span)
-    const qMatch = t.match(/^(?:Câu|Bài|Question)\s*(\d+)[:.]/i);
-    if (qMatch && !/buổi|chương|phương pháp|lý thuyết/i.test(t)) {
-      markers.push({
-        pageIdx: line.pageIdx,
-        type: "question",
-        qNum: parseInt(qMatch[1], 10),
-        yPos: Math.max(0, line.yPos - 25),
-        fullText: t
-      });
-      continue;
-    }
-
-    // 3. Nhận diện chữ LỜI GIẢI[span_9](start_span)[span_9](end_span)
-    if (/^(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|HDG|LỜI\s*GIẢI)[:.]?$/i.test(t)) {
-      markers.push({
-        pageIdx: line.pageIdx,
-        type: "solution",
-        yPos: Math.max(0, line.yPos - 12),
-        fullText: t
-      });
-    }
-  }
-
-  markers.sort((a, b) => {
-    if (a.pageIdx !== b.pageIdx) return a.pageIdx - b.pageIdx;
-    return a.yPos - b.yPos;
-  });
-
-  // HÀM CẮT GHÉP LIÊN TRANG (Hỗ trợ câu hỏi tràn qua 2 trang)
-  const cropMultiPageArea = (startPage: number, startY: number, endPage: number, endY: number): string => {
-    if (startPage === endPage) {
-      const srcCanvas = pageCanvases[startPage];
-      if (!srcCanvas) return "";
-      const h = Math.max(20, endY - startY);
-      const cropped = document.createElement("canvas");
-      cropped.width = srcCanvas.width;
-      cropped.height = h;
-      const cCtx = cropped.getContext("2d");
-      if (!cCtx) return "";
-      cCtx.fillStyle = "#ffffff";
-      cCtx.fillRect(0, 0, cropped.width, cropped.height);
-      cCtx.drawImage(srcCanvas, 0, startY, srcCanvas.width, h, 0, 0, srcCanvas.width, h);
-      return autoTrimCanvasWhitespace(cropped);
-    }
-
-    const canvas1 = pageCanvases[startPage];
-    const canvas2 = pageCanvases[endPage];
-    if (!canvas1 || !canvas2) return "";
-
-    const h1 = Math.max(20, (canvas1.height - 75) - startY);
-    const h2 = Math.max(20, endY - 45);
-
-    const merged = document.createElement("canvas");
-    merged.width = Math.max(canvas1.width, canvas2.width);
-    merged.height = h1 + h2 + 10;
-
-    const mCtx = merged.getContext("2d");
-    if (!mCtx) return "";
-    mCtx.fillStyle = "#ffffff";
-    mCtx.fillRect(0, 0, merged.width, merged.height);
-
-    mCtx.drawImage(canvas1, 0, startY, canvas1.width, h1, 0, 0, canvas1.width, h1);
-    mCtx.drawImage(canvas2, 0, 45, canvas2.width, h2, 0, h1 + 10, canvas2.width, h2);
-
-    return autoTrimCanvasWhitespace(merged);
-  };
-
-  const getTextBetweenPages = (startPage: number, startY: number, endPage: number, endY: number): string => {
-    return allLines
-      .filter(l => {
-        if (l.pageIdx === startPage && l.pageIdx === endPage) {
-          return l.yPos >= startY && l.yPos <= endY;
-        }
-        if (l.pageIdx === startPage) return l.yPos >= startY;
-        if (l.pageIdx === endPage) return l.yPos <= endY;
-        return l.pageIdx > startPage && l.pageIdx < endPage;
-      })
-      .map(l => l.text)
-      .join(" ");
-  };
-
-  const mediaMap: Record<string, string> = {};
-  const sections: ExtendedExamSection[] = [];
-  const rawTextLines: string[] = [];
-
-  let currentSec: ExtendedExamSection = {
-    section_title: "PHẦN I. TRẮC NGHIỆM",
-    section_type: "multiple_choice",
-    questions: []
-  };
-  sections.push(currentSec);
-
-  let globalQuestionCounter = 1;
-
-  for (let i = 0; i < markers.length; i++) {
-    const item = markers[i];
-
-    if (item.type === "section" && item.secTitle) {
-      currentSec = {
-        section_title: item.secTitle,
-        section_type: item.secType || "multiple_choice",
-        questions: []
-      };
-      sections.push(currentSec);
-      rawTextLines.push("\n\n" + item.secTitle + "\n");
-      continue;
-    }
-
-    if (item.type === "question") {
-      const qNum = item.qNum || globalQuestionCounter;
-      const startPage = item.pageIdx;
-      const startY = item.yPos;
-
-      let solMarker: ActionMarker | null = null;
-      let nextQuestionMarker: ActionMarker | null = null;
-
-      for (let j = i + 1; j < markers.length; j++) {
-        const cand = markers[j];
-        if (cand.type === "section") break;
-        if (cand.type === "solution" && !solMarker) solMarker = cand;
-        if (cand.type === "question") {
-          nextQuestionMarker = cand;
-          break;
-        }
-      }
-
-      // Xác định điểm ngắt của câu hỏi
-      let qEndPage = startPage;
-      let qEndY = pageCanvases[startPage].height - 75;
-
-      if (solMarker) {
-        qEndPage = solMarker.pageIdx;
-        qEndY = Math.max(20, solMarker.yPos - 12);
-      } else if (nextQuestionMarker) {
-        qEndPage = nextQuestionMarker.pageIdx;
-        qEndY = Math.max(20, nextQuestionMarker.yPos - 12);
-      }
-
-      // 1. CẮT ẢNH ĐỀ BÀI (NGẮT TRƯỚC DÒNG CHỮ "LỜI GIẢI")[span_10](start_span)[span_10](end_span)
-      const promptImg = cropMultiPageArea(startPage, startY, qEndPage, qEndY);
-      const promptKey = "img_pdf_q_" + qNum + "_" + i;
-      mediaMap[promptKey] = promptImg;
-
-      const promptText = getTextBetweenPages(startPage, startY, qEndPage, qEndY);
-      let solText = "";
-      let solutionHtml = "";
-
-      // 2. CẮT ẢNH LỜI GIẢI RIÊNG BIỆT (bắt đầu từ chữ Lời giải)[span_11](start_span)[span_11](end_span)
-      if (solMarker) {
-        const solStartPage = solMarker.pageIdx;
-        const solStartY = solMarker.yPos;
-        let solEndPage = solStartPage;
-        let solEndY = pageCanvases[solStartPage].height - 75;
-
-        if (nextQuestionMarker) {
-          solEndPage = nextQuestionMarker.pageIdx;
-          solEndY = Math.max(20, nextQuestionMarker.yPos - 12);
-        }
-
-        const solImg = cropMultiPageArea(solStartPage, solStartY, solEndPage, solEndY);
-        const solKey = "img_pdf_sol_" + qNum + "_" + i;
-        mediaMap[solKey] = solImg;
-        solutionHtml = "[img:$" + solKey + "$]";
-
-        solText = getTextBetweenPages(solStartPage, solStartY, solEndPage, solEndY);
-      }
-
-      const blockAllText = promptText + " " + solText;
-
-      // Nhận diện loại câu hỏi[span_12](start_span)[span_12](end_span)
-      let finalType: QuestionType = currentSec.section_type;
-      if (/xét\s*tính\s*đúng\s*sai/i.test(blockAllText) || /Đáp\s*án\s*:\s*[ĐSđs\/]+/i.test(blockAllText)) {
-        finalType = "true_false";
-      } else if (/(?:Đáp\s*số|KQ|Kết\s*quả)[:\s]+/i.test(blockAllText)) {
-        finalType = "short_answer";
-      }
-
-      let parsedCorrectAns = "A";
-      let optionsList: QuestionOption[] = [];
-
-      if (finalType === "true_false") {
-        // Tự động nhận diện chuỗi Đ/S (Đ/S/S/D hoặc Đ/S/S/S)[span_13](start_span)[span_13](end_span)
-        const tfMatch = blockAllText.match(/Đáp\s*án\s*:\s*([ĐSđs\/\s]+)/i);
-        let tfSeq = ["S", "S", "S", "S"];
-        if (tfMatch && tfMatch[1]) {
-          const letters = tfMatch[1].replace(/[^ĐSđs]/g, "").toUpperCase().split("");
-          letters.forEach((l, idx) => {
-            if (idx < 4) tfSeq[idx] = l;
-          });
-        }
-
-        optionsList = [
-          { key: "a", text_html: "", is_true_false_ans: tfSeq[0] === "Đ" },
-          { key: "b", text_html: "", is_true_false_ans: tfSeq[1] === "Đ" },
-          { key: "c", text_html: "", is_true_false_ans: tfSeq[2] === "Đ" },
-          { key: "d", text_html: "", is_true_false_ans: tfSeq[3] === "Đ" }
-        ];
-        parsedCorrectAns = tfSeq.join("");
-
-        rawTextLines.push(
-          "Câu " + qNum + ":\n[img:$" + promptKey + "$]\n" +
-          (solutionHtml ? "Lời giải:\n" + solutionHtml + "\n" : "") +
-          "a) [" + (tfSeq[0] === "Đ" ? "Đúng" : "Sai") + "]\n" +
-          "b) [" + (tfSeq[1] === "Đ" ? "Đúng" : "Sai") + "]\n" +
-          "c) [" + (tfSeq[2] === "Đ" ? "Đúng" : "Sai") + "]\n" +
-          "d) [" + (tfSeq[3] === "Đ" ? "Đúng" : "Sai") + "]\n"
-        );
-      } else if (finalType === "short_answer") {
-        // Tách đáp số phân số, số âm (-4, 64/27)[span_14](start_span)[span_14](end_span)
-        const saMatch = blockAllText.match(/(?:Đáp\s*số|KQ|Kết\s*quả|Đáp\s*án)[:\s]+([^Lời\r\n\t]+)/i);
-        if (saMatch && saMatch[1]) {
-          parsedCorrectAns = saMatch[1].trim().replace(/^[:\s]+/, "");
-        } else {
-          parsedCorrectAns = "";
-        }
-
-        rawTextLines.push(
-          "Câu " + qNum + ":\n[img:$" + promptKey + "$]\n" +
-          (solutionHtml ? "Lời giải:\n" + solutionHtml + "\n" : "") +
-          "Đáp án: " + parsedCorrectAns + "\n"
-        );
-      } else {
-        // Trắc nghiệm: Tự động bóc "Chọn C", "Chọn D", "Chọn A"...[span_15](start_span)[span_15](end_span)
-        const mcMatch = blockAllText.match(/(?:Chọn|Đáp\s*án)\s*([A-D])\b/i);
-        if (mcMatch && mcMatch[1]) {
-          parsedCorrectAns = mcMatch[1].toUpperCase();
-        } else {
-          parsedCorrectAns = "A";
-        }
-
-        optionsList = [
-          { key: "A", text_html: "" },
-          { key: "B", text_html: "" },
-          { key: "C", text_html: "" },
-          { key: "D", text_html: "" }
-        ];
-
-        rawTextLines.push(
-          "Câu " + qNum + ":\n[img:$" + promptKey + "$]\n" +
-          (solutionHtml ? "Lời giải:\n" + solutionHtml + "\n" : "") +
-          "A.\nB.\nC.\nD.\nChọn " + parsedCorrectAns + "\n"
-        );
-      }
-
-      const newQ: ExtendedParsedQuestion = {
-        id: "q_pdf_" + qNum + "_" + Math.random().toString(36).substring(2, 7),
-        order_index: globalQuestionCounter,
-        original_label: "Câu " + qNum,
-        section_title: currentSec.section_title,
-        type: finalType,
-        prompt_html: "[img:$" + promptKey + "$]",
-        options: optionsList,
-        correct_answer: parsedCorrectAns,
-        solution_html: solutionHtml,
-        points: finalType === "true_false" ? 1.0 : finalType === "short_answer" ? 0.5 : 0.25,
-        sub_percentages: finalType === "true_false" ? { a: 25, b: 25, c: 25, d: 25 } : undefined,
-        sub_points: finalType === "true_false" ? { a: 0.25, b: 0.25, c: 0.25, d: 0.25 } : undefined
-      };
-
-      currentSec.questions.push(newQ);
-      globalQuestionCounter++;
-    }
-  }
-
-  const validSections = sections.filter(s => s.questions.length > 0);
-
-  // Auto-balance điểm chuẩn 10
-  const totalQCount = validSections.reduce((acc, s) => acc + s.questions.length, 0);
-  if (totalQCount > 0) {
-    const basePt = Number((10 / totalQCount).toFixed(2));
-    let curSum = 0;
-    validSections.forEach(s => {
-      s.questions.forEach(q => {
-        q.points = basePt;
-        curSum += basePt;
-      });
-    });
-    const diff = Number((10 - curSum).toFixed(2));
-    if (validSections[0]?.questions[0]) {
-      validSections[0].questions[0].points = Number(((validSections[0].questions[0].points || 0) + diff).toFixed(2));
-    }
-  }
-
-  return {
-    sections: validSections,
-    rawText: rawTextLines.join("\n\n"),
-    mediaMap
-  };
-}
-
-// ============================================================================
-// 2. BÓC TÁCH CHO FILE WORD .DOCX
+// 2. BÓC TÁCH SECTION & ĐÁNH SỐ TỰ ĐỘNG CÂU HỎI CHO FILE WORD
 // ============================================================================
 
 export function normalizeOptionsSmart(text: string): string {
   if (!text) return "";
   let res = text;
+  // Tự động ngắt dòng các phương án nằm cùng một hàng
   res = res.replace(/(\S+)\s*\.([B-D]\.)/g, "$1.\n$2");
   res = res.replace(/(?:\t|[ ]{2,})([A-D]\.|\([A-D]\)|[A-D]\)|[a-d]\))/g, "\n$1");
   res = res.replace(/([^\n\r])\s+([B-D]\.|\([B-D]\)|[B-D]\))/g, "$1\n$2");
@@ -967,6 +521,74 @@ function getSectionTypeFromTitle(title: string): QuestionType {
   if (/đúng\s*sai|true\s*false/i.test(title)) return "true_false";
   if (/trả\s*lời\s*ngắn|điền\s*khuyết|short\s*answer/i.test(title)) return "short_answer";
   return "multiple_choice";
+}
+
+function processBodyAndNumberQuestions(text: string, startQIdx: number, secType: QuestionType): { labeledText: string; nextQIdx: number } {
+  const norm = normalizeOptionsSmart(text);
+
+  if (secType === "true_false") {
+    const qSplit = norm.split(/(?:^|[\r\n]+)(?:Câu|Bài|Question)\s*\d+[:.]?\s*/gi).filter(Boolean);
+    if (qSplit.length > 1) {
+      let cur = startQIdx;
+      const pieces = qSplit.map(chunk => "Câu " + (cur++) + ":\n" + (chunk || "").trim());
+      return { labeledText: pieces.join("\n\n"), nextQIdx: cur };
+    }
+  }
+
+  const qSplitRegex = /(?:^|[\r\n]+)(?:(?:Câu|Bài|Question)\s*\d+[:.]?\s*|(?:(?=(?:Cho\s+(?:hình|tứ\s+diện|chóp|lăng\s+trụ)|Trong\s+không\s+gian|Xét\s+tính))))/gi;
+  const rawPieces = norm.split(qSplitRegex).filter(c => c && c.trim().length > 15);
+
+  if (rawPieces.length > 1) {
+    let cur = startQIdx;
+    const pieces = rawPieces.map(chunk => {
+      const clean = chunk.replace(/^\s*(?:Câu|Bài|Question)\s*\d+[:.\-\)]?\s*/gi, "").trim();
+      return "Câu " + (cur++) + ":\n" + clean;
+    });
+    return { labeledText: pieces.join("\n\n"), nextQIdx: cur };
+  }
+
+  return { labeledText: norm, nextQIdx: startQIdx };
+}
+
+export function injectQuestionLabelsIfMissing(rawText: string): string {
+  if (!rawText) return "";
+  let text = rawText.normalize("NFC");
+  text = repairMathTypeGlitch(text);
+  text = normalizeOptionsSmart(text);
+
+  SECTION_HEADER_REGEX.lastIndex = 0;
+  const secMatches: { title: string; start: number; end: number }[] = [];
+  let sm: RegExpExecArray | null;
+  while ((sm = SECTION_HEADER_REGEX.exec(text)) !== null) {
+    if (sm[1]) {
+      secMatches.push({ title: sm[1].trim(), start: sm.index, end: sm.index + sm[0].length });
+    }
+  }
+
+  if (secMatches.length > 0) {
+    const parts: string[] = [];
+    if (secMatches[0].start > 0) {
+      const pre = text.slice(0, secMatches[0].start).trim();
+      if (pre) parts.push(pre);
+    }
+
+    let globalQIdx = 1;
+    for (let i = 0; i < secMatches.length; i++) {
+      const secHeader = secMatches[i].title;
+      const secType = getSectionTypeFromTitle(secHeader);
+      const start = secMatches[i].end;
+      const end = i + 1 < secMatches.length ? secMatches[i + 1].start : text.length;
+      const secBody = text.slice(start, end).trim();
+
+      const { labeledText, nextQIdx } = processBodyAndNumberQuestions(secBody, globalQIdx, secType);
+      globalQIdx = nextQIdx;
+      parts.push(secHeader + "\n\n" + labeledText);
+    }
+    return parts.join("\n\n");
+  } else {
+    const { labeledText } = processBodyAndNumberQuestions(text, 1, "multiple_choice");
+    return labeledText;
+  }
 }
 
 function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: string, sectionType: QuestionType, sectionIndex: number): ExtendedParsedQuestion {
@@ -991,6 +613,13 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
   const uniqueId = "sec-" + sectionIndex + "-q-" + qIndex + "-" + Math.random().toString(36).substring(2, 8);
 
   if (sectionType === "true_false") {
+    const tfOptRegex = /(?:^|[\r\n\t\s])([a-d])[\.\)]\s*/gim;
+    const tfMatches: { key: string; start: number; end: number }[] = [];
+    let tm: RegExpExecArray | null;
+    while ((tm = tfOptRegex.exec(promptAndOpts)) !== null) {
+      if (tm[1]) tfMatches.push({ key: tm[1].toLowerCase(), start: tm.index, end: tm.index + tm[0].length });
+    }
+
     const options: QuestionOption[] = [
       { key: "a", text_html: "", is_true_false_ans: false },
       { key: "b", text_html: "", is_true_false_ans: false },
@@ -998,15 +627,62 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       { key: "d", text_html: "", is_true_false_ans: false }
     ];
 
+    let promptHtml = promptAndOpts;
+    let tfAIdx = -1;
+    for (let i = 0; i <= tfMatches.length - 4; i++) {
+      if (tfMatches[i].key === "a" && 
+          tfMatches[i + 1].key === "b" && 
+          tfMatches[i + 2].key === "c" && 
+          tfMatches[i + 3].key === "d") {
+        tfAIdx = i;
+        break;
+      }
+    }
+
+    if (tfAIdx !== -1) {
+      const mA = tfMatches[tfAIdx];
+      const mB = tfMatches[tfAIdx + 1];
+      const mC = tfMatches[tfAIdx + 2];
+      const mD = tfMatches[tfAIdx + 3];
+
+      promptHtml = promptAndOpts.slice(0, mA.start).trim();
+      const rawOpts = [
+        promptAndOpts.slice(mA.end, mB.start).trim(),
+        promptAndOpts.slice(mB.end, mC.start).trim(),
+        promptAndOpts.slice(mC.end, mD.start).trim(),
+        promptAndOpts.slice(mD.end).trim()
+      ];
+
+      for (let i = 0; i < 4; i++) {
+        let t = rawOpts[i];
+        let ansVal: boolean | null = null;
+        if (/\[(Đúng|Đ)\]/i.test(t)) { ansVal = true; t = t.replace(/\[(Đúng|Đ)\]/i, "").trim(); }
+        else if (/\[(Sai|S)\]/i.test(t)) { ansVal = false; t = t.replace(/\[(Sai|S)\]/i, "").trim(); }
+        options[i].text_html = t;
+        if (ansVal !== null) options[i].is_true_false_ans = ansVal;
+      }
+    }
+
+    if (solutionText) {
+      for (let i = 0; i < 4; i++) {
+        const subKey = options[i].key;
+        const guessRegex = new RegExp("(?:^|[\\s\\n,.])(?:[Ýý]\\s*)?" + subKey + "[\\)\\.:\\s]+(?:là\\s+(?:mệnh\\s*đề\\s*)?)?([Đđ]úng|[Ss]ai|[ĐđSs])\\b", "i");
+        const guessMatch = solutionText.match(guessRegex);
+        if (guessMatch && options[i].is_true_false_ans === false) {
+          options[i].is_true_false_ans = /[Đđ]úng|[Đđ]/.test(guessMatch[1]);
+        }
+      }
+    }
+
     return {
       id: uniqueId,
       order_index: qIndex,
       section_title: sectionTitle,
       type: "true_false",
       original_label: "Câu " + qIndex,
-      prompt_html: promptAndOpts,
+      prompt_html: promptHtml,
       options,
-      correct_answer: "SSSS",
+      correct_answer: options.map(o => (o.is_true_false_ans ? "Đ" : "S")).join(""),
       solution_html: solutionText,
       points: 1.0,
       sub_percentages: { a: 25, b: 25, c: 25, d: 25 },
@@ -1040,6 +716,27 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     correctAns = ansMatch[1].toUpperCase();
   }
 
+  const optRegex = /(?:^|[\r\n\t\s\.])([A-D])[\.\)]\s*/gm;
+  const optMatches: { key: string; start: number; end: number }[] = [];
+  let om: RegExpExecArray | null;
+  while ((om = optRegex.exec(promptAndOpts)) !== null) {
+    if (om[1]) {
+      optMatches.push({ key: om[1].toUpperCase(), start: om.index, end: om.index + om[0].length });
+    }
+  }
+
+  let optAIdx = -1;
+  for (let i = 0; i <= optMatches.length - 4; i++) {
+    if (optMatches[i].key === "A" && 
+        optMatches[i + 1].key === "B" && 
+        optMatches[i + 2].key === "C" && 
+        optMatches[i + 3].key === "D") {
+      optAIdx = i;
+      break;
+    }
+  }
+
+  let promptHtml = promptAndOpts;
   const options: QuestionOption[] = [
     { key: "A", text_html: "" },
     { key: "B", text_html: "" },
@@ -1047,13 +744,36 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     { key: "D", text_html: "" }
   ];
 
+  if (optAIdx !== -1) {
+    const mA = optMatches[optAIdx];
+    const mB = optMatches[optAIdx + 1];
+    const mC = optMatches[optAIdx + 2];
+    const mD = optMatches[optAIdx + 3];
+
+    promptHtml = promptAndOpts.slice(0, mA.start).trim();
+    const textA = promptAndOpts.slice(mA.end, mB.start).trim();
+    const textB = promptAndOpts.slice(mB.end, mC.start).trim();
+    const textC = promptAndOpts.slice(mC.end, mD.start).trim();
+    const textD = promptAndOpts.slice(mD.end).trim();
+
+    const cleanOpt = (s: string) => (s || "")
+      .replace(/^\.+|\.+$/g, "")
+      .replace(/\\left\(\s*\\right\)|\(\s*\)/g, "")
+      .trim();
+
+    options[0].text_html = cleanOpt(textA);
+    options[1].text_html = cleanOpt(textB);
+    options[2].text_html = cleanOpt(textC);
+    options[3].text_html = cleanOpt(textD);
+  }
+
   return {
     id: uniqueId,
     order_index: qIndex,
     section_title: sectionTitle,
     type: "multiple_choice",
     original_label: "Câu " + qIndex,
-    prompt_html: promptAndOpts,
+    prompt_html: promptHtml,
     options,
     correct_answer: correctAns,
     solution_html: solutionText,
@@ -1066,11 +786,13 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
   let text = rawText.normalize("NFC").trim();
   text = repairMathTypeGlitch(text);
 
+  const readyText = injectQuestionLabelsIfMissing(text);
+
   SECTION_HEADER_REGEX.lastIndex = 0;
   const secMatches: { title: string; start: number; end: number }[] = [];
   let sm: RegExpExecArray | null;
 
-  while ((sm = SECTION_HEADER_REGEX.exec(text)) !== null) {
+  while ((sm = SECTION_HEADER_REGEX.exec(readyText)) !== null) {
     if (sm[1]) {
       secMatches.push({ title: sm[1].trim(), start: sm.index, end: sm.index + sm[0].length });
     }
@@ -1113,8 +835,8 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       const secTitle = secMatches[i].title;
       const secType = getSectionTypeFromTitle(secTitle);
       const start = secMatches[i].end;
-      const end = i + 1 < secMatches.length ? secMatches[i + 1].start : text.length;
-      const secContent = text.slice(start, end).trim();
+      const end = i + 1 < secMatches.length ? secMatches[i + 1].start : readyText.length;
+      const secContent = readyText.slice(start, end).trim();
 
       const questions = parseQuestionsFromText(secContent, secTitle, secType, i);
       questions.forEach(q => {
@@ -1130,7 +852,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       });
     }
   } else {
-    const questions = parseQuestionsFromText(text, "PHẦN I. TRẮC NGHIỆM", "multiple_choice", 0);
+    const questions = parseQuestionsFromText(readyText, "PHẦN I. TRẮC NGHIỆM", "multiple_choice", 0);
     sectionsResult = [
       {
         section_title: "PHẦN I. TRẮC NGHIỆM",
@@ -1140,11 +862,27 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     ];
   }
 
+  const totalQ = sectionsResult.reduce((sum, s) => sum + s.questions.length, 0);
+  if (totalQ > 0) {
+    const basePt = Number((10 / totalQ).toFixed(2));
+    let currentSum = 0;
+    sectionsResult.forEach(sec => {
+      sec.questions.forEach(q => {
+        q.points = basePt;
+        currentSum += basePt;
+      });
+    });
+    const diff = Number((10 - currentSum).toFixed(2));
+    if (sectionsResult[0]?.questions[0]) {
+      sectionsResult[0].questions[0].points = Number(((sectionsResult[0].questions[0].points || 0) + diff).toFixed(2));
+    }
+  }
+
   return sectionsResult;
 }
 
 // ============================================================================
-// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC
+// 3. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -1207,11 +945,11 @@ export function TokenViewer({
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
             />
           ) : (
-            <div key={idx} className="my-2 flex flex-col items-start justify-start w-full">
+            <div key={idx} className="my-2 flex flex-col items-center justify-center w-full">
               <img 
                 src={src} 
-                alt="Nội dung" 
-                className="max-h-[600px] w-auto max-w-full rounded-xl border border-slate-200/90 bg-white shadow-2xs p-1 object-contain inline-block" 
+                alt="Hình minh họa" 
+                className="max-h-[500px] w-auto max-w-full rounded-xl border border-slate-200/90 bg-white shadow-2xs p-1 object-contain inline-block" 
               />
             </div>
           );
@@ -1283,46 +1021,32 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
 
-      const isPdf = file.name.toLowerCase().endsWith(".pdf");
+      // ƯU TIÊN XỬ LÝ TRỰC TIẾP FILE WORD (.DOCX) CHUẨN XÁC
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const res = e.target?.result as string;
+        if (res) {
+          const b64 = res.split(",")[1] || "";
+          setFileBase64(b64);
+        }
+      };
+      reader.readAsDataURL(file);
 
-      if (isPdf) {
-        processPdfExamDirectly(file)
-          .then(res => {
-            setMediaMap(res.mediaMap);
-            setRawText(res.rawText);
-            setSections(res.sections);
-            setLoading(false);
-          })
-          .catch(err => {
-            console.error("Lỗi cắt ảnh đề PDF:", err);
-            alert("Lỗi phân tích file PDF. Vui lòng kiểm tra lại file!");
-            setLoading(false);
-          });
-      } else {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const res = e.target?.result as string;
-          if (res) {
-            const b64 = res.split(",")[1] || "";
-            setFileBase64(b64);
-          }
-        };
-        reader.readAsDataURL(file);
-
-        extractDocxDirectly(file)
-          .then(res => {
-            setMediaMap(res.mediaMap);
-            const repaired = repairMathTypeGlitch(res.text);
-            setRawText(repaired);
-            const parsed = parseExamHierarchical(repaired);
-            setSections(parsed);
-            setLoading(false);
-          })
-          .catch(err => {
-            console.error("Lỗi đọc file Word:", err);
-            setLoading(false);
-          });
-      }
+      extractDocxDirectly(file)
+        .then(res => {
+          setMediaMap(res.mediaMap);
+          const repaired = repairMathTypeGlitch(res.text);
+          const labeledText = injectQuestionLabelsIfMissing(repaired);
+          setRawText(labeledText);
+          const parsed = parseExamHierarchical(labeledText);
+          setSections(parsed);
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error("Lỗi đọc file Word:", err);
+          alert("Lỗi đọc file Word. Vui lòng kiểm tra định dạng .docx!");
+          setLoading(false);
+        });
     }
   }, [file, isOpen]);
 
@@ -1338,7 +1062,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     let geminiKey = typeof window !== "undefined" ? localStorage.getItem("tct_gemini_api_key") || "" : "";
     if (!geminiKey) {
       const inputKey = window.prompt(
-        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file gốc và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
+        "Nhập Google Gemini API Key của bạn để AI đọc trực tiếp file Word và phục hồi 100% công thức:\n(Key được lưu an toàn trên máy bạn cho các lần sau)"
       );
       if (!inputKey || !inputKey.trim()) return;
       geminiKey = inputKey.trim();
@@ -1379,7 +1103,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
       if (data.result && data.result.trim()) {
         handleRawTextChange(data.result.trim());
-        alert("✨ AI Gemini đã đọc toàn bộ file và phục hồi 100% công thức toán học và lời giải chi tiết!");
+        alert("✨ AI Gemini đã đọc toàn bộ file Word và phục hồi 100% công thức toán học và lời giải chi tiết!");
       }
     } catch (err: any) {
       console.error("Lỗi Polish AI:", err);
@@ -1642,8 +1366,8 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
             <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
-              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi...</p>
-              <p className="text-xs text-slate-500">Tự động nhận diện câu hỏi, nối trang và tách riêng lời giải...</p>
+              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
+              <p className="text-xs text-slate-500">Tự động nhận diện công thức, phân chia câu hỏi và lời giải chi tiết...</p>
             </div>
           </div>
         ) : step === 1 ? (
@@ -1690,6 +1414,11 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                       {sec.questions.map((q, idx) => {
                         const isSolOpen = !!expandedSolutions[q.id];
 
+                        const isAnyOptionLong = q.options?.some(opt => {
+                          const t = opt.text_html || "";
+                          return t.length > 30 || t.includes("\\frac") || t.includes("right)");
+                        });
+
                         return (
                           <div key={q.id} className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3">
                             <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
@@ -1698,76 +1427,80 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </span>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-md border border-emerald-300">
-                                  {q.correct_answer || "Chưa có"}
+                                <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
+                                  {q.correct_answer || "A"}
                                 </span>
                               </div>
                             </div>
 
-                            {/* Render ảnh câu hỏi */}
                             <div className="py-1">
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
                             </div>
 
-                            {/* DẠNG 1: TRẮC NGHIỆM 4 NÚT CHỌN NHANH A, B, C, D (Gọn gàng đúng chuẩn Azota) */}
-                            {sec.section_type === "multiple_choice" && (
-                              <div className="flex items-center gap-3 pt-2">
-                                <span className="text-xs font-bold text-slate-500">Chọn đáp án:</span>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  {["A", "B", "C", "D"].map(k => {
-                                    const isCorrect = k === q.correct_answer;
-                                    return (
-                                      <button
-                                        key={k}
-                                        type="button"
-                                        onClick={() => handleUpdateAnswer(q.id, k)}
-                                        className={"w-10 h-10 rounded-xl font-black text-sm flex items-center justify-center transition-all cursor-pointer " + (
-                                          isCorrect 
-                                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/25 scale-105" 
-                                            : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
-                                        )}
-                                      >
-                                        {k}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+                            {/* DẠNG 1: TRẮC NGHIỆM 4 PHƯƠNG ÁN A, B, C, D */}
+                            {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
+                              <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
+                                {q.options.map(opt => {
+                                  const isCorrect = opt.key === q.correct_answer;
+                                  return (
+                                    <div 
+                                      key={opt.key}
+                                      onClick={() => handleUpdateAnswer(q.id, opt.key)}
+                                      className={"p-3 rounded-xl border text-xs flex items-center gap-2.5 transition-all cursor-pointer " + (
+                                        isCorrect 
+                                          ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-300" 
+                                          : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                                      )}
+                                    >
+                                      <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
+                                        isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
+                                      )}>
+                                        {opt.key}
+                                      </span>
+                                      <div className="flex-1 min-w-0">
+                                        <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
 
-                            {/* DẠNG 2: BẢNG TICK ĐÚNG / SAI CHO CÁC Ý a, b, c, d */}
+                            {/* DẠNG 2: TRẮC NGHIỆM ĐÚNG / SAI */}
                             {sec.section_type === "true_false" && q.options && (
                               <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
                                 <table className="w-full text-left text-[13px]">
                                   <thead className="bg-slate-50 border-b border-slate-200">
                                     <tr>
                                       <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-20">Đúng</th>
-                                      <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-20">Sai</th>
+                                      <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
+                                      <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 bg-white">
-                                    {["a", "b", "c", "d"].map(subKey => {
-                                      const opt = q.options.find(o => o.key === subKey);
-                                      const isTrue = opt?.is_true_false_ans === true;
-                                      const isFalse = opt?.is_true_false_ans === false;
+                                    {q.options.map(opt => {
+                                      const isTrue = opt.is_true_false_ans === true;
+                                      const isFalse = opt.is_true_false_ans === false;
                                       return (
-                                        <tr key={subKey} className="hover:bg-slate-50/50">
+                                        <tr key={opt.key} className="hover:bg-slate-50/50">
                                           <td className="py-2.5 px-3">
-                                            <span className="font-bold text-blue-600 uppercase">Ý {subKey})</span>
+                                            <div className="flex items-start gap-2">
+                                              <span className="font-bold text-blue-600">{opt.key})</span>
+                                              <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
+                                            </div>
                                           </td>
                                           <td className="py-2.5 px-3 text-center align-middle">
                                             <div 
-                                              onClick={() => handleToggleTrueFalseOpt(q.id, subKey, true)}
-                                              className={"w-7 h-7 mx-auto rounded-lg border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                              onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
+                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
                                               <Check className="w-4 h-4"/>
                                             </div>
                                           </td>
                                           <td className="py-2.5 px-3 text-center align-middle">
                                             <div 
-                                              onClick={() => handleToggleTrueFalseOpt(q.id, subKey, false)}
-                                              className={"w-7 h-7 mx-auto rounded-lg border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                              onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
+                                              className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
                                             >
                                               <X className="w-4 h-4"/>
                                             </div>
@@ -1780,21 +1513,21 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
-                            {/* DẠNG 3: TRẢ LỜI NGẮN / ĐIỀN KHUYẾT (Hỗ trợ phân số, số âm) */}
+                            {/* DẠNG 3: TRẢ LỜI NGẮN */}
                             {sec.section_type === "short_answer" && (
                               <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
-                                <span className="font-bold text-slate-700 whitespace-nowrap">Đáp số:</span>
+                                <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
                                 <input 
                                   type="text" 
                                   value={q.correct_answer || ""} 
                                   onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
-                                  placeholder="Nhập đáp số (ví dụ: -4, 64/27)..." 
+                                  placeholder="Nhập đáp án số hoặc chữ..." 
                                   className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 outline-none focus:border-indigo-600" 
                                 />
                               </div>
                             )}
 
-                            {/* NÚT XEM LỜI GIẢI GỐC */}
+                            {/* LỜI GIẢI CHI TIẾT */}
                             {q.solution_html && (
                               <div className="pt-3 border-t border-slate-100 mt-3">
                                 <button
@@ -1803,7 +1536,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                                   className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50/50 px-2.5 py-1.5 rounded-lg border border-indigo-100 transition-colors"
                                 >
                                   <BookOpen className="w-3.5 h-3.5"/>
-                                  <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải chi tiết"}</span>
+                                  <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
                                 </button>
                                 {isSolOpen && (
                                   <div className="mt-2.5 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/80 text-[13px]">
@@ -1826,7 +1559,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 <div className="flex items-center gap-2">
                   <Edit3 className="w-4 h-4 text-slate-700"/>
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                    Nội dung thô (Raw Editor)
+                    Word Raw Editor
                   </span>
                 </div>
                 
@@ -1836,7 +1569,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                     onClick={handleAiPolishFormulas}
                     disabled={isAiPolishing}
                     className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                    title="AI đọc trực tiếp file gốc để sửa toàn bộ công thức và lời giải chuẩn 100%"
+                    title="AI đọc trực tiếp file Word gốc để sửa toàn bộ công thức và lời giải chuẩn 100%"
                   >
                     {isAiPolishing ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Wand2 className="w-3.5 h-3.5"/>}
                     <span>Sửa lỗi công thức AI</span>
