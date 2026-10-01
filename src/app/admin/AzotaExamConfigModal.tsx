@@ -33,7 +33,7 @@ export interface ExtendedExamSection extends ExamSection {
 }
 
 // ============================================================================
-// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX CHUẨN XÁC
+// 1. ENGINE DỊCH MATHTYPE & OMML SANG LATEX
 // ============================================================================
 
 function isCleanLatex(latex: string): boolean {
@@ -110,7 +110,6 @@ function convertOmmlToLatex(node: Node): string {
       : "\\sqrt{" + (e ? convertOmmlToLatex(e) : "") + "}";
   }
 
-  // XỬ LÝ VECTƠ OMML (DẤU MŨI TÊN TRÊN ĐẦU)
   if (name === "acc") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const inner = e ? convertOmmlToLatex(e).trim() : "";
@@ -165,12 +164,10 @@ const SYMBOL_MAP: Record<number, string> = {
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
-  const minBytes = 16;
-  if (!uint8 || uint8.length < minBytes) return "";
+  if (!uint8 || uint8.length < 16) return "";
   let start = -1;
 
-  const searchBoundary = uint8.length - 12;
-  for (let i = 0; i < searchBoundary; i++) {
+  for (let i = 0; i < uint8.length - 12; i++) {
     if ((uint8[i] === 2 || uint8[i] === 3 || uint8[i] === 5) && 
         (uint8[i + 1] === 0 || uint8[i + 1] === 1) && 
         (uint8[i + 2] === 0 || uint8[i + 2] === 1) && 
@@ -181,8 +178,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
   }
 
   if (start === -1) {
-    const deepBoundary = uint8.length - 24;
-    for (let i = 0; i < deepBoundary; i++) {
+    for (let i = 0; i < uint8.length - 24; i++) {
       if (uint8[i] === 0x1C && uint8[i + 1] === 0x00) {
         for (let j = i; j < Math.min(uint8.length - 6, i + 64); j++) {
           if (uint8[j] === 2 || uint8[j] === 3 || uint8[j] === 5) {
@@ -291,7 +287,6 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
             res.push("_{" + sub + "}^{" + sup + "}");
           }
         } else if (selector === 19) { 
-          // SELECTOR 19: DẤU MŨI TÊN VECTƠ TRÊN ĐẦU
           const body = parseLine().trim();
           res.push("\\vec{" + body + "}");
         } else if (selector === 15) { 
@@ -346,17 +341,9 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/\\left\(\s*\\right\)/g, "");
   text = text.replace(/\(\s*\)/g, "");
 
-  // FIX LỖI KÝ HIỆU GẠCH LOẠI NGHIỆM TẬP HỢP: \left(-\infty;4 \right)\{0\} -> \setminus \{0\}
-  text = text.replace(/(\\right\)|[0-9a-zA-Z\)])\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
-  text = text.replace(/(\\right\)|[0-9a-zA-Z\)])\s*\\([0-9a-zA-Z\s;,]+)/g, "$1 \\setminus $2");
-
-  // NỐI CHUỖI AN TOÀN TRÁNH LỖI UNICODE ESCAPE TRÊN TURBOPACK
-  text = text.replace(/(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
-    if (v3) {
-      return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} + \\vec{" + v3 + "} = \\vec{" + v4 + "}$";
-    }
-    return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} = \\vec{" + v4 + "}$";
-  });
+  // CHỈ THAY THẾ DẤU GẠCH LOẠI NGHIỆM ĐÚNG CHỖ CÓ NGOẶC NHỌN (ví dụ: \right)\{0\} -> \right) \setminus \{0\})
+  text = text.replace(/(\\right\))\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
+  text = text.replace(/([0-9a-zA-Z\)])\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
 
   text = text.replace(/([a-zA-Z0-9\)\}])\s*>>\s*(\$|\s|\.|\,|$)/g, "$1 > 0$2");
   text = text.replace(/([a-zA-Z0-9\)\}])\s*><\s*(\$|\s|\.|\,|$)/g, "$1 < 0$2");
@@ -373,7 +360,7 @@ export function repairMathTypeGlitch(raw: string): string {
 }
 
 // ============================================================================
-// 2. TRÍCH XUẤT ĐỆ QUY TỪ FILE WORD (.DOCX) - FIX TRÙNG ẢNH ĐỀ & GIẢI
+// 2. TRÍCH XUẤT ĐỆ QUY TỪ FILE WORD (.DOCX)
 // ============================================================================
 
 export async function extractDocxDirectly(file: File) {
@@ -548,7 +535,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 3. TỰ ĐỘNG CHUẨN HÓA THỨ TỰ CÂU HỎI & BỔ SUNG a) b) c) d) CHO ĐÚNG SAI
+// 3. TỰ ĐỘNG CHUẨN HÓA THỨ TỰ CÂU HỎI
 // ============================================================================
 
 export function autoNormalizeQuestions(rawText: string): string {
@@ -945,7 +932,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 }
 
 // ============================================================================
-// 4. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC (FIX TURBOPACK)
+// 4. RENDER KATEX, ẢNH VÀ CÔNG THỨC TOÁN HỌC
 // ============================================================================
 
 export function cleanAndNormalizeMath(raw: string): string {
@@ -1154,7 +1141,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           if (!b64) return;
 
           const newKey = "img_clip_" + Date.now();
-          setMediaMap(prev => ({ ...prev, [newKey]: b64 }));
+          setMediaMap(prev => ({ ...prev, [newKey]: base64 }));
 
           const token = "\n[img:$" + newKey + "$]\n";
           if (textareaRef.current) {
@@ -1668,7 +1655,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* CỘT WORD RAW EDITOR CÓ HIGHLIGHT ĐỎ NHẠT TỪ KHÓA & HỖ TRỢ CTRL+V DÁN ẢNH */}
+            {/* CỘT WORD RAW EDITOR */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-slate-50/50 shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-100/80 shrink-0">
                 <div className="flex items-center gap-2">
@@ -1711,7 +1698,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 </div>
               </div>
 
-              {/* KHUNG SOẠN THẢO VỚI LỚP PHỦ HIGHLIGHT MÀU ĐỎ NHẠT */}
+              {/* KHUNG SOẠN THẢO */}
               <div className="flex-1 bg-white relative overflow-hidden">
                 <div className="absolute inset-0 overflow-y-auto custom-scrollbar pointer-events-none">
                   <HighlightedRawViewer text={rawText} />
