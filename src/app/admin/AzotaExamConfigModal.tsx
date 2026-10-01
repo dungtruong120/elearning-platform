@@ -6,7 +6,7 @@ import {
   CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
   ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
   BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent, FileText,
-  Hash
+  Hash, Lock, Unlock
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -101,7 +101,6 @@ function convertOmmlToLatex(node: Node): string {
     return "\\left(" + inner + "\\right)";
   }
   
-  // FIX MẤT SỐ TRONG CĂN THỨC
   if (name === "rad") {
     const degNode = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "").includes("deg")) as any;
     const eNode = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
@@ -236,7 +235,6 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           chCode = (opts & 0x01) ? reader.readUint16() : reader.readByte();
         }
 
-        // DẤU PHẨY ĐỈNH NHỎ GỌN
         if (opts & 0x02) {
           const emb = reader.readByte();
           if (emb === 5 || emb === 4) res.push("'");
@@ -350,15 +348,12 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/\\left\(\s*\\right\)/g, "");
   text = text.replace(/\(\s*\)/g, "");
 
-  // CHUẨN HÓA DẤU PHẨY ĐỈNH (PRIME) THÀNH DẤU ' BÉ GỌN
   text = text.replace(/[\u02B9\u2032\u2019]/g, "'");
   text = text.replace(/([A-Za-z0-9\)])\s*'\s*'/g, "$1''");
 
-  // SỬA LỖI LOẠI NGHIỆM ĐÚNG CHUẨN
   text = text.replace(/(\\right\))\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
   text = text.replace(/([0-9a-zA-Z\)])\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
 
-  // TỰ ĐỘNG BỌC VECTƠ CHO CÁC PHÁT BIỂU VECTƠ TRONG HÌNH HỌC KHÔNG GIAN
   text = text.replace(/(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
     if (v3) {
       return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} + \\vec{" + v3 + "} = \\vec{" + v4 + "}$";
@@ -381,7 +376,7 @@ export function repairMathTypeGlitch(raw: string): string {
 }
 
 // ============================================================================
-// 2. TRÍCH XUẤT ĐỆ QUY TOÀN DIỆN TỪ FILE WORD (.DOCX) - THU GOM 100% ẢNH
+// 2. TRÍCH XUẤT ĐỆ QUY TOÀN DIỆN TỪ FILE WORD (.DOCX)
 // ============================================================================
 
 export async function extractDocxDirectly(file: File) {
@@ -473,7 +468,6 @@ export async function extractDocxDirectly(file: File) {
     return "";
   };
 
-  // QUÉT TOÀN BỘ CÂY DOM ĐỆ QUY ĐỂ KHÔNG BỎ SÓT BẤT KỲ ẢNH NÀO
   const processParagraphNode = (p: Element): string => {
     let line = "";
 
@@ -495,7 +489,6 @@ export async function extractDocxDirectly(file: File) {
         return;
       }
       
-      // BẮT MỌI THẺ ẢNH DÙ LÀ BLIP, IMAGEDATA HOẶC SHAPE
       if (name === "blip" || name === "imagedata") {
         const rId = el.getAttribute("r:embed") || el.getAttribute("r:id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
         if (rId && relIdToToken[rId]) {
@@ -726,7 +719,7 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       }
     }
 
-    // TỰ ĐỘNG BÓC TÁCH CHUỖI ĐÁP ÁN ĐÚNG/SAI DÙ NẰM TRONG LỜI GIẢI (VD: "Đáp án: Đ/S/Đ/S")
+    // TỰ ĐỘNG BÓC TÁCH CHUỖI ĐÁP ÁN ĐÚNG/SAI
     const fullTextSearch = cleanChunk + " " + solutionText;
     const compactAnsMatch = fullTextSearch.match(/Đáp\s*án\s*:\s*([ĐđSsTtFf\s\/\,\-]+)/i);
     if (compactAnsMatch && compactAnsMatch[1]) {
@@ -739,7 +732,7 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       }
     }
 
-    // NHẬN DIỆN CÁC DÒNG "Đúng: ...", "Sai: ..." TRONG LỜI GIẢI
+    // NHẬN DIỆN CÁC DÒNG "Đúng: ...", "Sai: ..."
     if (solutionText) {
       const solLines = solutionText.split(/[\r\n]+/);
       let foundLineIndex = 0;
@@ -1063,7 +1056,7 @@ export function TokenViewer({
 }
 
 // ============================================================================
-// 5. COMPONENT MODAL AZOTA CHÍNH (GIAO DIỆN SẠCH SẼ, KHÔNG NỀN MỜ CHE CHỮ)
+// 5. COMPONENT MODAL AZOTA CHÍNH (CÓ NÚT KHÓA ĐIỂM TỪNG PHẦN THEO YÊU CẦU)
 // ============================================================================
 
 interface AzotaExamConfigModalProps {
@@ -1084,6 +1077,9 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [rawText, setRawText] = useState<string>("");
   const [expandedSolutions, setExpandedSolutions] = useState<Record<string, boolean>>({});
+
+  // QUẢN LÝ KHÓA CỐ ĐỊNH ĐIỂM CHO TỪNG PHẦN
+  const [lockedSections, setLockedSections] = useState<Record<number, boolean>>({});
 
   const [tfGlobalPercent, setTfGlobalPercent] = useState<Record<string, number>>({
     a: 25,
@@ -1182,6 +1178,15 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     })));
   };
 
+  // NÚT BẬT / TẮT KHÓA CỐ ĐỊNH ĐIỂM CHO MỘT PHẦN
+  const handleToggleLockSection = (sIdx: number) => {
+    setLockedSections(prev => ({
+      ...prev,
+      [sIdx]: !prev[sIdx]
+    }));
+  };
+
+  // TÍNH NĂNG CỐ ĐỊNH ĐIỂM: CHỈ ĐIỀU CHỈNH ĐIỂM CỦA CÁC PHẦN CHƯA BỊ KHÓA
   const handleUpdateSectionTotalPoints = (sIdx: number, targetSecPts: number) => {
     const validPts = Math.max(0, Math.min(10, Number(targetSecPts) || 0));
     const targetSec = sections[sIdx];
@@ -1190,43 +1195,74 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     const qCount = targetSec.questions.length;
     const ptPerQ = Number((validPts / qCount).toFixed(2));
 
+    // Khóa luôn phần này khi người dùng chủ động đặt điểm
+    setLockedSections(prev => ({ ...prev, [sIdx]: true }));
+
     setSections(prev => {
-      const otherSecs = prev.filter((_, idx) => idx !== sIdx);
-      const remainingForOthers = Math.max(0, 10 - validPts);
-      const totalOtherQ = otherSecs.reduce((acc, s) => acc + s.questions.length, 0);
-      const otherPtPerQ = totalOtherQ > 0 ? Number((remainingForOthers / totalOtherQ).toFixed(2)) : 0;
+      // Xác định tổng điểm của các phần đã bị khóa khác
+      let lockedPointsSum = 0;
+      prev.forEach((sec, idx) => {
+        if (idx !== sIdx && lockedSections[idx]) {
+          lockedPointsSum += sec.questions.reduce((sum, q) => sum + (q.points || 0), 0);
+        }
+      });
+
+      // Điểm còn lại chỉ chia cho các phần CHƯA BỊ KHÓA
+      const unlockedOtherSecs = prev.filter((_, idx) => idx !== sIdx && !lockedSections[idx]);
+      const remainingForUnlocked = Math.max(0, 10 - validPts - lockedPointsSum);
+      const totalUnlockedOtherQ = unlockedOtherSecs.reduce((acc, s) => acc + s.questions.length, 0);
+      const unlockedPtPerQ = totalUnlockedOtherQ > 0 ? Number((remainingForUnlocked / totalUnlockedOtherQ).toFixed(2)) : 0;
 
       let sum = 0;
       const updated = prev.map((sec, idx) => {
-        const thisPerQ = idx === sIdx ? ptPerQ : otherPtPerQ;
-        return {
-          ...sec,
-          questions: sec.questions.map(q => {
-            sum += thisPerQ;
-            const subPts: Record<string, number> = {};
-            if (sec.section_type === "true_false") {
-              ["a", "b", "c", "d"].forEach(k => {
-                subPts[k] = Number(((thisPerQ * (tfGlobalPercent[k] || 25)) / 100).toFixed(3));
-              });
-            }
-            return {
-              ...q,
-              points: thisPerQ,
-              sub_points: subPts
-            };
-          })
-        };
+        if (idx === sIdx) {
+          return {
+            ...sec,
+            questions: sec.questions.map(q => {
+              sum += ptPerQ;
+              const subPts: Record<string, number> = {};
+              if (sec.section_type === "true_false") {
+                ["a", "b", "c", "d"].forEach(k => {
+                  subPts[k] = Number(((ptPerQ * (tfGlobalPercent[k] || 25)) / 100).toFixed(3));
+                });
+              }
+              return { ...q, points: ptPerQ, sub_points: subPts };
+            })
+          };
+        } else if (lockedSections[idx]) {
+          // PHẦN ĐÃ KHÓA: GIỮ NGUYÊN 100% ĐIỂM
+          sec.questions.forEach(q => { sum += (q.points || 0); });
+          return sec;
+        } else {
+          // PHẦN CHƯA KHÓA: TỰ ĐỘNG BÙ TRỪ CÂN BẰNG
+          return {
+            ...sec,
+            questions: sec.questions.map(q => {
+              sum += unlockedPtPerQ;
+              const subPts: Record<string, number> = {};
+              if (sec.section_type === "true_false") {
+                ["a", "b", "c", "d"].forEach(k => {
+                  subPts[k] = Number(((unlockedPtPerQ * (tfGlobalPercent[k] || 25)) / 100).toFixed(3));
+                });
+              }
+              return { ...q, points: unlockedPtPerQ, sub_points: subPts };
+            })
+          };
+        }
       });
 
+      // Khử sai số làm tròn 0.01 vào câu chưa khóa đầu tiên
       const diff = Number((10 - sum).toFixed(2));
-      if (updated[0]?.questions[0]) {
-        updated[0].questions[0].points = Number(((updated[0].questions[0].points || 0) + diff).toFixed(2));
+      const firstUnlockedSec = updated.find((_, idx) => !lockedSections[idx]);
+      if (firstUnlockedSec && firstUnlockedSec.questions[0]) {
+        firstUnlockedSec.questions[0].points = Number(((firstUnlockedSec.questions[0].points || 0) + diff).toFixed(2));
       }
       return updated;
     });
   };
 
   const handleAutoDistribute10Points = () => {
+    setLockedSections({}); // Mở khóa toàn bộ khi bấm chia đều
     const totalQ = sections.reduce((acc, s) => acc + s.questions.length, 0);
     if (totalQ === 0) return;
     const basePoint = Number((10 / totalQ).toFixed(2));
@@ -1278,16 +1314,24 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         }));
       }
 
-      const otherQuestions = allQuestions.filter(item => item.id !== qId);
-      const remainingPoints = Math.max(0, 10 - validPoint);
-      const newAverageForOthers = Number((remainingPoints / otherQuestions.length).toFixed(2));
+      // Giữ nguyên các phần đã bị khóa
+      let lockedPointsSum = 0;
+      prev.forEach((sec, idx) => {
+        if (lockedSections[idx]) {
+          lockedPointsSum += sec.questions.reduce((sum, q) => sum + (q.points || 0), 0);
+        }
+      });
+
+      const otherQuestions = allQuestions.filter(item => item.id !== qId && !lockedSections[item.secIdx]);
+      const remainingPoints = Math.max(0, 10 - validPoint - lockedPointsSum);
+      const newAverageForOthers = otherQuestions.length > 0 ? Number((remainingPoints / otherQuestions.length).toFixed(2)) : 0;
 
       let currentAllocated = validPoint;
       const pointMap: Record<string, number> = { [qId]: validPoint };
 
       otherQuestions.forEach((item, idx) => {
         if (idx === otherQuestions.length - 1) {
-          const finalPt = Number(Math.max(0, 10 - currentAllocated).toFixed(2));
+          const finalPt = Number(Math.max(0, 10 - currentAllocated - lockedPointsSum).toFixed(2));
           pointMap[item.id] = finalPt;
         } else {
           pointMap[item.id] = newAverageForOthers;
@@ -1295,9 +1339,10 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         }
       });
 
-      return prev.map(sec => ({
+      return prev.map((sec, sI) => ({
         ...sec,
         questions: sec.questions.map(q => {
+          if (lockedSections[sI] && q.id !== qId) return q;
           const pt = pointMap[q.id] !== undefined ? pointMap[q.id] : (q.points || 0);
           const subPts: Record<string, number> = {};
           if (sec.section_type === "true_false") {
@@ -1542,7 +1587,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
                             </div>
 
-                            {/* DẠNG 1: TRẮC NGHIỆM 4 PHƯƠNG ÁN A, B, C, D */}
                             {sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
                               <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
                                 {q.options.map(opt => {
@@ -1571,7 +1615,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
-                            {/* DẠNG 2: TRẮC NGHIỆM ĐÚNG / SAI */}
                             {sec.section_type === "true_false" && q.options && (
                               <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
                                 <table className="w-full text-left text-[13px]">
@@ -1618,7 +1661,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
-                            {/* DẠNG 3: TRẢ LỜI NGẮN */}
                             {sec.section_type === "short_answer" && (
                               <div className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex items-center gap-3 text-xs mt-3">
                                 <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
@@ -1632,7 +1674,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               </div>
                             )}
 
-                            {/* LỜI GIẢI CHI TIẾT */}
                             {q.solution_html && (
                               <div className="pt-3 border-t border-slate-100 mt-3">
                                 <button
@@ -1659,7 +1700,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* CỘT WORD RAW EDITOR: ĐÃ BỎ LỚP PHỦ NỀN MÀU RỐI MẮT, TEXTAREA HIỂN THỊ RÕ RÀNG */}
+            {/* CỘT WORD RAW EDITOR */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <div className="flex items-center gap-2">
@@ -1702,7 +1743,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 </div>
               </div>
 
-              {/* KHUNG SOẠN THẢO TRẮNG TINH KHÔNG BỊ NỀN ĐÈ CHE CHỮ */}
               <div className="flex-1 bg-white relative">
                 <textarea
                   ref={textareaRef}
@@ -1725,7 +1765,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   Cấu hình Ma trận đáp án & Thang điểm 10.0 (Auto-Balance)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Điểm được khoá cứng chuẩn 10.0. Bạn có thể nhập điểm trực tiếp cho cả Phần hoặc từng câu, hệ thống sẽ tự động cân bằng các câu khác.
+                  Bấm biểu tượng 🔒 để Khóa cố định điểm phần bạn muốn. Điểm các phần chưa khóa sẽ tự động điều chỉnh.
                 </p>
               </div>
 
@@ -1736,7 +1776,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 >
                   <RefreshCw className="w-3.5 h-3.5"/>
-                  <span>Chia đều 10 điểm</span>
+                  <span>Chia đều 10 điểm (Mở khóa hết)</span>
                 </button>
 
                 <div className="px-3.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border-emerald-300">
@@ -1784,27 +1824,35 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             )}
 
-            {/* DANH SÁCH CÁC PHẦN THI KÈM Ô CHIA ĐIỂM TỔNG CỦA TỪNG PHẦN */}
+            {/* DANH SÁCH CÁC PHẦN THI KÈM NÚT KHÓA CỐ ĐỊNH ĐIỂM */}
             <div className="space-y-6">
               {sections.map((sec, sIdx) => {
                 const secTotalPoints = Number(sec.questions.reduce((sum, q) => sum + (q.points || 0), 0).toFixed(2));
+                const isLocked = Boolean(lockedSections[sIdx]);
 
                 return (
-                  <div key={"sec-cfg-" + sIdx} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+                  <div key={"sec-cfg-" + sIdx} className={"bg-white p-5 rounded-3xl border transition-all space-y-4 " + (isLocked ? "border-amber-300 shadow-sm ring-1 ring-amber-200" : "border-slate-200 shadow-xs")}>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
                       <div>
-                        <h4 className="font-black text-sm text-slate-900 uppercase">
-                          {sec.section_title}
-                        </h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-black text-sm text-slate-900 uppercase">
+                            {sec.section_title}
+                          </h4>
+                          {isLocked && (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                              <Lock className="w-3 h-3"/> Đã Khóa
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[11px] text-slate-500 font-semibold">
                           {sec.section_type === "true_false" ? "Trắc nghiệm Đúng/Sai" : sec.section_type === "short_answer" ? "Trả lời ngắn" : "Trắc nghiệm 4 phương án"} • {sec.questions.length} câu hỏi
                         </span>
                       </div>
 
-                      {/* Ô CẤU HÌNH ĐIỂM TỔNG CỦA CẢ PHẦN */}
-                      <div className="flex items-center gap-2 bg-blue-50/70 px-3.5 py-2 rounded-2xl border border-blue-200/80">
+                      {/* Ô CẤU HÌNH ĐIỂM TỔNG CỦA CẢ PHẦN + NÚT KHÓA CỐ ĐỊNH */}
+                      <div className="flex items-center gap-2 bg-blue-50/70 p-1.5 px-3 rounded-2xl border border-blue-200/80">
                         <span className="text-xs font-extrabold text-blue-900 whitespace-nowrap">
-                          Điểm tổng phần này:
+                          Điểm phần:
                         </span>
                         <div className="flex items-center gap-1">
                           <input 
@@ -1816,8 +1864,23 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             onChange={(e) => handleUpdateSectionTotalPoints(sIdx, parseFloat(e.target.value) || 0)}
                             className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center text-xs font-black text-blue-700 outline-none focus:border-blue-600 shadow-2xs"
                           />
-                          <span className="text-xs font-bold text-blue-700">điểm</span>
+                          <span className="text-xs font-bold text-blue-700 mr-1.5">đ</span>
                         </div>
+
+                        {/* NÚT BẤM KHÓA CỐ ĐỊNH ĐIỂM CHO PHẦN NÀY */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleLockSection(sIdx)}
+                          className={"px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs " + (
+                            isLocked 
+                              ? "bg-amber-500 hover:bg-amber-600 text-white" 
+                              : "bg-white hover:bg-slate-100 text-slate-600 border border-slate-300"
+                          )}
+                          title={isLocked ? "Bấm để Mở khóa điểm (Điểm phần này sẽ tự động thay đổi)" : "Bấm để Khóa cố định điểm (Điểm phần này sẽ không bị đổi khi chỉnh phần khác)"}
+                        >
+                          {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                          <span>{isLocked ? "Cố định" : "Khóa"}</span>
+                        </button>
                       </div>
                     </div>
 
