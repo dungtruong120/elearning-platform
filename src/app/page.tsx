@@ -10,7 +10,7 @@ import {
   Lock, Mail, ArrowRight, GraduationCap, AlertCircle, LogOut 
 } from "lucide-react";
 
-// DYNAMIC IMPORT CÁC TRANG TRÁNH LỖI SSR HYDRATION
+// Dynamic import các dashboard để tối ưu tốc độ tải và tránh lỗi hydration
 const StudentOnlineDashboard = dynamic(
   () => import("@/components/student/StudentOnlineDashboard"),
   { ssr: false }
@@ -26,7 +26,7 @@ const AdminPage = dynamic(
   { ssr: false }
 );
 
-// HÀM TẠO MÃ ĐỊNH DANH HỌC SINH TỰ ĐỘNG CHUẨN PHÂN HỆ
+// Tạo mã học sinh tự động
 export function generateStudentCode(user: Partial<Profile>): string {
   if (user.student_code && user.student_code.startsWith("HS-")) {
     return user.student_code;
@@ -42,13 +42,13 @@ export function generateStudentCode(user: Partial<Profile>): string {
   return prefix + "-" + num;
 }
 
-// CẤU HÌNH DUY NHẤT TÀI KHOẢN ADMIN ĐƯỢC PHÉP TRUY CẬP ADMIN PANEL
+// Cấu hình tài khoản quản trị viên
 const ADMIN_ACCOUNT = {
   email: "hieu0986357867@gmail.com",
   password: "0394153206"
 };
 
-// DANH SÁCH TÀI KHOẢN MẪU CHUẨN XÁC VAI TRÒ
+// Danh sách tài khoản mặc định
 const DEFAULT_ACCOUNTS = [
   {
     id: "admin-master",
@@ -96,7 +96,6 @@ export default function RootPage() {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
-  // HÀM DỌN SẠCH TẤT CẢ PHIÊN ĐĂNG NHẬP TRƯỚC KHI GHI MỚI HOẶC KHI ĐĂNG XUẤT
   const clearAllSessions = () => {
     if (typeof window === "undefined") return;
     try {
@@ -110,7 +109,7 @@ export default function RootPage() {
     }
   };
 
-  // 1. KIỂM TRA VÀ DUY TRÌ PHIÊN ĐĂNG NHẬP HIỆN TẠI (F5 KHÔNG MẤT DỮ LIỆU)
+  // Nạp phiên đăng nhập từ localStorage để giữ trạng thái khi F5
   const loadUserSession = useCallback(() => {
     if (typeof window === "undefined") return;
     try {
@@ -147,10 +146,18 @@ export default function RootPage() {
   useEffect(() => {
     loadUserSession();
     window.addEventListener("storage", loadUserSession);
-    return () => window.removeEventListener("storage", loadUserSession);
+    
+    const handlePopState = () => {
+      loadUserSession();
+    };
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("storage", loadUserSession);
+      window.removeEventListener("popstate", handlePopState);
+    };
   }, [loadUserSession]);
 
-  // 2. XỬ LÝ ĐĂNG NHẬP QUA FORM
   const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMessage("");
@@ -159,21 +166,15 @@ export default function RootPage() {
     const emailTrim = emailInput.trim().toLowerCase();
     const passwordTrim = passwordInput.trim();
 
-    if (!emailTrim) {
-      setErrorMessage("Vui lòng nhập Email hoặc Tài khoản.");
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!passwordTrim) {
-      setErrorMessage("Vui lòng nhập mật khẩu.");
+    if (!emailTrim || !passwordTrim) {
+      setErrorMessage("Vui lòng nhập đầy đủ Email và Mật khẩu.");
       setIsSubmitting(false);
       return;
     }
 
     clearAllSessions();
 
-    // 2.1. NẾU LÀ TÀI KHOẢN ADMIN
+    // 1. Kiểm tra tài khoản Quản trị viên
     if (emailTrim === ADMIN_ACCOUNT.email.toLowerCase()) {
       if (passwordTrim !== ADMIN_ACCOUNT.password) {
         setErrorMessage("Mật khẩu Quản trị viên không chính xác.");
@@ -192,6 +193,7 @@ export default function RootPage() {
       if (typeof window !== "undefined") {
         localStorage.setItem("tct_current_user", JSON.stringify(adminUser));
         localStorage.setItem("edunexus_current_user", JSON.stringify(adminUser));
+        window.history.pushState({ role: "admin" }, "", "/admin");
       }
 
       setCurrentUser(adminUser);
@@ -199,15 +201,14 @@ export default function RootPage() {
       return;
     }
 
-    // 2.2. KIỂM TRA TÀI KHOẢN HỌC SINH MẪU CỐ ĐỊNH TRƯỚC
+    // 2. Kiểm tra tài khoản mẫu
     let matchedAccount: any = DEFAULT_ACCOUNTS.find(
       acc => acc.role === "student" && acc.email.toLowerCase() === emailTrim
     );
 
-    // 2.3. NẾU KHÔNG PHẢI TÀI KHOẢN MẪU -> TRUY VẤN SUPABASE CHUẨN XÁC
+    // 3. Kiểm tra qua Supabase
     if (!matchedAccount) {
       try {
-        // Thử đăng nhập qua Supabase Auth
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
           email: emailTrim,
           password: passwordTrim
@@ -224,7 +225,6 @@ export default function RootPage() {
           profileData = p;
         }
 
-        // Dự phòng truy vấn trực tiếp bảng profiles theo email
         if (!profileData) {
           const { data: pByEmail } = await supabase
             .from("profiles")
@@ -268,7 +268,7 @@ export default function RootPage() {
       }
     }
 
-    // 2.4. KIỂM TRA TRONG LOCALSTORAGE
+    // 4. Kiểm tra dữ liệu đăng ký cục bộ
     if (!matchedAccount && typeof window !== "undefined") {
       try {
         const registered = localStorage.getItem("edunexus_registered_students");
@@ -298,7 +298,6 @@ export default function RootPage() {
       } catch (err) {}
     }
 
-    // 2.5. NẾU HOÀN TOÀN KHÔNG TÌM THẤY TÀI KHOẢN
     if (!matchedAccount) {
       setErrorMessage("Tài khoản hoặc mật khẩu không chính xác!");
       setIsSubmitting(false);
@@ -312,24 +311,24 @@ export default function RootPage() {
     if (typeof window !== "undefined") {
       localStorage.setItem("tct_current_user", JSON.stringify(matchedAccount));
       localStorage.setItem("edunexus_current_user", JSON.stringify(matchedAccount));
+      window.history.pushState({ role: matchedAccount.role }, "", "/dashboard");
     }
 
     setCurrentUser(matchedAccount);
     setIsSubmitting(false);
   };
 
-  // 3. XỬ LÝ ĐĂNG XUẤT HỆ THỐNG DỨT ĐIỂM
   const handleLogout = () => {
     clearAllSessions();
     setCurrentUser(null);
     setEmailInput("");
     setPasswordInput("");
     if (typeof window !== "undefined") {
+      window.history.pushState({}, "", "/");
       window.location.replace("/");
     }
   };
 
-  // MÀN HÌNH CHỜ BAN ĐẦU
   if (!isMounted) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-[#F8FAFC]">
@@ -341,7 +340,7 @@ export default function RootPage() {
     );
   }
 
-  // 4. ĐIỀU HƯỚNG GIAO DIỆN THEO ĐÚNG VAI TRÒ & PHÂN HỆ
+  // Phân luồng giao diện sau khi đăng nhập thành công
   if (currentUser) {
     if (currentUser.role === "admin" && currentUser.email?.toLowerCase() === ADMIN_ACCOUNT.email.toLowerCase()) {
       return (
@@ -358,17 +357,15 @@ export default function RootPage() {
       );
     }
 
-    // Chuẩn hóa kiểm tra: chỉ khi ghi rõ ràng 'offline' thì mới vào OfflineDashboard
     const userMode = String(currentUser.learning_mode || currentUser.study_mode || "").toLowerCase().trim();
     if (userMode === "offline") {
       return <StudentOfflineDashboard initialProfile={currentUser} onLogout={handleLogout} />;
     }
 
-    // Mặc định tất cả học sinh Online (hoặc học sinh chưa xác định) vào StudentOnlineDashboard
     return <StudentOnlineDashboard initialProfile={currentUser} onLogout={handleLogout} />;
   }
 
-  // 5. GIAO DIỆN ĐĂNG NHẬP CHÍNH THỨC
+  // Giao diện Đăng nhập
   return (
     <div className="min-h-screen w-full bg-[#F8FAFC] flex items-center justify-center p-4 sm:p-6 font-sans select-none text-slate-800">
       <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-10 shadow-[0_10px_35px_rgba(0,0,0,0.04)] relative z-10 space-y-6">
@@ -447,7 +444,6 @@ export default function RootPage() {
           </button>
         </form>
 
-        {/* NÚT CHUYỂN SANG TRANG ĐĂNG KÝ HỌC VIÊN MỚI */}
         <div className="pt-4 border-t border-slate-100 text-center">
           <p className="text-xs text-slate-500 font-medium">
             Chưa có tài khoản học viên?{" "}
