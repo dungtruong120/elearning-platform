@@ -165,8 +165,8 @@ const SYMBOL_MAP: Record<number, string> = {
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
-  const MIN_MTEF_BYTES = 16;
-  if (!uint8 || uint8.length < MIN_MTEF_BYTES) return "";
+  const minBytes = 16;
+  if (!uint8 || uint8.length < minBytes) return "";
   let start = -1;
 
   const searchBoundary = uint8.length - 12;
@@ -291,7 +291,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
             res.push("_{" + sub + "}^{" + sup + "}");
           }
         } else if (selector === 19) { 
-          // SELECTOR 19: EMBELLISHMENT DẤU MŨI TÊN VECTƠ TRÊN ĐẦU
+          // SELECTOR 19: DẤU MŨI TÊN VECTƠ TRÊN ĐẦU
           const body = parseLine().trim();
           res.push("\\vec{" + body + "}");
         } else if (selector === 15) { 
@@ -350,12 +350,12 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/(\\right\)|[0-9a-zA-Z\)])\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
   text = text.replace(/(\\right\)|[0-9a-zA-Z\)])\s*\\([0-9a-zA-Z\s;,]+)/g, "$1 \\setminus $2");
 
-  // TỰ ĐỘNG BỔ SUNG DẤU VECTƠ CHO CÁC BIỂU THỨC HÌNH HỌC KHÔNG GIAN
+  // NỐI CHUỖI AN TOÀN TRÁNH LỖI UNICODE ESCAPE TRÊN TURBOPACK
   text = text.replace(/(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
     if (v3) {
-      return $\\vec{${v1}} + \\vec{${v2}} + \\vec{${v3}} = \\vec{${v4}}$;
+      return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} + \\vec{" + v3 + "} = \\vec{" + v4 + "}$";
     }
-    return $\\vec{${v1}} + \\vec{${v2}} = \\vec{${v4}}$;
+    return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} = \\vec{" + v4 + "}$";
   });
 
   text = text.replace(/([a-zA-Z0-9\)\}])\s*>>\s*(\$|\s|\.|\,|$)/g, "$1 > 0$2");
@@ -557,14 +557,14 @@ export function autoNormalizeQuestions(rawText: string): string {
 
   let globalCount = 1;
   text = text.replace(/(?:^|[\r\n]+)\s*(?:Câu|Bài|Question)\s*\d+[:.\-\)]?\s*/gi, () => {
-    return \n\nCâu ${globalCount++}: ;
+    return "\n\nCâu " + (globalCount++) + ": ";
   });
 
   text = text.replace(/Đáp\s*án\s*:\s*([ĐđSsTtFf\s\/\,\-]+)/gi, (match, ansStr) => {
     const letters = ansStr.replace(/[^ĐđSsTtFf]/g, "").toUpperCase().split("");
     if (letters.length === 4) {
       const getVal = (ch: string) => (ch === "Đ" || ch === "D" || ch === "T" ? "Đúng" : "Sai");
-      return Đáp án: a) ${getVal(letters[0])}, b) ${getVal(letters[1])}, c) ${getVal(letters[2])}, d) ${getVal(letters[3])};
+      return "Đáp án: a) " + getVal(letters[0]) + ", b) " + getVal(letters[1]) + ", c) " + getVal(letters[2]) + ", d) " + getVal(letters[3]);
     }
     return match;
   });
@@ -596,7 +596,7 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
     norm = norm.replace(/((?:^|[\r\n]+)Câu\s*\d+[:.\s]+[\s\S]*?)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)(?=[\r\n]+(?:Lời\s*giải|Đáp\s*án|Câu|$))/gi, 
       (m, head, r1, l1, r2, l2, r3, l3, r4, l4) => {
         if (/Lời\s*giải|Đáp\s*án|Chọn/i.test(l1)) return m;
-        return ${head}\na) ${l1}\nb) ${l2}\nc) ${l3}\nd) ${l4};
+        return head + "\na) " + l1 + "\nb) " + l2 + "\nc) " + l3 + "\nd) " + l4;
       }
     );
   }
@@ -606,7 +606,7 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
 
   if (rawPieces.length > 0) {
     let cur = startQIdx;
-    const pieces = rawPieces.map(chunk => Câu ${cur++}: \n${chunk.trim()});
+    const pieces = rawPieces.map(chunk => "Câu " + (cur++) + ": \n" + chunk.trim());
     return { labeledText: pieces.join("\n\n"), nextQIdx: cur };
   }
 
@@ -1156,7 +1156,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           const newKey = "img_clip_" + Date.now();
           setMediaMap(prev => ({ ...prev, [newKey]: b64 }));
 
-          const token = \n[img:$${newKey}$]\n;
+          const token = "\n[img:$" + newKey + "$]\n";
           if (textareaRef.current) {
             const start = textareaRef.current.selectionStart || 0;
             const end = textareaRef.current.selectionEnd || 0;
@@ -1377,7 +1377,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
       const newKey = "img_custom_" + Date.now();
       setMediaMap(prev => ({ ...prev, [newKey]: base64 }));
 
-      const token = \n[img:$${newKey}$]\n;
+      const token = "\n[img:$" + newKey + "$]\n";
 
       if (textareaRef.current) {
         const start = textareaRef.current.selectionStart || 0;
@@ -1397,7 +1397,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     if (!url || !url.trim()) return;
 
     const cleanUrl = url.trim();
-    const token = \n[img:${cleanUrl}]\n;
+    const token = "\n[img:" + cleanUrl + "]\n";
 
     if (textareaRef.current) {
       const start = textareaRef.current.selectionStart || 0;
