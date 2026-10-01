@@ -50,6 +50,8 @@ const DEFAULT_CHAPTERS = [
   }
 ];
 
+const VALID_TABS = ["overview", "courses", "practice", "schedule", "progress", "assessments", "leaderboard", "notifications"];
+
 interface StudentOfflineDashboardProps {
   initialProfile?: Profile | null;
   onLogout?: () => void;
@@ -73,26 +75,121 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     }
   }, [initialProfile]);
 
-  const [offlineAttendance, setOfflineAttendance] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<string>("overview");
+  // 1. ĐỒNG BỘ TAB TỪ URL HASH ĐỂ F5 KHÔNG BỊ VĂNG VỀ TRANG ĐẦU
+  const [activeTab, setActiveTabState] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "").trim();
+      if (VALID_TABS.includes(hash)) return hash;
+    }
+    return "overview";
+  });
+
+  const setActiveTab = useCallback((newTab: string) => {
+    setActiveTabState(newTab);
+    if (typeof window !== "undefined") {
+      window.history.pushState({ tab: newTab }, "", "#" + newTab);
+    }
+  }, []);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [chapters, setChapters] = useState<any[]>(DEFAULT_CHAPTERS);
-  const [allAttempts, setAllAttempts] = useState<any[]>([]);
-  const [practiceExams, setPracticeExams] = useState<any[]>([]);
-  const [sysNotifications, setSysNotifications] = useState<any[]>([]);
+
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ 1-2 GIÂY KHI MỞ TRANG
+  const [chapters, setChapters] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_course_data");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return DEFAULT_CHAPTERS;
+  });
+
+  const [allAttempts, setAllAttempts] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_attempts");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [practiceExams, setPracticeExams] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_practice_exams");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [sysNotifications, setSysNotifications] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_system_notifications");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [offlineAttendance, setOfflineAttendance] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        const savedTct = localStorage.getItem("tct_attendance_records");
+        const listAtt = savedAtt ? JSON.parse(savedAtt) : [];
+        const listTct = savedTct ? JSON.parse(savedTct) : [];
+        const combined = [...listAtt, ...listTct];
+        if (Array.isArray(combined)) {
+          return combined.filter((a: any) => a.studentId === initialProfile?.id);
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [offlineSessions, setOfflineSessions] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_online_sessions");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [offlineAttRecords, setOfflineAttRecords] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        if (savedAtt) {
+          const parsed = JSON.parse(savedAtt);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
+
   const [selectedPracticeCategory, setSelectedPracticeCategory] = useState("Tất cả đề");
-  
   const [practiceSubTab, setPracticeSubTab] = useState<"list" | "history">("list");
   const [historyModalExamId, setHistoryModalExamId] = useState<string | null>(null);
-  
+
   const [studyGoal, setStudyGoal] = useState<string>(() => { 
     return typeof window !== "undefined" ? localStorage.getItem("edunexus_study_goal") || "Chinh phục 9.5+ Toán & Kỳ thi ĐGNL/TSA" : ""; 
   });
   const [isEditingGoal, setIsEditingGoal] = useState<boolean>(false);
   const [tempGoal, setTempGoal] = useState<string>(studyGoal);
   const [dailyQuote, setDailyQuote] = useState<string>("");
-  const [totalStudySeconds, setTotalStudySeconds] = useState<number>(0);
+  const [totalStudySeconds, setTotalStudySeconds] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      return parseInt(localStorage.getItem("edunexus_study_time_" + (initialProfile?.id || "default")) || "0", 10);
+    }
+    return 0;
+  });
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
   useEffect(() => {
@@ -105,7 +202,9 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const [previewExam, setPreviewExam] = useState<any | null>(null); 
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
+  const [offlineToast, setOfflineToast] = useState<string>("");
 
+  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
     try {
       const { data: courseRow } = await supabase
@@ -119,16 +218,8 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
         }
-      } else if (typeof window !== "undefined") {
-        const savedChapters = localStorage.getItem("edunexus_course_data");
-        if (savedChapters) setChapters(JSON.parse(savedChapters));
       }
-    } catch (e) {
-      if (typeof window !== "undefined") {
-        const savedChapters = localStorage.getItem("edunexus_course_data");
-        if (savedChapters) setChapters(JSON.parse(savedChapters));
-      }
-    }
+    } catch (e) {}
 
     try {
       const { data: dbExams } = await supabase
@@ -141,16 +232,8 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
         }
-      } else if (typeof window !== "undefined") {
-        const savedPractice = localStorage.getItem("edunexus_practice_exams");
-        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
       }
-    } catch (e) {
-      if (typeof window !== "undefined") {
-        const savedPractice = localStorage.getItem("edunexus_practice_exams");
-        if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
-      }
-    }
+    } catch (e) {}
 
     try {
       const { data: dbNotifs } = await supabase
@@ -188,23 +271,73 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     }
   }, [profile?.id]);
 
+  const loadSessionsData = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        setOfflineSessions(data);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_online_sessions", JSON.stringify(data));
+        }
+      }
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        if (savedAtt) {
+          const parsed = JSON.parse(savedAtt);
+          if (Array.isArray(parsed)) setOfflineAttRecords(parsed);
+        }
+      } catch (e) {}
+    }
+  }, []);
+
   useEffect(() => {
     fetchAuthAndData();
+    loadSessionsData();
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
 
-    const channel = supabase
+    // LẮNG NGHE SỰ KIỆN NÚT BACK / FORWARD CỦA TRÌNH DUYỆT
+    const handlePopState = () => {
+      if (typeof window !== "undefined") {
+        const hash = window.location.hash.replace("#", "").trim();
+        if (VALID_TABS.includes(hash)) {
+          setActiveTabState(hash);
+        } else {
+          setActiveTabState("overview");
+        }
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("storage", fetchAuthAndData);
+    window.addEventListener("storage", loadSessionsData);
+
+    const channelCourses = supabase
       .channel("student-offline-global-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => fetchAuthAndData())
       .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => fetchAuthAndData())
       .on("postgres_changes", { event: "*", schema: "public", table: "system_notifications" }, () => fetchAuthAndData())
       .subscribe();
 
-    window.addEventListener("storage", fetchAuthAndData);
+    const channelSessions = supabase
+      .channel("realtime-student-offline-sessions")
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => loadSessionsData())
+      .subscribe();
+
     return () => { 
-      supabase.removeChannel(channel);
+      supabase.removeChannel(channelCourses);
+      supabase.removeChannel(channelSessions);
+      window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("storage", fetchAuthAndData); 
+      window.removeEventListener("storage", loadSessionsData);
     };
-  }, [fetchAuthAndData]);
+  }, [fetchAuthAndData, loadSessionsData]);
 
   const handleSaveGoal = () => { 
     setStudyGoal(tempGoal); 
@@ -361,69 +494,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
       }))
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
-
-  const [offlineSessions, setOfflineSessions] = useState<any[]>([]);
-  const [offlineAttRecords, setOfflineAttRecords] = useState<any[]>([]);
-  const [offlineToast, setOfflineToast] = useState<string>("");
-
-  const loadSessionsData = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from("sessions")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (!error && data && data.length > 0) {
-        setOfflineSessions(data);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_online_sessions", JSON.stringify(data));
-        }
-      } else if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("edunexus_online_sessions");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) setOfflineSessions(parsed);
-        }
-      }
-    } catch {
-      if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("edunexus_online_sessions");
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) setOfflineSessions(parsed);
-          } catch {}
-        }
-      }
-    }
-
-    if (typeof window !== "undefined") {
-      try {
-        const savedAtt = localStorage.getItem("edunexus_attendance");
-        if (savedAtt) {
-          const parsed = JSON.parse(savedAtt);
-          if (Array.isArray(parsed)) setOfflineAttRecords(parsed);
-        }
-      } catch (e) {}
-    }
-  }, []);
-
-  useEffect(() => {
-    loadSessionsData();
-
-    const channel = supabase
-      .channel("realtime-student-offline-sessions")
-      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
-        loadSessionsData();
-      })
-      .subscribe();
-
-    window.addEventListener("storage", loadSessionsData);
-    return () => {
-      supabase.removeChannel(channel);
-      window.removeEventListener("storage", loadSessionsData);
-    };
-  }, [loadSessionsData]);
 
   const parseTimeSlotMinutes = (timeSlot?: string): { startMinutes: number; endMinutes: number } | null => {
     if (!timeSlot || !timeSlot.includes("-")) return null;
@@ -598,7 +668,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         )}
       </AnimatePresence>
 
-      {/* BẢO TOÀN TÍNH NĂNG ĐÓNG MỞ SIDEBAR TRÊN LAPTOP / DESKTOP (md:block) */}
       <div 
         className={"h-full shrink-0 transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden hidden md:block z-40 " + (
           isSidebarOpen ? "w-64 opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-10"
@@ -610,7 +679,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         </div>
       </div>
 
-      {/* THANH MENU DƯỚI ĐÁY CỐ ĐỊNH TRÊN ĐIỆN THOẠI (md:hidden) */}
       <div className="md:hidden">
         <Sidebar user={profile!} activeTab={activeTab} setActiveTab={setActiveTab} onToggleSidebar={() => {}} onLogout={onLogout} />
       </div>
@@ -624,7 +692,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
           />
         </div>
         
-        {/* VÙNG NỘI DUNG VỚI ĐỆM pb-24 TRÊN MOBILE ĐỂ KHÔNG BỊ THANH DƯỚI ĐÁY CHE */}
         <main className="flex-1 p-4 sm:p-5 md:p-8 pb-24 md:pb-6 overflow-y-auto custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div key={activeTab} initial={{ opacity: 0, y: 10, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.99 }} transition={{ duration: 0.2, ease: "easeInOut" }}>
