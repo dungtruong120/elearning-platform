@@ -6,7 +6,7 @@ import {
   CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
   ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
   BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent, FileText,
-  ClipboardPaste, Hash
+  Hash
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -66,34 +66,41 @@ function convertOmmlToLatex(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
   const el = node as Element;
   const name = el.localName || el.nodeName?.split(":").pop() || "";
+  
   if (name === "t") return el.textContent || "";
+  
   if (name === "f") {
     const num = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("num")) as any;
     const den = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("den")) as any;
     return "\\frac{" + (num ? convertOmmlToLatex(num) : "") + "}{" + (den ? convertOmmlToLatex(den) : "") + "}";
   }
+  
   if (name === "sSup") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const sup = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sup")) as any;
     return "{" + (e ? convertOmmlToLatex(e) : "") + "}^{" + (sup ? convertOmmlToLatex(sup) : "") + "}";
   }
+  
   if (name === "sSub") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const sub = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sub")) as any;
     return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}";
   }
+  
   if (name === "sSubSup") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const sub = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sub")) as any;
     const sup = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("sup")) as any;
     return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}^{" + (sup ? convertOmmlToLatex(sup) : "") + "}";
   }
+  
   if (name === "d") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
     const inner = e ? convertOmmlToLatex(e).trim() : "";
     if (!inner) return "";
     return "\\left(" + inner + "\\right)";
   }
+  
   if (name === "rad") {
     const deg = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("deg")) as any;
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
@@ -102,6 +109,19 @@ function convertOmmlToLatex(node: Node): string {
       ? "\\sqrt[" + degStr + "]{" + (e ? convertOmmlToLatex(e) : "") + "}" 
       : "\\sqrt{" + (e ? convertOmmlToLatex(e) : "") + "}";
   }
+
+  // XỬ LÝ VECTƠ OMML (DẤU MŨI TÊN TRÊN ĐẦU)
+  if (name === "acc") {
+    const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
+    const inner = e ? convertOmmlToLatex(e).trim() : "";
+    return "\\vec{" + inner + "}";
+  }
+
+  if (name === "bar") {
+    const e = Array.from(el.childNodes).find((n: any) => n.nodeName && n.nodeName.includes("e")) as any;
+    return "\\overline{" + (e ? convertOmmlToLatex(e) : "") + "}";
+  }
+  
   let str = "";
   for (let i = 0; i < el.childNodes.length; i++) {
     str += convertOmmlToLatex(el.childNodes[i]);
@@ -145,6 +165,7 @@ const SYMBOL_MAP: Record<number, string> = {
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
+  // SỬA LỖI TURBOPACK: Sửa ký tự '8 )' bị biến thành emoji kính đen
   if (!uint8 || uint8.length < 😎 return "";
   let start = -1;
 
@@ -259,6 +280,10 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
             const sup = parseLine();
             res.push("_{" + sub + "}^{" + sup + "}");
           }
+        } else if (selector === 19) { 
+          // SELECTOR 19 TRONG MATHTYPE: MŨI TÊN VECTƠ TRÊN ĐẦU
+          const body = parseLine().trim();
+          res.push("\\vec{" + body + "}");
         } else if (selector === 15) { 
           const body = parseLine();
           res.push("\\int " + body);
@@ -315,6 +340,15 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/(\\right\)|[0-9a-zA-Z\)])\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
   text = text.replace(/(\\right\)|[0-9a-zA-Z\)])\s*\\([0-9a-zA-Z\s;,]+)/g, "$1 \\setminus $2");
 
+  // TỰ ĐỘNG BỔ SUNG DẤU VECTƠ CHO CÁC BIỂU THỨC HÌNH HỌC KHÔNG GIAN
+  // Nhận diện: AB + BC + CD = AD hoặc BA + BC + BB' = BD' trong ngữ cảnh hình hộp
+  text = text.replace(/(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
+    if (v3) {
+      return $\\vec{${v1}} + \\vec{${v2}} + \\vec{${v3}} = \\vec{${v4}}$;
+    }
+    return $\\vec{${v1}} + \\vec{${v2}} = \\vec{${v4}}$;
+  });
+
   text = text.replace(/([a-zA-Z0-9\)\}])\s*>>\s*(\$|\s|\.|\,|$)/g, "$1 > 0$2");
   text = text.replace(/([a-zA-Z0-9\)\}])\s*><\s*(\$|\s|\.|\,|$)/g, "$1 < 0$2");
   text = text.replace(/\$([a-zA-Z0-9])>>\$/g, "$$$1 > 0$$");
@@ -330,7 +364,7 @@ export function repairMathTypeGlitch(raw: string): string {
 }
 
 // ============================================================================
-// 2. TRÍCH XUẤT ĐỆ QUY TỔNG QUÁT TỪ FILE WORD (.DOCX) - FIX TRÙNG ẢNH ĐỀ & LỜI GIẢI
+// 2. TRÍCH XUẤT ĐỆ QUY TỪ FILE WORD (.DOCX) - FIX TRÙNG ẢNH ĐỀ & GIẢI
 // ============================================================================
 
 export async function extractDocxDirectly(file: File) {
@@ -348,7 +382,6 @@ export async function extractDocxDirectly(file: File) {
     });
   }
 
-  // Khởi tạo map từ đường dẫn file media thật -> Token chuẩn hóa duy nhất (Cả đề lẫn giải dùng chung 1 token chuẩn xác)
   let imgCount = 1;
   const pathToToken: Record<string, string> = {};
   const relIdToToken: Record<string, string> = {};
@@ -513,14 +546,11 @@ export function autoNormalizeQuestions(rawText: string): string {
   if (!rawText) return "";
   let text = rawText.normalize("NFC");
 
-  // 1. Tự động đánh số lại câu tuần tự bắt đầu từ Câu 1, Câu 2, Câu 3... (Bất kể trước đó là Câu 34, 35...)
   let globalCount = 1;
   text = text.replace(/(?:^|[\r\n]+)\s*(?:Câu|Bài|Question)\s*\d+[:.\-\)]?\s*/gi, () => {
     return \n\nCâu ${globalCount++}: ;
   });
 
-  // 2. Xử lý phần Đúng / Sai: Nếu câu hỏi có 4 mệnh đề trần mà chưa có a), b), c), d)
-  // và gặp đáp án dạng "Đáp án: Đ/S/S/Đ" hoặc "Đ/S/Đ/S" -> Tự động format chuẩn
   text = text.replace(/Đáp\s*án\s*:\s*([ĐđSsTtFf\s\/\,\-]+)/gi, (match, ansStr) => {
     const letters = ansStr.replace(/[^ĐđSsTtFf]/g, "").toUpperCase().split("");
     if (letters.length === 4) {
@@ -553,7 +583,6 @@ function getSectionTypeFromTitle(title: string): QuestionType {
 function processBodyAndNumberQuestions(text: string, startQIdx: number, secType: QuestionType): { labeledText: string; nextQIdx: number } {
   let norm = normalizeOptionsSmart(text);
 
-  // Xử lý chèn a), b), c), d) cho phần Đúng/Sai nếu 4 phát biểu bị trôi thành 4 dòng
   if (secType === "true_false") {
     norm = norm.replace(/((?:^|[\r\n]+)Câu\s*\d+[:.\s]+[\s\S]*?)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)(?=[\r\n]+(?:Lời\s*giải|Đáp\s*án|Câu|$))/gi, 
       (m, head, r1, l1, r2, l2, r3, l3, r4, l4) => {
@@ -1095,13 +1124,13 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setSections(parsed);
   };
 
-  // TÍNH NĂNG CHUẨN HÓA SỐ CÂU: Bấm 1 click tự động nhảy câu tuần tự từ Câu 1, Câu 2, Câu 3...
+  // TỰ ĐỘNG ĐÁNH LẠI SỐ CÂU TUẦN TỰ TỪ CÂU 1
   const handleAutoReIndexQuestions = () => {
     const reIndexed = autoNormalizeQuestions(rawText);
     handleRawTextChange(reIndexed);
   };
 
-  // TÍNH NĂNG DÁN ẢNH TRỰC TIẾP BẰNG CLIPBOARD (Ctrl + V)
+  // DÁN ẢNH TRỰC TIẾP TỪ CLIPBOARD (Ctrl + V)
   const handleTextareaPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -1155,7 +1184,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     })));
   };
 
-  // CƠ CHẾ CHIA ĐIỂM THEO PHẦN (VÍ DỤ PHẦN 12 CÂU -> SET 3Đ -> MỖI CÂU 0.25Đ)
+  // CHIA ĐIỂM THEO PHẦN (VÍ DỤ PHẦN 12 CÂU -> SET 3Đ -> MỖI CÂU 0.25Đ)
   const handleUpdateSectionTotalPoints = (sIdx: number, targetSecPts: number) => {
     const validPts = Math.max(0, Math.min(10, Number(targetSecPts) || 0));
     const targetSec = sections[sIdx];
