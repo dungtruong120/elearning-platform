@@ -62,7 +62,6 @@ function isCleanLatex(latex: string): boolean {
   return true;
 }
 
-// FIX MẤT SỐ TRONG CĂN VÀ DẤU VECTOR TRONG OMML
 function convertOmmlToLatex(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
   const el = node as Element;
@@ -102,7 +101,7 @@ function convertOmmlToLatex(node: Node): string {
     return "\\left(" + inner + "\\right)";
   }
   
-  // FIX TRIỆT ĐỂ: TRÁNH MẤT SỐ TRONG CĂN THỨC
+  // FIX MẤT SỐ TRONG CĂN THỨC
   if (name === "rad") {
     const degNode = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "").includes("deg")) as any;
     const eNode = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
@@ -113,10 +112,9 @@ function convertOmmlToLatex(node: Node): string {
     if (degStr && degStr !== "") {
       return "\\sqrt[" + degStr + "]{" + eStr + "}";
     }
-    return "\\sqrt{" + (eStr || "x") + "}";
+    return "\\sqrt{" + (eStr || "") + "}";
   }
 
-  // DẤU VECTƠ
   if (name === "acc") {
     const e = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
     const inner = e ? convertOmmlToLatex(e).trim() : "";
@@ -238,11 +236,11 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           chCode = (opts & 0x01) ? reader.readUint16() : reader.readByte();
         }
 
-        // LÀM NHỎ DẤU PRIME (DẤU PHẨY ĐỈNH A', B')
+        // DẤU PHẨY ĐỈNH NHỎ GỌN
         if (opts & 0x02) {
           const emb = reader.readByte();
-          if (emb === 5 || emb === 4) res.push("^{\\prime}");
-          else if (emb === 6) res.push("^{\\prime\\prime}");
+          if (emb === 5 || emb === 4) res.push("'");
+          else if (emb === 6) res.push("''");
         }
         if (SYMBOL_MAP[chCode]) {
           res.push(SYMBOL_MAP[chCode]);
@@ -273,7 +271,6 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           const inner = parseLine().trim();
           if (inner) res.push("\\left|" + inner + "\\right|");
         } else if (selector === 10 || selector === 13) { 
-          // CĂN BẬC HAI VÀ CĂN BẬC N: ĐẢM BẢO KHÔNG BỊ TRỐNG BIỂU THỨC
           if (variation === 1) {
             const deg = parseLine();
             const rad = parseLine();
@@ -321,8 +318,8 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
         res.push(lines.join(" "));
       } else if (recType === 6) { 
         const embType = reader.readByte();
-        if (embType === 5 || embType === 4) res.push("^{\\prime}");
-        else if (embType === 6) res.push("^{\\prime\\prime}");
+        if (embType === 5 || embType === 4) res.push("'");
+        else if (embType === 6) res.push("''");
       }
     }
     return res.join("");
@@ -353,18 +350,16 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/\\left\(\s*\\right\)/g, "");
   text = text.replace(/\(\s*\)/g, "");
 
-  // LÀM BÉ DẤU PHẨY TRÊN ĐẦU: Chuyển toàn bộ A', B' sang A^{\prime} nhỏ nhắn, thanh mảnh
-  text = text.replace(/([A-Za-z0-9\)])['’](?!\w)/g, "$1^{\\prime}");
-
-  // SỬA LỖI CĂN RỖNG BỊ MẤT SỐ HOẶC KẸT CĂN: \sqrt{} -> \sqrt{x} hoặc điền biểu thức
-  text = text.replace(/\\sqrt\{\s*\}/g, "\\sqrt{x}");
+  // CHUẨN HÓA DẤU PHẨY ĐỈNH (PRIME) THÀNH DẤU ' BÉ GỌN
+  text = text.replace(/[\u02B9\u2032\u2019]/g, "'");
+  text = text.replace(/([A-Za-z0-9\)])\s*'\s*'/g, "$1''");
 
   // SỬA LỖI LOẠI NGHIỆM ĐÚNG CHUẨN
   text = text.replace(/(\\right\))\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
   text = text.replace(/([0-9a-zA-Z\)])\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
 
-  // TỰ ĐỘNG BỌC DẤU VECTƠ CHO BIỂU THỨC HÌNH HỌC KHÔNG GIAN
-  text = text.replace(/(?:\$)?\b([A-Z]{2}(?:\^{\\prime}|')?)\s*\+\s*([A-Z]{2}(?:\^{\\prime}|')?)(?:\s*\+\s*([A-Z]{2}(?:\^{\\prime}|')?))?\s*=\s*([A-Z]{2}(?:\^{\\prime}|')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
+  // TỰ ĐỘNG BỌC VECTƠ CHO CÁC PHÁT BIỂU VECTƠ TRONG HÌNH HỌC KHÔNG GIAN
+  text = text.replace(/(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
     if (v3) {
       return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} + \\vec{" + v3 + "} = \\vec{" + v4 + "}$";
     }
@@ -386,7 +381,7 @@ export function repairMathTypeGlitch(raw: string): string {
 }
 
 // ============================================================================
-// 2. TRÍCH XUẤT ĐỆ QUY TOÀN DIỆN TỪ FILE WORD (.DOCX) - QUÉT SẠCH 100% ẢNH
+// 2. TRÍCH XUẤT ĐỆ QUY TOÀN DIỆN TỪ FILE WORD (.DOCX) - THU GOM 100% ẢNH
 // ============================================================================
 
 export async function extractDocxDirectly(file: File) {
@@ -478,11 +473,10 @@ export async function extractDocxDirectly(file: File) {
     return "";
   };
 
-  // QUÉT TOÀN BỘ CÂY CON TRÁNH SÓT HÌNH ẢNH DÙ Ở ĐỀ BÀI HAY LỜI GIẢI
+  // QUÉT TOÀN BỘ CÂY DOM ĐỆ QUY ĐỂ KHÔNG BỎ SÓT BẤT KỲ ẢNH NÀO
   const processParagraphNode = (p: Element): string => {
     let line = "";
-    
-    // Đệ quy quét sạch tất cả các node bên trong từng đoạn văn
+
     const traverse = (node: Node) => {
       if (node.nodeType === Node.TEXT_NODE) return;
       if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -501,6 +495,7 @@ export async function extractDocxDirectly(file: File) {
         return;
       }
       
+      // BẮT MỌI THẺ ẢNH DÙ LÀ BLIP, IMAGEDATA HOẶC SHAPE
       if (name === "blip" || name === "imagedata") {
         const rId = el.getAttribute("r:embed") || el.getAttribute("r:id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
         if (rId && relIdToToken[rId]) {
@@ -562,7 +557,7 @@ export async function extractDocxDirectly(file: File) {
 }
 
 // ============================================================================
-// 3. TỰ ĐỘNG CHUẨN HÓA THỨ TỰ CÂU HỎI
+// 3. TỰ ĐỘNG CHUẨN HÓA THỨ TỰ CÂU HỎI & NHẬN DIỆN ĐÁP ÁN ĐÚNG/SAI
 // ============================================================================
 
 export function autoNormalizeQuestions(rawText: string): string {
@@ -572,15 +567,6 @@ export function autoNormalizeQuestions(rawText: string): string {
   let globalCount = 1;
   text = text.replace(/(?:^|[\r\n]+)\s*(?:Câu|Bài|Question)\s*\d+[:.\-\)]?\s*/gi, () => {
     return "\n\nCâu " + (globalCount++) + ": ";
-  });
-
-  text = text.replace(/Đáp\s*án\s*:\s*([ĐđSsTtFf\s\/\,\-]+)/gi, (match, ansStr) => {
-    const letters = ansStr.replace(/[^ĐđSsTtFf]/g, "").toUpperCase().split("");
-    if (letters.length === 4) {
-      const getVal = (ch: string) => (ch === "Đ" || ch === "D" || ch === "T" ? "Đúng" : "Sai");
-      return "Đáp án: a) " + getVal(letters[0]) + ", b) " + getVal(letters[1]) + ", c) " + getVal(letters[2]) + ", d) " + getVal(letters[3]);
-    }
-    return match;
   });
 
   return text.trim();
@@ -740,15 +726,33 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       }
     }
 
-    if (solutionText) {
-      for (let i = 0; i < 4; i++) {
-        const subKey = options[i].key;
-        const guessRegex = new RegExp("(?:^|[\\s\\n,.])(?:[Ýý]\\s*)?" + subKey + "[\\)\\.:\\s]+(?:là\\s+(?:mệnh\\s*đề\\s*)?)?([Đđ]úng|[Ss]ai|[ĐđSs])\\b", "i");
-        const guessMatch = solutionText.match(guessRegex);
-        if (guessMatch && options[i].is_true_false_ans === false) {
-          options[i].is_true_false_ans = /[Đđ]úng|[Đđ]/.test(guessMatch[1]);
-        }
+    // TỰ ĐỘNG BÓC TÁCH CHUỖI ĐÁP ÁN ĐÚNG/SAI DÙ NẰM TRONG LỜI GIẢI (VD: "Đáp án: Đ/S/Đ/S")
+    const fullTextSearch = cleanChunk + " " + solutionText;
+    const compactAnsMatch = fullTextSearch.match(/Đáp\s*án\s*:\s*([ĐđSsTtFf\s\/\,\-]+)/i);
+    if (compactAnsMatch && compactAnsMatch[1]) {
+      const letters = compactAnsMatch[1].replace(/[^ĐđSsTtFf]/g, "").toUpperCase().split("");
+      if (letters.length >= 4) {
+        options[0].is_true_false_ans = (letters[0] === "Đ" || letters[0] === "T");
+        options[1].is_true_false_ans = (letters[1] === "Đ" || letters[1] === "T");
+        options[2].is_true_false_ans = (letters[2] === "Đ" || letters[2] === "T");
+        options[3].is_true_false_ans = (letters[3] === "Đ" || letters[3] === "T");
       }
+    }
+
+    // NHẬN DIỆN CÁC DÒNG "Đúng: ...", "Sai: ..." TRONG LỜI GIẢI
+    if (solutionText) {
+      const solLines = solutionText.split(/[\r\n]+/);
+      let foundLineIndex = 0;
+      solLines.forEach(line => {
+        const trimmed = line.trim();
+        if (/^Đúng\s*:/i.test(trimmed) && foundLineIndex < 4) {
+          options[foundLineIndex].is_true_false_ans = true;
+          foundLineIndex++;
+        } else if (/^Sai\s*:/i.test(trimmed) && foundLineIndex < 4) {
+          options[foundLineIndex].is_true_false_ans = false;
+          foundLineIndex++;
+        }
+      });
     }
 
     return {
@@ -1059,7 +1063,7 @@ export function TokenViewer({
 }
 
 // ============================================================================
-// 5. COMPONENT MODAL AZOTA CHÍNH (LOẠI BỎ LỚP PHỦ NỀN TRÁNH BỊ CHE CHỮ)
+// 5. COMPONENT MODAL AZOTA CHÍNH (GIAO DIỆN SẠCH SẼ, KHÔNG NỀN MỜ CHE CHỮ)
 // ============================================================================
 
 interface AzotaExamConfigModalProps {
@@ -1125,7 +1129,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     handleRawTextChange(reIndexed);
   };
 
-  // DÁN ẢNH TRỰC TIẾP TỪ CLIPBOARD (Ctrl + V)
   const handleTextareaPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -1179,7 +1182,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     })));
   };
 
-  // CHIA ĐIỂM THEO PHẦN (VÍ DỤ PHẦN 12 CÂU -> SET 3Đ -> MỖI CÂU 0.25Đ)
   const handleUpdateSectionTotalPoints = (sIdx: number, targetSecPts: number) => {
     const validPts = Math.max(0, Math.min(10, Number(targetSecPts) || 0));
     const targetSec = sections[sIdx];
@@ -1469,7 +1471,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
               <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
-              <p className="text-xs text-slate-500">Tự động nhận diện công thức, phân chia câu hỏi và lời giải chi tiết...</p>
+              <p className="text-xs text-slate-500">Tự động nhận diện công thức, quét toàn bộ hình ảnh và chuẩn hóa phát biểu...</p>
             </div>
           </div>
         ) : step === 1 ? (
@@ -1657,7 +1659,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
               </div>
             </div>
 
-            {/* CỘT WORD RAW EDITOR: TRONG SUỐT HOÀN TOÀN, KHÔNG CÓ NỀN ĐÈ PHÍA SAU */}
+            {/* CỘT WORD RAW EDITOR: ĐÃ BỎ LỚP PHỦ NỀN MÀU RỐI MẮT, TEXTAREA HIỂN THỊ RÕ RÀNG */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <div className="flex items-center gap-2">
@@ -1700,7 +1702,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                 </div>
               </div>
 
-              {/* KHUNG SOẠN THẢO TEXT CHUẨN SẠCH TUYỆT ĐỐI */}
+              {/* KHUNG SOẠN THẢO TRẮNG TINH KHÔNG BỊ NỀN ĐÈ CHE CHỮ */}
               <div className="flex-1 bg-white relative">
                 <textarea
                   ref={textareaRef}
@@ -1708,7 +1710,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                   onPaste={handleTextareaPaste}
                   onChange={(e) => handleRawTextChange(e.target.value)}
                   placeholder="Nội dung đề thi thô... Bấm Ctrl+V để dán trực tiếp ảnh từ clipboard vào vị trí con trỏ chuột."
-                  className="w-full h-full p-3 font-mono text-xs text-slate-800 bg-white resize-none outline-none leading-relaxed custom-scrollbar border-none focus:ring-0"
+                  className="w-full h-full p-4 font-mono text-[12.5px] text-slate-900 bg-white resize-none outline-none leading-relaxed custom-scrollbar border-none focus:ring-0"
                   spellCheck={false}
                 />
               </div>
@@ -1898,11 +1900,11 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
 
                           {sec.section_type === "short_answer" && (
                             <input 
-                              type="text"
-                              value={q.correct_answer || ""}
-                              onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
-                              placeholder="Đáp án..."
-                              className="w-full p-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-800 outline-none focus:border-blue-600"
+                              type="text" 
+                              value={q.correct_answer || ""} 
+                              onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
+                              placeholder="Đáp án..." 
+                              className="w-full p-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-800 outline-none focus:border-blue-600" 
                             />
                           )}
                         </div>
