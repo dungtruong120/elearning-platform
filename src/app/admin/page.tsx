@@ -13,11 +13,11 @@ import {
   Filter, Clock, Target, UploadCloud, ToggleLeft, 
   ToggleRight, Eye, Star, Edit3, Bell, Send, Zap, ExternalLink, Play,
   Users, UserCheck, Calendar, Globe, Check, Image as ImageIcon, Sparkles,
-  ArrowUpDown, CalendarDays, Layers, FileCheck, LogOut
+  ArrowUpDown, CalendarDays, Layers, FileCheck, LogOut,
+  Lock, Unlock
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// DYNAMIC IMPORT AN TOÀN TRÁNH LỖI SSR
 const AzotaExamConfigModal = dynamic(
   () => import("./AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
@@ -79,7 +79,7 @@ type AdminTab = "lessons" | "analytics" | "practice" | "notifications" | "studen
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
-  // 1. ĐỒNG BỘ TAB TỪ URL HASH ĐỂ F5 KHÔNG BỊ VĂNG VỀ TRANG ĐẦU
+  // 1. ĐỌC TAB TỪ URL HASH
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "") as AdminTab;
@@ -92,7 +92,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. CACHE-FIRST: KHỞI TẠO TỨC THÌ 0.01S TỪ LOCALSTORAGE TRÁNH GIẬT LAG
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ 1-2 GIÂY KHI VÀO TRANG
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -168,7 +168,16 @@ function AdminDashboardContent() {
   const [notifContent, setNotifContent] = useState("");
   const [notifType, setNotifType] = useState<"teacher" | "urgent" | "exam">("teacher");
 
-  const [registeredStudents, setRegisteredStudents] = useState<any[]>([]);
+  const [registeredStudents, setRegisteredStudents] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_registered_students");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
   const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [studentSearch, setStudentSearch] = useState("");
 
@@ -238,11 +247,11 @@ function AdminDashboardContent() {
     setTimeout(() => setSuccessToast(""), 3000); 
   };
 
-  // 3. HÀM CHUYỂN TAB ĐỒNG BỘ VÀO BỘ NHỚ LỊCH SỬ TRÌNH DUYỆT (HỖ TRỢ NÚT BACK CỦA BROWSER)
+  // 3. ĐỒNG BỘ CHUYỂN TAB VÀO LỊCH SỬ TRÌNH DUYỆT (HỖ TRỢ BACK/FORWARD)
   const handleSwitchTab = useCallback((newTab: AdminTab) => {
     setActiveTab(newTab);
     if (typeof window !== "undefined") {
-      window.history.pushState({ tab: newTab }, "", #${newTab});
+      window.history.pushState({ tab: newTab }, "", "#" + newTab);
     }
   }, []);
 
@@ -268,6 +277,9 @@ function AdminDashboardContent() {
 
       if (!error && data) {
         setRegisteredStudents(data);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_registered_students", JSON.stringify(data));
+        }
       }
     } catch (err) {}
   }, []);
@@ -300,16 +312,18 @@ function AdminDashboardContent() {
 
     const updated = [newStudent, ...registeredStudents];
     setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
     setIsAddStudentModalOpen(false);
     setQuickStudentForm({ lastName: "", firstName: "", status: "approved" });
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // 4. TIẾN TRÌNH NẠP DỮ LIỆU ĐỒNG BỘ NGẦM (BACKGROUND SYNC)
+  // 4. ĐỒNG BỘ NỀN TỪ SUPABASE
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
-    // A. Bài học
     try {
       const { data: courseRow } = await supabase
         .from("courses")
@@ -323,7 +337,6 @@ function AdminDashboardContent() {
       }
     } catch (e) {}
 
-    // B. Kho luyện đề
     try {
       const { data: dbExams } = await supabase
         .from("practice_exams")
@@ -336,7 +349,6 @@ function AdminDashboardContent() {
       }
     } catch (e) {}
 
-    // C. Ca học
     try {
       const { data: dbSessions } = await supabase
         .from("sessions")
@@ -351,7 +363,6 @@ function AdminDashboardContent() {
       }
     } catch (e) {}
 
-    // D. Thông báo
     try {
       const { data: dbNotifs } = await supabase
         .from("system_notifications")
@@ -364,7 +375,6 @@ function AdminDashboardContent() {
       }
     } catch (e) {}
 
-    // E. Điểm số & Điểm danh
     try {
       const savedAttempts = localStorage.getItem("edunexus_attempts");
       if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
@@ -378,7 +388,6 @@ function AdminDashboardContent() {
     loadStorageData();
     fetchSupabaseStudents();
 
-    // LẮNG NGHE SỰ KIỆN NÚT BACK / FORWARD CỦA TRÌNH DUYỆT
     const handlePopState = () => {
       if (typeof window !== "undefined") {
         const hash = window.location.hash.replace("#", "") as AdminTab;
@@ -600,6 +609,9 @@ function AdminDashboardContent() {
     } catch {}
     const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
     setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
     showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!");
   };
 
@@ -610,6 +622,9 @@ function AdminDashboardContent() {
     } catch {}
     const updated = registeredStudents.filter(s => s.id !== studentId);
     setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
   };
 
@@ -617,10 +632,7 @@ function AdminDashboardContent() {
     if (!confirm("Bạn có chắc chắn muốn XÓA ca học \"" + sessionTitle + "\" khỏi hệ thống?")) return;
 
     try {
-      const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
-      if (error) {
-        console.error("Lỗi xóa ca học trên Supabase:", error);
-      }
+      await supabase.from("sessions").delete().eq("id", sessionId);
     } catch (err: any) {}
 
     const updatedSessions = onlineSessions.filter(s => s.id !== sessionId);
@@ -704,10 +716,7 @@ function AdminDashboardContent() {
     const updatedSessions = [newSessionMeta, ...onlineSessions];
     setOnlineSessions(updatedSessions);
 
-    const { error } = await supabase.from("sessions").insert([newSessionMeta]);
-    if (error) {
-      console.error("Lỗi lưu sessions Supabase:", error);
-    }
+    await supabase.from("sessions").insert([newSessionMeta]);
 
     if (typeof window !== "undefined") {
       try {
@@ -757,10 +766,7 @@ function AdminDashboardContent() {
       setSessionDates(updatedDates);
     }
 
-    const { error } = await supabase.from("sessions").insert([newSession]);
-    if (error) {
-      console.error("Lỗi lưu sessions Supabase:", error);
-    }
+    await supabase.from("sessions").insert([newSession]);
 
     if (typeof window !== "undefined") {
       try {
@@ -814,8 +820,8 @@ function AdminDashboardContent() {
   const handleSaveSolutionVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoModalExam) return;
-    const newExams = (practiceExams || []).map(e => 
-      e?.id === videoModalExam.id ? { ...e, solutionVideoUrl: solutionVideoInput.trim() } : e
+    const newExams = (practiceExams || []).map(ex => 
+      ex?.id === videoModalExam.id ? { ...ex, solutionVideoUrl: solutionVideoInput.trim() } : ex
     );
     await savePracticeExams(newExams);
     try {
@@ -2025,7 +2031,7 @@ function AdminDashboardContent() {
                               {sess.title}
                             </h5>
                             <p className="text-[11px] text-slate-500 font-semibold mt-1 flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-slate-400" /> {sess.timeSlot}
+                              <Clock className="w-3.5 h-3.5 text-slate-400" /> {sess.timeSlot}
                             </p>
                           </div>
 
@@ -2593,7 +2599,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL AZOTA CONFIG */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
@@ -2657,7 +2662,6 @@ function AdminDashboardContent() {
         />
       )}
 
-      {/* POPUP PHƯƠNG THỨC UPLOAD: HỖ TRỢ CẢ FILE WORD VÀ FILE PDF ĐỂ TRÍCH XUẤT */}
       {uploadMethodModal && (
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-[28px] p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200">
@@ -2876,7 +2880,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL THÊM NGÀY HỌC */}
       {isAddDateModalOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleAddNewAttendanceDate} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 space-y-4">
@@ -2897,7 +2900,7 @@ function AdminDashboardContent() {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Khung giờ ca học (Tự do nhập hoặc chọn ca) *</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Khung giờ ca học *</label>
               <div className="space-y-1.5">
                 <select 
                   value={newDateShift} 
