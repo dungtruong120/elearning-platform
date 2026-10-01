@@ -6,7 +6,7 @@ import {
   ArrowLeft, Clock, CheckCircle2, XCircle, AlertCircle,
   HelpCircle, ChevronLeft, ChevronRight, RotateCcw,
   Eye, Trophy, Home, Send, List, LayoutGrid, Award, Check,
-  ShieldAlert, ShieldCheck, Maximize2, Minimize2, X, Grid3X3, BookOpen
+  ShieldAlert, ShieldCheck, Maximize2, Minimize2, X, Grid3X3, BookOpen, PenLine
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -52,7 +52,6 @@ function MathRenderer({
   let text = content.normalize("NFC");
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math + "$");
-  // Chuyển hệ \left\{ \begin{align} ... thành \begin{cases} chuẩn mực KaTeX
   text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
     return "$$\\begin{cases} " + body.replace(/&/g, "").trim() + " \\end{cases}$$";
   });
@@ -67,7 +66,6 @@ function MathRenderer({
     <span className={inline ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14px] sm:text-[15px] font-normal text-slate-800"}>
       {parts.map((part, i) => {
         if (!part) return null;
-        // Render Hình ảnh từ Word qua token [img:$...$]
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
         if (imgMatch && imgMatch[1]) {
           let rawKey = imgMatch[1].trim();
@@ -97,7 +95,6 @@ function MathRenderer({
           );
         }
 
-        // Render Công thức KaTeX
         if (part.startsWith("$")) {
           const isBlock = part.startsWith("$$");
           const math = isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim();
@@ -155,7 +152,6 @@ export function ExamRoomView({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
 
-  // TỰ ĐỘNG KHÔI PHỤC TIẾN ĐỘ BTVN ĐÃ LÀM TRƯỚC ĐÓ
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>(() => {
     if (typeof window !== "undefined" && isHomework) {
       try {
@@ -170,7 +166,6 @@ export function ExamRoomView({
   const [layoutMode, setLayoutMode] = useState<"single" | "scroll">("scroll");
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
-  // NẾU LÀ BTVN THÌ THỜI GIAN KHÔNG GIỚI HẠN (VÔ HẠN), CHỈ ĐẾM TIẾN ĐỘ THỜI GIAN THỰC
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
     if (isHomework) return 0;
     return durationMinutes > 0 ? durationMinutes * 60 : 0;
@@ -185,7 +180,6 @@ export function ExamRoomView({
   const [historyAttemptsCount, setHistoryAttemptsCount] = useState<number>(1);
   const [isReviewMode, setIsReviewMode] = useState<boolean>(false);
 
-  // GIÁM SÁT THI (CHỈ ÁP DỤNG CHO BÀI KIỂM TRA ĐỊNH KỲ / LUYỆN ĐỀ, BTVN TẮT HOÀN TOÀN)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [fullscreenExitCount, setFullscreenExitCount] = useState<number>(0);
   const [showFullscreenWarningModal, setShowFullscreenWarningModal] = useState<boolean>(false);
@@ -195,7 +189,6 @@ export function ExamRoomView({
   const userAnswersRef = useRef<Record<string, any>>({});
   userAnswersRef.current = userAnswers;
 
-  // HÀM KIỂM TRA LOẠI CÂU HỎI ĐÚNG / SAI
   const isQuestionTrueFalse = useCallback((q: QuestionItem) => {
     if (q.type === "true_false") return true;
     const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
@@ -203,7 +196,12 @@ export function ExamRoomView({
     return false;
   }, []);
 
-  // LƯU TỰ ĐỘNG TIẾN ĐỘ BTVN MỖI KHI CHỌN ĐÁP ÁN
+  const isQuestionShortAnswer = useCallback((q: QuestionItem) => {
+    if (q.type === "short_answer") return true;
+    if (!q.options || q.options.length === 0) return true;
+    return false;
+  }, []);
+
   useEffect(() => {
     if (isHomework && typeof window !== "undefined" && profile?.id && !isSubmitted) {
       try {
@@ -249,7 +247,6 @@ export function ExamRoomView({
     }
   }, [enterFullscreen, isHomework]);
 
-  // CẢNH BÁO TOÀN MÀN HÌNH (CHỈ BẬT KHI KHÔNG PHẢI LÀ BTVN)
   useEffect(() => {
     if (isHomework || isSubmitted || isReviewMode) return;
     const handleFullscreenChange = () => {
@@ -277,7 +274,6 @@ export function ExamRoomView({
     };
   }, [isSubmitted, isReviewMode, isHomework]);
 
-  // CẢNH BÁO CHUYỂN TAB (CHỈ BẬT KHI KHÔNG PHẢI LÀ BTVN)
   useEffect(() => {
     if (isHomework || isSubmitted || isReviewMode) return;
     const handleFocusLoss = () => {
@@ -304,7 +300,6 @@ export function ExamRoomView({
     };
   }, [isSubmitted, isReviewMode, isHomework]);
 
-  // PHÍM TẮT BẢO VỆ
   useEffect(() => {
     if (isHomework || isSubmitted || isReviewMode) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -332,7 +327,6 @@ export function ExamRoomView({
     }
   }, [cheatWarning]);
 
-  // NẠP ĐỀ THI TỪ SUPABASE HOẶC LOCALSTORAGE (KÈM MEDIAMAP)
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
@@ -376,7 +370,13 @@ export function ExamRoomView({
           if (targetExam.data && Array.isArray(targetExam.data)) {
             let qIdx = 1;
             targetExam.data.forEach((sec: any) => {
-              const secType = sec.type || (sec.title && sec.title.toLowerCase().includes("đúng sai") ? "true_false" : "multiple_choice");
+              const secType = sec.section_type || sec.type || (
+                sec.title && /đúng\s*sai/i.test(sec.title)
+                  ? "true_false"
+                  : sec.title && /trả\s*lời\s*ngắn|điền/i.test(sec.title)
+                  ? "short_answer"
+                  : "multiple_choice"
+              );
               (sec.questions || []).forEach((q: any) => {
                 const qType = q.type || secType || "multiple_choice";
                 loaded.push({
@@ -422,7 +422,6 @@ export function ExamRoomView({
     loadExamQuestions();
   }, [quizId]);
 
-  // ĐỒNG HỒ ĐẾM THỜI GIAN
   useEffect(() => {
     if (isSubmitted || isReviewMode) return;
     const timer = setInterval(() => {
@@ -441,7 +440,6 @@ export function ExamRoomView({
     return () => clearInterval(timer);
   }, [isSubmitted, isReviewMode, durationMinutes, isHomework]);
 
-  // CHỌN ĐÁP ÁN CHO CÂU TRẮC NGHIỆM ĐƠN
   const handleSelectOption = (questionId: string, optionKey: string) => {
     if (isSubmitted && !isReviewMode) return;
     setUserAnswers(prev => ({
@@ -450,7 +448,6 @@ export function ExamRoomView({
     }));
   };
 
-  // CHỌN ĐÁP ÁN CHO CÂU HỎI ĐÚNG / SAI (a, b, c, d -> T / F)
   const handleSelectTrueFalseOption = (questionId: string, optKey: string, value: "T" | "F") => {
     if (isSubmitted && !isReviewMode) return;
     setUserAnswers(prev => {
@@ -463,7 +460,24 @@ export function ExamRoomView({
     });
   };
 
-  // NỘP BÀI THI & TÍNH ĐIỂM
+  const handleShortAnswerChange = (questionId: string, val: string) => {
+    if (isSubmitted && !isReviewMode) return;
+    setUserAnswers(prev => ({
+      ...prev,
+      [questionId]: val
+    }));
+  };
+
+  const normalizeShortAnswer = (val: string) => {
+    if (!val) return "";
+    return String(val)
+      .trim()
+      .toLowerCase()
+      .replace(/,/g, ".")
+      .replace(/\s+/g, "")
+      .replace(/[−–—]/g, "-");
+  };
+
   const handleSubmitExam = (overrideTabSwitches?: number, overrideFullscreenExits?: number) => {
     exitFullscreen();
     setShowFullscreenWarningModal(false);
@@ -477,14 +491,21 @@ export function ExamRoomView({
 
     questions.forEach(q => {
       const isTF = isQuestionTrueFalse(q);
-      if (!isTF) {
-        // Trắc nghiệm thông thường (1 điểm tối đa quy đổi)
+      const isShort = isQuestionShortAnswer(q);
+
+      if (isShort) {
+        const userVal = normalizeShortAnswer(answers[q.id] || "");
+        const correctVal = normalizeShortAnswer(q.correctAnswer || "");
+        if (userVal && correctVal && userVal === correctVal) {
+          totalPoints += 1.0;
+          fullCorrectCount += 1;
+        }
+      } else if (!isTF) {
         if (answers[q.id] === q.correctAnswer) {
-          totalPoints += 1;
+          totalPoints += 1.0;
           fullCorrectCount += 1;
         }
       } else {
-        // Dạng trắc nghiệm Đúng/Sai 4 ý: Tính điểm theo thang Bộ GD&ĐT (0.1, 0.25, 0.5, 1.0)
         const userTF = answers[q.id] || {};
         const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
         let correctSubItems = 0;
@@ -589,7 +610,7 @@ export function ExamRoomView({
   const answeredCount = useMemo(() => {
     return Object.keys(userAnswers).filter(k => {
       const val = userAnswers[k];
-      if (!val) return false;
+      if (val === undefined || val === null || val === "") return false;
       if (typeof val === "object") return Object.keys(val).length > 0;
       return true;
     }).length;
@@ -598,7 +619,68 @@ export function ExamRoomView({
   // HÀM RENDER NỘI DUNG TÙY CHỌN CHO MỖI CÂU HỎI
   const renderQuestionOptions = (q: QuestionItem) => {
     const isTF = isQuestionTrueFalse(q);
+    const isShort = isQuestionShortAnswer(q);
 
+    // DẠNG TRẢ LỜI NGẮN (SHORT ANSWER)
+    if (isShort) {
+      const currentAns = userAnswers[q.id] || "";
+      const isCorrect = isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
+      const isWrong = isReviewMode && currentAns && !isCorrect;
+
+      return (
+        <div className="pt-2 space-y-3">
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 shadow-2xs space-y-2">
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-2">
+              <PenLine className="w-4 h-4 text-[#1D4ED8]" />
+              <span>Điền đáp án câu trả lời ngắn:</span>
+            </label>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <input
+                type="text"
+                disabled={isSubmitted && !isReviewMode}
+                value={currentAns}
+                onChange={(e) => handleShortAnswerChange(q.id, e.target.value)}
+                placeholder="Nhập kết quả (số hoặc biểu thức ngắn)..."
+                className={"flex-1 p-3 bg-white border-2 rounded-xl text-sm font-bold outline-none transition " + (
+                  isReviewMode
+                    ? isCorrect
+                      ? "border-emerald-500 bg-emerald-50/50 text-emerald-900"
+                      : "border-rose-400 bg-rose-50/50 text-rose-900"
+                    : currentAns
+                    ? "border-[#1D4ED8] text-blue-950 focus:ring-2 focus:ring-blue-100"
+                    : "border-slate-200 text-slate-800 focus:border-[#1D4ED8]"
+                )}
+              />
+              {currentAns && !isReviewMode && (
+                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shrink-0 text-center">
+                  Đã ghi nhận ✓
+                </span>
+              )}
+            </div>
+
+            {isReviewMode && (
+              <div className="pt-2 flex flex-wrap items-center gap-3 text-xs font-bold">
+                <span className="text-slate-500">Đáp án chuẩn:</span>
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-300">
+                  {q.correctAnswer}
+                </span>
+                {isCorrect ? (
+                  <span className="text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4" /> Chính xác (+1.0 điểm)
+                  </span>
+                ) : (
+                  <span className="text-rose-600 flex items-center gap-1">
+                    <XCircle className="w-4 h-4" /> Chưa đúng
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // DẠNG ĐÚNG / SAI
     if (isTF) {
       const userTF = (typeof userAnswers[q.id] === "object" && userAnswers[q.id]) ? userAnswers[q.id] : {};
       const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
@@ -618,7 +700,6 @@ export function ExamRoomView({
                 {q.options.map((opt, optIdx) => {
                   const optKeyLower = opt.key.toLowerCase();
                   const selectedVal = userTF[optKeyLower];
-
                   const expectedChar = cleanAns[optIdx] || "Đ";
                   const expectedVal = (expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T") ? "T" : "F";
 
@@ -694,7 +775,7 @@ export function ExamRoomView({
       );
     }
 
-    // Giao diện trắc nghiệm đơn 4 lựa chọn A, B, C, D thông thường
+    // GIAO DIỆN TRẮC NGHIỆM ĐƠN A, B, C, D
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
         {q.options.map(opt => {
@@ -916,11 +997,15 @@ export function ExamRoomView({
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <span className="text-xs font-bold text-[#1D4ED8]">
                     {"Câu " + (currentIdx + 1) + " / " + questions.length}
-                    {isQuestionTrueFalse(currentQ) && (
+                    {isQuestionTrueFalse(currentQ) ? (
                       <span className="ml-2 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
                         Đúng / Sai
                       </span>
-                    )}
+                    ) : isQuestionShortAnswer(currentQ) ? (
+                      <span className="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
+                        Trả lời ngắn
+                      </span>
+                    ) : null}
                   </span>
                   <span className="text-xs font-semibold text-slate-500">
                     {Boolean(userAnswers[currentQ.id]) ? "Đã trả lời" : "Chưa làm"}
@@ -988,11 +1073,15 @@ export function ExamRoomView({
                     <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                       <span className="text-xs font-bold text-[#1D4ED8]">
                         {"Câu " + (qIndex + 1) + " / " + questions.length}
-                        {isQuestionTrueFalse(q) && (
+                        {isQuestionTrueFalse(q) ? (
                           <span className="ml-2 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
                             Đúng / Sai
                           </span>
-                        )}
+                        ) : isQuestionShortAnswer(q) ? (
+                          <span className="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
+                            Trả lời ngắn
+                          </span>
+                        ) : null}
                       </span>
                       <span className="text-xs font-semibold text-slate-500">
                         {Boolean(userAnswers[q.id]) ? "Đã trả lời" : "Chưa làm"}
