@@ -74,15 +74,89 @@ const INITIAL_CHAPTERS = [
   }
 ];
 
+type AdminTab = "lessons" | "analytics" | "practice" | "notifications" | "students" | "online_schedule" | "reports";
+
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<"lessons" | "analytics" | "practice" | "notifications" | "students" | "online_schedule" | "reports">("lessons");
+
+  // 1. ĐỒNG BỘ TAB TỪ URL HASH ĐỂ F5 KHÔNG BỊ VĂNG VỀ TRANG ĐẦU
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "") as AdminTab;
+      const validTabs: AdminTab[] = ["lessons", "analytics", "practice", "notifications", "students", "online_schedule", "reports"];
+      if (validTabs.includes(hash)) return hash;
+    }
+    return "lessons";
+  });
+
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
-  const [chapters, setChapters] = useState<any[]>(INITIAL_CHAPTERS);
-  const [practiceExams, setPracticeExams] = useState<any[]>([]);
-  const [allAttempts, setAllAttempts] = useState<any[]>([]);
-  const [sysNotifications, setSysNotifications] = useState<any[]>([]);
+
+  // 2. CACHE-FIRST: KHỞI TẠO TỨC THÌ 0.01S TỪ LOCALSTORAGE TRÁNH GIẬT LAG
+  const [chapters, setChapters] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_course_data");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return INITIAL_CHAPTERS;
+  });
+
+  const [practiceExams, setPracticeExams] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_practice_exams");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [onlineSessions, setOnlineSessions] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_online_sessions");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [sysNotifications, setSysNotifications] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_system_notifications");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [allAttempts, setAllAttempts] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_attempts");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_attendance");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [sessionDates, setSessionDates] = useState<string[]>([
+    "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09"
+  ]);
+
   const [successToast, setSuccessToast] = useState("");
   const [uploadMode, setUploadMode] = useState<"course" | "practice">("course");
   const [practiceCategoryFilter, setPracticeCategoryFilter] = useState("Tất cả danh mục");
@@ -94,27 +168,9 @@ function AdminDashboardContent() {
   const [notifContent, setNotifContent] = useState("");
   const [notifType, setNotifType] = useState<"teacher" | "urgent" | "exam">("teacher");
 
-  const handleAdminLogout = () => {
-    if (typeof window !== "undefined") {
-      try {
-        supabase.auth.signOut();
-      } catch {}
-      localStorage.removeItem("tct_current_user");
-      localStorage.removeItem("edunexus_current_user");
-      localStorage.removeItem("edunexus_user_session");
-      window.location.href = "/";
-    }
-  };
-
   const [registeredStudents, setRegisteredStudents] = useState<any[]>([]);
   const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [studentSearch, setStudentSearch] = useState("");
-
-  const [sessionDates, setSessionDates] = useState<string[]>([
-    "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09"
-  ]);
-  const [onlineSessions, setOnlineSessions] = useState<any[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
 
   const [attendanceSearchText, setAttendanceSearchText] = useState<string>("");
   const [attendanceFilterMode, setAttendanceFilterMode] = useState<"all" | "online" | "offline">("all");
@@ -182,6 +238,26 @@ function AdminDashboardContent() {
     setTimeout(() => setSuccessToast(""), 3000); 
   };
 
+  // 3. HÀM CHUYỂN TAB ĐỒNG BỘ VÀO BỘ NHỚ LỊCH SỬ TRÌNH DUYỆT (HỖ TRỢ NÚT BACK CỦA BROWSER)
+  const handleSwitchTab = useCallback((newTab: AdminTab) => {
+    setActiveTab(newTab);
+    if (typeof window !== "undefined") {
+      window.history.pushState({ tab: newTab }, "", #${newTab});
+    }
+  }, []);
+
+  const handleAdminLogout = () => {
+    if (typeof window !== "undefined") {
+      try {
+        supabase.auth.signOut();
+      } catch {}
+      localStorage.removeItem("tct_current_user");
+      localStorage.removeItem("edunexus_current_user");
+      localStorage.removeItem("edunexus_user_session");
+      window.location.href = "/";
+    }
+  };
+
   const fetchSupabaseStudents = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -229,85 +305,94 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // NẠP DỮ LIỆU TỪ SUPABASE
+  // 4. TIẾN TRÌNH NẠP DỮ LIỆU ĐỒNG BỘ NGẦM (BACKGROUND SYNC)
   const loadStorageData = useCallback(async () => {
-    if (typeof window !== "undefined") {
-      try {
-        const { data: courseRow } = await supabase
-          .from("courses")
-          .select("*")
-          .limit(1)
-          .maybeSingle();
+    if (typeof window === "undefined") return;
 
-        if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters)) {
-          setChapters(courseRow.chapters);
-          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
-        } else {
-          const savedData = localStorage.getItem("edunexus_course_data");
-          if (savedData) setChapters(JSON.parse(savedData));
-        }
-      } catch (e) {}
+    // A. Bài học
+    try {
+      const { data: courseRow } = await supabase
+        .from("courses")
+        .select("*")
+        .limit(1)
+        .maybeSingle();
 
-      try {
-        const { data: dbExams } = await supabase
-          .from("practice_exams")
-          .select("*")
-          .order("created_at", { ascending: false });
+      if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters)) {
+        setChapters(courseRow.chapters);
+        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+      }
+    } catch (e) {}
 
-        if (dbExams && Array.isArray(dbExams)) {
-          setPracticeExams(dbExams);
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
-        } else {
-          const savedPractice = localStorage.getItem("edunexus_practice_exams");
-          if (savedPractice) setPracticeExams(JSON.parse(savedPractice));
-        }
-      } catch (e) {}
+    // B. Kho luyện đề
+    try {
+      const { data: dbExams } = await supabase
+        .from("practice_exams")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      try {
-        const { data: dbSessions } = await supabase
-          .from("sessions")
-          .select("*")
-          .order("created_at", { ascending: false });
+      if (dbExams && Array.isArray(dbExams)) {
+        setPracticeExams(dbExams);
+        localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
+      }
+    } catch (e) {}
 
-        if (dbSessions && Array.isArray(dbSessions) && dbSessions.length > 0) {
-          setOnlineSessions(dbSessions);
-          localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
-          const datesFromSessions = Array.from(new Set(dbSessions.map((s: any) => s.date).filter(Boolean)));
-          if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
-        } else {
-          const savedSessions = localStorage.getItem("edunexus_online_sessions");
-          if (savedSessions) setOnlineSessions(JSON.parse(savedSessions));
-        }
-      } catch (e) {}
+    // C. Ca học
+    try {
+      const { data: dbSessions } = await supabase
+        .from("sessions")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      try {
-        const { data: dbNotifs } = await supabase
-          .from("system_notifications")
-          .select("*")
-          .order("created_at", { ascending: false });
+      if (dbSessions && Array.isArray(dbSessions) && dbSessions.length > 0) {
+        setOnlineSessions(dbSessions);
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
+        const datesFromSessions = Array.from(new Set(dbSessions.map((s: any) => s.date).filter(Boolean)));
+        if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
+      }
+    } catch (e) {}
 
-        if (dbNotifs && Array.isArray(dbNotifs)) {
-          setSysNotifications(dbNotifs);
-          localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
-        } else {
-          const savedNotifs = localStorage.getItem("edunexus_system_notifications");
-          if (savedNotifs) setSysNotifications(JSON.parse(savedNotifs));
-        }
-      } catch (e) {}
+    // D. Thông báo
+    try {
+      const { data: dbNotifs } = await supabase
+        .from("system_notifications")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      try {
-        const savedAttempts = localStorage.getItem("edunexus_attempts");
-        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
-        const savedAtt = localStorage.getItem("edunexus_attendance");
-        if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
-      } catch (e) {}
-    }
+      if (dbNotifs && Array.isArray(dbNotifs)) {
+        setSysNotifications(dbNotifs);
+        localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
+      }
+    } catch (e) {}
+
+    // E. Điểm số & Điểm danh
+    try {
+      const savedAttempts = localStorage.getItem("edunexus_attempts");
+      if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+      const savedAtt = localStorage.getItem("edunexus_attendance");
+      if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
     setMounted(true);
     loadStorageData();
     fetchSupabaseStudents();
+
+    // LẮNG NGHE SỰ KIỆN NÚT BACK / FORWARD CỦA TRÌNH DUYỆT
+    const handlePopState = () => {
+      if (typeof window !== "undefined") {
+        const hash = window.location.hash.replace("#", "") as AdminTab;
+        const validTabs: AdminTab[] = ["lessons", "analytics", "practice", "notifications", "students", "online_schedule", "reports"];
+        if (validTabs.includes(hash)) {
+          setActiveTab(hash);
+        } else {
+          setActiveTab("lessons");
+        }
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("storage", loadStorageData);
 
     const channel = supabase
       .channel("admin-realtime-global-sync")
@@ -318,9 +403,9 @@ function AdminDashboardContent() {
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => fetchSupabaseStudents())
       .subscribe();
 
-    window.addEventListener("storage", loadStorageData);
     return () => {
       supabase.removeChannel(channel);
+      window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("storage", loadStorageData);
     };
   }, [loadStorageData, fetchSupabaseStudents]);
@@ -984,7 +1069,7 @@ function AdminDashboardContent() {
               <button
                 key={tab.key}
                 type="button"
-                onClick={() => setActiveTab(tab.key as any)}
+                onClick={() => handleSwitchTab(tab.key as any)}
                 className={"w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-[13px] font-bold transition-all duration-200 cursor-pointer " + (
                   isActive 
                     ? "bg-white text-[#1E40AF] shadow-sm font-black" 
@@ -1173,7 +1258,6 @@ function AdminDashboardContent() {
                         <p className="text-2xl font-black text-slate-900">{(practiceExams || []).length}</p>
                       </div>
                     </div>
-                    {/* TẢI ĐỀ THI LUYỆN ĐỀ: CHẤP NHẬN CẢ DOCX LẪN PDF */}
                     <label className="flex items-center gap-2 px-6 py-3.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[13px] font-bold rounded-2xl shadow-md transition-all cursor-pointer">
                       <UploadCloud className="w-5 h-5" /> + Tải lên Đề thi mới (.docx / .pdf)
                       <input type="file" accept=".docx,.pdf" className="hidden" onChange={(e) => {
@@ -1892,7 +1976,6 @@ function AdminDashboardContent() {
                 </form>
               </div>
 
-              {/* DANH SÁCH CÁC BUỔI HỌC ĐÃ PHÁT & NÚT XÓA CA HỌC NẾU UP NHẦM */}
               {onlineSessions.length > 0 && (
                 <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -2083,7 +2166,7 @@ function AdminDashboardContent() {
                                   title={"Xóa cột ngày " + dateCol}
                                   className="opacity-0 group-hover:opacity-100 text-rose-500 hover:text-rose-700 transition p-0.5 rounded cursor-pointer"
                                 >
-                                  <Trash2 className="w-3 h-3" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                               <span className={"inline-block px-1.5 py-0.2 rounded text-[8px] font-extrabold uppercase " + (
@@ -2589,7 +2672,6 @@ function AdminDashboardContent() {
             </div>
             
             <div className="flex flex-col gap-3 mt-4">
-              {/* NÚT TẢI PDF (KHUYẾN NGHỊ VÌ KHÔNG BỊ LỖI MATHTYPE) */}
               <label className="relative p-4 border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl hover:bg-indigo-100/60 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
                 <div className="p-3 bg-white text-indigo-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
                   <FileText className="w-6 h-6" />
@@ -2614,7 +2696,6 @@ function AdminDashboardContent() {
                 }}/>
               </label>
 
-              {/* NÚT TẢI FILE WORD (.DOCX) */}
               <label className="relative p-4 border border-blue-200 bg-blue-50/40 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
                 <div className="p-3 bg-white text-blue-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
                   <FileUp className="w-6 h-6" />
@@ -2636,7 +2717,6 @@ function AdminDashboardContent() {
                 }}/>
               </label>
               
-              {/* NÚT GẮN LINK DRIVE FILE PDF/WORD */}
               <button onClick={() => { setDriveLinkModal(uploadMethodModal); setUploadMethodModal(null); }} className="p-4 border border-emerald-200 bg-emerald-50/40 rounded-2xl hover:bg-emerald-100/50 transition cursor-pointer flex items-start gap-4 text-left group shadow-2xs">
                 <div className="p-3 bg-white text-emerald-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
                   <LinkIcon className="w-6 h-6" />
