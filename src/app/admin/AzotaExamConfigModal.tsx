@@ -165,11 +165,12 @@ const SYMBOL_MAP: Record<number, string> = {
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
-  // SỬA LỖI TURBOPACK: Sửa ký tự '8 )' bị biến thành emoji kính đen
-  if (!uint8 || uint8.length < 😎 return "";
+  const MIN_MTEF_BYTES = 16;
+  if (!uint8 || uint8.length < MIN_MTEF_BYTES) return "";
   let start = -1;
 
-  for (let i = 0; i < uint8.length - 8; i++) {
+  const searchBoundary = uint8.length - 12;
+  for (let i = 0; i < searchBoundary; i++) {
     if ((uint8[i] === 2 || uint8[i] === 3 || uint8[i] === 5) && 
         (uint8[i + 1] === 0 || uint8[i + 1] === 1) && 
         (uint8[i + 2] === 0 || uint8[i + 2] === 1) && 
@@ -180,9 +181,10 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
   }
 
   if (start === -1) {
-    for (let i = 0; i < uint8.length - 20; i++) {
+    const deepBoundary = uint8.length - 24;
+    for (let i = 0; i < deepBoundary; i++) {
       if (uint8[i] === 0x1C && uint8[i + 1] === 0x00) {
-        for (let j = i; j < Math.min(uint8.length - 5, i + 64); j++) {
+        for (let j = i; j < Math.min(uint8.length - 6, i + 64); j++) {
           if (uint8[j] === 2 || uint8[j] === 3 || uint8[j] === 5) {
             start = j;
             break;
@@ -223,7 +225,13 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
       } else if (recType === 2) { 
         if (opts & 0x08) { reader.readByte(); reader.readByte(); }
         reader.readByte();
-        const chCode = reader.readUint16();
+        let chCode = 0;
+        if (version >= 5) {
+          chCode = reader.readUint16();
+        } else {
+          chCode = (opts & 0x01) ? reader.readUint16() : reader.readByte();
+        }
+
         if (opts & 0x02) {
           const emb = reader.readByte();
           if (emb === 5) res.push("'");
@@ -233,6 +241,8 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           res.push(SYMBOL_MAP[chCode]);
         } else if (chCode >= 32 && chCode <= 126) {
           res.push(String.fromCharCode(chCode));
+        } else if (chCode === 0xBA) {
+          res.push("\\equiv ");
         } else if (chCode >= 0x0370 && chCode <= 0x03FF) {
           res.push(String.fromCharCode(chCode));
         } else if (chCode >= 0x2000 && chCode <= 0x22FF) {
@@ -281,7 +291,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
             res.push("_{" + sub + "}^{" + sup + "}");
           }
         } else if (selector === 19) { 
-          // SELECTOR 19 TRONG MATHTYPE: MŨI TÊN VECTƠ TRÊN ĐẦU
+          // SELECTOR 19: EMBELLISHMENT DẤU MŨI TÊN VECTƠ TRÊN ĐẦU
           const body = parseLine().trim();
           res.push("\\vec{" + body + "}");
         } else if (selector === 15) { 
@@ -341,7 +351,6 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/(\\right\)|[0-9a-zA-Z\)])\s*\\([0-9a-zA-Z\s;,]+)/g, "$1 \\setminus $2");
 
   // TỰ ĐỘNG BỔ SUNG DẤU VECTƠ CHO CÁC BIỂU THỨC HÌNH HỌC KHÔNG GIAN
-  // Nhận diện: AB + BC + CD = AD hoặc BA + BC + BB' = BD' trong ngữ cảnh hình hộp
   text = text.replace(/(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
     if (v3) {
       return $\\vec{${v1}} + \\vec{${v2}} + \\vec{${v3}} = \\vec{${v4}}$;
@@ -1124,13 +1133,11 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     setSections(parsed);
   };
 
-  // TỰ ĐỘNG ĐÁNH LẠI SỐ CÂU TUẦN TỰ TỪ CÂU 1
   const handleAutoReIndexQuestions = () => {
     const reIndexed = autoNormalizeQuestions(rawText);
     handleRawTextChange(reIndexed);
   };
 
-  // DÁN ẢNH TRỰC TIẾP TỪ CLIPBOARD (Ctrl + V)
   const handleTextareaPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -1184,7 +1191,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     })));
   };
 
-  // CHIA ĐIỂM THEO PHẦN (VÍ DỤ PHẦN 12 CÂU -> SET 3Đ -> MỖI CÂU 0.25Đ)
   const handleUpdateSectionTotalPoints = (sIdx: number, targetSecPts: number) => {
     const validPts = Math.max(0, Math.min(10, Number(targetSecPts) || 0));
     const targetSec = sections[sIdx];
