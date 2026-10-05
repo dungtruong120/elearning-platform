@@ -254,7 +254,6 @@ function AdminDashboardContent() {
 
   const [analyticsModeFilter, setAnalyticsModeFilter] = useState<"all" | "online" | "offline">("all");
 
-  // State xem kết quả thi chi tiết dạng Azota Modal
   const [azotaScoreViewModal, setAzotaScoreViewModal] = useState<{
     isOpen: boolean;
     examTitle: string;
@@ -355,7 +354,7 @@ function AdminDashboardContent() {
           attemptNumber: item.attemptNumber || item.attempt_count || 1,
           feedback: item.feedback || item.comment || ""
         };
-        const uniqueKey = item.id || ${normalized.quizId}_${normalized.studentId}_${normalized.createdAt};
+        const uniqueKey = item.id ? String(item.id) : (String(normalized.quizId) + "" + String(normalized.studentId) + "" + String(normalized.createdAt));
         map.set(uniqueKey, normalized);
       });
       const finalAttempts = Array.from(map.values());
@@ -554,7 +553,7 @@ function AdminDashboardContent() {
     await savePracticeExams(updated);
     try {
       await supabase.from("practice_exams").update({ category: newCategory }).eq("id", examId);
-      showToast(Đã chuyển đề sang danh mục: ${newCategory});
+      showToast("Đã chuyển đề sang danh mục: " + newCategory);
     } catch (e: any) {
       alert("Lỗi cập nhật danh mục: " + e.message);
     }
@@ -568,7 +567,7 @@ function AdminDashboardContent() {
     (updatedSections || []).forEach(sec => {
       (sec.questions || []).forEach((q: any) => {
         totalQuestions++;
-        const qId = q.id || q_${totalQuestions};
+        const qId = q.id || ("q_" + totalQuestions);
         answerKeyMap[qId] = String(q.correctAnswer || q.answer || "").trim().toUpperCase();
       });
     });
@@ -608,7 +607,7 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_attempts", JSON.stringify(updatedList));
     }
-    showToast(Hệ thống đã tự động chấm lại điểm cho ${targetAttempts.length} lượt thi của học sinh!);
+    showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi của học sinh!");
   };
 
   const handleCreateNewItem = async (e: React.FormEvent) => {
@@ -1707,7 +1706,7 @@ function AdminDashboardContent() {
                                   onClick={() => {
                                     setAzotaScoreViewModal({
                                       isOpen: true,
-                                      examTitle: Tất cả bài làm của học sinh: ${st.name},
+                                      examTitle: "Tất cả bài làm của học sinh: " + st.name,
                                       attempts: st.attemptsList || []
                                     });
                                   }}
@@ -2674,7 +2673,7 @@ function AdminDashboardContent() {
 
                         <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
                           <span className="text-slate-500 italic truncate max-w-[170px]">
-                            {att.feedback ? “${att.feedback}” : "Chưa có nhận xét"}
+                            {att.feedback ? ("“" + att.feedback + "”") : "Chưa có nhận xét"}
                           </span>
                           <button
                             onClick={async () => {
