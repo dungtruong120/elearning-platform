@@ -254,7 +254,7 @@ function AdminDashboardContent() {
 
   const [analyticsModeFilter, setAnalyticsModeFilter] = useState<"all" | "online" | "offline">("all");
 
-  // Thêm State xem kết quả thi chi tiết dạng Azota Modal
+  // State xem kết quả thi chi tiết dạng Azota Modal
   const [azotaScoreViewModal, setAzotaScoreViewModal] = useState<{
     isOpen: boolean;
     examTitle: string;
@@ -307,11 +307,10 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // NẠP ĐIỂM SỐ VÀ LẦN THI TRỰC TIẾP TỪ SUPABASE (BẢO TOÀN ĐỒNG BỘ CẢ 3 BẢNG TIỀM NĂNG)
+  // NẠP ĐIỂM SỐ VÀ LẦN THI TRỰC TIẾP TỪ SUPABASE
   const fetchSupabaseAttempts = useCallback(async () => {
     let combinedAttempts: any[] = [];
     try {
-      // 1. Kiểm tra bảng 'exam_attempts'
       const { data: exAttempts } = await supabase
         .from("exam_attempts")
         .select("*")
@@ -322,7 +321,6 @@ function AdminDashboardContent() {
     } catch (e) {}
 
     try {
-      // 2. Kiểm tra bảng 'attempts'
       const { data: genAttempts } = await supabase
         .from("attempts")
         .select("*")
@@ -333,7 +331,6 @@ function AdminDashboardContent() {
     } catch (e) {}
 
     try {
-      // 3. Kiểm tra bảng 'quiz_attempts'
       const { data: qAttempts } = await supabase
         .from("quiz_attempts")
         .select("*")
@@ -344,7 +341,6 @@ function AdminDashboardContent() {
     } catch (e) {}
 
     if (combinedAttempts.length > 0) {
-      // Chuẩn hóa và khử trùng lặp theo ID
       const map = new Map();
       combinedAttempts.forEach(item => {
         const normalized = {
@@ -359,7 +355,8 @@ function AdminDashboardContent() {
           attemptNumber: item.attemptNumber || item.attempt_count || 1,
           feedback: item.feedback || item.comment || ""
         };
-        map.set(item.id || ${normalized.quizId}_${normalized.studentId}_${normalized.createdAt}, normalized);
+        const uniqueKey = item.id || ${normalized.quizId}_${normalized.studentId}_${normalized.createdAt};
+        map.set(uniqueKey, normalized);
       });
       const finalAttempts = Array.from(map.values());
       setAllAttempts(finalAttempts);
@@ -565,7 +562,6 @@ function AdminDashboardContent() {
 
   // HÀM TÍNH TOÁN LẠI ĐIỂM SỐ KHI GIÁO VIÊN SỬA ĐỀ/ĐÁP ÁN
   const handleRecalculateExamScores = async (examId: string, updatedSections: any[]) => {
-    // Thu thập bảng đáp án chuẩn từ các sections
     const answerKeyMap: Record<string, string> = {};
     let totalQuestions = 0;
 
@@ -579,7 +575,6 @@ function AdminDashboardContent() {
 
     if (totalQuestions === 0) return;
 
-    // Lọc các lần nộp của đề này
     const targetAttempts = (allAttempts || []).filter(a => a.quizId === examId);
     if (targetAttempts.length === 0) return;
 
@@ -601,7 +596,6 @@ function AdminDashboardContent() {
       att.correctCount = correctCount;
       att.totalQuestions = totalQuestions;
 
-      // Cập nhật lên Supabase
       try {
         await supabase
           .from("exam_attempts")
@@ -1049,11 +1043,10 @@ function AdminDashboardContent() {
     return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
-  // PHÂN TÍCH ĐIỂM SỐ BTVN & BÀI KIỂM TRA ĐỊNH KỲ (TỰ ĐỘNG LẤY TỪ SUPABASE ATTEMPTS)
+  // PHÂN TÍCH ĐIỂM SỐ BTVN & BÀI KIỂM TRA ĐỊNH KỲ
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
-    // Khởi tạo trước cho tất cả học sinh đã đăng ký
     (registeredStudents || []).forEach(s => {
       stats[s.id] = {
         id: s.id,
@@ -1069,7 +1062,7 @@ function AdminDashboardContent() {
     const filteredAttempts = (allAttempts || []).filter(att => {
       if (!att || !att.quizId) return false;
       const qInfo = quizMap[att.quizId];
-      if (!qInfo) return true; // Nếu không nằm trong quizMap thì vẫn tính nếu có điểm
+      if (!qInfo) return true;
       if (rankingScope === "course") return true;
       if (rankingScope === "chapter") return qInfo.chapterId === selectedChapterId;
       if (rankingScope === "lesson") return qInfo.lessonId === selectedLessonId;
@@ -1618,7 +1611,7 @@ function AdminDashboardContent() {
                                         attempts: attemptsForExam
                                       });
                                     }}
-                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl transition"
+                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
                                     title="Xem bảng điểm học sinh làm đề này kiểu Azota"
                                   >
                                     <BarChart2 className="w-4 h-4" />
@@ -1631,7 +1624,7 @@ function AdminDashboardContent() {
                                       setUploadMode("practice");
                                       setTestFile(new File(["dummy"], ${ex.title}.docx, { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
                                     }}
-                                    className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition"
+                                    className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition cursor-pointer"
                                     title="Sửa cấu trúc câu hỏi, lời giải & đáp án"
                                   >
                                     <FileSignature className="w-4 h-4" />
@@ -2574,7 +2567,6 @@ function AdminDashboardContent() {
               exit={{ opacity: 0, y: -10, scale: 0.99, filter: "blur(4px)" }}
               transition={{ duration: 0.25, ease: "easeInOut" }}
             >
-              {/* NÂNG CẤP: TRUYỀN THÊM TOÀN BỘ ALLATTEMPTS VÀ DANH SÁCH PRACTICE EXAMS VÀO ĐỂ HIỆN BẢNG ĐIỂM LUYỆN ĐỀ ĐẦY ĐỦ */}
               <AdminStudentReportPanel 
                 registeredStudents={registeredStudents}
                 allAttempts={allAttempts}
@@ -2587,7 +2579,7 @@ function AdminDashboardContent() {
         </div>
       </main>
 
-      {/* MODAL XEM CHI TIẾT ĐIỂM KIỂU AZOTA (HỌC SINH, ĐIỂM, LẦN THI, THỜI GIAN, NHẬN XÉT) */}
+      {/* MODAL XEM CHI TIẾT ĐIỂM KIỂU AZOTA */}
       <AnimatePresence>
         {azotaScoreViewModal.isOpen && (
           <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
@@ -3006,7 +2998,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* AZOTA EXAM CONFIG MODAL: HỖ TRỢ CẢ NẠP MỚI LẪN CHỈNH SỬA ĐỀ CŨ VÀ TỰ ĐỘNG CHẤM LẠI ĐIỂM */}
+      {/* AZOTA EXAM CONFIG MODAL */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
@@ -3053,7 +3045,6 @@ function AdminDashboardContent() {
                 console.warn("Lỗi lưu đề thi lên Supabase:", err);
               }
 
-              // Nếu đang sửa đề cũ, tự động tính lại điểm cho học sinh
               if (editingExamData) {
                 await handleRecalculateExamScores(examId, examData.sections);
                 showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!");
