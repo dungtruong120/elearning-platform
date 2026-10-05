@@ -1621,7 +1621,7 @@ function AdminDashboardContent() {
                                     onClick={() => {
                                       setEditingExamData(ex);
                                       setUploadMode("practice");
-                                      setTestFile(new File(["dummy"], ${ex.title}.docx, { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+                                      setTestFile(new File(["dummy"], String(ex?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
                                     }}
                                     className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition cursor-pointer"
                                     title="Sửa cấu trúc câu hỏi, lời giải & đáp án"
