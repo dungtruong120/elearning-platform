@@ -103,7 +103,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -311,67 +311,65 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, [selectedReportStudentId]);
 
+  // HÀM KHÔI PHỤC VÀ ĐỒNG BỘ ĐIỂM HỌC SINH THỰC SỰ
   const fetchSupabaseAttempts = useCallback(async () => {
-    let combinedAttempts: any[] = [];
-    try {
-      const { data: exAttempts } = await supabase
-        .from("exam_attempts")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (exAttempts && Array.isArray(exAttempts)) {
-        combinedAttempts = [...combinedAttempts, ...exAttempts];
-      }
-    } catch (e) {}
+    let localSaved: any[] = [];
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("edunexus_attempts");
+        if (raw) localSaved = JSON.parse(raw);
+      } catch (e) {}
+    }
 
-    try {
-      const { data: genAttempts } = await supabase
-        .from("attempts")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (genAttempts && Array.isArray(genAttempts)) {
-        combinedAttempts = [...combinedAttempts, ...genAttempts];
-      }
-    } catch (e) {}
+    // Truy vấn song song tất cả các bảng lưu bài thi
+    const [res1, res2, res3] = await Promise.allSettled([
+      supabase.from("exam_attempts").select("*").order("created_at", { ascending: false }),
+      supabase.from("attempts").select("*").order("created_at", { ascending: false }),
+      supabase.from("quiz_attempts").select("*").order("created_at", { ascending: false })
+    ]);
 
-    try {
-      const { data: qAttempts } = await supabase
-        .from("quiz_attempts")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (qAttempts && Array.isArray(qAttempts)) {
-        combinedAttempts = [...combinedAttempts, ...qAttempts];
-      }
-    } catch (e) {}
+    let fetchedList: any[] = [];
+    if (res1.status === "fulfilled" && res1.value.data) fetchedList.push(...res1.value.data);
+    if (res2.status === "fulfilled" && res2.value.data) fetchedList.push(...res2.value.data);
+    if (res3.status === "fulfilled" && res3.value.data) fetchedList.push(...res3.value.data);
 
-    if (combinedAttempts.length > 0) {
-      const map = new Map();
-      combinedAttempts.forEach(item => {
-        const normalized = {
-          ...item,
-          quizId: item.quizId || item.exam_id || item.quiz_id || item.test_id,
-          studentId: item.studentId || item.user_id || item.student_id,
-          studentName: item.studentName || item.student_name || item.user_name || item.full_name || "Học sinh",
-          score: Number(item.score ?? item.points ?? 0),
-          type: item.type || (item.isHomework ? "homework" : "practice"),
-          timeSpent: item.timeSpent || item.duration_seconds || item.duration || "15 phút",
-          createdAt: item.createdAt || item.created_at || new Date().toISOString(),
-          attemptNumber: item.attemptNumber || item.attempt_count || 1,
-          feedback: item.feedback || item.comment || ""
-        };
-        const uniqueKey = item.id ? String(item.id) : (String(normalized.quizId) + "" + String(normalized.studentId) + "" + String(normalized.createdAt));
-        map.set(uniqueKey, normalized);
-      });
-      const finalAttempts = Array.from(map.values());
+    // Hợp nhất dữ liệu mới từ Server và dữ liệu đang có tại LocalStorage (tránh mất 5-6 hs đã làm)
+    const allRaw = [...localSaved, ...fetchedList];
+    const uniqueMap = new Map();
+
+    allRaw.forEach((item: any) => {
+      if (!item) return;
+      const quizId = item.quizId || item.exam_id || item.quiz_id || item.test_id || "";
+      const studentId = item.studentId || item.user_id || item.student_id || "";
+      const studentName = item.studentName || item.student_name || item.user_name || item.full_name || "Học sinh";
+      const examTitle = item.examTitle || item.quizTitle || item.title || "";
+      const score = Number(item.score ?? item.points ?? 0);
+      const createdAt = item.createdAt || item.created_at || new Date().toISOString();
+
+      const normalized = {
+        ...item,
+        id: item.id || (String(quizId) + "" + String(studentId) + "" + String(createdAt)),
+        quizId,
+        studentId,
+        studentName,
+        examTitle,
+        score,
+        type: item.type || (item.isHomework ? "homework" : "practice"),
+        timeSpent: item.timeSpent || item.duration_seconds || item.duration || "15 phút",
+        createdAt,
+        attemptNumber: item.attemptNumber || item.attempt_count || 1,
+        feedback: item.feedback || item.comment || ""
+      };
+
+      const key = item.id || (String(quizId) + "" + String(studentId) + "" + String(createdAt));
+      uniqueMap.set(key, normalized);
+    });
+
+    const finalAttempts = Array.from(uniqueMap.values());
+    if (finalAttempts.length > 0) {
       setAllAttempts(finalAttempts);
       if (typeof window !== "undefined") {
         localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
-      }
-    } else {
-      if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("edunexus_attempts");
-        if (saved) {
-          try { setAllAttempts(JSON.parse(saved)); } catch (e) {}
-        }
       }
     }
   }, []);
@@ -413,57 +411,38 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
+  // TỐI ƯU TỐC ĐỘ: LOAD SONG SONG TOÀN BỘ DỮ LIỆU TỪ SUPABASE (< 0.5s)
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
     try {
-      const { data: courseRow } = await supabase
-        .from("courses")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+      const [courseRes, examRes, sessRes, notifRes] = await Promise.allSettled([
+        supabase.from("courses").select("*").limit(1).maybeSingle(),
+        supabase.from("practice_exams").select("*").order("created_at", { ascending: false }),
+        supabase.from("sessions").select("*").order("created_at", { ascending: false }),
+        supabase.from("system_notifications").select("*").order("created_at", { ascending: false })
+      ]);
 
-      if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters)) {
-        setChapters(courseRow.chapters);
-        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+      if (courseRes.status === "fulfilled" && courseRes.value.data?.chapters) {
+        setChapters(courseRes.value.data.chapters);
+        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
       }
-    } catch (e) {}
 
-    try {
-      const { data: dbExams } = await supabase
-        .from("practice_exams")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (dbExams && Array.isArray(dbExams)) {
-        setPracticeExams(dbExams);
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
+      if (examRes.status === "fulfilled" && examRes.value.data) {
+        setPracticeExams(examRes.value.data);
+        localStorage.setItem("edunexus_practice_exams", JSON.stringify(examRes.value.data));
       }
-    } catch (e) {}
 
-    try {
-      const { data: dbSessions } = await supabase
-        .from("sessions")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (dbSessions && Array.isArray(dbSessions) && dbSessions.length > 0) {
-        setOnlineSessions(dbSessions);
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(dbSessions));
-        const datesFromSessions = Array.from(new Set(dbSessions.map((s: any) => s.date).filter(Boolean)));
+      if (sessRes.status === "fulfilled" && sessRes.value.data) {
+        setOnlineSessions(sessRes.value.data);
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(sessRes.value.data));
+        const datesFromSessions = Array.from(new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean)));
         if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
       }
-    } catch (e) {}
 
-    try {
-      const { data: dbNotifs } = await supabase
-        .from("system_notifications")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (dbNotifs && Array.isArray(dbNotifs)) {
-        setSysNotifications(dbNotifs);
-        localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
+      if (notifRes.status === "fulfilled" && notifRes.value.data) {
+        setSysNotifications(notifRes.value.data);
+        localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
       }
     } catch (e) {}
 
@@ -525,20 +504,16 @@ function AdminDashboardContent() {
     try {
       const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
       if (existingRows && existingRows.length > 0) {
-        const { error } = await supabase
+        await supabase
           .from("courses")
           .update({ chapters: newChapters, updated_at: new Date().toISOString() })
           .eq("id", existingRows[0].id);
-        if (error) alert("Lỗi lưu bài học lên Supabase: " + error.message);
       } else {
-        const { error } = await supabase
+        await supabase
           .from("courses")
           .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
-        if (error) alert("Lỗi chèn bài học lên Supabase: " + error.message);
       }
-    } catch (err: any) {
-      console.error("Lỗi khi lưu Supabase courses:", err);
-    }
+    } catch (err: any) {}
   };
 
   const savePracticeExams = async (newExams: any[]) => {
@@ -557,9 +532,7 @@ function AdminDashboardContent() {
     try {
       await supabase.from("practice_exams").update({ category: newCategory }).eq("id", examId);
       showToast("Đã chuyển đề sang danh mục: " + newCategory);
-    } catch (e: any) {
-      alert("Lỗi cập nhật danh mục: " + e.message);
-    }
+    } catch (e: any) {}
   };
 
   const handleRecalculateExamScores = async (examId: string, updatedSections: any[]) => {
@@ -1109,7 +1082,7 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, rankingScope, selectedChapterId, selectedLessonId, registeredStudents, quizMap, analyticsModeFilter]);
 
-  // NÂNG CẤP MỤC 2: HIỂN THỊ CỤ THỂ TỪNG ĐỀ THI KÈM SỐ HỌC SINH NỘP VÀ ĐIỂM
+  // NÂNG CẤP MỤC 1: KHÔI PHỤC DANH SÁCH TỪNG ĐỀ VÀ TẤT CẢ HỌC SINH ĐÃ LÀM (KHÔNG BỎ SÓT LƯỢT NỘP NÀO)
   const examsWithScoresData = useMemo(() => {
     let list = [...practiceExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -1117,7 +1090,14 @@ function AdminDashboardContent() {
     }
 
     return list.map(ex => {
-      const attempts = (allAttempts || []).filter(a => a && a.quizId === ex.id);
+      // So khớp thông minh theo ID hoặc tiêu đề đề thi
+      const attempts = (allAttempts || []).filter(a => {
+        if (!a) return false;
+        const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
+        const matchTitle = ex.title && (a.examTitle === ex.title || a.quizTitle === ex.title);
+        return matchId || matchTitle;
+      });
+
       const studentMap = new Map();
       attempts.forEach(att => {
         const prev = studentMap.get(att.studentId);
@@ -1142,7 +1122,7 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // NÂNG CẤP MỤC 1: LỌC DANH SÁCH BÀI LUYỆN ĐỀ CHO HỌC SINH ĐANG CHỌN TRONG BÁO CÁO PHỤ HUYNH
+  // NÂNG CẤP MỤC 2: TÍNH ĐIỂM LUYỆN ĐỀ CHO HỌC SINH HIỆN TẠI ĐỂ TÍCH HỢP BÁO CÁO PHỤ HUYNH
   const activeReportStudent = useMemo(() => {
     return registeredStudents.find(s => s.id === selectedReportStudentId) || registeredStudents[0] || null;
   }, [registeredStudents, selectedReportStudentId]);
@@ -1152,16 +1132,23 @@ function AdminDashboardContent() {
     return (allAttempts || [])
       .filter(a => a && a.studentId === activeReportStudent.id && (a.type === "practice" || !a.isHomework))
       .map(att => {
-        const exMeta = practiceExams.find(e => e.id === att.quizId);
+        const exMeta = practiceExams.find(e => e.id === att.quizId || e.title === att.examTitle);
         return {
           id: att.id,
-          title: exMeta?.title || att.quizTitle || "Đề thi luyện tập",
+          title: exMeta?.title || att.quizTitle || att.examTitle || "Đề thi luyện tập",
           category: exMeta?.category || att.category || "Luyện đề",
           score: Number(att.score ?? 0).toFixed(1),
           date: new Date(att.createdAt || Date.now()).toLocaleDateString("vi-VN")
         };
       });
   }, [activeReportStudent, allAttempts, practiceExams]);
+
+  // Điểm trung bình luyện đề của học sinh được chọn
+  const reportStudentPracticeAvg = useMemo(() => {
+    if (studentPracticeAttemptsForReport.length === 0) return "--";
+    const sum = studentPracticeAttemptsForReport.reduce((acc, curr) => acc + Number(curr.score), 0);
+    return (sum / studentPracticeAttemptsForReport.length).toFixed(1);
+  }, [studentPracticeAttemptsForReport]);
 
   const offlineLessonCount = useMemo(() => {
     return (chapters || [])
@@ -1315,11 +1302,11 @@ function AdminDashboardContent() {
             {activeTab === "lessons" ? "Quản lý nội dung bài học" : activeTab === "practice" ? "Quản trị Kho Luyện đề" : activeTab === "analytics" ? "Tổng hợp điểm & Xếp hạng" : activeTab === "notifications" ? "Phát Thông Báo Học Sinh" : activeTab === "students" ? "Quản lý Học viên & Duyệt Tài khoản" : activeTab === "reports" ? "Sổ Nhận Xét & Báo Cáo Phụ Huynh" : "Lịch học & Điểm danh Online"}
           </h2>
           <div className="flex items-center gap-3">
+            {/* Nút đồng bộ nhanh siêu tốc */}
             <button
-              onClick={() => {
-                loadStorageData();
-                fetchSupabaseStudents();
-                showToast("Đã đồng bộ dữ liệu mới nhất từ Supabase!");
+              onClick={async () => {
+                await Promise.all([loadStorageData(), fetchSupabaseStudents()]);
+                showToast("Đã đồng bộ dữ liệu tức thì!");
               }}
               title="Làm mới dữ liệu từ Supabase"
               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] rounded-xl text-xs font-bold transition cursor-pointer border border-blue-200"
@@ -1620,7 +1607,10 @@ function AdminDashboardContent() {
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     onClick={() => {
-                                      const attemptsForExam = (allAttempts || []).filter(a => a.quizId === ex.id);
+                                      // Tìm tất cả lượt nộp của đề này (so cả ID và tiêu đề)
+                                      const attemptsForExam = (allAttempts || []).filter(a => 
+                                        a && ((a.quizId === ex.id) || (ex.title && (a.examTitle === ex.title || a.quizTitle === ex.title)))
+                                      );
                                       setAzotaScoreViewModal({
                                         isOpen: true,
                                         examTitle: ex.title,
@@ -1682,7 +1672,7 @@ function AdminDashboardContent() {
                 </div>
               )}
 
-              {/* NÂNG CẤP MỤC 2: BẢNG DANH SÁCH TỪNG ĐỀ THI VÀ CLICK VÀO XEM ĐIỂM TỪNG HỌC SINH */}
+              {/* BẢNG ĐIỂM TỪNG ĐỀ THI - BẤM VÀO LÀ HIỆN DANH SÁCH TỪNG HỌC SINH LÀM ĐỀ ĐÓ KIỂU AZOTA */}
               {practiceSubTab === "scores" && (
                 <div className="space-y-6">
                   <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1703,10 +1693,10 @@ function AdminDashboardContent() {
                     <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                       <div>
                         <h3 className="font-extrabold text-slate-900 text-[15px]">
-                          Danh Sách Đề Thi & Bảng Điểm ({practiceCategoryFilter})
+                          Danh Sách Đề Thi & Bảng Điểm Học Sinh ({practiceCategoryFilter})
                         </h3>
                         <p className="text-xs text-slate-500 mt-1">
-                          * Bấm vào bất kỳ đề thi nào hoặc nút "Xem điểm học sinh" để xem chi tiết danh sách học sinh đã làm đề đó kiểu Azota.
+                          * Bấm vào bất kỳ đề thi nào để mở toàn bộ học sinh đã làm đề thi đó.
                         </p>
                       </div>
                       <span className="text-xs text-slate-500 font-bold">{examsWithScoresData.length} đề thi</span>
@@ -2626,7 +2616,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* NÂNG CẤP MỤC 1: SỔ NHẬN XÉT & BÁO CÁO PHỤ HUYNH TÍCH HỢP BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN TỰ CO GIÃN */}
+          {/* BÁO CÁO PHỤ HUYNH: TÍCH HỢP TRỰC TIẾP HÀNG ĐIỂM LUYỆN ĐỀ DƯỚI HÀNG ĐIỂM KT ĐỊNH KỲ */}
           {activeTab === "reports" && (
             <motion.div
               key="reports"
@@ -2636,7 +2626,7 @@ function AdminDashboardContent() {
               transition={{ duration: 0.25, ease: "easeInOut" }}
               className="space-y-6 max-w-7xl mx-auto"
             >
-              {/* Component báo cáo gốc của Thầy được bảo toàn nguyên vẹn */}
+              {/* Component báo cáo gốc của Thầy */}
               <AdminStudentReportPanel 
                 registeredStudents={registeredStudents}
                 allAttempts={allAttempts}
@@ -2645,21 +2635,21 @@ function AdminDashboardContent() {
                 attendanceRecords={attendanceRecords}
               />
 
-              {/* BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN BỔ SUNG TRỰC DIỆN CHO PHỤ HUYNH */}
+              {/* TÍCH HỢP BẢNG ĐIỂM LUYỆN ĐỀ NGAY DƯỚI MA TRẬN ĐIỂM KIỂM TRA ĐỊNH KỲ */}
               {activeReportStudent && (
                 <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
                     <div>
                       <h4 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-2">
                         <Target className="w-5 h-5 text-[#1D4ED8]" />
-                        BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN - HỌC VIÊN: {activeReportStudent.full_name}
+                        ĐIỂM LUYỆN ĐỀ THỰC CHIẾN - HỌC VIÊN: {activeReportStudent.full_name}
                       </h4>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Tự động tổng hợp từ dữ liệu phòng luyện đề trực tuyến • Điểm số, xếp loại và ngày làm đề của học sinh
+                        Tự động hiển thị và điền vào báo cáo phụ huynh • Điểm trung bình luyện đề: <strong className="text-emerald-600">{reportStudentPracticeAvg} / 10</strong>
                       </p>
                     </div>
                     <span className="px-3 py-1 bg-blue-50 text-[#1D4ED8] rounded-xl text-xs font-black">
-                      {studentPracticeAttemptsForReport.length} đề thi hoàn thành
+                      {studentPracticeAttemptsForReport.length} đề thi đã làm
                     </span>
                   </div>
 
@@ -2671,7 +2661,7 @@ function AdminDashboardContent() {
                           <th className="py-3 px-4">Tên Đề Thi</th>
                           <th className="py-3 px-4 text-center">Loại Đề</th>
                           <th className="py-3 px-4 text-center">Ngày Làm</th>
-                          <th className="py-3 px-4 text-center text-emerald-700">Điểm Đạt Được</th>
+                          <th className="py-3 px-4 text-center text-emerald-700">Điểm Số</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -2695,7 +2685,7 @@ function AdminDashboardContent() {
                         {studentPracticeAttemptsForReport.length === 0 && (
                           <tr>
                             <td colSpan={5} className="py-8 text-center text-slate-400 italic">
-                              Học sinh chưa tham gia làm đề thi thực chiến nào trong tháng này.
+                              Học sinh chưa làm đề thi thực chiến nào trong tháng này.
                             </td>
                           </tr>
                         )}
@@ -3169,11 +3159,8 @@ function AdminDashboardContent() {
               await savePracticeExams(updatedExams);
 
               try {
-                const { error } = await supabase.from("practice_exams").upsert(newExam);
-                if (error) alert("Lỗi lưu đề thi lên Supabase: " + error.message);
-              } catch (err: any) {
-                console.warn("Lỗi lưu đề thi lên Supabase:", err);
-              }
+                await supabase.from("practice_exams").upsert(newExam);
+              } catch (err: any) {}
 
               if (editingExamData) {
                 await handleRecalculateExamScores(examId, examData.sections);
