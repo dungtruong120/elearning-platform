@@ -103,7 +103,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ KHI VÀO TRANG
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -171,7 +171,6 @@ function AdminDashboardContent() {
   const [successToast, setSuccessToast] = useState("");
   const [uploadMode, setUploadMode] = useState<"course" | "practice">("course");
   const [practiceCategoryFilter, setPracticeCategoryFilter] = useState("Tất cả danh mục");
-  const [practiceStudentDetailModal, setPracticeStudentDetailModal] = useState<string | null>(null);
   const [rankingScope, setRankingScope] = useState<"lesson" | "chapter" | "course">("course");
   const [selectedChapterId, setSelectedChapterId] = useState<string>("all");
   const [selectedLessonId, setSelectedLessonId] = useState<string>("all");
@@ -254,6 +253,7 @@ function AdminDashboardContent() {
 
   const [analyticsModeFilter, setAnalyticsModeFilter] = useState<"all" | "online" | "offline">("all");
 
+  // State xem kết quả thi chi tiết dạng Azota Modal
   const [azotaScoreViewModal, setAzotaScoreViewModal] = useState<{
     isOpen: boolean;
     examTitle: string;
@@ -263,6 +263,9 @@ function AdminDashboardContent() {
     examTitle: "",
     attempts: []
   });
+
+  // State chọn học sinh xem báo cáo phụ huynh
+  const [selectedReportStudentId, setSelectedReportStudentId] = useState<string>("");
 
   const showToast = (msg: string) => { 
     setSuccessToast(msg); 
@@ -288,7 +291,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // NẠP DANH SÁCH HỌC SINH TỪ SUPABASE
   const fetchSupabaseStudents = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -299,14 +301,16 @@ function AdminDashboardContent() {
 
       if (!error && data) {
         setRegisteredStudents(data);
+        if (data.length > 0 && !selectedReportStudentId) {
+          setSelectedReportStudentId(data[0].id);
+        }
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_registered_students", JSON.stringify(data));
         }
       }
     } catch (err) {}
-  }, []);
+  }, [selectedReportStudentId]);
 
-  // NẠP ĐIỂM SỐ VÀ LẦN THI TRỰC TIẾP TỪ SUPABASE
   const fetchSupabaseAttempts = useCallback(async () => {
     let combinedAttempts: any[] = [];
     try {
@@ -400,6 +404,7 @@ function AdminDashboardContent() {
 
     const updated = [newStudent, ...registeredStudents];
     setRegisteredStudents(updated);
+    if (!selectedReportStudentId) setSelectedReportStudentId(newStudent.id);
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
     }
@@ -408,7 +413,6 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // ĐỒNG BỘ NỀN TỪ SUPABASE
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -547,7 +551,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // CẬP NHẬT TRỰC TIẾP LOẠI ĐỀ (DANH MỤC)
   const handleChangeExamCategory = async (examId: string, newCategory: string) => {
     const updated = practiceExams.map(ex => ex.id === examId ? { ...ex, category: newCategory } : ex);
     await savePracticeExams(updated);
@@ -559,7 +562,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM TÍNH TOÁN LẠI ĐIỂM SỐ KHI GIÁO VIÊN SỬA ĐỀ/ĐÁP ÁN
   const handleRecalculateExamScores = async (examId: string, updatedSections: any[]) => {
     const answerKeyMap: Record<string, string> = {};
     let totalQuestions = 0;
@@ -1042,7 +1044,6 @@ function AdminDashboardContent() {
     return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
-  // PHÂN TÍCH ĐIỂM SỐ BTVN & BÀI KIỂM TRA ĐỊNH KỲ
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
@@ -1108,41 +1109,59 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, rankingScope, selectedChapterId, selectedLessonId, registeredStudents, quizMap, analyticsModeFilter]);
 
-  // PHÂN TÍCH ĐIỂM SỐ LUYỆN ĐỀ THỰC CHIẾN
-  const practiceAnalyticsData = useMemo(() => {
-    const stats: Record<string, any> = {};
-
-    let filteredAttempts = (allAttempts || []).filter(a => a && (a.type === "practice" || !a.isHomework));
+  // NÂNG CẤP MỤC 2: HIỂN THỊ CỤ THỂ TỪNG ĐỀ THI KÈM SỐ HỌC SINH NỘP VÀ ĐIỂM
+  const examsWithScoresData = useMemo(() => {
+    let list = [...practiceExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
-      filteredAttempts = filteredAttempts.filter(a => {
-        const exMeta = practiceExams.find(e => e.id === a.quizId);
-        return (a?.category === practiceCategoryFilter) || (exMeta?.category === practiceCategoryFilter);
-      });
+      list = list.filter(ex => ex?.category === practiceCategoryFilter);
     }
 
-    filteredAttempts.forEach(att => {
-      if (!att?.studentId) return;
-      if (!stats[att.studentId]) { 
-        stats[att.studentId] = { 
-          id: att.studentId, 
-          name: att.studentName || "Học sinh", 
-          totalAttempts: 0, 
-          maxScoresPerQuiz: {},
-          attemptsList: []
-        }; 
-      }
-      const st = stats[att.studentId];
-      st.totalAttempts++;
-      st.attemptsList.push(att);
-      st.maxScoresPerQuiz[att.quizId] = Math.max(st.maxScoresPerQuiz[att.quizId] || 0, Number(att.score) || 0);
-    });
+    return list.map(ex => {
+      const attempts = (allAttempts || []).filter(a => a && a.quizId === ex.id);
+      const studentMap = new Map();
+      attempts.forEach(att => {
+        const prev = studentMap.get(att.studentId);
+        if (!prev || Number(att.score || 0) > Number(prev.score || 0)) {
+          studentMap.set(att.studentId, att);
+        }
+      });
 
-    return Object.values(stats).map((st: any) => {
-      const maxScores = Object.values(st.maxScoresPerQuiz) as number[];
-      const overallAvg = maxScores.length > 0 ? (maxScores.reduce((a, b) => a + b, 0) / maxScores.length) : 0;
-      return { ...st, overallAvg, completedExams: maxScores.length };
-    }).sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
-  }, [allAttempts, practiceCategoryFilter, practiceExams]);
+      const uniqueStudentAttempts = Array.from(studentMap.values());
+      const scores = uniqueStudentAttempts.map(a => Number(a.score || 0));
+      const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+      const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+
+      return {
+        ...ex,
+        totalSubmissions: attempts.length,
+        uniqueStudentCount: uniqueStudentAttempts.length,
+        avgScore: avgScore.toFixed(2),
+        maxScore: maxScore.toFixed(2),
+        attempts
+      };
+    });
+  }, [practiceExams, practiceCategoryFilter, allAttempts]);
+
+  // NÂNG CẤP MỤC 1: LỌC DANH SÁCH BÀI LUYỆN ĐỀ CHO HỌC SINH ĐANG CHỌN TRONG BÁO CÁO PHỤ HUYNH
+  const activeReportStudent = useMemo(() => {
+    return registeredStudents.find(s => s.id === selectedReportStudentId) || registeredStudents[0] || null;
+  }, [registeredStudents, selectedReportStudentId]);
+
+  const studentPracticeAttemptsForReport = useMemo(() => {
+    if (!activeReportStudent) return [];
+    return (allAttempts || [])
+      .filter(a => a && a.studentId === activeReportStudent.id && (a.type === "practice" || !a.isHomework))
+      .map(att => {
+        const exMeta = practiceExams.find(e => e.id === att.quizId);
+        return {
+          id: att.id,
+          title: exMeta?.title || att.quizTitle || "Đề thi luyện tập",
+          category: exMeta?.category || att.category || "Luyện đề",
+          score: Number(att.score ?? 0).toFixed(1),
+          date: new Date(att.createdAt || Date.now()).toLocaleDateString("vi-VN")
+        };
+      });
+  }, [activeReportStudent, allAttempts, practiceExams]);
 
   const offlineLessonCount = useMemo(() => {
     return (chapters || [])
@@ -1500,7 +1519,6 @@ function AdminDashboardContent() {
                               <td className="py-4 px-5 font-bold text-slate-800 truncate max-w-[220px]" title={ex?.title}>
                                 {ex?.title || "Đề thi"}
                               </td>
-                              {/* SỬA LOẠI ĐỀ TRỰC TIẾP */}
                               <td className="py-4 px-3 text-center">
                                 <div className="relative inline-block">
                                   <select
@@ -1600,7 +1618,6 @@ function AdminDashboardContent() {
                               </td>
                               <td className="py-4 px-5 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  {/* XEM BẢNG ĐIỂM AZOTA CỦA RIÊNG ĐỀ NÀY */}
                                   <button
                                     onClick={() => {
                                       const attemptsForExam = (allAttempts || []).filter(a => a.quizId === ex.id);
@@ -1616,7 +1633,6 @@ function AdminDashboardContent() {
                                     <BarChart2 className="w-4 h-4" />
                                   </button>
 
-                                  {/* SỬA ĐỀ & ĐÁP ÁN (VÀO LẠI GIAO DIỆN TRÍCH WORD) */}
                                   <button
                                     onClick={() => {
                                       setEditingExamData(ex);
@@ -1666,11 +1682,18 @@ function AdminDashboardContent() {
                 </div>
               )}
 
+              {/* NÂNG CẤP MỤC 2: BẢNG DANH SÁCH TỪNG ĐỀ THI VÀ CLICK VÀO XEM ĐIỂM TỪNG HỌC SINH */}
               {practiceSubTab === "scores" && (
                 <div className="space-y-6">
                   <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2.5"><Filter className="w-4 h-4 text-[#1D4ED8]"/> Bộ lọc danh mục đề thi</h3>
-                    <select value={practiceCategoryFilter} onChange={e => setPracticeCategoryFilter(e.target.value)} className="px-5 py-3 text-[13px] font-bold text-[#1D4ED8] bg-blue-50/50 border border-blue-100 rounded-2xl focus:border-blue-500 outline-none transition cursor-pointer">
+                    <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2.5">
+                      <Filter className="w-4 h-4 text-[#1D4ED8]"/> Bộ lọc danh mục đề thi
+                    </h3>
+                    <select 
+                      value={practiceCategoryFilter} 
+                      onChange={e => setPracticeCategoryFilter(e.target.value)} 
+                      className="px-5 py-3 text-[13px] font-bold text-[#1D4ED8] bg-blue-50/50 border border-blue-100 rounded-2xl focus:border-blue-500 outline-none transition cursor-pointer"
+                    >
                       <option value="Tất cả danh mục">Tất cả danh mục</option>
                       {EXAM_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
@@ -1678,46 +1701,91 @@ function AdminDashboardContent() {
 
                   <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                      <h3 className="font-extrabold text-slate-900 text-[15px]">Bảng Xếp Hạng Điểm Luyện Đề ({practiceCategoryFilter})</h3>
-                      <span className="text-xs text-slate-500 font-bold">{practiceAnalyticsData.length} học sinh có bài nộp</span>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-[15px]">
+                          Danh Sách Đề Thi & Bảng Điểm ({practiceCategoryFilter})
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          * Bấm vào bất kỳ đề thi nào hoặc nút "Xem điểm học sinh" để xem chi tiết danh sách học sinh đã làm đề đó kiểu Azota.
+                        </p>
+                      </div>
+                      <span className="text-xs text-slate-500 font-bold">{examsWithScoresData.length} đề thi</span>
                     </div>
+
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-[13px]">
                         <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
                           <tr>
-                            <th className="py-4 px-6 w-16 font-bold text-center">Top</th>
-                            <th className="py-4 px-6 font-bold">Học sinh</th>
-                            <th className="py-4 px-6 font-bold text-center">Tổng lượt nộp</th>
-                            <th className="py-4 px-6 font-bold text-center">Số đề làm</th>
-                            <th className="py-4 px-6 font-bold text-center text-emerald-700">Điểm TB (Max)</th>
-                            <th className="py-4 px-6 font-bold text-right">Thao tác</th>
+                            <th className="py-4 px-6 w-16 font-bold text-center">STT</th>
+                            <th className="py-4 px-6 font-bold min-w-[240px]">Tên đề thi</th>
+                            <th className="py-4 px-6 font-bold text-center">Phân loại</th>
+                            <th className="py-4 px-6 font-bold text-center">Số HS làm bài</th>
+                            <th className="py-4 px-6 font-bold text-center text-blue-700">Điểm TB cả lớp</th>
+                            <th className="py-4 px-6 font-bold text-center text-emerald-700">Điểm cao nhất</th>
+                            <th className="py-4 px-6 font-bold text-right">Chi tiết</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100/50">
-                          {practiceAnalyticsData.map((st, i) => (
-                            <tr key={st?.id || i} className="hover:bg-slate-50/50 transition-colors bg-white">
-                              <td className="py-4 px-6 font-bold text-slate-500 text-center">{i === 0 ? <Medal className="w-5 h-5 text-yellow-500 mx-auto"/> : i === 1 ? <Medal className="w-5 h-5 text-slate-400 mx-auto"/> : i === 2 ? <Medal className="w-5 h-5 text-amber-600 mx-auto"/> : i + 1}</td>
-                              <td className="py-4 px-6 font-bold text-slate-800">{st.name}</td>
-                              <td className="py-4 px-6 text-center font-medium">{st.totalAttempts}</td>
-                              <td className="py-4 px-6 text-center font-bold text-slate-600">{st.completedExams}</td>
-                              <td className="py-4 px-6 text-center"><span className="px-3 py-1 bg-emerald-50 text-emerald-700 font-black rounded-xl border border-emerald-100">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
+                          {examsWithScoresData.map((ex, i) => (
+                            <tr 
+                              key={ex.id || i} 
+                              onClick={() => {
+                                setAzotaScoreViewModal({
+                                  isOpen: true,
+                                  examTitle: ex.title,
+                                  attempts: ex.attempts || []
+                                });
+                              }}
+                              className="hover:bg-blue-50/40 transition-colors bg-white cursor-pointer group"
+                            >
+                              <td className="py-4 px-6 font-bold text-slate-400 text-center">{i + 1}</td>
+                              <td className="py-4 px-6 font-bold text-slate-800 group-hover:text-[#1D4ED8] transition-colors">
+                                <div>{ex.title}</div>
+                                <span className="text-[10px] text-slate-400 font-normal">{ex.duration_minutes || 45} phút</span>
+                              </td>
+                              <td className="py-4 px-6 text-center">
+                                <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[10px] font-black uppercase">
+                                  {ex.category || "Luyện đề"}
+                                </span>
+                              </td>
+                              <td className="py-4 px-6 text-center font-bold text-slate-700">
+                                {ex.uniqueStudentCount} bạn ({ex.totalSubmissions} lượt)
+                              </td>
+                              <td className="py-4 px-6 text-center">
+                                <span className="px-2.5 py-1 bg-blue-50 text-blue-700 font-bold rounded-lg border border-blue-100">
+                                  {ex.avgScore}
+                                </span>
+                              </td>
+                              <td className="py-4 px-6 text-center">
+                                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-100">
+                                  {ex.maxScore}
+                                </span>
+                              </td>
                               <td className="py-4 px-6 text-right">
                                 <button
-                                  onClick={() => {
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setAzotaScoreViewModal({
                                       isOpen: true,
-                                      examTitle: "Tất cả bài làm của học sinh: " + st.name,
-                                      attempts: st.attemptsList || []
+                                      examTitle: ex.title,
+                                      attempts: ex.attempts || []
                                     });
                                   }}
-                                  className="px-4 py-2 bg-white border border-slate-200 hover:border-[#1D4ED8] hover:text-[#1D4ED8] text-slate-600 font-bold text-[11px] rounded-xl shadow-sm transition flex items-center justify-end gap-1.5 ml-auto cursor-pointer"
+                                  className="px-3.5 py-1.5 bg-white border border-slate-200 hover:border-[#1D4ED8] hover:text-[#1D4ED8] text-slate-600 font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer"
                                 >
-                                  <Eye className="w-3.5 h-3.5"/> Chi tiết Azota
+                                  <Eye className="w-3.5 h-3.5"/> Xem điểm học sinh
                                 </button>
                               </td>
                             </tr>
                           ))}
-                          {practiceAnalyticsData.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-slate-400 italic">Chưa có dữ liệu bài làm cho kỳ thi này. Dữ liệu đang được đồng bộ trực tiếp từ Supabase.</td></tr>}
+                          {examsWithScoresData.length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="py-12 text-center text-slate-400 italic">
+                                Không tìm thấy đề thi nào thuộc danh mục này.
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -2558,6 +2626,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
+          {/* NÂNG CẤP MỤC 1: SỔ NHẬN XÉT & BÁO CÁO PHỤ HUYNH TÍCH HỢP BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN TỰ CO GIÃN */}
           {activeTab === "reports" && (
             <motion.div
               key="reports"
@@ -2565,7 +2634,9 @@ function AdminDashboardContent() {
               animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
               exit={{ opacity: 0, y: -10, scale: 0.99, filter: "blur(4px)" }}
               transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="space-y-6 max-w-7xl mx-auto"
             >
+              {/* Component báo cáo gốc của Thầy được bảo toàn nguyên vẹn */}
               <AdminStudentReportPanel 
                 registeredStudents={registeredStudents}
                 allAttempts={allAttempts}
@@ -2573,6 +2644,66 @@ function AdminDashboardContent() {
                 practiceExams={practiceExams}
                 attendanceRecords={attendanceRecords}
               />
+
+              {/* BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN BỔ SUNG TRỰC DIỆN CHO PHỤ HUYNH */}
+              {activeReportStudent && (
+                <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+                    <div>
+                      <h4 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-2">
+                        <Target className="w-5 h-5 text-[#1D4ED8]" />
+                        BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN - HỌC VIÊN: {activeReportStudent.full_name}
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Tự động tổng hợp từ dữ liệu phòng luyện đề trực tuyến • Điểm số, xếp loại và ngày làm đề của học sinh
+                      </p>
+                    </div>
+                    <span className="px-3 py-1 bg-blue-50 text-[#1D4ED8] rounded-xl text-xs font-black">
+                      {studentPracticeAttemptsForReport.length} đề thi hoàn thành
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="py-3 px-4 w-12 text-center">STT</th>
+                          <th className="py-3 px-4">Tên Đề Thi</th>
+                          <th className="py-3 px-4 text-center">Loại Đề</th>
+                          <th className="py-3 px-4 text-center">Ngày Làm</th>
+                          <th className="py-3 px-4 text-center text-emerald-700">Điểm Đạt Được</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {studentPracticeAttemptsForReport.map((item, idx) => (
+                          <tr key={item.id || idx} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="py-3 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                            <td className="py-3 px-4 font-bold text-slate-800">{item.title}</td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                {item.category}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center text-slate-500 font-medium">{item.date}</td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200 text-xs">
+                                {item.score} / 10
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                        {studentPracticeAttemptsForReport.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                              Học sinh chưa tham gia làm đề thi thực chiến nào trong tháng này.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
         </div>
