@@ -39,6 +39,16 @@ const EXAM_CATEGORIES = [
   "Luyện đề"
 ];
 
+// Hàm chuẩn hóa chuỗi không dấu để so khớp tiêu đề đề thi tuyệt đối
+const normalizeExamTitle = (str: any) => {
+  if (!str) return "";
+  return String(str)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+};
+
 const MatrixCell = ({ items, onAdd, onView, label }: { items: any[]; onAdd: () => void; onView: () => void; label: string }) => {
   if (items && items.length > 0) {
     return (
@@ -302,7 +312,7 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // 1. FETCH & HỢP NHẤT TOÀN DIỆN MỌI LƯỢT THI TỪ SUPABASE
+  // 1. TỔNG HỢP VÀ ĐỒNG BỘ TOÀN DIỆN LƯỢT THI TỪ SUPABASE
   const fetchSupabaseAttempts = useCallback(async () => {
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
@@ -331,26 +341,26 @@ function AdminDashboardContent() {
       const quizId = item.quizId || item.exam_id || item.quiz_id || item.test_id || "";
       const studentId = item.studentId || item.user_id || item.student_id || item.username || "";
       const studentName = item.studentName || item.student_name || item.user_name || item.full_name || item.username || "Học sinh";
-      const examTitle = item.examTitle || item.quizTitle || item.title || item.name || "";
+      const examTitle = item.examTitle || item.quizTitle || item.title || item.exam_title || item.name || "";
       const score = Number(item.score ?? item.points ?? 0);
       const createdAt = item.createdAt || item.created_at || new Date().toISOString();
 
       const normalized = {
         ...item,
-        id: item.id || (String(quizId) + "_" + String(studentId) + "_" + String(createdAt)),
+        id: item.id || (String(quizId) + "" + String(studentId) + "" + String(createdAt)),
         quizId,
         studentId,
         studentName,
         examTitle,
         score,
         type: item.type || (item.isHomework ? "homework" : "practice"),
-        timeSpent: item.timeSpent || item.duration_seconds || item.duration || "15 phút",
+        timeSpent: item.timeSpent || item.time_spent || item.duration_seconds || "15 phút",
         createdAt,
         attemptNumber: item.attemptNumber || item.attempt_count || 1,
         feedback: item.feedback || item.comment || ""
       };
 
-      const key = item.id || (String(quizId) + "_" + String(studentId) + "_" + String(score) + "_" + String(createdAt));
+      const key = item.id || (String(quizId) + "" + String(studentId) + "" + String(score) + "_" + String(createdAt));
       map.set(key, normalized);
     });
 
@@ -363,7 +373,26 @@ function AdminDashboardContent() {
     }
   }, []);
 
-  // 2. LOAD VÀ BẢO TỒN DỮ LIỆU ĐỀ THI (KHÔNG BAO GIỜ GHI ĐÈ BẰNG MẢNG RỖNG)
+  // 2. TỰ ĐỘNG LẮNG NGHE REALTIME BROADCAST TỪ PHÒNG THI
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-realtime-global-sync")
+      .on("broadcast", { event: "new_attempt" }, (payload: any) => {
+        if (payload?.payload) {
+          setAllAttempts(prev => [payload.payload, ...prev]);
+          showToast("Học sinh " + (payload.payload.studentName || "") + " vừa nộp bài thi!");
+        }
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => fetchSupabaseAttempts())
+      .on("postgres_changes", { event: "*", schema: "public", table: "attempts" }, () => fetchSupabaseAttempts())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchSupabaseAttempts]);
+
+  // 3. LOAD VÀ BẢO TỒN DỮ LIỆU ĐỀ THI
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -389,9 +418,7 @@ function AdminDashboardContent() {
       const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
       const examMap = new Map();
       
-      // Giữ nguyên toàn bộ đề local đã có
       localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
-      // Thêm đề từ server
       serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
 
       const mergedExams = Array.from(examMap.values());
@@ -436,21 +463,11 @@ function AdminDashboardContent() {
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("storage", loadStorageData);
 
-    const channel = supabase
-      .channel("admin-realtime-global-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => loadStorageData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => fetchSupabaseAttempts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "attempts" }, () => fetchSupabaseAttempts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_attempts" }, () => fetchSupabaseAttempts())
-      .subscribe();
-
     return () => {
-      supabase.removeChannel(channel);
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("storage", loadStorageData);
     };
-  }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts]);
+  }, [loadStorageData, fetchSupabaseStudents]);
 
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
@@ -495,482 +512,19 @@ function AdminDashboardContent() {
     } catch (e: any) {}
   };
 
-  const handleRecalculateExamScores = async (examId: string, updatedSections: any[]) => {
-    const answerKeyMap: Record<string, string> = {};
-    let totalQuestions = 0;
-
-    (updatedSections || []).forEach(sec => {
-      (sec.questions || []).forEach((q: any) => {
-        totalQuestions++;
-        const qId = q.id || ("q_" + totalQuestions);
-        answerKeyMap[qId] = String(q.correctAnswer || q.answer || "").trim().toUpperCase();
-      });
-    });
-
-    if (totalQuestions === 0) return;
-
-    const targetAttempts = (allAttempts || []).filter(a => a.quizId === examId);
-    if (targetAttempts.length === 0) return;
-
-    let updatedList = [...allAttempts];
-
-    for (const att of targetAttempts) {
-      const studentAnswers = att.userAnswers || att.answers || {};
-      let correctCount = 0;
-
-      Object.entries(studentAnswers).forEach(([qId, stuAns]) => {
-        const correct = answerKeyMap[qId];
-        if (correct && String(stuAns).trim().toUpperCase() === correct) {
-          correctCount++;
-        }
-      });
-
-      const newScore = Number(((correctCount / totalQuestions) * 10).toFixed(2));
-      att.score = newScore;
-      att.correctCount = correctCount;
-      att.totalQuestions = totalQuestions;
-
-      try {
-        await supabase
-          .from("exam_attempts")
-          .update({ score: newScore, updated_at: new Date().toISOString() })
-          .eq("id", att.id);
-      } catch (e) {}
-    }
-
-    setAllAttempts(updatedList);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("edunexus_attempts", JSON.stringify(updatedList));
-    }
-    showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi!");
-  };
-
-  const handleCreateNewItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItemTitle.trim() || !createModal) return;
-    let newChapters = [...(chapters || [])];
-    if (createModal.type === "chapter") {
-      newChapters.push({ id: "chap-" + Date.now(), title: newItemTitle, target_mode: newItemTargetMode, lessons: [] });
-    } else if (createModal.type === "lesson" && createModal.chapterId) {
-      newChapters = newChapters.map(chap => chap?.id === createModal.chapterId ? {
-        ...chap, lessons: [...(chap.lessons || []), {
-          id: "les-" + Date.now(), title: newItemTitle, description: newItemDescription, duration: 45, format: "Zoom", target_mode: newItemTargetMode,
-          lecture_files: [], homework_files: [], handwritten_notes: [], video_list: [], test_quizzes: [], extra_resources: []
-        }]
-      } : chap);
-    }
-    await saveToStorage(newChapters); 
-    setCreateModal(null); 
-    setNewItemTitle(""); 
-    setNewItemDescription(""); 
-    setNewItemFormat("Zoom");
-    setNewItemTargetMode("all");
-    showToast("Đã thêm " + (createModal.type === "chapter" ? "chương" : "bài học") + " thành công!");
-  };
-
-  const handleEditLessonSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editLessonModal || !editLessonForm.title.trim()) return;
-    const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
-      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
-    } : chap);
-    await saveToStorage(newChapters); 
-    setEditLessonModal(null); 
-    showToast("Đã cập nhật thông tin bài học!");
-  };
-
-  const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
-    const newChapters = (chapters || []).map(chap => {
-      if (chap?.id === chapterId) { 
-        return { ...chap, lessons: (chap?.lessons || []).filter((l: any) => l?.id !== lessonId) }; 
-      }
-      return chap;
-    });
-    await saveToStorage(newChapters); 
-    showToast("Đã xóa bài học!");
-  };
-
-  const handleAddResource = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
-    const newResource = { 
-      id: "res-" + Date.now(), 
-      title: resTitle.trim(), 
-      url: resUrl.trim(), 
-      type: resourceModal.type === "video_list" ? vidType : undefined 
-    };
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === resourceModal.lessonId) { 
-          return { ...les, [resourceModal.type]: [...(les[resourceModal.type] || []), newResource] }; 
-        } 
-        return les; 
-      }) 
-    }));
-    await saveToStorage(newChapters); 
-    setResTitle(""); 
-    setResUrl(""); 
-    setVidType("lecture");
-    setResourceModal(null); 
-    showToast("Đã thêm tài nguyên thành công!");
-  };
-
-  const handleAddBoost = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
-    const newBoost = { id: "boost-" + Date.now(), ...boostForm };
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === boostModal) { 
-          return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] }; 
-        } 
-        return les; 
-      }) 
-    }));
-    await saveToStorage(newChapters); 
-    setBoostModal(null); 
-    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
-    showToast("Đã thêm tài liệu tăng cường!");
-  };
-
-  const handleAddDriveFile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
-    const newItem = { id: "drive-" + Date.now(), title: driveLinkForm.title, url: driveLinkForm.url, is_quiz: false, is_drive_file: true };
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === driveLinkModal.lessonId) { 
-          return { ...les, [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem] }; 
-        } 
-        return les; 
-      }) 
-    }));
-    await saveToStorage(newChapters); 
-    setDriveLinkModal(null); 
-    setDriveLinkForm({ title: "", url: "" }); 
-    showToast("Đã đính kèm file Drive!");
-  };
-
-  const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
-    if (!confirm("Xác nhận xóa tài nguyên này?")) return;
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
-    }));
-    await saveToStorage(newChapters);
-    if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
-      setViewResourcesModal(prev => prev ? { ...prev, items: (prev.items || []).filter(i => i?.id !== resId) } : null);
-    }
-  };
-
-  const handleEditResourceSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editResourceModal || !editResourceForm.title.trim()) return;
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === editResourceModal.lessonId) { 
-          return { ...les, [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) => 
-            r?.id === editResourceModal.item.id ? { 
-              ...r, 
-              title: editResourceForm.title, 
-              url: editResourceForm.url || r.url,
-              type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type
-            } : r 
-          )}; 
-        } 
-        return les; 
-      }) 
-    }));
-    await saveToStorage(newChapters);
-    setEditResourceModal(null); 
-    showToast("Đã cập nhật thông tin tài liệu!");
-  };
-
-  const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
-    try {
-      await supabase.from("profiles").update({ approval_status: status }).eq("id", studentId);
-    } catch {}
-    const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
-    setRegisteredStudents(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
-    }
-    showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!");
-  };
-
-  const handleDeleteStudent = async (studentId: string) => {
-    if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
-    try {
-      await supabase.from("profiles").delete().eq("id", studentId);
-    } catch {}
-    const updated = registeredStudents.filter(s => s.id !== studentId);
-    setRegisteredStudents(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
-    }
-    showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
-  };
-
-  const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
-    if (!confirm("Bạn có chắc chắn muốn XÓA ca học \"" + sessionTitle + "\" khỏi hệ thống?")) return;
-
-    try {
-      await supabase.from("sessions").delete().eq("id", sessionId);
-    } catch (err: any) {}
-
-    const updatedSessions = onlineSessions.filter(s => s.id !== sessionId);
-    setOnlineSessions(updatedSessions);
-
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
-    showToast("Đã xóa ca học \"" + sessionTitle + "\" thành công!");
-  };
-
-  const handleDeleteAttendanceDate = async (dateToDelete: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa cột ngày học \"" + dateToDelete + "\" khỏi bảng điểm danh?")) return;
-    const updatedDates = sessionDates.filter(d => d !== dateToDelete);
-    setSessionDates(updatedDates);
-      
-    const updatedAtt = attendanceRecords.filter(a => a.sessionDate !== dateToDelete);
-    setAttendanceRecords(updatedAtt);
-
-    const updatedSessions = onlineSessions.filter(s => s.date !== dateToDelete);
-    setOnlineSessions(updatedSessions);
-
-    try {
-      await supabase.from("sessions").delete().eq("date", dateToDelete);
-    } catch {}
-
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_attendance_dates", JSON.stringify(updatedDates));
-        localStorage.setItem("edunexus_attendance", JSON.stringify(updatedAtt));
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
-    showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
-  };
-
-  const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDateInput) return;
-    const parts = newDateInput.split("-");
-    const displayDate = parts.length === 3 ? parts[2] + "/" + parts[1] : newDateInput;
-
-    if (sessionDates.includes(displayDate)) {
-      return alert("Ngày học " + displayDate + " đã tồn tại trong danh sách!");
-    }
-
-    const updatedDates = [...sessionDates, displayDate];
-    setSessionDates(updatedDates);
-
-    let shiftTitle = "Ca học";
-    let finalTimeSlot = newDateTimeSlot.trim() || "19:30 - 21:00";
-
-    if (newDateShift !== "custom") {
-      const shiftObj = STANDARD_SHIFTS.find(s => s.id === newDateShift);
-      if (shiftObj) {
-        shiftTitle = shiftObj.name;
-        finalTimeSlot = shiftObj.timeSlot;
-      }
-    }
-
-    const nowIso = new Date().toISOString();
-    const newSessionMeta: any = {
-      id: "sess-" + Date.now(),
-      title: newDateTitle.trim() || ("Buổi học ngày " + displayDate),
-      date: displayDate,
-      isoDate: newDateInput,
-      shiftId: newDateShift,
-      shiftName: shiftTitle,
-      timeSlot: finalTimeSlot,
-      target_mode: newDateAudience,
-      audience: newDateAudience,
-      room: newDateAudience === "offline" ? "P.201 TCT" : "Zoom / Meet",
-      meetingUrl: newDateAudience !== "offline" ? "https://zoom.us/j/1234567890" : "",
-      created_at: nowIso,
-      createdAt: nowIso
-    };
-    const updatedSessions = [newSessionMeta, ...onlineSessions];
-    setOnlineSessions(updatedSessions);
-
-    await supabase.from("sessions").insert([newSessionMeta]);
-
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_attendance_dates", JSON.stringify(updatedDates));
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
-    setIsAddDateModalOpen(false);
-    setNewDateTitle("");
-    showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!");
-  };
-
-  const handleCreateOnlineSession = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
-      return alert("Vui lòng nhập đầy đủ tiêu đề và link phòng học!");
-    }
-    const guideImgs = newSessionForm.guideImagesText.split("\n").map(s => s.trim()).filter(Boolean);
-    const dispDate = newSessionForm.displayDate.trim() || "24/09";
-    const finalTimeSlot = newSessionForm.timeSlot.trim() || "19:30 - 21:00";
-    const nowIso = new Date().toISOString();
-
-    const newSession: any = {
-      id: "sess-" + Date.now(),
-      title: newSessionForm.title.trim(),
-      date: dispDate,
-      isoDate: newSessionForm.isoDate,
-      shiftId: newSessionForm.shiftId,
-      shiftName: newSessionForm.shiftName || "Ca học",
-      timeSlot: finalTimeSlot,
-      meetingUrl: newSessionForm.meetingUrl.trim(),
-      audience: newSessionForm.audience,
-      target_mode: newSessionForm.audience,
-      room: newSessionForm.audience === "offline" ? "P.201 TCT" : "Zoom / Google Meet",
-      guideImages: guideImgs.length > 0 ? guideImgs : ["https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80"],
-      created_at: nowIso,
-      createdAt: nowIso
-    };
-
-    const updatedSessions = [newSession, ...onlineSessions];
-    setOnlineSessions(updatedSessions);
-
-    let updatedDates = sessionDates;
-    if (!sessionDates.includes(dispDate)) {
-      updatedDates = [...sessionDates, dispDate];
-      setSessionDates(updatedDates);
-    }
-
-    await supabase.from("sessions").insert([newSession]);
-
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
-        localStorage.setItem("edunexus_attendance_dates", JSON.stringify(updatedDates));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
-
-    setNewSessionForm({ 
-      title: "", 
-      isoDate: newSessionForm.isoDate, 
-      displayDate: newSessionForm.displayDate, 
-      shiftId: "custom", 
-      shiftName: "Ca học", 
-      timeSlot: "19:30 - 21:00", 
-      meetingUrl: "", 
-      guideImagesText: "", 
-      audience: "all" 
-    });
-    showToast("Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!");
-  };
-
-  const handleToggleAttendance = (studentId: string, studentName: string, sessionDate: string) => {
-    const existing = attendanceRecords.find(a => a.studentId === studentId && a.sessionDate === sessionDate);
-    let updated: any[];
-    if (existing && existing.status === "present") {
-      updated = attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate));
-      showToast("Đã hủy điểm danh của " + studentName + " ngày " + sessionDate);
-    } else {
-      const newRec = {
-        id: "att-" + Date.now(),
-        studentId,
-        studentName,
-        sessionDate,
-        status: "present",
-        attendedAt: new Date().toISOString()
-      };
-      updated = [...attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate)), newRec];
-      showToast("Đã tích có mặt cho " + studentName + " ngày " + sessionDate + "!");
-    }
-    setAttendanceRecords(updated);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_attendance", JSON.stringify(updated));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
-  };
-
-  const handleSaveSolutionVideo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!videoModalExam) return;
-    const newExams = (practiceExams || []).map(ex => 
-      ex?.id === videoModalExam.id ? { ...ex, solutionVideoUrl: solutionVideoInput.trim() } : ex
-    );
-    await savePracticeExams(newExams);
-    try {
-      await supabase.from("practice_exams").update({ solutionVideoUrl: solutionVideoInput.trim() }).eq("id", videoModalExam.id);
-    } catch {}
-    setVideoModalExam(null);
-    setSolutionVideoInput("");
-    showToast("Đã lưu Video chữa bài thành công!");
-  };
-
-  const handleSendNotification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!notifTitle.trim() || !notifContent.trim()) return;
-    const newNotif = { id: "sys-" + Date.now(), title: notifTitle, content: notifContent, type: notifType, createdAt: new Date().toISOString() };
-    const updated = [newNotif, ...(sysNotifications || [])];
-    setSysNotifications(updated); 
-    
-    try {
-      await supabase.from("system_notifications").insert([newNotif]);
-    } catch (err) {}
-
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_system_notifications", JSON.stringify(updated)); 
-        window.dispatchEvent(new Event("storage"));
-      } catch (err) {}
-    }
-    setNotifTitle(""); 
-    setNotifContent(""); 
-    showToast("Đã phát thông báo thành công!");
-  };
-
-  const handleDeleteNotification = async (id: string) => {
-    if (!confirm("Thu hồi thông báo này?")) return;
-    const updated = (sysNotifications || []).filter(n => n?.id !== id);
-    setSysNotifications(updated); 
-    try {
-      await supabase.from("system_notifications").delete().eq("id", id);
-    } catch {}
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_system_notifications", JSON.stringify(updated)); 
-        window.dispatchEvent(new Event("storage"));
-      } catch (err) {}
-    }
-  };
-
-  // 3. TỔNG HỢP DANH SÁCH TOÀN BỘ ĐỀ THI (HỢP NHẤT TẤT CẢ NGUỒN TRÁNH VỀ 0)
+  // 4. DANH SÁCH TẤT CẢ ĐỀ THI ĐƯỢC BẢO TOÀN TỪ TẤT CẢ NGUỒN
   const allConsolidatedPracticeExams = useMemo(() => {
     const list: any[] = [...(practiceExams || [])];
-    const existingTitles = new Set(list.map(e => String(e.title || "").trim().toLowerCase()));
+    const existingTitles = new Set(list.map(e => normalizeExamTitle(e.title)));
 
-    // Quét thêm từ chapters nếu practice_exams bị thiếu
     (chapters || []).forEach(ch => {
       (ch?.lessons || []).forEach((ls: any) => {
         (ls?.test_quizzes || []).forEach((q: any) => {
-          const qTitle = String(q?.title || "").trim().toLowerCase();
-          if (qTitle && !existingTitles.has(qTitle)) {
-            existingTitles.add(qTitle);
+          const normTitle = normalizeExamTitle(q?.title);
+          if (normTitle && !existingTitles.has(normTitle)) {
+            existingTitles.add(normTitle);
             list.push({
-              id: q.id || ("quiz-" + qTitle),
+              id: q.id || ("quiz-" + normTitle),
               title: q.title || "Đề thi",
               category: q.category || "Luyện đề",
               duration_minutes: q.duration_minutes || 45,
@@ -1021,7 +575,7 @@ function AdminDashboardContent() {
       );
   }, [chapters, lessonModeTab]);
 
-  // 4. BẢNG XẾP HẠNG VÀ TÍNH ĐIỂM (SO KHỚP TOÀN DIỆN CHO TỪNG HỌC SINH)
+  // 5. BẢNG XẾP HẠNG TÍNH ĐIỂM HỌC SINH
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
@@ -1096,7 +650,7 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, registeredStudents, analyticsModeFilter]);
 
-  // 5. HIỂN THỊ ĐỀ THI & LẤY ĐIỂM CHUẨN XÁC THEO TÊN ĐỀ (BẮT ĐƯỢC CẢ KHI LÀM Ở ẨN DANH)
+  // 6. TÍNH ĐIỂM VÀ LƯỢT LÀM TỪNG ĐỀ (SO KHỚP CHUẨN XÁC THEO TÊN ĐỀ KHÔNG DẤU)
   const examsWithScoresData = useMemo(() => {
     let list = [...allConsolidatedPracticeExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -1104,13 +658,12 @@ function AdminDashboardContent() {
     }
 
     return list.map(ex => {
-      const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
+      const cleanExTitle = normalizeExamTitle(ex?.title);
 
-      // Bắt toàn bộ lần làm của học sinh (khớp ID hoặc khớp chính xác tên đề)
       const attempts = (allAttempts || []).filter(a => {
         if (!a) return false;
-        const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
-        const aTitle = String(a.examTitle || a.quizTitle || a.title || a.name || "").trim().toLowerCase();
+        const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
+        const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
         const matchTitle = cleanExTitle && aTitle && (
           aTitle === cleanExTitle || 
           cleanExTitle.includes(aTitle) || 
@@ -1144,53 +697,34 @@ function AdminDashboardContent() {
     });
   }, [allConsolidatedPracticeExams, practiceCategoryFilter, allAttempts]);
 
-  const getVietnameseLastName = (fullName: string): string => {
-    if (!fullName) return "";
-    const parts = fullName.trim().split(/\s+/);
-    return parts[parts.length - 1] || "";
-  };
-
   const sortedAndFilteredStudents = useMemo(() => {
     let list = [...registeredStudents];
-
     if (attendanceSearchText.trim()) {
       const q = attendanceSearchText.toLowerCase();
       list = list.filter(s => (s.full_name || "").toLowerCase().includes(q) || (s.email || "").toLowerCase().includes(q));
     }
-
     if (attendanceFilterMode !== "all") {
       list = list.filter(s => s.learning_mode === attendanceFilterMode || s.study_mode === attendanceFilterMode);
     }
-
-    if (attendanceSortAZ) {
-      list.sort((a, b) => {
-        const lastA = getVietnameseLastName(a.full_name);
-        const lastB = getVietnameseLastName(b.full_name);
-        const cmp = lastA.localeCompare(lastB, "vi", { sensitivity: "base" });
-        if (cmp !== 0) return cmp;
-        return (a.full_name || "").localeCompare(b.full_name || "", "vi", { sensitivity: "base" });
-      });
-    }
-
     return list;
-  }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
+  }, [registeredStudents, attendanceSearchText, attendanceFilterMode]);
 
   if (!mounted) {
     return (
       <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative">
-        <aside className="w-64 bg-[#1E40AF] border-r border-[#1E40AF] text-white/90 flex flex-col shrink-0 p-5">
+        <aside className="w-64 bg-[#1E40AF] text-white/90 p-5 flex flex-col shrink-0">
           <div className="flex items-center gap-3 mb-8"> 
-            <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">TCT</div>
+            <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-2xl flex items-center justify-center font-black">TCT</div>
             <div>
-              <h1 className="font-extrabold text-[15px] text-white tracking-tight leading-none">TÂM CHÍ TÀI</h1>
-              <p className="text-[9px] text-blue-200 font-bold tracking-widest mt-1 uppercase">Admin Panel</p>
+              <h1 className="font-extrabold text-sm text-white">TÂM CHÍ TÀI</h1>
+              <p className="text-[9px] text-blue-200 font-bold uppercase mt-0.5">Admin Panel</p>
             </div>
           </div>
         </aside>
-        <main className="flex-1 flex items-center justify-center bg-slate-50/50">
-          <div className="flex items-center gap-3 text-slate-600 font-bold text-sm bg-white px-6 py-4 rounded-2xl shadow-sm border border-slate-200/80">
-            <div className="w-5 h-5 border-2 border-[#1D4ED8] border-t-transparent rounded-full animate-spin"></div>
-            Đang khởi tạo hệ thống quản trị...
+        <main className="flex-1 flex items-center justify-center">
+          <div className="flex items-center gap-3 text-slate-600 font-bold text-xs bg-white px-5 py-3 rounded-2xl border border-slate-200">
+            <div className="w-4 h-4 border-2 border-[#1D4ED8] border-t-transparent rounded-full animate-spin"></div>
+            Đang tải dữ liệu quản trị...
           </div>
         </main>
       </div>
@@ -1198,29 +732,29 @@ function AdminDashboardContent() {
   }
 
   return (
-    <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20">
+    <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative">
       <AnimatePresence>
         {successToast && (
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-sm">
-            <CheckCircle2 className="w-5 h-5" /> {successToast}
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-xs">
+            <CheckCircle2 className="w-4 h-4" /> {successToast}
           </motion.div>
         )}
       </AnimatePresence>
 
-      <aside className="w-64 bg-[#1E40AF] border-r border-[#1E40AF] text-white/90 flex flex-col shrink-0 p-5 shadow-[4px_0_24px_rgba(15,23,42,0.05)] h-screen">
+      <aside className="w-64 bg-[#1E40AF] border-r border-[#1E40AF] text-white/90 flex flex-col shrink-0 p-5 shadow-sm h-screen">
         <div className="flex items-center gap-3 mb-6 shrink-0"> 
-          <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">TCT</div>
-          <div className="overflow-hidden">
-            <h1 className="font-extrabold text-[15px] text-white tracking-tight leading-none">TÂM CHÍ TÀI</h1>
-            <p className="text-[9px] text-blue-200 font-bold tracking-widest mt-1 uppercase">Admin Panel</p>
+          <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-2xl flex items-center justify-center font-black text-sm">TCT</div>
+          <div>
+            <h1 className="font-extrabold text-sm text-white leading-tight">TÂM CHÍ TÀI</h1>
+            <p className="text-[9px] text-blue-200 font-bold uppercase mt-0.5">Admin Panel</p>
           </div>
         </div>
 
-        <nav className="space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
+        <nav className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar">
           {[
-            { key: "lessons", label: "Nội dung bài học", icon: BookOpen },
             { key: "practice", label: "Hệ thống Luyện đề", icon: Target },
             { key: "analytics", label: "Điểm số & Xếp hạng", icon: BarChart2 },
+            { key: "lessons", label: "Nội dung bài học", icon: BookOpen },
             { key: "notifications", label: "Quản lý Thông báo", icon: Bell },
             { key: "students", label: "Quản lý Học viên & Duyệt", icon: UserCheck },
             { key: "online_schedule", label: "Lịch học & Điểm danh Online", icon: Calendar },
@@ -1233,10 +767,8 @@ function AdminDashboardContent() {
                 key={tab.key}
                 type="button"
                 onClick={() => handleSwitchTab(tab.key as any)}
-                className={"w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-[13px] font-bold transition-all duration-200 cursor-pointer " + (
-                  isActive 
-                    ? "bg-white text-[#1E40AF] shadow-sm font-black" 
-                    : "text-blue-100 hover:bg-white/10"
+                className={"w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer " + (
+                  isActive ? "bg-white text-[#1E40AF] shadow-xs font-black" : "text-blue-100 hover:bg-white/10"
                 )}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -1250,18 +782,18 @@ function AdminDashboardContent() {
           <button
             type="button"
             onClick={handleAdminLogout}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-rose-600/90 text-blue-100 hover:text-white border border-white/10 hover:border-rose-500/50 transition-all duration-200 font-bold text-xs shadow-xs cursor-pointer group"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-rose-600 text-blue-100 hover:text-white transition font-bold text-xs cursor-pointer"
           >
-            <LogOut className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform shrink-0" />
+            <LogOut className="w-4 h-4 shrink-0" />
             <span>Đăng xuất Admin</span>
           </button>
         </div>
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <header className="h-[64px] bg-white/80 backdrop-blur-2xl border-b border-slate-200/60 flex items-center px-8 shadow-sm shrink-0 justify-between sticky top-0 z-10">
-          <h2 className="font-extrabold text-slate-900 tracking-tight text-[15px]">
-            {activeTab === "lessons" ? "Quản lý nội dung bài học" : activeTab === "practice" ? "Quản trị Kho Luyện đề" : activeTab === "analytics" ? "Tổng hợp điểm & Xếp hạng" : activeTab === "notifications" ? "Phát Thông Báo Học Sinh" : activeTab === "students" ? "Quản lý Học viên & Duyệt Tài khoản" : activeTab === "reports" ? "Sổ Nhận Xét & Báo Cáo Phụ Huynh" : "Lịch học & Điểm danh Online"}
+        <header className="h-16 bg-white border-b border-slate-200/80 flex items-center px-8 shadow-2xs shrink-0 justify-between sticky top-0 z-10">
+          <h2 className="font-extrabold text-slate-900 text-sm">
+            {activeTab === "practice" ? "Quản trị Kho Luyện đề & Bảng Điểm" : activeTab === "analytics" ? "Tổng hợp Điểm & Xếp hạng" : activeTab === "lessons" ? "Nội dung bài học" : activeTab === "notifications" ? "Phát Thông Báo" : activeTab === "students" ? "Quản lý Học viên" : activeTab === "reports" ? "Báo cáo Phụ huynh" : "Lịch học & Điểm danh Online"}
           </h2>
           <div className="flex items-center gap-3">
             <button
@@ -1274,8 +806,8 @@ function AdminDashboardContent() {
             >
               <RefreshCw className="w-3.5 h-3.5" /> Đồng bộ dữ liệu
             </button>
-            <div className="flex items-center gap-2.5 px-4 py-2 bg-slate-50 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-600">
-              <GraduationCap className="w-4 h-4" /> Ban Giám Khảo
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600">
+              <GraduationCap className="w-4 h-4 text-blue-600" /> Ban Giám Khảo
             </div>
           </div>
         </header>
@@ -1283,23 +815,23 @@ function AdminDashboardContent() {
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
           {activeTab === "practice" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto">
-              <div className="flex gap-2.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm w-fit">
-                <button onClick={() => setPracticeSubTab("manage")} className={"px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all duration-300 cursor-pointer " + (practiceSubTab === "manage" ? "bg-[#1D4ED8] text-white shadow-sm" : "text-slate-500 hover:bg-slate-100/50")}>Kho Đề & Tải lên</button>
-                <button onClick={() => setPracticeSubTab("scores")} className={"px-5 py-2.5 rounded-[14px] text-[13px] font-bold transition-all duration-300 cursor-pointer " + (practiceSubTab === "scores" ? "bg-[#1D4ED8] text-white shadow-sm" : "text-slate-500 hover:bg-slate-100/50")}>Điểm & Xếp hạng Luyện đề</button>
+              <div className="flex gap-2.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-2xs w-fit">
+                <button onClick={() => setPracticeSubTab("manage")} className={"px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer " + (practiceSubTab === "manage" ? "bg-[#1D4ED8] text-white shadow-xs font-black" : "text-slate-500 hover:bg-slate-50")}>Kho Đề & Tải lên</button>
+                <button onClick={() => setPracticeSubTab("scores")} className={"px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer " + (practiceSubTab === "scores" ? "bg-[#1D4ED8] text-white shadow-xs font-black" : "text-slate-500 hover:bg-slate-50")}>Điểm & Xếp hạng Luyện đề</button>
               </div>
 
               {practiceSubTab === "manage" && (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div className="flex items-center justify-between">
-                    <div className="bg-white p-5 rounded-[24px] border border-slate-200 shadow-sm flex items-center gap-5 min-w-[200px]">
+                    <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-2xs flex items-center gap-4 min-w-[200px]">
                       <div className="w-12 h-12 bg-blue-50 text-[#1D4ED8] rounded-2xl flex items-center justify-center"><Target className="w-6 h-6"/></div>
                       <div>
-                        <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Tổng số đề</p>
+                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Tổng số đề</p>
                         <p className="text-2xl font-black text-slate-900">{allConsolidatedPracticeExams.length}</p>
                       </div>
                     </div>
-                    <label className="flex items-center gap-2 px-6 py-3.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[13px] font-bold rounded-2xl shadow-md transition-all cursor-pointer">
-                      <UploadCloud className="w-5 h-5" /> + Tải lên Đề thi mới (.docx / .pdf)
+                    <label className="flex items-center gap-2 px-5 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer">
+                      <UploadCloud className="w-4 h-4" /> + Tải lên Đề thi mới (.docx / .pdf)
                       <input type="file" accept=".docx,.pdf" className="hidden" onChange={(e) => {
                         if (e.target.files?.[0]) { setTestFile(e.target.files[0]); setUploadMode("practice"); setEditingExamData(null); }
                         e.target.value = "";
@@ -1307,137 +839,110 @@ function AdminDashboardContent() {
                     </label>
                   </div>
 
-                  <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                      <h3 className="font-extrabold text-slate-900 text-[15px]">Danh sách Kho Đề Thực Chiến (Đã khôi phục đầy đủ)</h3>
-                      <span className="text-xs text-slate-500 font-bold">* Click vào thẻ Phân Loại để chuyển đổi nhanh giữa các kỳ thi</span>
+                  <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
+                    <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                      <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">Danh sách Kho Đề Thực Chiến ({allConsolidatedPracticeExams.length} đề)</h3>
+                      <span className="text-[11px] text-slate-400 font-semibold">* Click vào phân loại để đổi nhanh danh mục</span>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left text-[13px]">
-                        <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-white text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100 font-bold">
                           <tr>
-                            <th className="py-4 px-5 font-bold w-1/4">Tiêu đề đề thi</th>
-                            <th className="py-4 px-3 font-bold text-center">Phân loại (Loại đề)</th>
-                            <th className="py-4 px-3 font-bold text-center">Phân hệ lớp</th>
-                            <th className="py-4 px-3 font-bold text-center">Làm lại bài</th>
-                            <th className="py-4 px-4 font-bold text-center">Quyền xem file</th>
-                            <th className="py-4 px-4 font-bold text-center">Link đề Drive</th>
-                            <th className="py-4 px-4 font-bold text-center text-amber-700">Video chữa bài</th>
-                            <th className="py-4 px-5 font-bold text-right">Thao tác</th>
+                            <th className="py-3.5 px-5 w-1/4">Tiêu đề đề thi</th>
+                            <th className="py-3.5 px-3 text-center">Phân loại</th>
+                            <th className="py-3.5 px-3 text-center">Phân hệ lớp</th>
+                            <th className="py-3.5 px-3 text-center">Làm lại bài</th>
+                            <th className="py-3.5 px-4 text-center">Quyền xem file</th>
+                            <th className="py-3.5 px-4 text-center">Link đề Drive</th>
+                            <th className="py-3.5 px-4 text-center text-amber-700">Video chữa</th>
+                            <th className="py-3.5 px-5 text-right">Thao tác</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100/50">
+                        <tbody className="divide-y divide-slate-100/60 font-semibold">
                           {allConsolidatedPracticeExams.map((ex, exIdx) => (
                             <tr key={ex?.id || exIdx} className="hover:bg-slate-50/50 transition-colors bg-white">
-                              <td className="py-4 px-5 font-bold text-slate-800 truncate max-w-[220px]" title={ex?.title}>
+                              <td className="py-3.5 px-5 font-bold text-slate-800 truncate max-w-[220px]" title={ex?.title}>
                                 {ex?.title || "Đề thi"}
                               </td>
-                              <td className="py-4 px-3 text-center">
+                              <td className="py-3.5 px-3 text-center">
                                 <div className="relative inline-block">
                                   <select
                                     value={ex?.category || "Luyện đề"}
                                     onChange={(e) => handleChangeExamCategory(ex.id, e.target.value)}
-                                    className="appearance-none px-3 py-1.5 pr-6 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-black text-[11px] uppercase rounded-xl tracking-wider cursor-pointer outline-none transition"
+                                    className="appearance-none px-2.5 py-1 pr-6 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-black text-[10px] uppercase rounded-lg tracking-wider cursor-pointer outline-none transition"
                                   >
                                     {EXAM_CATEGORIES.map(cat => (
                                       <option key={cat} value={cat}>{cat}</option>
                                     ))}
                                   </select>
-                                  <ChevronDown className="w-3 h-3 text-indigo-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                  <ChevronDown className="w-3 h-3 text-indigo-500 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                                 </div>
                               </td>
-                              <td className="py-4 px-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    const nextMode = ex.target_mode === "all" ? "online" : ex.target_mode === "online" ? "offline" : "all";
-                                    const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, target_mode: nextMode } : e);
-                                    await savePracticeExams(newExams);
-                                    try {
-                                      await supabase.from("practice_exams").update({ target_mode: nextMode }).eq("id", ex.id);
-                                    } catch {}
-                                    showToast("Đã chuyển đề sang: " + (nextMode === "online" ? "Lớp Online" : nextMode === "offline" ? "Lớp Offline" : "Cả hai lớp"));
-                                  }}
-                                  title="Click để chuyển phân hệ: Online -> Offline -> Cả hai"
-                                  className="cursor-pointer"
-                                >
-                                  <span className={"px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border " + (
-                                    ex.target_mode === "online"
-                                      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                      : ex.target_mode === "offline"
-                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                      : "bg-blue-50 text-[#1D4ED8] border-blue-200"
-                                  )}>
-                                    {ex.target_mode === "online" ? "Online" : ex.target_mode === "offline" ? "Offline" : "Cả 2"}
-                                  </span>
-                                </button>
+                              <td className="py-3.5 px-3 text-center">
+                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border bg-blue-50 text-[#1D4ED8] border-blue-200">
+                                  {ex.target_mode === "online" ? "Online" : ex.target_mode === "offline" ? "Offline" : "Cả 2"}
+                                </span>
                               </td>
-                              <td className="py-4 px-3 text-center">
+                              <td className="py-3.5 px-3 text-center">
                                 <button onClick={async () => {
                                   const newAllow = !(ex?.allowRetake ?? true);
                                   const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowRetake: newAllow } : e);
                                   await savePracticeExams(newExams);
-                                  try {
-                                    await supabase.from("practice_exams").update({ allowRetake: newAllow }).eq("id", ex.id);
-                                  } catch {}
+                                  try { await supabase.from("practice_exams").update({ allowRetake: newAllow }).eq("id", ex.id); } catch {}
                                   showToast("Đã thay đổi quyền làm lại.");
                                 }} className="cursor-pointer">
-                                  {(ex?.allowRetake ?? true) ? <ToggleRight className="w-8 h-8 text-emerald-500 mx-auto" /> : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
+                                  {(ex?.allowRetake ?? true) ? <ToggleRight className="w-7 h-7 text-emerald-500 mx-auto" /> : <ToggleLeft className="w-7 h-7 text-slate-300 mx-auto" />}
                                 </button>
                               </td>
-                              <td className="py-4 px-4 text-center">
+                              <td className="py-3.5 px-4 text-center">
                                 <button onClick={async () => {
                                   const newAllow = !(ex?.allowViewFile ?? true);
                                   const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowViewFile: newAllow } : e);
                                   await savePracticeExams(newExams);
-                                  try {
-                                    await supabase.from("practice_exams").update({ allowViewFile: newAllow }).eq("id", ex.id);
-                                  } catch {}
+                                  try { await supabase.from("practice_exams").update({ allowViewFile: newAllow }).eq("id", ex.id); } catch {}
                                   showToast("Đã cập nhật quyền xem file.");
                                 }} className="cursor-pointer">
-                                  {(ex?.allowViewFile ?? true) ? <ToggleRight className="w-8 h-8 text-[#1D4ED8] mx-auto" /> : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
+                                  {(ex?.allowViewFile ?? true) ? <ToggleRight className="w-7 h-7 text-[#1D4ED8] mx-auto" /> : <ToggleLeft className="w-7 h-7 text-slate-300 mx-auto" />}
                                 </button>
                               </td>
-                              <td className="py-4 px-4 text-center">
+                              <td className="py-3.5 px-4 text-center">
                                 <button onClick={async () => {
                                   const url = prompt("Nhập link Google Drive mới:", ex?.driveUrl || "");
                                   if (url !== null) {
                                     const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, driveUrl: url } : e);
                                     await savePracticeExams(newExams);
-                                    try {
-                                      await supabase.from("practice_exams").update({ driveUrl: url }).eq("id", ex.id);
-                                    } catch {}
+                                    try { await supabase.from("practice_exams").update({ driveUrl: url }).eq("id", ex.id); } catch {}
                                     showToast("Đã cập nhật link Drive.");
                                   }
-                                }} className="text-[#1D4ED8] hover:underline flex items-center justify-center gap-1.5 font-semibold text-xs mx-auto cursor-pointer">
-                                  <LinkIcon className="w-3.5 h-3.5" /> {ex?.driveUrl ? "Sửa link" : "Thêm link"}
+                                }} className="text-[#1D4ED8] hover:underline flex items-center justify-center gap-1 font-semibold text-[11px] mx-auto cursor-pointer">
+                                  <LinkIcon className="w-3 h-3" /> {ex?.driveUrl ? "Sửa link" : "Thêm link"}
                                 </button>
                               </td>
-                              <td className="py-4 px-4 text-center">
+                              <td className="py-3.5 px-4 text-center">
                                 <button
                                   onClick={() => {
                                     setVideoModalExam(ex);
                                     setSolutionVideoInput(ex?.solutionVideoUrl || ex?.videoUrl || "");
                                   }}
-                                  className={"px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto cursor-pointer " + (
+                                  className={"px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 mx-auto cursor-pointer " + (
                                     (ex?.solutionVideoUrl || ex?.videoUrl)
-                                      ? "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100" 
+                                      ? "bg-amber-50 text-amber-800 border border-amber-200" 
                                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                                   )}
                                 >
-                                  <Video className="w-3.5 h-3.5 text-amber-600" />
+                                  <Video className="w-3 h-3 text-amber-600" />
                                   <span>{(ex?.solutionVideoUrl || ex?.videoUrl) ? "Đã có video" : "+ Gắn video"}</span>
                                 </button>
                               </td>
-                              <td className="py-4 px-5 text-right">
+                              <td className="py-3.5 px-5 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     onClick={() => {
-                                      const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
+                                      const cleanExTitle = normalizeExamTitle(ex?.title);
                                       const attemptsForExam = (allAttempts || []).filter(a => {
                                         if (!a) return false;
-                                        const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
-                                        const aTitle = String(a.examTitle || a.quizTitle || a.title || a.name || "").trim().toLowerCase();
+                                        const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
+                                        const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
                                         const matchTitle = cleanExTitle && aTitle && (
                                           aTitle === cleanExTitle || 
                                           cleanExTitle.includes(aTitle) || 
@@ -1453,21 +958,9 @@ function AdminDashboardContent() {
                                       });
                                     }}
                                     className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
-                                    title="Xem bảng điểm học sinh làm đề này kiểu Azota"
+                                    title="Xem bảng điểm học sinh làm đề này"
                                   >
                                     <BarChart2 className="w-4 h-4" />
-                                  </button>
-
-                                  <button
-                                    onClick={() => {
-                                      setEditingExamData(ex);
-                                      setUploadMode("practice");
-                                      setTestFile(new File(["dummy"], String(ex?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
-                                    }}
-                                    className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition cursor-pointer"
-                                    title="Sửa cấu trúc câu hỏi, lời giải & đáp án"
-                                  >
-                                    <FileSignature className="w-4 h-4" />
                                   </button>
 
                                   <button
@@ -1479,8 +972,8 @@ function AdminDashboardContent() {
                                         isHomework: false
                                       });
                                     }}
-                                    className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                    title="Làm thử để kiểm tra đề & KaTeX"
+                                    className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                                    title="Làm thử bài thi"
                                   >
                                     <Play className="w-3 h-3 fill-indigo-600" /> Test
                                   </button>
@@ -1488,11 +981,9 @@ function AdminDashboardContent() {
                                     if (confirm("Xóa đề này khỏi kho?")) {
                                       const updated = practiceExams.filter(e => e?.id !== ex?.id);
                                       await savePracticeExams(updated);
-                                      try {
-                                        await supabase.from("practice_exams").delete().eq("id", ex.id);
-                                      } catch {}
+                                      try { await supabase.from("practice_exams").delete().eq("id", ex.id); } catch {}
                                     } 
-                                  }} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer">
+                                  }} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer">
                                     <Trash2 className="w-4 h-4"/>
                                   </button>
                                 </div>
@@ -1506,99 +997,124 @@ function AdminDashboardContent() {
                 </div>
               )}
 
-              {/* BẢNG ĐIỂM TỪNG ĐỀ THI - BẤM VÀO LÀ HIỆN DANH SÁCH TỪNG HỌC SINH LÀM ĐỀ ĐÓ KIỂU AZOTA */}
               {practiceSubTab === "scores" && (
-                <div className="space-y-6">
-                  <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2.5">
+                <div className="space-y-5">
+                  <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
                       <Filter className="w-4 h-4 text-[#1D4ED8]"/> Bộ lọc danh mục đề thi
                     </h3>
                     <select 
                       value={practiceCategoryFilter} 
                       onChange={e => setPracticeCategoryFilter(e.target.value)} 
-                      className="px-5 py-3 text-[13px] font-bold text-[#1D4ED8] bg-blue-50/50 border border-blue-100 rounded-2xl focus:border-blue-500 outline-none transition cursor-pointer"
+                      className="px-4 py-2 text-xs font-bold text-[#1D4ED8] bg-blue-50 border border-blue-100 rounded-xl outline-none cursor-pointer"
                     >
                       <option value="Tất cả danh mục">Tất cả danh mục</option>
                       {EXAM_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
                   </div>
 
-                  <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                  <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
+                    <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                       <div>
-                        <h3 className="font-extrabold text-slate-900 text-[15px]">
+                        <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">
                           Danh Sách Đề Thi & Bảng Điểm Học Sinh ({practiceCategoryFilter})
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1">
-                          * Bấm vào bất kỳ đề thi nào để mở toàn bộ học sinh đã làm đề thi đó.
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          * Bấm vào bất kỳ đề thi nào để mở toàn bộ học sinh đã nộp bài đề thi đó.
                         </p>
                       </div>
-                      <span className="text-xs text-slate-500 font-bold">{examsWithScoresData.length} đề thi</span>
+                      <span className="text-xs text-slate-400 font-bold">{examsWithScoresData.length} đề thi</span>
                     </div>
 
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left text-[13px]">
-                        <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-white text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100 font-bold">
                           <tr>
-                            <th className="py-4 px-6 w-16 font-bold text-center">STT</th>
-                            <th className="py-4 px-6 font-bold min-w-[240px]">Tên đề thi</th>
-                            <th className="py-4 px-6 font-bold text-center">Phân loại</th>
-                            <th className="py-4 px-6 font-bold text-center">Số HS làm bài</th>
-                            <th className="py-4 px-6 font-bold text-center text-blue-700">Điểm TB cả lớp</th>
-                            <th className="py-4 px-6 font-bold text-center text-emerald-700">Điểm cao nhất</th>
-                            <th className="py-4 px-6 font-bold text-right">Chi tiết</th>
+                            <th className="py-3.5 px-5 w-14 text-center">STT</th>
+                            <th className="py-3.5 px-5 min-w-[240px]">Tên đề thi</th>
+                            <th className="py-3.5 px-5 text-center">Phân loại</th>
+                            <th className="py-3.5 px-5 text-center">Số HS làm bài</th>
+                            <th className="py-3.5 px-5 text-center text-blue-700">Điểm TB cả lớp</th>
+                            <th className="py-3.5 px-5 text-center text-emerald-700">Điểm cao nhất</th>
+                            <th className="py-3.5 px-5 text-right">Chi tiết</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100/50">
+                        <tbody className="divide-y divide-slate-100/60 font-semibold">
                           {examsWithScoresData.map((ex, i) => (
                             <tr 
                               key={ex.id || i} 
                               onClick={() => {
+                                const cleanExTitle = normalizeExamTitle(ex?.title);
+                                const attemptsForExam = (allAttempts || []).filter(a => {
+                                  if (!a) return false;
+                                  const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
+                                  const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
+                                  const matchTitle = cleanExTitle && aTitle && (
+                                    aTitle === cleanExTitle || 
+                                    cleanExTitle.includes(aTitle) || 
+                                    aTitle.includes(cleanExTitle)
+                                  );
+                                  return matchId || matchTitle;
+                                });
+
                                 setAzotaScoreViewModal({
                                   isOpen: true,
                                   examTitle: ex.title,
-                                  attempts: ex.attempts || []
+                                  attempts: attemptsForExam
                                 });
                               }}
-                              className="hover:bg-blue-50/40 transition-colors bg-white cursor-pointer group"
+                              className="hover:bg-blue-50/30 transition-colors bg-white cursor-pointer group"
                             >
-                              <td className="py-4 px-6 font-bold text-slate-400 text-center">{i + 1}</td>
-                              <td className="py-4 px-6 font-bold text-slate-800 group-hover:text-[#1D4ED8] transition-colors">
+                              <td className="py-3.5 px-5 font-bold text-slate-400 text-center">{i + 1}</td>
+                              <td className="py-3.5 px-5 font-bold text-slate-800 group-hover:text-[#1D4ED8] transition-colors">
                                 <div>{ex.title}</div>
                                 <span className="text-[10px] text-slate-400 font-normal">{ex.duration_minutes || 45} phút</span>
                               </td>
-                              <td className="py-4 px-6 text-center">
-                                <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[10px] font-black uppercase">
+                              <td className="py-3.5 px-5 text-center">
+                                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-[10px] font-black uppercase">
                                   {ex.category || "Luyện đề"}
                                 </span>
                               </td>
-                              <td className="py-4 px-6 text-center font-bold text-slate-700">
+                              <td className="py-3.5 px-5 text-center font-bold text-slate-700">
                                 {ex.uniqueStudentCount} bạn ({ex.totalSubmissions} lượt)
                               </td>
-                              <td className="py-4 px-6 text-center">
+                              <td className="py-3.5 px-5 text-center">
                                 <span className="px-2.5 py-1 bg-blue-50 text-blue-700 font-bold rounded-lg border border-blue-100">
                                   {ex.avgScore}
                                 </span>
                               </td>
-                              <td className="py-4 px-6 text-center">
+                              <td className="py-3.5 px-5 text-center">
                                 <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-100">
                                   {ex.maxScore}
                                 </span>
                               </td>
-                              <td className="py-4 px-6 text-right">
+                              <td className="py-3.5 px-5 text-right">
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    const cleanExTitle = normalizeExamTitle(ex?.title);
+                                    const attemptsForExam = (allAttempts || []).filter(a => {
+                                      if (!a) return false;
+                                      const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
+                                      const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
+                                      const matchTitle = cleanExTitle && aTitle && (
+                                        aTitle === cleanExTitle || 
+                                        cleanExTitle.includes(aTitle) || 
+                                        aTitle.includes(cleanExTitle)
+                                      );
+                                      return matchId || matchTitle;
+                                    });
+
                                     setAzotaScoreViewModal({
                                       isOpen: true,
                                       examTitle: ex.title,
-                                      attempts: ex.attempts || []
+                                      attempts: attemptsForExam
                                     });
                                   }}
-                                  className="px-3.5 py-1.5 bg-white border border-slate-200 hover:border-[#1D4ED8] hover:text-[#1D4ED8] text-slate-600 font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+                                  className="px-3 py-1 bg-white border border-slate-200 hover:border-[#1D4ED8] hover:text-[#1D4ED8] text-slate-600 font-bold text-xs rounded-xl shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
                                 >
-                                  <Eye className="w-3.5 h-3.5"/> Xem điểm học sinh
+                                  <Eye className="w-3.5 h-3.5"/> Xem điểm
                                 </button>
                               </td>
                             </tr>
@@ -1612,22 +1128,52 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* CÁC TAB KHÁC GIỮ NGUYÊN 100% */}
-          {activeTab === "lessons" && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
-                <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
-                  <button onClick={() => setLessonModeTab("all")} className={"px-4 py-2.5 rounded-xl font-extrabold text-xs transition cursor-pointer " + (lessonModeTab === "all" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-600")}>Tất cả bài học</button>
-                  <button onClick={() => setLessonModeTab("offline")} className={"px-4 py-2.5 rounded-xl font-extrabold text-xs transition cursor-pointer " + (lessonModeTab === "offline" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-600")}>Bài học Offline ({offlineLessonCount})</button>
-                  <button onClick={() => setLessonModeTab("online")} className={"px-4 py-2.5 rounded-xl font-extrabold text-xs transition cursor-pointer " + (lessonModeTab === "online" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600")}>Bài học Online ({onlineLessonCount})</button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setCreateModal({ type: "chapter" })} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer"><FolderPlus className="w-4 h-4 text-[#1D4ED8]" /> Thêm Chương</button>
-                  <button onClick={() => { if (!chapters || chapters.length === 0) return alert("Vui lòng thêm Chương trước!"); setCreateModal({ type: "lesson", chapterId: chapters[0].id }); }} className="flex items-center gap-2 px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer"><Plus className="w-4 h-4" /> Thêm Bài học mới</button>
+          {activeTab === "analytics" && (
+            <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0">
+                  <button onClick={() => setAnalyticsModeFilter("all")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "all" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-600")}>Toàn bộ học sinh</button>
+                  <button onClick={() => setAnalyticsModeFilter("online")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "online" ? "bg-white text-indigo-700 shadow-2xs" : "text-slate-600")}>Học sinh Online</button>
+                  <button onClick={() => setAnalyticsModeFilter("offline")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "offline" ? "bg-white text-emerald-700 shadow-2xs" : "text-slate-600")}>Học sinh Offline</button>
                 </div>
               </div>
 
-              <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                  <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2"><Trophy className="w-4 h-4 text-amber-500" /> Bảng điểm & Xếp hạng học viên TCT</h3>
+                  <span className="text-xs text-slate-400 font-bold">{analyticsData.length} học viên</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-white text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-200 font-bold">
+                      <tr>
+                        <th className="py-3 px-3 font-bold text-center w-14">Hạng</th>
+                        <th className="py-3 px-4 font-bold min-w-[160px]">Học sinh</th>
+                        <th className="py-3 px-3 font-bold text-center w-24">Phân hệ</th>
+                        <th className="py-3 px-3 font-bold text-center w-24">Lượt làm</th>
+                        <th className="py-3 px-4 font-bold text-center text-[#1D4ED8] w-28">Tổng kết</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-semibold">
+                      {analyticsData.map((st, idx) => (
+                        <tr key={st.id || idx} className="hover:bg-slate-50/60 transition-colors bg-white">
+                          <td className="py-2.5 px-3 text-center font-black">{idx + 1}</td>
+                          <td className="py-2.5 px-4 font-bold text-slate-800"><div>{st.name}</div><span className="text-[10px] text-slate-400 font-normal">{st.school || "THPT"}</span></td>
+                          <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">{st.mode === "online" ? "Online" : "Offline"}</span></td>
+                          <td className="py-2.5 px-3 text-center font-medium text-slate-600">{st.totalAttempts} lượt</td>
+                          <td className="py-2.5 px-4 text-center"><span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "lessons" && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden w-full">
                 <div className="overflow-x-auto custom-scrollbar">
                   <table className="w-full min-w-[1100px] text-left border-collapse">
                     <thead className="bg-[#1D4ED8] text-white text-[11px] font-black uppercase tracking-wider">
@@ -1646,7 +1192,7 @@ function AdminDashboardContent() {
                         <th className="py-4 px-4 text-center w-24">Thao tác</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100/80">
+                    <tbody className="divide-y divide-slate-100/80 font-semibold">
                       {flattenedLessons.map((les: any, idx: number) => (
                         <tr key={les?.id || idx} className="hover:bg-slate-50/50 transition-colors bg-white">
                           <td className="py-4 px-4 text-center text-slate-500 font-bold text-xs border-r border-slate-100">{idx + 1}</td>
@@ -1670,111 +1216,9 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {activeTab === "analytics" && (
-            <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0">
-                  <button onClick={() => setAnalyticsModeFilter("all")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "all" ? "bg-white text-[#1D4ED8] shadow-xs" : "text-slate-600")}>Toàn bộ học sinh</button>
-                  <button onClick={() => setAnalyticsModeFilter("online")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "online" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600")}>Học sinh Online</button>
-                  <button onClick={() => setAnalyticsModeFilter("offline")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "offline" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600")}>Học sinh Offline</button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
-                    <button onClick={() => setRankingScope("course")} className={"px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer " + (rankingScope === "course" ? "bg-white text-[#1D4ED8]" : "text-slate-500")}>Toàn khóa</button>
-                    <button onClick={() => setRankingScope("chapter")} className={"px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer " + (rankingScope === "chapter" ? "bg-white text-[#1D4ED8]" : "text-slate-500")}>Từng chương</button>
-                    <button onClick={() => setRankingScope("lesson")} className={"px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer " + (rankingScope === "lesson" ? "bg-white text-[#1D4ED8]" : "text-slate-500")}>Từng bài</button>
-                  </div>
-                  {(rankingScope === "chapter" || rankingScope === "lesson") && (
-                    <select value={selectedChapterId} onChange={e => { setSelectedChapterId(e.target.value); setSelectedLessonId("all"); }} className="px-3 py-1.5 text-xs font-bold text-[#1D4ED8] bg-blue-50 border border-blue-200 rounded-xl outline-none cursor-pointer">
-                      <option value="all" disabled>-- Chọn Chương --</option>
-                      {(chapters || []).map(c => <option key={c?.id} value={c?.id}>{c?.title}</option>)}
-                    </select>
-                  )}
-                  {rankingScope === "lesson" && selectedChapterId !== "all" && (
-                    <select value={selectedLessonId} onChange={e => setSelectedLessonId(e.target.value)} className="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl outline-none cursor-pointer">
-                      <option value="all" disabled>-- Chọn Bài học --</option>
-                      {activeLessons.map((l: any) => <option key={l?.id} value={l?.id}>{l?.title}</option>)}
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-                <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                  <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2"><Trophy className="w-4 h-4 text-amber-500" /> Bảng điểm & Xếp hạng học viên TCT</h3>
-                  <span className="text-xs text-slate-500 font-bold">{analyticsData.length} học viên</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                      <tr>
-                        <th className="py-3 px-3 font-bold text-center w-14">Hạng</th>
-                        <th className="py-3 px-4 font-bold min-w-[160px]">Học sinh</th>
-                        <th className="py-3 px-3 font-bold text-center w-24">Phân hệ</th>
-                        <th className="py-3 px-3 font-bold text-center w-24">Lượt làm</th>
-                        <th className="py-3 px-4 font-bold text-center text-[#1D4ED8] w-28">Tổng kết</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {analyticsData.map((st, idx) => (
-                        <tr key={st.id || idx} className="hover:bg-slate-50/60 transition-colors bg-white">
-                          <td className="py-2.5 px-3 text-center font-black">{idx + 1}</td>
-                          <td className="py-2.5 px-4 font-bold text-slate-800"><div>{st.name}</div><span className="text-[10px] text-slate-400 font-normal">{st.school || "THPT"}</span></td>
-                          <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">{st.mode === "online" ? "Online" : "Offline"}</span></td>
-                          <td className="py-2.5 px-3 text-center font-medium text-slate-600">{st.totalAttempts} lượt</td>
-                          <td className="py-2.5 px-4 text-center"><span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "notifications" && (
-            <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-300">
-              <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-fit">
-                <h3 className="font-extrabold text-slate-900 text-[15px] mb-5 flex items-center gap-2"><Send className="w-4 h-4 text-[#1D4ED8]" /> Soạn thông báo mới</h3>
-                <form onSubmit={handleSendNotification} className="space-y-4">
-                  <div><label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề thông báo</label><input type="text" value={notifTitle} onChange={e => setNotifTitle(e.target.value)} required placeholder="VD: Lịch học tuần này..." className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" /></div>
-                  <div><label className="block text-xs font-bold text-slate-700 mb-1.5">Nội dung chi tiết</label><textarea rows={4} value={notifContent} onChange={e => setNotifContent(e.target.value)} required placeholder="Nội dung gửi cho học sinh..." className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none resize-none custom-scrollbar" /></div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân loại</label>
-                    <select value={notifType} onChange={e => setNotifType(e.target.value as any)} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white">
-                      <option value="teacher">Giáo viên</option><option value="urgent">Khẩn cấp / Hạn chót</option><option value="exam">Nhắc nhở bài kiểm tra</option>
-                    </select>
-                  </div>
-                  <button type="submit" className="w-full mt-4 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-[13px] rounded-2xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"><Send className="w-4 h-4" /> Gửi thông báo tới toàn bộ học sinh</button>
-                </form>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-[calc(100vh-150px)]">
-                <h3 className="font-extrabold text-slate-900 text-[15px] mb-5 flex items-center gap-2 shrink-0"><List className="w-4 h-4 text-[#1D4ED8]" /> Lịch sử gửi ({(sysNotifications || []).length})</h3>
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
-                  {sysNotifications.map(notif => (
-                    <div key={notif.id} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl relative group">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 mb-1.5"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-blue-100 text-[#1D4ED8]">{notif.type}</span><span className="text-[10px] text-slate-400 font-medium">{new Date(notif.createdAt).toLocaleString('vi-VN')}</span></div>
-                        <button onClick={() => handleDeleteNotification(notif.id)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                      <h4 className="font-bold text-slate-800 text-[13px]">{notif.title}</h4><p className="text-xs text-slate-500 mt-1 line-clamp-2">{notif.content}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
           {activeTab === "students" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="bg-white/90 p-5 rounded-3xl border border-slate-200/80 shadow-xs"><span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Tổng học viên</span><span className="text-2xl font-black text-slate-900 mt-1 block">{registeredStudents.length}</span></div>
-                <div className="bg-white/90 p-5 rounded-3xl border border-slate-200/80 shadow-xs"><span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider block">Học sinh Online</span><span className="text-2xl font-black text-[#1D4ED8] mt-1 block">{registeredStudents.filter(s => s.learning_mode === "online" || s.study_mode === "online").length}</span></div>
-                <div className="bg-white/90 p-5 rounded-3xl border border-slate-200/80 shadow-xs"><span className="text-[11px] font-bold text-purple-500 uppercase tracking-wider block">Học sinh Offline</span><span className="text-2xl font-black text-purple-700 mt-1 block">{registeredStudents.filter(s => s.learning_mode === "offline" || s.study_mode === "offline").length}</span></div>
-                <div className="bg-white/90 p-5 rounded-3xl border border-amber-200 shadow-xs bg-amber-50/40"><span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider block">Chờ xét duyệt</span><span className="text-2xl font-black text-amber-600 mt-1 block">{registeredStudents.filter(s => s.approval_status === "pending").length}</span></div>
-              </div>
-
-              <div className="bg-white/90 rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-[#1D4ED8] text-white text-[11px] uppercase tracking-wider font-black">
@@ -1825,36 +1269,36 @@ function AdminDashboardContent() {
         </div>
       </main>
 
-      {/* MODAL XEM ĐIỂM AZOTA CỦA ĐỀ THI */}
+      {/* MODAL XEM CHI TIẾT ĐIỂM HỌC SINH TỪNG ĐỀ (KIỂU AZOTA) */}
       <AnimatePresence>
         {azotaScoreViewModal.isOpen && (
-          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden text-left">
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
                 <div>
-                  <span className="px-3 py-1 bg-blue-100 text-[#1D4ED8] rounded-full text-xs font-black uppercase tracking-wider">Giao diện Chấm thi Azota</span>
-                  <h3 className="font-black text-slate-900 text-lg mt-1.5 flex items-center gap-2">{azotaScoreViewModal.examTitle}</h3>
+                  <span className="px-2.5 py-1 bg-blue-100 text-[#1D4ED8] rounded-full text-[10px] font-black uppercase tracking-wider">Bảng Điểm Làm Bài Thi</span>
+                  <h3 className="font-black text-slate-900 text-base mt-1 flex items-center gap-2">{azotaScoreViewModal.examTitle}</h3>
                 </div>
-                <button onClick={() => setAzotaScoreViewModal({ isOpen: false, examTitle: "", attempts: [] })} className="p-2 text-slate-400 hover:text-rose-500 rounded-xl cursor-pointer"><X className="w-5 h-5" /></button>
+                <button onClick={() => setAzotaScoreViewModal({ isOpen: false, examTitle: "", attempts: [] })} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-xl cursor-pointer"><X className="w-5 h-5" /></button>
               </div>
 
-              <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/40">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="p-5 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
                   {azotaScoreViewModal.attempts.map((att: any, idx: number) => {
                     const fullName = att.studentName || att.full_name || att.username || "Học sinh";
-                    const scoreNum = Number(att.score ?? 0);
+                    const scoreNum = Number(att.score ?? att.points ?? 0);
                     return (
-                      <div key={att.id || idx} className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex flex-col justify-between">
+                      <div key={att.id || idx} className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-2xs flex flex-col justify-between">
                         <div>
-                          <h4 className="font-extrabold text-slate-900 text-[14px] leading-tight">{fullName}</h4>
-                          <span className="text-xs font-black text-emerald-700 block mt-1">Điểm: {scoreNum.toFixed(2)} / 10</span>
-                          <span className="text-[11px] text-slate-400 mt-1 block">Nộp lúc: {new Date(att.createdAt || Date.now()).toLocaleString("vi-VN")}</span>
+                          <h4 className="font-extrabold text-slate-900 text-[13px] leading-tight truncate">{fullName}</h4>
+                          <span className="text-xs font-black text-emerald-700 block mt-1">Điểm: {scoreNum.toFixed(1)} / 10</span>
+                          <span className="text-[10px] text-slate-400 mt-1 block">Nộp lúc: {new Date(att.createdAt || att.created_at || Date.now()).toLocaleString("vi-VN")}</span>
                         </div>
                       </div>
                     );
                   })}
                   {azotaScoreViewModal.attempts.length === 0 && (
-                    <div className="col-span-full py-16 text-center text-slate-400 font-medium">Chưa có lượt nộp bài nào của học sinh cho đề thi này.</div>
+                    <div className="col-span-full py-16 text-center text-slate-400 font-medium text-xs">Chưa có lượt nộp bài nào của học sinh cho đề thi này.</div>
                   )}
                 </div>
               </div>
@@ -1862,33 +1306,6 @@ function AdminDashboardContent() {
           </div>
         )}
       </AnimatePresence>
-
-      {/* MODAL CONFIG ĐỀ THI AZOTA */}
-      {testFile && (
-        <AzotaExamConfigModal 
-          isOpen={true} 
-          file={testFile}
-          mode={uploadMode} 
-          onClose={() => { setTestFile(null); setEditingExamData(null); }} 
-          onSave={async (examData: any) => {
-            const newExam = { 
-              id: "prac-" + Date.now(), 
-              title: examData.title, 
-              category: examData.category || "Giữa Kì 1", 
-              duration_minutes: examData.duration_minutes || 45, 
-              allowRetake: true, 
-              allowViewFile: true, 
-              data: examData.sections, 
-              created_at: new Date().toISOString()
-            };
-            const updated = [newExam, ...practiceExams];
-            await savePracticeExams(updated);
-            try { await supabase.from("practice_exams").upsert(newExam); } catch (e) {}
-            setTestFile(null);
-            showToast("Đã thêm đề vào kho luyện đề!");
-          }}
-        />
-      )}
 
       {testExamRoom && (
         <div className="fixed inset-0 z-[700] bg-white">
