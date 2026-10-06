@@ -113,7 +113,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH MẤT DỮ LIỆU
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH DELAY 5-10S
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -335,7 +335,7 @@ function AdminDashboardContent() {
     if (res2.status === "fulfilled" && res2.value.data) serverList.push(...res2.value.data);
     if (res3.status === "fulfilled" && res3.value.data) serverList.push(...res3.value.data);
 
-    // Gộp tất cả dữ liệu từ LocalStorage và Server, chuẩn hóa khóa định danh
+    // Gộp tất cả dữ liệu từ LocalStorage và Server, bảo toàn các điểm số đã làm
     const combined = [...localSaved, ...serverList];
     const map = new Map();
 
@@ -363,7 +363,6 @@ function AdminDashboardContent() {
         feedback: item.feedback || item.comment || ""
       };
 
-      // Đảm bảo không trùng lặp và không làm mất lượt nộp
       const key = item.id || (String(quizId) + "" + String(studentId) + "" + String(score) + "_" + String(createdAt));
       map.set(key, normalized);
     });
@@ -413,7 +412,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // 2. NẠP VÀ BẢO TỒN DỮ LIỆU ĐỀ THI KHÔNG LÀM MẤT CÁC ĐỀ CŨ
+  // 2. NẠP DỮ LIỆU TỐC ĐỘ CAO - BẢO TOÀN ĐỀ THI
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -441,7 +440,6 @@ function AdminDashboardContent() {
       
       // Giữ nguyên toàn bộ đề local đã có từ trước
       localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
-      // Thêm đề từ server nếu có
       serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
 
       const mergedExams = Array.from(examMap.values());
@@ -1018,17 +1016,18 @@ function AdminDashboardContent() {
     }
   };
 
-  // 3. TỔNG HỢP DANH SÁCH ĐỀ THI: KẾT HỢP TẤT CẢ NGUỒN ĐỂ KHÔNG BAO GIỜ BỊ 0 ĐỀ
+  // 3. TỔNG HỢP DANH SÁCH ĐỀ THI: KHO LUYỆN ĐỀ CHỈ LẤY ĐÚNG ĐỀ LUYỆN ĐỀ (KHÔNG LẪN BTVN)
   const allConsolidatedPracticeExams = useMemo(() => {
     const list: any[] = [...(practiceExams || [])];
     const existingTitles = new Set(list.map(e => normalizeTitle(e.title)));
 
-    // Quét thêm từ các chương bài học nếu bảng practice_exams thiếu
+    // Quét thêm từ các chương nếu là Đề kiểm tra/Luyện đề (Loại trừ triệt để các file BTVN)
     (chapters || []).forEach(ch => {
       (ch?.lessons || []).forEach((ls: any) => {
         (ls?.test_quizzes || []).forEach((q: any) => {
           const normTitle = normalizeTitle(q?.title);
-          if (normTitle && !existingTitles.has(normTitle)) {
+          const isHw = (q?.isHomework || q?.type === "homework" || normTitle.includes("btvn") || normTitle.includes("baitapvenha"));
+          if (normTitle && !isHw && !existingTitles.has(normTitle)) {
             existingTitles.add(normTitle);
             list.push({
               id: q.id || ("quiz-" + normTitle),
@@ -1046,6 +1045,21 @@ function AdminDashboardContent() {
 
     return list;
   }, [practiceExams, chapters]);
+
+  const quizMap = useMemo(() => {
+    const map: Record<string, { chapterId: string; lessonId: string; type: string }> = {};
+    (chapters || []).forEach(ch => { 
+      (ch?.lessons || []).forEach((ls: any) => { 
+        (ls?.test_quizzes || []).forEach((q: any) => { 
+          if (q?.id) map[q.id] = { chapterId: ch?.id, lessonId: ls?.id, type: "test" }; 
+        }); 
+        (ls?.homework_files || []).forEach((q: any) => { 
+          if (q?.is_quiz && q?.id) map[q.id] = { chapterId: ch?.id, lessonId: ls?.id, type: "homework" }; 
+        }); 
+      }); 
+    }); 
+    return map;
+  }, [chapters]);
 
   const activeLessons = useMemo(() => {
     if (selectedChapterId === "all") return (chapters || []).flatMap(ch => ch?.lessons || []);
@@ -1351,7 +1365,7 @@ function AdminDashboardContent() {
                       </div>
                     </div>
                     <label className="flex items-center gap-2 px-5 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer">
-                      <UploadCloud className="w-5 h-5" /> + Tải lên Đề thi mới (.docx / .pdf)
+                      <UploadCloud className="w-4 h-4" /> + Tải lên Đề thi mới (.docx / .pdf)
                       <input type="file" accept=".docx,.pdf" className="hidden" onChange={(e) => {
                         if (e.target.files?.[0]) { setTestFile(e.target.files[0]); setUploadMode("practice"); setEditingExamData(null); }
                         e.target.value = "";
@@ -1648,34 +1662,89 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {activeTab === "notifications" && (
-            <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-300">
-              <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-fit">
-                <h3 className="font-extrabold text-slate-900 text-[15px] mb-5 flex items-center gap-2"><Send className="w-4 h-4 text-[#1D4ED8]" /> Soạn thông báo mới</h3>
-                <form onSubmit={handleSendNotification} className="space-y-4">
-                  <div><label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề thông báo</label><input type="text" value={notifTitle} onChange={e => setNotifTitle(e.target.value)} required placeholder="VD: Lịch học tuần này..." className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" /></div>
-                  <div><label className="block text-xs font-bold text-slate-700 mb-1.5">Nội dung chi tiết</label><textarea rows={4} value={notifContent} onChange={e => setNotifContent(e.target.value)} required placeholder="Nội dung gửi cho học sinh..." className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none resize-none custom-scrollbar" /></div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân loại</label>
-                    <select value={notifType} onChange={e => setNotifType(e.target.value as any)} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white">
-                      <option value="teacher">Giáo viên</option><option value="urgent">Khẩn cấp / Hạn chót</option><option value="exam">Nhắc nhở bài kiểm tra</option>
-                    </select>
-                  </div>
-                  <button type="submit" className="w-full mt-4 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-[13px] rounded-2xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"><Send className="w-4 h-4" /> Gửi thông báo tới toàn bộ học sinh</button>
-                </form>
+          {activeTab === "analytics" && (
+            <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0">
+                  <button onClick={() => setAnalyticsModeFilter("all")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "all" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-600")}>Toàn bộ học sinh</button>
+                  <button onClick={() => setAnalyticsModeFilter("online")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "online" ? "bg-white text-indigo-700 shadow-2xs" : "text-slate-600")}>Học sinh Online</button>
+                  <button onClick={() => setAnalyticsModeFilter("offline")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "offline" ? "bg-white text-emerald-700 shadow-2xs" : "text-slate-600")}>Học sinh Offline</button>
+                </div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-[calc(100vh-150px)]">
-                <h3 className="font-extrabold text-slate-900 text-[15px] mb-5 flex items-center gap-2 shrink-0"><List className="w-4 h-4 text-[#1D4ED8]" /> Lịch sử gửi ({(sysNotifications || []).length})</h3>
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
-                  {sysNotifications.map(notif => (
-                    <div key={notif.id} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl relative group">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 mb-1.5"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-blue-100 text-[#1D4ED8]">{notif.type}</span><span className="text-[10px] text-slate-400 font-medium">{new Date(notif.createdAt).toLocaleString('vi-VN')}</span></div>
-                        <button onClick={() => handleDeleteNotification(notif.id)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                      <h4 className="font-bold text-slate-800 text-[13px]">{notif.title}</h4><p className="text-xs text-slate-500 mt-1 line-clamp-2">{notif.content}</p>
-                    </div>
-                  ))}
+
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                  <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2"><Trophy className="w-4 h-4 text-amber-500" /> Bảng điểm & Xếp hạng học viên TCT</h3>
+                  <span className="text-xs text-slate-400 font-bold">{analyticsData.length} học viên</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-white text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-200 font-bold">
+                      <tr>
+                        <th className="py-3 px-3 font-bold text-center w-14">Hạng</th>
+                        <th className="py-3 px-4 font-bold min-w-[160px]">Học sinh</th>
+                        <th className="py-3 px-3 font-bold text-center w-24">Phân hệ</th>
+                        <th className="py-3 px-3 font-bold text-center w-24">Lượt làm</th>
+                        <th className="py-3 px-4 font-bold text-center text-[#1D4ED8] w-28">Tổng kết</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-semibold">
+                      {analyticsData.map((st, idx) => (
+                        <tr key={st.id || idx} className="hover:bg-slate-50/60 transition-colors bg-white">
+                          <td className="py-2.5 px-3 text-center font-black">{idx + 1}</td>
+                          <td className="py-2.5 px-4 font-bold text-slate-800"><div>{st.name}</div><span className="text-[10px] text-slate-400 font-normal">{st.school || "THPT"}</span></td>
+                          <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">{st.mode === "online" ? "Online" : "Offline"}</span></td>
+                          <td className="py-2.5 px-3 text-center font-medium text-slate-600">{st.totalAttempts} lượt</td>
+                          <td className="py-2.5 px-4 text-center"><span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "lessons" && (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden w-full">
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="w-full min-w-[1100px] text-left border-collapse">
+                    <thead className="bg-[#1D4ED8] text-white text-[11px] font-black uppercase tracking-wider">
+                      <tr>
+                        <th className="py-4 px-4 text-center w-12 border-r border-blue-400/30">STT</th>
+                        <th className="py-4 px-5 border-r border-blue-400/30 min-w-[250px]">Nội dung bài học</th>
+                        <th className="py-4 px-4 border-r border-blue-400/30 text-center">Chương</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Phân luồng</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Hình thức</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Video</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Bài giảng</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Viết tay</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">BTVN</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Đề KT</th>
+                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Tăng cường</th>
+                        <th className="py-4 px-4 text-center w-24">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100/80 font-semibold">
+                      {flattenedLessons.map((les: any, idx: number) => (
+                        <tr key={les?.id || idx} className="hover:bg-slate-50/50 transition-colors bg-white">
+                          <td className="py-4 px-4 text-center text-slate-500 font-bold text-xs border-r border-slate-100">{idx + 1}</td>
+                          <td className="py-4 px-5 border-r border-slate-100"><h4 className="font-bold text-[#1D4ED8] text-[13px] uppercase leading-snug">{les?.title || "Bài học"}</h4></td>
+                          <td className="py-4 px-4 text-center border-r border-slate-100 text-[11px] text-slate-500 font-semibold uppercase">{les.chapterTitle}</td>
+                          <td className="py-4 px-3 text-center border-r border-slate-100"><span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-100 text-[#1D4ED8] border border-blue-200">{les.target_mode === "online" ? "Online" : les.target_mode === "offline" ? "Offline" : "Cả 2"}</span></td>
+                          <td className="py-4 px-3 text-center border-r border-slate-100 text-xs font-bold text-slate-600">{les.format || "Zoom"}</td>
+                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.video_list} label="Video" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "video_list" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "video_list", title: "Video", items: les.video_list })} /></td>
+                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.lecture_files} label="Bài giảng" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "lecture_files" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "lecture_files", title: "Bài giảng", items: les.lecture_files })} /></td>
+                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.handwritten_notes} label="Viết tay" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "handwritten_notes" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "handwritten_notes", title: "Viết tay", items: les.handwritten_notes })} /></td>
+                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.homework_files} label="BTVN" onAdd={() => setUploadMethodModal({ lessonId: les.id, type: "homework_files" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "homework_files", title: "BTVN", items: les.homework_files })} /></td>
+                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.test_quizzes} label="Đề KT" onAdd={() => setUploadMethodModal({ lessonId: les.id, type: "test_quizzes" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "test_quizzes", title: "Đề kiểm tra", items: les.test_quizzes })} /></td>
+                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.extra_resources} label="Tăng cường" onAdd={() => setBoostModal(les.id)} onView={() => setViewResourcesModal({ lessonId: les.id, type: "extra_resources", title: "Tăng cường", items: les.extra_resources })} /></td>
+                          <td className="py-4 px-4"><div className="flex items-center justify-center gap-2"><button onClick={() => { setEditLessonModal({chapterId: les.chapterId, lesson: les}); setEditLessonForm({ title: les.title, description: les.description || "", duration: 45, format: "Zoom", target_mode: les.target_mode || "all" }); }} className="p-1.5 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"><Edit3 className="w-4 h-4" /></button><button onClick={() => handleDeleteLesson(les.chapterId, les.id)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"><Trash2 className="w-4 h-4" /></button></div></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
