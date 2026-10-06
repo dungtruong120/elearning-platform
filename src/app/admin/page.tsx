@@ -103,7 +103,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH MẤT DỮ LIỆU
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -304,7 +304,7 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // KHÔI PHỤC ĐẦY ĐỦ ĐIỂM SỐ CỦA TẤT CẢ HỌC SINH (BAO GỒM BTVN VÀ ĐỀ CHỦ NHẬT)
+  // KHÔI PHỤC ĐẦY ĐỦ ĐIỂM SỐ CỦA HỌC SINH (MERGE 2 CHIỀU)
   const fetchSupabaseAttempts = useCallback(async () => {
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
@@ -401,9 +401,15 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // LOAD TỐI ƯU SONG SONG < 0.3s
+  // NÂNG CẤP BẢO TỒN DỮ LIỆU: MERGE ĐỀ THI KHÔNG LÀM MẤT CÁC ĐỀ CŨ ĐÃ TẠO
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
+
+    let localExams: any[] = [];
+    try {
+      const rawExams = localStorage.getItem("edunexus_practice_exams");
+      if (rawExams) localExams = JSON.parse(rawExams);
+    } catch (e) {}
 
     try {
       const [courseRes, examRes, sessRes, notifRes] = await Promise.allSettled([
@@ -418,9 +424,19 @@ function AdminDashboardContent() {
         localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
       }
 
-      if (examRes.status === "fulfilled" && examRes.value.data) {
-        setPracticeExams(examRes.value.data);
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(examRes.value.data));
+      // Hợp nhất đề thi từ Supabase và LocalStorage tránh mất đề thi cũ
+      const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
+      const examMap = new Map();
+      
+      // Đưa đề cũ vào trước
+      localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
+      // Ghi đè đề từ server nếu có cập nhật
+      serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
+
+      const mergedExams = Array.from(examMap.values());
+      if (mergedExams.length > 0) {
+        setPracticeExams(mergedExams);
+        localStorage.setItem("edunexus_practice_exams", JSON.stringify(mergedExams));
       }
 
       if (sessRes.status === "fulfilled" && sessRes.value.data) {
@@ -987,49 +1003,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // TỔNG HỢP TOÀN BỘ ĐỀ THI TỪ CẢ 2 NGUỒN: PRACTICE EXAMS + LESSON TEST QUIZZES
-  const allConsolidatedExams = useMemo(() => {
-    const list: any[] = [...(practiceExams || [])];
-    const existingIds = new Set(list.map(e => e.id));
-
-    (chapters || []).forEach(ch => {
-      (ch?.lessons || []).forEach((ls: any) => {
-        (ls?.test_quizzes || []).forEach((q: any) => {
-          if (q?.id && !existingIds.has(q.id)) {
-            existingIds.add(q.id);
-            list.push({
-              id: q.id,
-              title: q.title || "Đề kiểm tra",
-              category: q.category || "Luyện đề",
-              duration_minutes: q.duration_minutes || 45,
-              allowRetake: true,
-              allowViewFile: true,
-              target_mode: ls.target_mode || "all",
-              sourceLessonId: ls.id
-            });
-          }
-        });
-        (ls?.homework_files || []).forEach((q: any) => {
-          if (q?.is_quiz && q?.id && !existingIds.has(q.id)) {
-            existingIds.add(q.id);
-            list.push({
-              id: q.id,
-              title: q.title || "Bài tập về nhà",
-              category: "BTVN",
-              duration_minutes: 0,
-              allowRetake: true,
-              allowViewFile: true,
-              target_mode: ls.target_mode || "all",
-              sourceLessonId: ls.id
-            });
-          }
-        });
-      });
-    });
-
-    return list;
-  }, [practiceExams, chapters]);
-
   // TÍNH TOÁN BẢNG ĐIỂM HỌC VIÊN CÓ SO KHỚP THÔNG MINH USERNAME (VÍ DỤ dung123)
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
@@ -1106,9 +1079,9 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, registeredStudents, analyticsModeFilter]);
 
-  // HIỂN THỊ CỤ THỂ TOÀN BỘ ĐỀ THI KÈM ĐIỂM HỌC SINH
+  // HIỂN THỊ CỤ THỂ TOÀN BỘ ĐỀ THI TRONG KHO LUYỆN ĐỀ (BẢO TOÀN DANH SÁCH ĐỀ THI)
   const examsWithScoresData = useMemo(() => {
-    let list = [...allConsolidatedExams];
+    let list = [...practiceExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
       list = list.filter(ex => ex?.category === practiceCategoryFilter);
     }
@@ -1147,7 +1120,7 @@ function AdminDashboardContent() {
         attempts
       };
     });
-  }, [allConsolidatedExams, practiceCategoryFilter, allAttempts]);
+  }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
   const offlineLessonCount = useMemo(() => {
     return (chapters || [])
@@ -1443,9 +1416,6 @@ function AdminDashboardContent() {
                           </tr>
                         );
                       })}
-                      {flattenedLessons.length === 0 && (
-                        <tr><td colSpan={12} className="py-12 text-center text-slate-400 font-medium">Chưa có bài học nào. Hãy bấm "Thêm Bài học".</td></tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1467,7 +1437,7 @@ function AdminDashboardContent() {
                       <div className="w-12 h-12 bg-blue-50 text-[#1D4ED8] rounded-2xl flex items-center justify-center"><Target className="w-6 h-6"/></div>
                       <div>
                         <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Tổng số đề</p>
-                        <p className="text-2xl font-black text-slate-900">{allConsolidatedExams.length}</p>
+                        <p className="text-2xl font-black text-slate-900">{practiceExams.length}</p>
                       </div>
                     </div>
                     <label className="flex items-center gap-2 px-6 py-3.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[13px] font-bold rounded-2xl shadow-md transition-all cursor-pointer">
@@ -1481,7 +1451,7 @@ function AdminDashboardContent() {
 
                   <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                      <h3 className="font-extrabold text-slate-900 text-[15px]">Danh sách Kho Đề Thực Chiến (Hiển thị đầy đủ cả đề tạo trong khóa học)</h3>
+                      <h3 className="font-extrabold text-slate-900 text-[15px]">Danh sách Kho Đề Thực Chiến</h3>
                       <span className="text-xs text-slate-500 font-bold">* Click vào thẻ Phân Loại để chuyển đổi nhanh giữa các kỳ thi</span>
                     </div>
                     <div className="overflow-x-auto">
@@ -1499,7 +1469,7 @@ function AdminDashboardContent() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100/50">
-                          {allConsolidatedExams.map((ex, exIdx) => (
+                          {practiceExams.map((ex, exIdx) => (
                             <tr key={ex?.id || exIdx} className="hover:bg-slate-50/50 transition-colors bg-white">
                               <td className="py-4 px-5 font-bold text-slate-800 truncate max-w-[220px]" title={ex?.title}>
                                 {ex?.title || "Đề thi"}
@@ -2608,7 +2578,7 @@ function AdminDashboardContent() {
                 registeredStudents={registeredStudents}
                 allAttempts={allAttempts}
                 chapters={chapters}
-                practiceExams={allConsolidatedExams}
+                practiceExams={practiceExams}
                 attendanceRecords={attendanceRecords}
               />
             </motion.div>
