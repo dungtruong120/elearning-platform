@@ -103,7 +103,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -253,7 +253,6 @@ function AdminDashboardContent() {
 
   const [analyticsModeFilter, setAnalyticsModeFilter] = useState<"all" | "online" | "offline">("all");
 
-  // State xem kết quả thi chi tiết dạng Azota Modal
   const [azotaScoreViewModal, setAzotaScoreViewModal] = useState<{
     isOpen: boolean;
     examTitle: string;
@@ -263,9 +262,6 @@ function AdminDashboardContent() {
     examTitle: "",
     attempts: []
   });
-
-  // State chọn học sinh xem báo cáo phụ huynh
-  const [selectedReportStudentId, setSelectedReportStudentId] = useState<string>("");
 
   const showToast = (msg: string) => { 
     setSuccessToast(msg); 
@@ -301,17 +297,14 @@ function AdminDashboardContent() {
 
       if (!error && data) {
         setRegisteredStudents(data);
-        if (data.length > 0 && !selectedReportStudentId) {
-          setSelectedReportStudentId(data[0].id);
-        }
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_registered_students", JSON.stringify(data));
         }
       }
     } catch (err) {}
-  }, [selectedReportStudentId]);
+  }, []);
 
-  // HÀM KHÔI PHỤC VÀ ĐỒNG BỘ ĐIỂM HỌC SINH THỰC SỰ
+  // KHÔI PHỤC ĐẦY ĐỦ ĐIỂM CỦA 5-6 HỌC SINH ĐÃ LÀM
   const fetchSupabaseAttempts = useCallback(async () => {
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
@@ -321,23 +314,23 @@ function AdminDashboardContent() {
       } catch (e) {}
     }
 
-    // Truy vấn song song tất cả các bảng lưu bài thi
+    // Load đồng thời từ cả 3 bảng
     const [res1, res2, res3] = await Promise.allSettled([
       supabase.from("exam_attempts").select("*").order("created_at", { ascending: false }),
       supabase.from("attempts").select("*").order("created_at", { ascending: false }),
       supabase.from("quiz_attempts").select("*").order("created_at", { ascending: false })
     ]);
 
-    let fetchedList: any[] = [];
-    if (res1.status === "fulfilled" && res1.value.data) fetchedList.push(...res1.value.data);
-    if (res2.status === "fulfilled" && res2.value.data) fetchedList.push(...res2.value.data);
-    if (res3.status === "fulfilled" && res3.value.data) fetchedList.push(...res3.value.data);
+    let serverList: any[] = [];
+    if (res1.status === "fulfilled" && res1.value.data) serverList.push(...res1.value.data);
+    if (res2.status === "fulfilled" && res2.value.data) serverList.push(...res2.value.data);
+    if (res3.status === "fulfilled" && res3.value.data) serverList.push(...res3.value.data);
 
-    // Hợp nhất dữ liệu mới từ Server và dữ liệu đang có tại LocalStorage (tránh mất 5-6 hs đã làm)
-    const allRaw = [...localSaved, ...fetchedList];
-    const uniqueMap = new Map();
+    // Hợp nhất dữ liệu tránh mất các lượt nộp bài
+    const combined = [...localSaved, ...serverList];
+    const map = new Map();
 
-    allRaw.forEach((item: any) => {
+    combined.forEach((item: any) => {
       if (!item) return;
       const quizId = item.quizId || item.exam_id || item.quiz_id || item.test_id || "";
       const studentId = item.studentId || item.user_id || item.student_id || "";
@@ -362,10 +355,10 @@ function AdminDashboardContent() {
       };
 
       const key = item.id || (String(quizId) + "" + String(studentId) + "" + String(createdAt));
-      uniqueMap.set(key, normalized);
+      map.set(key, normalized);
     });
 
-    const finalAttempts = Array.from(uniqueMap.values());
+    const finalAttempts = Array.from(map.values());
     if (finalAttempts.length > 0) {
       setAllAttempts(finalAttempts);
       if (typeof window !== "undefined") {
@@ -402,7 +395,6 @@ function AdminDashboardContent() {
 
     const updated = [newStudent, ...registeredStudents];
     setRegisteredStudents(updated);
-    if (!selectedReportStudentId) setSelectedReportStudentId(newStudent.id);
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
     }
@@ -411,7 +403,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // TỐI ƯU TỐC ĐỘ: LOAD SONG SONG TOÀN BỘ DỮ LIỆU TỪ SUPABASE (< 0.5s)
+  // LOAD TỐI ƯU SONG SONG < 0.5s
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -1082,7 +1074,7 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, rankingScope, selectedChapterId, selectedLessonId, registeredStudents, quizMap, analyticsModeFilter]);
 
-  // NÂNG CẤP MỤC 1: KHÔI PHỤC DANH SÁCH TỪNG ĐỀ VÀ TẤT CẢ HỌC SINH ĐÃ LÀM (KHÔNG BỎ SÓT LƯỢT NỘP NÀO)
+  // NÂNG CẤP MỤC 1: TÌM CHÍNH XÁC TẤT CẢ HỌC SINH ĐÃ LÀM ĐỀ (SO KHỚP ĐA TẦNG ID & TIÊU ĐỀ)
   const examsWithScoresData = useMemo(() => {
     let list = [...practiceExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -1090,19 +1082,23 @@ function AdminDashboardContent() {
     }
 
     return list.map(ex => {
-      // So khớp thông minh theo ID hoặc tiêu đề đề thi
+      const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
+
+      // So khớp cả ID lẫn Tên Đề Thi để không bỏ sót bài nộp
       const attempts = (allAttempts || []).filter(a => {
         if (!a) return false;
         const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
-        const matchTitle = ex.title && (a.examTitle === ex.title || a.quizTitle === ex.title);
+        const aTitle = String(a.examTitle || a.quizTitle || a.title || "").trim().toLowerCase();
+        const matchTitle = cleanExTitle && aTitle && (aTitle === cleanExTitle || cleanExTitle.includes(aTitle) || aTitle.includes(cleanExTitle));
         return matchId || matchTitle;
       });
 
       const studentMap = new Map();
       attempts.forEach(att => {
-        const prev = studentMap.get(att.studentId);
+        const key = att.studentId || att.studentName;
+        const prev = studentMap.get(key);
         if (!prev || Number(att.score || 0) > Number(prev.score || 0)) {
-          studentMap.set(att.studentId, att);
+          studentMap.set(key, att);
         }
       });
 
@@ -1121,34 +1117,6 @@ function AdminDashboardContent() {
       };
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
-
-  // NÂNG CẤP MỤC 2: TÍNH ĐIỂM LUYỆN ĐỀ CHO HỌC SINH HIỆN TẠI ĐỂ TÍCH HỢP BÁO CÁO PHỤ HUYNH
-  const activeReportStudent = useMemo(() => {
-    return registeredStudents.find(s => s.id === selectedReportStudentId) || registeredStudents[0] || null;
-  }, [registeredStudents, selectedReportStudentId]);
-
-  const studentPracticeAttemptsForReport = useMemo(() => {
-    if (!activeReportStudent) return [];
-    return (allAttempts || [])
-      .filter(a => a && a.studentId === activeReportStudent.id && (a.type === "practice" || !a.isHomework))
-      .map(att => {
-        const exMeta = practiceExams.find(e => e.id === att.quizId || e.title === att.examTitle);
-        return {
-          id: att.id,
-          title: exMeta?.title || att.quizTitle || att.examTitle || "Đề thi luyện tập",
-          category: exMeta?.category || att.category || "Luyện đề",
-          score: Number(att.score ?? 0).toFixed(1),
-          date: new Date(att.createdAt || Date.now()).toLocaleDateString("vi-VN")
-        };
-      });
-  }, [activeReportStudent, allAttempts, practiceExams]);
-
-  // Điểm trung bình luyện đề của học sinh được chọn
-  const reportStudentPracticeAvg = useMemo(() => {
-    if (studentPracticeAttemptsForReport.length === 0) return "--";
-    const sum = studentPracticeAttemptsForReport.reduce((acc, curr) => acc + Number(curr.score), 0);
-    return (sum / studentPracticeAttemptsForReport.length).toFixed(1);
-  }, [studentPracticeAttemptsForReport]);
 
   const offlineLessonCount = useMemo(() => {
     return (chapters || [])
@@ -1302,7 +1270,6 @@ function AdminDashboardContent() {
             {activeTab === "lessons" ? "Quản lý nội dung bài học" : activeTab === "practice" ? "Quản trị Kho Luyện đề" : activeTab === "analytics" ? "Tổng hợp điểm & Xếp hạng" : activeTab === "notifications" ? "Phát Thông Báo Học Sinh" : activeTab === "students" ? "Quản lý Học viên & Duyệt Tài khoản" : activeTab === "reports" ? "Sổ Nhận Xét & Báo Cáo Phụ Huynh" : "Lịch học & Điểm danh Online"}
           </h2>
           <div className="flex items-center gap-3">
-            {/* Nút đồng bộ nhanh siêu tốc */}
             <button
               onClick={async () => {
                 await Promise.all([loadStorageData(), fetchSupabaseStudents()]);
@@ -1607,10 +1574,15 @@ function AdminDashboardContent() {
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     onClick={() => {
-                                      // Tìm tất cả lượt nộp của đề này (so cả ID và tiêu đề)
-                                      const attemptsForExam = (allAttempts || []).filter(a => 
-                                        a && ((a.quizId === ex.id) || (ex.title && (a.examTitle === ex.title || a.quizTitle === ex.title)))
-                                      );
+                                      const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
+                                      const attemptsForExam = (allAttempts || []).filter(a => {
+                                        if (!a) return false;
+                                        const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
+                                        const aTitle = String(a.examTitle || a.quizTitle || a.title || "").trim().toLowerCase();
+                                        const matchTitle = cleanExTitle && aTitle && (aTitle === cleanExTitle || cleanExTitle.includes(aTitle) || aTitle.includes(cleanExTitle));
+                                        return matchId || matchTitle;
+                                      });
+
                                       setAzotaScoreViewModal({
                                         isOpen: true,
                                         examTitle: ex.title,
@@ -2616,7 +2588,6 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* BÁO CÁO PHỤ HUYNH: TÍCH HỢP TRỰC TIẾP HÀNG ĐIỂM LUYỆN ĐỀ DƯỚI HÀNG ĐIỂM KT ĐỊNH KỲ */}
           {activeTab === "reports" && (
             <motion.div
               key="reports"
@@ -2624,9 +2595,7 @@ function AdminDashboardContent() {
               animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
               exit={{ opacity: 0, y: -10, scale: 0.99, filter: "blur(4px)" }}
               transition={{ duration: 0.25, ease: "easeInOut" }}
-              className="space-y-6 max-w-7xl mx-auto"
             >
-              {/* Component báo cáo gốc của Thầy */}
               <AdminStudentReportPanel 
                 registeredStudents={registeredStudents}
                 allAttempts={allAttempts}
@@ -2634,66 +2603,6 @@ function AdminDashboardContent() {
                 practiceExams={practiceExams}
                 attendanceRecords={attendanceRecords}
               />
-
-              {/* TÍCH HỢP BẢNG ĐIỂM LUYỆN ĐỀ NGAY DƯỚI MA TRẬN ĐIỂM KIỂM TRA ĐỊNH KỲ */}
-              {activeReportStudent && (
-                <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
-                    <div>
-                      <h4 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-2">
-                        <Target className="w-5 h-5 text-[#1D4ED8]" />
-                        ĐIỂM LUYỆN ĐỀ THỰC CHIẾN - HỌC VIÊN: {activeReportStudent.full_name}
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Tự động hiển thị và điền vào báo cáo phụ huynh • Điểm trung bình luyện đề: <strong className="text-emerald-600">{reportStudentPracticeAvg} / 10</strong>
-                      </p>
-                    </div>
-                    <span className="px-3 py-1 bg-blue-50 text-[#1D4ED8] rounded-xl text-xs font-black">
-                      {studentPracticeAttemptsForReport.length} đề thi đã làm
-                    </span>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold border-b border-slate-200">
-                        <tr>
-                          <th className="py-3 px-4 w-12 text-center">STT</th>
-                          <th className="py-3 px-4">Tên Đề Thi</th>
-                          <th className="py-3 px-4 text-center">Loại Đề</th>
-                          <th className="py-3 px-4 text-center">Ngày Làm</th>
-                          <th className="py-3 px-4 text-center text-emerald-700">Điểm Số</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {studentPracticeAttemptsForReport.map((item, idx) => (
-                          <tr key={item.id || idx} className="hover:bg-slate-50/60 transition-colors">
-                            <td className="py-3 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
-                            <td className="py-3 px-4 font-bold text-slate-800">{item.title}</td>
-                            <td className="py-3 px-4 text-center">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                {item.category}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-center text-slate-500 font-medium">{item.date}</td>
-                            <td className="py-3 px-4 text-center">
-                              <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200 text-xs">
-                                {item.score} / 10
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                        {studentPracticeAttemptsForReport.length === 0 && (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-slate-400 italic">
-                              Học sinh chưa làm đề thi thực chiến nào trong tháng này.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </motion.div>
           )}
         </div>
