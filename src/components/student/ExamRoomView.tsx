@@ -38,7 +38,6 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
-// BỘ RENDER CHUẨN XÁC: GHÉP CHUỖI AN TOÀN TRÁNH LỖI CÚ PHÁP BUILD TURBOPACK
 function MathRenderer({
   content,
   mediaMap = {},
@@ -196,6 +195,7 @@ export function ExamRoomView({
     return false;
   }, []);
 
+  // LƯU BẢN NHÁP BTVN
   useEffect(() => {
     if (isHomework && typeof window !== "undefined" && profile?.id && !isSubmitted) {
       try {
@@ -205,7 +205,7 @@ export function ExamRoomView({
     }
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
 
-  // TẢI ĐỀ THI
+  // TẢI CÂU HỎI VÀ HÌNH VẼ
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
@@ -223,7 +223,7 @@ export function ExamRoomView({
           const savedPractice = localStorage.getItem("edunexus_practice_exams");
           if (savedPractice) {
             const exams = JSON.parse(savedPractice);
-            targetExam = exams.find((e: any) => e.id === quizId);
+            targetExam = exams.find((e: any) => e.id === quizId || e.title === quizTitle);
           }
         }
 
@@ -232,8 +232,8 @@ export function ExamRoomView({
           if (courseRow && Array.isArray(courseRow.chapters)) {
             for (const chap of courseRow.chapters) {
               for (const les of chap.lessons || []) {
-                const foundHw = (les.homework_files || []).find((f: any) => f.id === quizId);
-                const foundTest = (les.test_quizzes || []).find((f: any) => f.id === quizId);
+                const foundHw = (les.homework_files || []).find((f: any) => f.id === quizId || f.title === quizTitle);
+                const foundTest = (les.test_quizzes || []).find((f: any) => f.id === quizId || f.title === quizTitle);
                 if (foundHw) { targetExam = foundHw; break; }
                 if (foundTest) { targetExam = foundTest; break; }
               }
@@ -299,7 +299,7 @@ export function ExamRoomView({
     };
 
     loadExamQuestions();
-  }, [quizId]);
+  }, [quizId, quizTitle]);
 
   // ĐỒNG HỒ ĐẾM GIỜ
   useEffect(() => {
@@ -358,7 +358,7 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   };
 
-  // NỘP BÀI THI: GỬI THẲNG LÊN SUPABASE ĐẢM BẢO ADMIN NHẬN ĐIỂM 100%
+  // NỘP BÀI THI: ĐẢM BẢO GỬI THẲNG LÊN DATABASE SUPABASE
   const handleSubmitExam = async () => {
     setIsMobileDrawerOpen(false);
     const answers = userAnswersRef.current;
@@ -425,40 +425,46 @@ export function ExamRoomView({
     const studentId = profile?.id || (profile as any)?.username || "dung123";
     const studentName = profile?.full_name || (profile as any)?.username || "dung123";
 
-    // 1. LẬP BẢN GHI DỮ LIỆU ĐẦY ĐỦ
+    // BẢN GHI DỮ LIỆU ĐẦY ĐỦ CÁC CỘT TƯƠNG THÍCH MỌI SCHEMA
     const attemptRecord: any = {
       id: "att-" + Date.now(),
-      quizId,
-      exam_id: quizId,
-      quiz_id: quizId,
-      quizTitle,
-      examTitle: quizTitle,
-      title: quizTitle,
-      name: quizTitle,
-      studentId,
-      user_id: studentId,
-      student_id: studentId,
-      studentName,
-      user_name: studentName,
-      full_name: studentName,
-      username: (profile as any)?.username || studentId,
+      quiz_id: String(quizId),
+      quizId: String(quizId),
+      exam_id: String(quizId),
+      quiz_title: String(quizTitle),
+      quizTitle: String(quizTitle),
+      exam_title: String(quizTitle),
+      examTitle: String(quizTitle),
+      title: String(quizTitle),
+      name: String(quizTitle),
+      student_id: String(studentId),
+      studentId: String(studentId),
+      student_name: String(studentName),
+      studentName: String(studentName),
+      user_name: String(studentName),
+      full_name: String(studentName),
+      username: String((profile as any)?.username || studentId),
       school: profile?.school || "THPT",
       score: calculatedScore,
       points: calculatedScore,
+      total_questions: questions.length,
       totalQuestions: questions.length,
+      correct_count: fullCorrectCount,
       correctCount: fullCorrectCount,
+      time_spent: durationText,
       timeSpent: durationText,
       duration_seconds: timeSpentSeconds,
+      is_homework: Boolean(isHomework),
       isHomework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
       answers,
       userAnswers: answers,
-      createdAt: nowIso,
       created_at: nowIso,
+      createdAt: nowIso,
       submittedAt: nowIso
     };
 
-    // 2. GỬI ĐỒNG THỜI VÀO CẢ 3 BẢNG SUPABASE (KHÔNG SỢ LỆCH TÊN BẢNG)
+    // 1. GỬI TỨC THÌ LÊN CƠ SỞ DỮ LIỆU SUPABASE
     try {
       await Promise.allSettled([
         supabase.from("exam_attempts").insert([attemptRecord]),
@@ -466,10 +472,20 @@ export function ExamRoomView({
         supabase.from("quiz_attempts").insert([attemptRecord])
       ]);
     } catch (err) {
-      console.error("Lỗi đồng bộ Supabase:", err);
+      console.error("Lỗi đẩy điểm lên Supabase:", err);
     }
 
-    // 3. LƯU VÀO LOCALSTORAGE CHO CẢ TAB
+    // 2. PHÁT TÍN HIỆU REALTIME BROADCAST CHO ADMIN NHẬN NGAY
+    try {
+      const channel = supabase.channel("admin-realtime-global-sync");
+      channel.send({
+        type: "broadcast",
+        event: "new_attempt",
+        payload: attemptRecord
+      });
+    } catch (e) {}
+
+    // 3. LƯU BẢN GHI TẠI LOCALSTORAGE
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
@@ -522,12 +538,11 @@ export function ExamRoomView({
     }).length;
   }, [userAnswers]);
 
-  // HÀM RENDER NỘI DUNG TÙY CHỌN CHO MỖI CÂU HỎI
   const renderQuestionOptions = (q: QuestionItem) => {
     const isTF = isQuestionTrueFalse(q);
     const isShort = isQuestionShortAnswer(q);
 
-    // DẠNG TRẢ LỜI NGẮN (SHORT ANSWER)
+    // DẠNG TRẢ LỜI NGẮN
     if (isShort) {
       const currentAns = userAnswers[q.id] || "";
       const isCorrect = isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
@@ -619,7 +634,6 @@ export function ExamRoomView({
                         </div>
                       </td>
                       
-                      {/* Cột Đúng */}
                       <td className="py-3 px-2 sm:px-3 text-center align-middle">
                         <button
                           type="button"
@@ -645,7 +659,6 @@ export function ExamRoomView({
                         </button>
                       </td>
 
-                      {/* Cột Sai */}
                       <td className="py-3 px-2 sm:px-3 text-center align-middle">
                         <button
                           type="button"
@@ -680,7 +693,7 @@ export function ExamRoomView({
       );
     }
 
-    // GIAO DIỆN TRẮC NGHIỆM ĐƠN A, B, C, D
+    // DẠNG TRẮC NGHIỆM ĐƠN A, B, C, D
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
         {q.options.map(opt => {
@@ -1195,7 +1208,7 @@ export function ExamRoomView({
                 </div>
               </div>
 
-              {/* BẢNG XẾP HẠNG KẾT QUẢ */}
+              {/* BẢNG XẾP HẠNG */}
               <div className="md:col-span-6 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-200 md:pl-6 space-y-3">
                 <div>
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-100 mb-2">
