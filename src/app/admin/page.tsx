@@ -103,7 +103,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH MẤT DỮ LIỆU
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -304,7 +304,6 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // KHÔI PHỤC ĐẦY ĐỦ ĐIỂM SỐ CỦA HỌC SINH (MERGE 2 CHIỀU)
   const fetchSupabaseAttempts = useCallback(async () => {
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
@@ -401,7 +400,6 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // NÂNG CẤP BẢO TỒN DỮ LIỆU: MERGE ĐỀ THI KHÔNG LÀM MẤT CÁC ĐỀ CŨ ĐÃ TẠO
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -424,13 +422,10 @@ function AdminDashboardContent() {
         localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
       }
 
-      // Hợp nhất đề thi từ Supabase và LocalStorage tránh mất đề thi cũ
       const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
       const examMap = new Map();
       
-      // Đưa đề cũ vào trước
       localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
-      // Ghi đè đề từ server nếu có cập nhật
       serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
 
       const mergedExams = Array.from(examMap.values());
@@ -1003,6 +998,12 @@ function AdminDashboardContent() {
     }
   };
 
+  // BỔ SUNG KHAI BÁO activeLessons CHO BỘ LỌC ĐIỂM SỐ & XẾP HẠNG
+  const activeLessons = useMemo(() => {
+    if (selectedChapterId === "all") return (chapters || []).flatMap(ch => ch?.lessons || []);
+    return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
+  }, [chapters, selectedChapterId]);
+
   // TÍNH TOÁN BẢNG ĐIỂM HỌC VIÊN CÓ SO KHỚP THÔNG MINH USERNAME (VÍ DỤ dung123)
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
@@ -1025,7 +1026,6 @@ function AdminDashboardContent() {
       const attStuId = String(att.studentId || att.user_id || "");
       const attStuName = String(att.studentName || att.user_name || "").toLowerCase().trim();
 
-      // So khớp linh hoạt: Khớp ID, khớp Username, hoặc khớp Họ tên
       let matchedProfile = (registeredStudents || []).find(s => 
         s.id === attStuId ||
         (s.username && s.username.toLowerCase() === attStuId.toLowerCase()) ||
@@ -1644,7 +1644,7 @@ function AdminDashboardContent() {
                 </div>
               )}
 
-              {/* BẢNG ĐIỂM TỪNG ĐỀ THI - BẤM VÀO LÀ HIỆN DANH SÁCH TỪNG HỌC SINH LÀM ĐỀ ĐÓ KIỂU AZOTA */}
+              {/* BẢNG ĐIỂM TỪNG ĐỀ THI */}
               {practiceSubTab === "scores" && (
                 <div className="space-y-6">
                   <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1719,7 +1719,7 @@ function AdminDashboardContent() {
                                 </span>
                               </td>
                               <td className="py-4 px-6 text-center">
-                                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-100">
+                                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">
                                   {ex.maxScore}
                                 </span>
                               </td>
@@ -3474,88 +3474,4 @@ function AdminDashboardContent() {
           <div className="h-[calc(100vh-40px)]">
             <ExamRoomView
               quizId={testExamRoom.id}
-              quizTitle={testExamRoom.title}
-              durationMinutes={testExamRoom.duration}
-              profile={{ id: "admin-test", full_name: "Giáo viên (Test)", role: "admin", school: "Admin", grade: "12" }}
-              isHomework={false}
-              onBackToDashboard={() => setTestExamRoom(null)}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
-
-class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: any) {
-    console.error("Lỗi giao diện Admin:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-slate-50 p-6 md:p-12 flex flex-col items-center justify-center font-sans">
-          <div className="bg-white border border-rose-200 rounded-3xl p-8 max-w-2xl w-full shadow-2xl">
-            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-black text-xl mb-4">
-              !
-            </div>
-            <h2 className="text-xl font-extrabold text-slate-900 mb-2">Đã phát hiện lỗi trong bảng điều khiển</h2>
-            <p className="text-xs text-slate-500 mb-4">
-              Hệ thống Error Boundary đã ngăn chặn trang bị trắng màn hình. Bạn có thể xem chi tiết lỗi dưới đây hoặc xóa cache dữ liệu bị xung đột:
-            </p>
-            <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-4 font-mono text-xs text-rose-800 overflow-x-auto whitespace-pre-wrap max-h-60 custom-scrollbar mb-6">
-              {this.state.error?.toString() || "Lỗi không xác định"}
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    localStorage.removeItem("edunexus_course_data");
-                    localStorage.removeItem("edunexus_practice_exams");
-                    localStorage.removeItem("edunexus_attempts");
-                  } catch (e) {}
-                  window.location.reload();
-                }}
-                className="px-5 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition shadow-sm cursor-pointer"
-              >
-                Reset dữ liệu LocalStorage & Tải lại
-              </button>
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
-              >
-                Tải lại trang ngay
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-export default function AdminDashboard() {
-  return (
-    <AdminErrorBoundary>
-      <AdminDashboardContent />
-    </AdminErrorBoundary>
-  );
-}
+              quizTitle={testExamRoom.
