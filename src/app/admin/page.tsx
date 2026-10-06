@@ -39,8 +39,8 @@ const EXAM_CATEGORIES = [
   "Luyện đề"
 ];
 
-// Hàm chuẩn hóa chuỗi không dấu để so khớp tiêu đề đề thi tuyệt đối
-const normalizeExamTitle = (str: any) => {
+// Hàm chuẩn hóa chuỗi không dấu để so khớp tiêu đề đề thi chính xác 100%
+const normalizeTitle = (str: any) => {
   if (!str) return "";
   return String(str)
     .toLowerCase()
@@ -100,6 +100,7 @@ type AdminTab = "lessons" | "analytics" | "practice" | "notifications" | "studen
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
+  // 1. ĐỌC TAB TỪ URL HASH
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "") as AdminTab;
@@ -112,6 +113,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH MẤT DỮ LIỆU
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -312,7 +314,7 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // 1. TỔNG HỢP VÀ ĐỒNG BỘ TOÀN DIỆN LƯỢT THI TỪ SUPABASE
+  // 1. KHÔI PHỤC TOÀN BỘ ĐIỂM SỐ - HỢP NHẤT KHÔNG GHI ĐÈ XÓA MẤT DỮ LIỆU CŨ
   const fetchSupabaseAttempts = useCallback(async () => {
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
@@ -333,6 +335,7 @@ function AdminDashboardContent() {
     if (res2.status === "fulfilled" && res2.value.data) serverList.push(...res2.value.data);
     if (res3.status === "fulfilled" && res3.value.data) serverList.push(...res3.value.data);
 
+    // Gộp tất cả dữ liệu từ LocalStorage và Server, chuẩn hóa khóa định danh
     const combined = [...localSaved, ...serverList];
     const map = new Map();
 
@@ -360,6 +363,7 @@ function AdminDashboardContent() {
         feedback: item.feedback || item.comment || ""
       };
 
+      // Đảm bảo không trùng lặp và không làm mất lượt nộp
       const key = item.id || (String(quizId) + "" + String(studentId) + "" + String(score) + "_" + String(createdAt));
       map.set(key, normalized);
     });
@@ -373,26 +377,43 @@ function AdminDashboardContent() {
     }
   }, []);
 
-  // 2. TỰ ĐỘNG LẮNG NGHE REALTIME BROADCAST TỪ PHÒNG THI
-  useEffect(() => {
-    const channel = supabase
-      .channel("admin-realtime-global-sync")
-      .on("broadcast", { event: "new_attempt" }, (payload: any) => {
-        if (payload?.payload) {
-          setAllAttempts(prev => [payload.payload, ...prev]);
-          showToast("Học sinh " + (payload.payload.studentName || "") + " vừa nộp bài thi!");
-        }
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => fetchSupabaseAttempts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "attempts" }, () => fetchSupabaseAttempts())
-      .subscribe();
+  const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickStudentForm.firstName.trim()) {
+      alert("Vui lòng nhập Tên học sinh!");
+      return;
+    }
 
-    return () => {
-      supabase.removeChannel(channel);
+    const full_name = (quickStudentForm.lastName.trim() + " " + quickStudentForm.firstName.trim()).trim();
+    const newStudent = {
+      id: "stu-" + Date.now(),
+      full_name,
+      email: "hocsinh_" + Date.now() + "@dungtruong.tct",
+      phone: "",
+      school: "Chưa cập nhật",
+      grade: "Lớp 12",
+      role: "student",
+      learning_mode: "online",
+      study_mode: "online",
+      approval_status: quickStudentForm.status,
+      created_at: new Date().toISOString()
     };
-  }, [fetchSupabaseAttempts]);
 
-  // 3. LOAD VÀ BẢO TỒN DỮ LIỆU ĐỀ THI
+    try {
+      await supabase.from("profiles").insert([newStudent]);
+    } catch {}
+
+    const updated = [newStudent, ...registeredStudents];
+    setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
+    setIsAddStudentModalOpen(false);
+    setQuickStudentForm({ lastName: "", firstName: "", status: "approved" });
+    showToast("Đã thêm học sinh " + full_name + " thành công!");
+  };
+
+  // 2. NẠP VÀ BẢO TỒN DỮ LIỆU ĐỀ THI KHÔNG LÀM MẤT CÁC ĐỀ CŨ
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -418,7 +439,9 @@ function AdminDashboardContent() {
       const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
       const examMap = new Map();
       
+      // Giữ nguyên toàn bộ đề local đã có từ trước
       localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
+      // Thêm đề từ server nếu có
       serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
 
       const mergedExams = Array.from(examMap.values());
@@ -441,6 +464,11 @@ function AdminDashboardContent() {
     } catch (e) {}
 
     await fetchSupabaseAttempts();
+
+    try {
+      const savedAtt = localStorage.getItem("edunexus_attendance");
+      if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
+    } catch (e) {}
   }, [fetchSupabaseAttempts]);
 
   useEffect(() => {
@@ -463,11 +491,27 @@ function AdminDashboardContent() {
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("storage", loadStorageData);
 
+    const channel = supabase
+      .channel("admin-realtime-global-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => loadStorageData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => fetchSupabaseAttempts())
+      .on("postgres_changes", { event: "*", schema: "public", table: "attempts" }, () => fetchSupabaseAttempts())
+      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_attempts" }, () => fetchSupabaseAttempts())
+      .on("broadcast", { event: "new_attempt" }, (payload: any) => {
+        if (payload?.payload) {
+          setAllAttempts(prev => [payload.payload, ...prev]);
+          showToast("Học sinh " + (payload.payload.studentName || "") + " vừa nộp bài thi!");
+        }
+      })
+      .subscribe();
+
     return () => {
+      supabase.removeChannel(channel);
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("storage", loadStorageData);
     };
-  }, [loadStorageData, fetchSupabaseStudents]);
+  }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts]);
 
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
@@ -512,15 +556,478 @@ function AdminDashboardContent() {
     } catch (e: any) {}
   };
 
-  // 4. DANH SÁCH TẤT CẢ ĐỀ THI ĐƯỢC BẢO TOÀN TỪ TẤT CẢ NGUỒN
+  const handleRecalculateExamScores = async (examId: string, updatedSections: any[]) => {
+    const answerKeyMap: Record<string, string> = {};
+    let totalQuestions = 0;
+
+    (updatedSections || []).forEach(sec => {
+      (sec.questions || []).forEach((q: any) => {
+        totalQuestions++;
+        const qId = q.id || ("q_" + totalQuestions);
+        answerKeyMap[qId] = String(q.correctAnswer || q.answer || "").trim().toUpperCase();
+      });
+    });
+
+    if (totalQuestions === 0) return;
+
+    const targetAttempts = (allAttempts || []).filter(a => a.quizId === examId);
+    if (targetAttempts.length === 0) return;
+
+    let updatedList = [...allAttempts];
+
+    for (const att of targetAttempts) {
+      const studentAnswers = att.userAnswers || att.answers || {};
+      let correctCount = 0;
+
+      Object.entries(studentAnswers).forEach(([qId, stuAns]) => {
+        const correct = answerKeyMap[qId];
+        if (correct && String(stuAns).trim().toUpperCase() === correct) {
+          correctCount++;
+        }
+      });
+
+      const newScore = Number(((correctCount / totalQuestions) * 10).toFixed(2));
+      att.score = newScore;
+      att.correctCount = correctCount;
+      att.totalQuestions = totalQuestions;
+
+      try {
+        await supabase
+          .from("exam_attempts")
+          .update({ score: newScore, updated_at: new Date().toISOString() })
+          .eq("id", att.id);
+      } catch (e) {}
+    }
+
+    setAllAttempts(updatedList);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_attempts", JSON.stringify(updatedList));
+    }
+    showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi của học sinh!");
+  };
+
+  const handleCreateNewItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newItemTitle.trim() || !createModal) return;
+    let newChapters = [...(chapters || [])];
+    if (createModal.type === "chapter") {
+      newChapters.push({ id: "chap-" + Date.now(), title: newItemTitle, target_mode: newItemTargetMode, lessons: [] });
+    } else if (createModal.type === "lesson" && createModal.chapterId) {
+      newChapters = newChapters.map(chap => chap?.id === createModal.chapterId ? {
+        ...chap, lessons: [...(chap.lessons || []), {
+          id: "les-" + Date.now(), title: newItemTitle, description: newItemDescription, duration: 45, format: "Zoom", target_mode: newItemTargetMode,
+          lecture_files: [], homework_files: [], handwritten_notes: [], video_list: [], test_quizzes: [], extra_resources: []
+        }]
+      } : chap);
+    }
+    await saveToStorage(newChapters); 
+    setCreateModal(null); 
+    setNewItemTitle(""); 
+    setNewItemDescription(""); 
+    setNewItemFormat("Zoom");
+    setNewItemTargetMode("all");
+    showToast("Đã thêm " + (createModal.type === "chapter" ? "chương" : "bài học") + " thành công!");
+  };
+
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editLessonModal || !editLessonForm.title.trim()) return;
+    const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
+      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
+    } : chap);
+    await saveToStorage(newChapters); 
+    setEditLessonModal(null); 
+    showToast("Đã cập nhật thông tin bài học!");
+  };
+
+  const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
+    const newChapters = (chapters || []).map(chap => {
+      if (chap?.id === chapterId) { 
+        return { ...chap, lessons: (chap?.lessons || []).filter((l: any) => l?.id !== lessonId) }; 
+      }
+      return chap;
+    });
+    await saveToStorage(newChapters); 
+    showToast("Đã xóa bài học!");
+  };
+
+  const handleAddResource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
+    const newResource = { 
+      id: "res-" + Date.now(), 
+      title: resTitle.trim(), 
+      url: resUrl.trim(), 
+      type: resourceModal.type === "video_list" ? vidType : undefined 
+    };
+    const newChapters = (chapters || []).map(chap => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === resourceModal.lessonId) { 
+          return { ...les, [resourceModal.type]: [...(les[resourceModal.type] || []), newResource] }; 
+        } 
+        return les; 
+      }) 
+    }));
+    await saveToStorage(newChapters); 
+    setResTitle(""); 
+    setResUrl(""); 
+    setVidType("lecture");
+    setResourceModal(null); 
+    showToast("Đã thêm tài nguyên thành công!");
+  };
+
+  const handleAddBoost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
+    const newBoost = { id: "boost-" + Date.now(), ...boostForm };
+    const newChapters = (chapters || []).map(chap => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === boostModal) { 
+          return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] }; 
+        } 
+        return les; 
+      }) 
+    }));
+    await saveToStorage(newChapters); 
+    setBoostModal(null); 
+    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
+    showToast("Đã thêm tài liệu tăng cường!");
+  };
+
+  const handleAddDriveFile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
+    const newItem = { id: "drive-" + Date.now(), title: driveLinkForm.title, url: driveLinkForm.url, is_quiz: false, is_drive_file: true };
+    const newChapters = (chapters || []).map(chap => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === driveLinkModal.lessonId) { 
+          return { ...les, [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem] }; 
+        } 
+        return les; 
+      }) 
+    }));
+    await saveToStorage(newChapters); 
+    setDriveLinkModal(null); 
+    setDriveLinkForm({ title: "", url: "" }); 
+    showToast("Đã đính kèm file Drive!");
+  };
+
+  const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
+    if (!confirm("Xác nhận xóa tài nguyên này?")) return;
+    const newChapters = (chapters || []).map(chap => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
+    }));
+    await saveToStorage(newChapters);
+    if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
+      setViewResourcesModal(prev => prev ? { ...prev, items: (prev.items || []).filter(i => i?.id !== resId) } : null);
+    }
+  };
+
+  const handleEditResourceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editResourceModal || !editResourceForm.title.trim()) return;
+    const newChapters = (chapters || []).map(chap => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === editResourceModal.lessonId) { 
+          return { ...les, [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) => 
+            r?.id === editResourceModal.item.id ? { 
+              ...r, 
+              title: editResourceForm.title, 
+              url: editResourceForm.url || r.url,
+              type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type
+            } : r 
+          )}; 
+        } 
+        return les; 
+      }) 
+    }));
+    await saveToStorage(newChapters);
+    setEditResourceModal(null); 
+    showToast("Đã cập nhật thông tin tài liệu!");
+  };
+
+  const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
+    try {
+      await supabase.from("profiles").update({ approval_status: status }).eq("id", studentId);
+    } catch {}
+    const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
+    setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
+    showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!");
+  };
+
+  const handleDeleteStudent = async (studentId: string) => {
+    if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
+    try {
+      await supabase.from("profiles").delete().eq("id", studentId);
+    } catch {}
+    const updated = registeredStudents.filter(s => s.id !== studentId);
+    setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
+    showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
+  };
+
+  const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
+    if (!confirm("Bạn có chắc chắn muốn XÓA ca học \"" + sessionTitle + "\" khỏi hệ thống?")) return;
+
+    try {
+      await supabase.from("sessions").delete().eq("id", sessionId);
+    } catch (err: any) {}
+
+    const updatedSessions = onlineSessions.filter(s => s.id !== sessionId);
+    setOnlineSessions(updatedSessions);
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
+        window.dispatchEvent(new Event("storage"));
+      } catch (e) {}
+    }
+    showToast("Đã xóa ca học \"" + sessionTitle + "\" thành công!");
+  };
+
+  const handleDeleteAttendanceDate = async (dateToDelete: string) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa cột ngày học \"" + dateToDelete + "\" khỏi bảng điểm danh?")) return;
+    const updatedDates = sessionDates.filter(d => d !== dateToDelete);
+    setSessionDates(updatedDates);
+      
+    const updatedAtt = attendanceRecords.filter(a => a.sessionDate !== dateToDelete);
+    setAttendanceRecords(updatedAtt);
+
+    const updatedSessions = onlineSessions.filter(s => s.date !== dateToDelete);
+    setOnlineSessions(updatedSessions);
+
+    try {
+      await supabase.from("sessions").delete().eq("date", dateToDelete);
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_attendance_dates", JSON.stringify(updatedDates));
+        localStorage.setItem("edunexus_attendance", JSON.stringify(updatedAtt));
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
+        window.dispatchEvent(new Event("storage"));
+      } catch (e) {}
+    }
+    showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
+  };
+
+  const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDateInput) return;
+    const parts = newDateInput.split("-");
+    const displayDate = parts.length === 3 ? parts[2] + "/" + parts[1] : newDateInput;
+
+    if (sessionDates.includes(displayDate)) {
+      return alert("Ngày học " + displayDate + " đã tồn tại trong danh sách!");
+    }
+
+    const updatedDates = [...sessionDates, displayDate];
+    setSessionDates(updatedDates);
+
+    let shiftTitle = "Ca học";
+    let finalTimeSlot = newDateTimeSlot.trim() || "19:30 - 21:00";
+
+    if (newDateShift !== "custom") {
+      const shiftObj = STANDARD_SHIFTS.find(s => s.id === newDateShift);
+      if (shiftObj) {
+        shiftTitle = shiftObj.name;
+        finalTimeSlot = shiftObj.timeSlot;
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const newSessionMeta: any = {
+      id: "sess-" + Date.now(),
+      title: newDateTitle.trim() || ("Buổi học ngày " + displayDate),
+      date: displayDate,
+      isoDate: newDateInput,
+      shiftId: newDateShift,
+      shiftName: shiftTitle,
+      timeSlot: finalTimeSlot,
+      target_mode: newDateAudience,
+      audience: newDateAudience,
+      room: newDateAudience === "offline" ? "P.201 TCT" : "Zoom / Meet",
+      meetingUrl: newDateAudience !== "offline" ? "https://zoom.us/j/1234567890" : "",
+      created_at: nowIso,
+      createdAt: nowIso
+    };
+    const updatedSessions = [newSessionMeta, ...onlineSessions];
+    setOnlineSessions(updatedSessions);
+
+    await supabase.from("sessions").insert([newSessionMeta]);
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_attendance_dates", JSON.stringify(updatedDates));
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
+        window.dispatchEvent(new Event("storage"));
+      } catch (e) {}
+    }
+    setIsAddDateModalOpen(false);
+    setNewDateTitle("");
+    showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!");
+  };
+
+  const handleCreateOnlineSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
+      return alert("Vui lòng nhập đầy đủ tiêu đề và link phòng học!");
+    }
+    const guideImgs = newSessionForm.guideImagesText.split("\n").map(s => s.trim()).filter(Boolean);
+    const dispDate = newSessionForm.displayDate.trim() || "24/09";
+    const finalTimeSlot = newSessionForm.timeSlot.trim() || "19:30 - 21:00";
+    const nowIso = new Date().toISOString();
+
+    const newSession: any = {
+      id: "sess-" + Date.now(),
+      title: newSessionForm.title.trim(),
+      date: dispDate,
+      isoDate: newSessionForm.isoDate,
+      shiftId: newSessionForm.shiftId,
+      shiftName: newSessionForm.shiftName || "Ca học",
+      timeSlot: finalTimeSlot,
+      meetingUrl: newSessionForm.meetingUrl.trim(),
+      audience: newSessionForm.audience,
+      target_mode: newSessionForm.audience,
+      room: newSessionForm.audience === "offline" ? "P.201 TCT" : "Zoom / Google Meet",
+      guideImages: guideImgs.length > 0 ? guideImgs : ["https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80"],
+      created_at: nowIso,
+      createdAt: nowIso
+    };
+
+    const updatedSessions = [newSession, ...onlineSessions];
+    setOnlineSessions(updatedSessions);
+
+    let updatedDates = sessionDates;
+    if (!sessionDates.includes(dispDate)) {
+      updatedDates = [...sessionDates, dispDate];
+      setSessionDates(updatedDates);
+    }
+
+    await supabase.from("sessions").insert([newSession]);
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(updatedSessions));
+        localStorage.setItem("edunexus_attendance_dates", JSON.stringify(updatedDates));
+        window.dispatchEvent(new Event("storage"));
+      } catch (e) {}
+    }
+
+    setNewSessionForm({ 
+      title: "", 
+      isoDate: newSessionForm.isoDate, 
+      displayDate: newSessionForm.displayDate, 
+      shiftId: "custom", 
+      shiftName: "Ca học", 
+      timeSlot: "19:30 - 21:00", 
+      meetingUrl: "", 
+      guideImagesText: "", 
+      audience: "all" 
+    });
+    showToast("Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!");
+  };
+
+  const handleToggleAttendance = (studentId: string, studentName: string, sessionDate: string) => {
+    const existing = attendanceRecords.find(a => a.studentId === studentId && a.sessionDate === sessionDate);
+    let updated: any[];
+    if (existing && existing.status === "present") {
+      updated = attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate));
+      showToast("Đã hủy điểm danh của " + studentName + " ngày " + sessionDate);
+    } else {
+      const newRec = {
+        id: "att-" + Date.now(),
+        studentId,
+        studentName,
+        sessionDate,
+        status: "present",
+        attendedAt: new Date().toISOString()
+      };
+      updated = [...attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate)), newRec];
+      showToast("Đã tích có mặt cho " + studentName + " ngày " + sessionDate + "!");
+    }
+    setAttendanceRecords(updated);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_attendance", JSON.stringify(updated));
+        window.dispatchEvent(new Event("storage"));
+      } catch (e) {}
+    }
+  };
+
+  const handleSaveSolutionVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!videoModalExam) return;
+    const newExams = (practiceExams || []).map(ex => 
+      ex?.id === videoModalExam.id ? { ...ex, solutionVideoUrl: solutionVideoInput.trim() } : ex
+    );
+    await savePracticeExams(newExams);
+    try {
+      await supabase.from("practice_exams").update({ solutionVideoUrl: solutionVideoInput.trim() }).eq("id", videoModalExam.id);
+    } catch {}
+    setVideoModalExam(null);
+    setSolutionVideoInput("");
+    showToast("Đã lưu Video chữa bài thành công!");
+  };
+
+  const handleSendNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifTitle.trim() || !notifContent.trim()) return;
+    const newNotif = { id: "sys-" + Date.now(), title: notifTitle, content: notifContent, type: notifType, createdAt: new Date().toISOString() };
+    const updated = [newNotif, ...(sysNotifications || [])];
+    setSysNotifications(updated); 
+    
+    try {
+      await supabase.from("system_notifications").insert([newNotif]);
+    } catch (err) {}
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_system_notifications", JSON.stringify(updated)); 
+        window.dispatchEvent(new Event("storage"));
+      } catch (err) {}
+    }
+    setNotifTitle(""); 
+    setNotifContent(""); 
+    showToast("Đã phát thông báo thành công!");
+  };
+
+  const handleDeleteNotification = async (id: string) => {
+    if (!confirm("Thu hồi thông báo này?")) return;
+    const updated = (sysNotifications || []).filter(n => n?.id !== id);
+    setSysNotifications(updated); 
+    try {
+      await supabase.from("system_notifications").delete().eq("id", id);
+    } catch {}
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_system_notifications", JSON.stringify(updated)); 
+        window.dispatchEvent(new Event("storage"));
+      } catch (err) {}
+    }
+  };
+
+  // 3. TỔNG HỢP DANH SÁCH ĐỀ THI: KẾT HỢP TẤT CẢ NGUỒN ĐỂ KHÔNG BAO GIỜ BỊ 0 ĐỀ
   const allConsolidatedPracticeExams = useMemo(() => {
     const list: any[] = [...(practiceExams || [])];
-    const existingTitles = new Set(list.map(e => normalizeExamTitle(e.title)));
+    const existingTitles = new Set(list.map(e => normalizeTitle(e.title)));
 
+    // Quét thêm từ các chương bài học nếu bảng practice_exams thiếu
     (chapters || []).forEach(ch => {
       (ch?.lessons || []).forEach((ls: any) => {
         (ls?.test_quizzes || []).forEach((q: any) => {
-          const normTitle = normalizeExamTitle(q?.title);
+          const normTitle = normalizeTitle(q?.title);
           if (normTitle && !existingTitles.has(normTitle)) {
             existingTitles.add(normTitle);
             list.push({
@@ -575,7 +1082,7 @@ function AdminDashboardContent() {
       );
   }, [chapters, lessonModeTab]);
 
-  // 5. BẢNG XẾP HẠNG TÍNH ĐIỂM HỌC SINH
+  // 4. BẢNG XẾP HẠNG HỌC VIÊN: SO KHỚP CHÍNH XÁC TẤT CẢ TÀI KHOẢN (KỂ CẢ dung123)
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
@@ -650,7 +1157,7 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, registeredStudents, analyticsModeFilter]);
 
-  // 6. TÍNH ĐIỂM VÀ LƯỢT LÀM TỪNG ĐỀ (SO KHỚP CHUẨN XÁC THEO TÊN ĐỀ KHÔNG DẤU)
+  // 5. BẢNG THEO DÕI ĐỀ THI & LƯỢT NỘP (SO KHỚP TIÊU ĐỀ KHÔNG DẤU)
   const examsWithScoresData = useMemo(() => {
     let list = [...allConsolidatedPracticeExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -658,12 +1165,12 @@ function AdminDashboardContent() {
     }
 
     return list.map(ex => {
-      const cleanExTitle = normalizeExamTitle(ex?.title);
+      const cleanExTitle = normalizeTitle(ex?.title);
 
       const attempts = (allAttempts || []).filter(a => {
         if (!a) return false;
         const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
-        const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
+        const aTitle = normalizeTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
         const matchTitle = cleanExTitle && aTitle && (
           aTitle === cleanExTitle || 
           cleanExTitle.includes(aTitle) || 
@@ -706,8 +1213,21 @@ function AdminDashboardContent() {
     if (attendanceFilterMode !== "all") {
       list = list.filter(s => s.learning_mode === attendanceFilterMode || s.study_mode === attendanceFilterMode);
     }
+    if (attendanceSortAZ) {
+      list.sort((a, b) => {
+        const getLastName = (name: string) => {
+          const parts = (name || "").trim().split(/\s+/);
+          return parts[parts.length - 1] || "";
+        };
+        const lastA = getLastName(a.full_name);
+        const lastB = getLastName(b.full_name);
+        const cmp = lastA.localeCompare(lastB, "vi", { sensitivity: "base" });
+        if (cmp !== 0) return cmp;
+        return (a.full_name || "").localeCompare(b.full_name || "", "vi", { sensitivity: "base" });
+      });
+    }
     return list;
-  }, [registeredStudents, attendanceSearchText, attendanceFilterMode]);
+  }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
 
   if (!mounted) {
     return (
@@ -732,7 +1252,7 @@ function AdminDashboardContent() {
   }
 
   return (
-    <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative">
+    <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20">
       <AnimatePresence>
         {successToast && (
           <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-xs">
@@ -831,7 +1351,7 @@ function AdminDashboardContent() {
                       </div>
                     </div>
                     <label className="flex items-center gap-2 px-5 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer">
-                      <UploadCloud className="w-4 h-4" /> + Tải lên Đề thi mới (.docx / .pdf)
+                      <UploadCloud className="w-5 h-5" /> + Tải lên Đề thi mới (.docx / .pdf)
                       <input type="file" accept=".docx,.pdf" className="hidden" onChange={(e) => {
                         if (e.target.files?.[0]) { setTestFile(e.target.files[0]); setUploadMode("practice"); setEditingExamData(null); }
                         e.target.value = "";
@@ -930,7 +1450,7 @@ function AdminDashboardContent() {
                                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                                   )}
                                 >
-                                  <Video className="w-3 h-3 text-amber-600" />
+                                  <Video className="w-3.5 h-3.5 text-amber-600" />
                                   <span>{(ex?.solutionVideoUrl || ex?.videoUrl) ? "Đã có video" : "+ Gắn video"}</span>
                                 </button>
                               </td>
@@ -938,11 +1458,11 @@ function AdminDashboardContent() {
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
                                     onClick={() => {
-                                      const cleanExTitle = normalizeExamTitle(ex?.title);
+                                      const cleanExTitle = normalizeTitle(ex?.title);
                                       const attemptsForExam = (allAttempts || []).filter(a => {
                                         if (!a) return false;
                                         const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
-                                        const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
+                                        const aTitle = normalizeTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
                                         const matchTitle = cleanExTitle && aTitle && (
                                           aTitle === cleanExTitle || 
                                           cleanExTitle.includes(aTitle) || 
@@ -1044,11 +1564,11 @@ function AdminDashboardContent() {
                             <tr 
                               key={ex.id || i} 
                               onClick={() => {
-                                const cleanExTitle = normalizeExamTitle(ex?.title);
+                                const cleanExTitle = normalizeTitle(ex?.title);
                                 const attemptsForExam = (allAttempts || []).filter(a => {
                                   if (!a) return false;
                                   const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
-                                  const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
+                                  const aTitle = normalizeTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
                                   const matchTitle = cleanExTitle && aTitle && (
                                     aTitle === cleanExTitle || 
                                     cleanExTitle.includes(aTitle) || 
@@ -1093,11 +1613,11 @@ function AdminDashboardContent() {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const cleanExTitle = normalizeExamTitle(ex?.title);
+                                    const cleanExTitle = normalizeTitle(ex?.title);
                                     const attemptsForExam = (allAttempts || []).filter(a => {
                                       if (!a) return false;
                                       const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id) || (a.quiz_id === ex.id);
-                                      const aTitle = normalizeExamTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
+                                      const aTitle = normalizeTitle(a.examTitle || a.quizTitle || a.title || a.exam_title || a.name);
                                       const matchTitle = cleanExTitle && aTitle && (
                                         aTitle === cleanExTitle || 
                                         cleanExTitle.includes(aTitle) || 
@@ -1128,89 +1648,34 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {activeTab === "analytics" && (
-            <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0">
-                  <button onClick={() => setAnalyticsModeFilter("all")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "all" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-600")}>Toàn bộ học sinh</button>
-                  <button onClick={() => setAnalyticsModeFilter("online")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "online" ? "bg-white text-indigo-700 shadow-2xs" : "text-slate-600")}>Học sinh Online</button>
-                  <button onClick={() => setAnalyticsModeFilter("offline")} className={"px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + (analyticsModeFilter === "offline" ? "bg-white text-emerald-700 shadow-2xs" : "text-slate-600")}>Học sinh Offline</button>
-                </div>
+          {activeTab === "notifications" && (
+            <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-300">
+              <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-fit">
+                <h3 className="font-extrabold text-slate-900 text-[15px] mb-5 flex items-center gap-2"><Send className="w-4 h-4 text-[#1D4ED8]" /> Soạn thông báo mới</h3>
+                <form onSubmit={handleSendNotification} className="space-y-4">
+                  <div><label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề thông báo</label><input type="text" value={notifTitle} onChange={e => setNotifTitle(e.target.value)} required placeholder="VD: Lịch học tuần này..." className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" /></div>
+                  <div><label className="block text-xs font-bold text-slate-700 mb-1.5">Nội dung chi tiết</label><textarea rows={4} value={notifContent} onChange={e => setNotifContent(e.target.value)} required placeholder="Nội dung gửi cho học sinh..." className="w-full px-4 py-3 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none resize-none custom-scrollbar" /></div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân loại</label>
+                    <select value={notifType} onChange={e => setNotifType(e.target.value as any)} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white">
+                      <option value="teacher">Giáo viên</option><option value="urgent">Khẩn cấp / Hạn chót</option><option value="exam">Nhắc nhở bài kiểm tra</option>
+                    </select>
+                  </div>
+                  <button type="submit" className="w-full mt-4 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-[13px] rounded-2xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"><Send className="w-4 h-4" /> Gửi thông báo tới toàn bộ học sinh</button>
+                </form>
               </div>
-
-              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
-                <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                  <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2"><Trophy className="w-4 h-4 text-amber-500" /> Bảng điểm & Xếp hạng học viên TCT</h3>
-                  <span className="text-xs text-slate-400 font-bold">{analyticsData.length} học viên</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-white text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-200 font-bold">
-                      <tr>
-                        <th className="py-3 px-3 font-bold text-center w-14">Hạng</th>
-                        <th className="py-3 px-4 font-bold min-w-[160px]">Học sinh</th>
-                        <th className="py-3 px-3 font-bold text-center w-24">Phân hệ</th>
-                        <th className="py-3 px-3 font-bold text-center w-24">Lượt làm</th>
-                        <th className="py-3 px-4 font-bold text-center text-[#1D4ED8] w-28">Tổng kết</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-semibold">
-                      {analyticsData.map((st, idx) => (
-                        <tr key={st.id || idx} className="hover:bg-slate-50/60 transition-colors bg-white">
-                          <td className="py-2.5 px-3 text-center font-black">{idx + 1}</td>
-                          <td className="py-2.5 px-4 font-bold text-slate-800"><div>{st.name}</div><span className="text-[10px] text-slate-400 font-normal">{st.school || "THPT"}</span></td>
-                          <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">{st.mode === "online" ? "Online" : "Offline"}</span></td>
-                          <td className="py-2.5 px-3 text-center font-medium text-slate-600">{st.totalAttempts} lượt</td>
-                          <td className="py-2.5 px-4 text-center"><span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "lessons" && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden w-full">
-                <div className="overflow-x-auto custom-scrollbar">
-                  <table className="w-full min-w-[1100px] text-left border-collapse">
-                    <thead className="bg-[#1D4ED8] text-white text-[11px] font-black uppercase tracking-wider">
-                      <tr>
-                        <th className="py-4 px-4 text-center w-12 border-r border-blue-400/30">STT</th>
-                        <th className="py-4 px-5 border-r border-blue-400/30 min-w-[250px]">Nội dung bài học</th>
-                        <th className="py-4 px-4 border-r border-blue-400/30 text-center">Chương</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Phân luồng</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Hình thức</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Video</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Bài giảng</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Viết tay</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">BTVN</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Đề KT</th>
-                        <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Tăng cường</th>
-                        <th className="py-4 px-4 text-center w-24">Thao tác</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100/80 font-semibold">
-                      {flattenedLessons.map((les: any, idx: number) => (
-                        <tr key={les?.id || idx} className="hover:bg-slate-50/50 transition-colors bg-white">
-                          <td className="py-4 px-4 text-center text-slate-500 font-bold text-xs border-r border-slate-100">{idx + 1}</td>
-                          <td className="py-4 px-5 border-r border-slate-100"><h4 className="font-bold text-[#1D4ED8] text-[13px] uppercase leading-snug">{les?.title || "Bài học"}</h4></td>
-                          <td className="py-4 px-4 text-center border-r border-slate-100 text-[11px] text-slate-500 font-semibold uppercase">{les.chapterTitle}</td>
-                          <td className="py-4 px-3 text-center border-r border-slate-100"><span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-100 text-[#1D4ED8] border border-blue-200">{les.target_mode === "online" ? "Online" : les.target_mode === "offline" ? "Offline" : "Cả 2"}</span></td>
-                          <td className="py-4 px-3 text-center border-r border-slate-100 text-xs font-bold text-slate-600">{les.format || "Zoom"}</td>
-                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.video_list} label="Video" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "video_list" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "video_list", title: "Video", items: les.video_list })} /></td>
-                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.lecture_files} label="Bài giảng" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "lecture_files" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "lecture_files", title: "Bài giảng", items: les.lecture_files })} /></td>
-                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.handwritten_notes} label="Viết tay" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "handwritten_notes" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "handwritten_notes", title: "Viết tay", items: les.handwritten_notes })} /></td>
-                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.homework_files} label="BTVN" onAdd={() => setUploadMethodModal({ lessonId: les.id, type: "homework_files" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "homework_files", title: "BTVN", items: les.homework_files })} /></td>
-                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.test_quizzes} label="Đề KT" onAdd={() => setUploadMethodModal({ lessonId: les.id, type: "test_quizzes" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "test_quizzes", title: "Đề kiểm tra", items: les.test_quizzes })} /></td>
-                          <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.extra_resources} label="Tăng cường" onAdd={() => setBoostModal(les.id)} onView={() => setViewResourcesModal({ lessonId: les.id, type: "extra_resources", title: "Tăng cường", items: les.extra_resources })} /></td>
-                          <td className="py-4 px-4"><div className="flex items-center justify-center gap-2"><button onClick={() => { setEditLessonModal({chapterId: les.chapterId, lesson: les}); setEditLessonForm({ title: les.title, description: les.description || "", duration: 45, format: "Zoom", target_mode: les.target_mode || "all" }); }} className="p-1.5 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"><Edit3 className="w-4 h-4" /></button><button onClick={() => handleDeleteLesson(les.chapterId, les.id)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"><Trash2 className="w-4 h-4" /></button></div></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-[calc(100vh-150px)]">
+                <h3 className="font-extrabold text-slate-900 text-[15px] mb-5 flex items-center gap-2 shrink-0"><List className="w-4 h-4 text-[#1D4ED8]" /> Lịch sử gửi ({(sysNotifications || []).length})</h3>
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                  {sysNotifications.map(notif => (
+                    <div key={notif.id} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl relative group">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 mb-1.5"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-blue-100 text-[#1D4ED8]">{notif.type}</span><span className="text-[10px] text-slate-400 font-medium">{new Date(notif.createdAt).toLocaleString('vi-VN')}</span></div>
+                        <button onClick={() => handleDeleteNotification(notif.id)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                      <h4 className="font-bold text-slate-800 text-[13px]">{notif.title}</h4><p className="text-xs text-slate-500 mt-1 line-clamp-2">{notif.content}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1306,6 +1771,33 @@ function AdminDashboardContent() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* MODAL CONFIG ĐỀ THI AZOTA */}
+      {testFile && (
+        <AzotaExamConfigModal 
+          isOpen={true} 
+          file={testFile}
+          mode={uploadMode} 
+          onClose={() => { setTestFile(null); setEditingExamData(null); }} 
+          onSave={async (examData: any) => {
+            const newExam = { 
+              id: "prac-" + Date.now(), 
+              title: examData.title, 
+              category: examData.category || "Giữa Kì 1", 
+              duration_minutes: examData.duration_minutes || 45, 
+              allowRetake: true, 
+              allowViewFile: true, 
+              data: examData.sections, 
+              created_at: new Date().toISOString()
+            };
+            const updated = [newExam, ...practiceExams];
+            await savePracticeExams(updated);
+            try { await supabase.from("practice_exams").upsert(newExam); } catch (e) {}
+            setTestFile(null);
+            showToast("Đã thêm đề vào kho luyện đề!");
+          }}
+        />
+      )}
 
       {testExamRoom && (
         <div className="fixed inset-0 z-[700] bg-white">
