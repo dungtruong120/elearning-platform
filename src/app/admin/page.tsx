@@ -339,7 +339,7 @@ function AdminDashboardContent() {
 
       const normalized = {
         ...item,
-        id: item.id || (String(quizId) + "" + String(studentId) + "" + String(createdAt)),
+        id: item.id || (String(quizId) + "_" + String(studentId) + "_" + String(createdAt)),
         quizId,
         studentId,
         studentName,
@@ -352,7 +352,7 @@ function AdminDashboardContent() {
         feedback: item.feedback || item.comment || ""
       };
 
-      const key = item.id || (String(quizId) + "" + String(studentId) + "" + String(createdAt));
+      const key = item.id || (String(quizId) + "_" + String(studentId) + "_" + String(createdAt));
       map.set(key, normalized);
     });
 
