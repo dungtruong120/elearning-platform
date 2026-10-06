@@ -6,7 +6,7 @@ import {
   ArrowLeft, Clock, CheckCircle2, XCircle, AlertCircle,
   HelpCircle, ChevronLeft, ChevronRight, RotateCcw,
   Eye, Trophy, Home, Send, List, LayoutGrid, Award, Check,
-  ShieldAlert, ShieldCheck, Maximize2, Minimize2, X, Grid3X3, BookOpen, PenLine
+  Maximize2, Minimize2, X, Grid3X3, BookOpen, PenLine
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -180,12 +180,6 @@ export function ExamRoomView({
   const [historyAttemptsCount, setHistoryAttemptsCount] = useState<number>(1);
   const [isReviewMode, setIsReviewMode] = useState<boolean>(false);
 
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [fullscreenExitCount, setFullscreenExitCount] = useState<number>(0);
-  const [showFullscreenWarningModal, setShowFullscreenWarningModal] = useState<boolean>(false);
-  const [tabSwitchCount, setTabSwitchCount] = useState<number>(0);
-  const [cheatWarning, setCheatWarning] = useState<string>("");
-
   const userAnswersRef = useRef<Record<string, any>>({});
   userAnswersRef.current = userAnswers;
 
@@ -211,122 +205,7 @@ export function ExamRoomView({
     }
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
 
-  const enterFullscreen = useCallback(() => {
-    if (isHomework) return;
-    try {
-      if (typeof document !== "undefined" && !document.fullscreenElement) {
-        const elem = document.documentElement;
-        if (elem.requestFullscreen) {
-          elem.requestFullscreen().catch(() => {});
-        } else if ((elem as any).webkitRequestFullscreen) {
-          (elem as any).webkitRequestFullscreen();
-        } else if ((elem as any).msRequestFullscreen) {
-          (elem as any).msRequestFullscreen();
-        }
-      }
-    } catch (err) {}
-  }, [isHomework]);
-
-  const exitFullscreen = useCallback(() => {
-    try {
-      if (typeof document !== "undefined" && document.fullscreenElement) {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
-        } else if ((document as any).webkitExitFullscreen) {
-          (document as any).webkitExitFullscreen();
-        } else if ((document as any).msExitFullscreen) {
-          (document as any).msExitFullscreen();
-        }
-      }
-    } catch (err) {}
-  }, []);
-
-  useEffect(() => {
-    if (!isHomework) {
-      enterFullscreen();
-    }
-  }, [enterFullscreen, isHomework]);
-
-  useEffect(() => {
-    if (isHomework || isSubmitted || isReviewMode) return;
-    const handleFullscreenChange = () => {
-      const isCurrentlyFullscreen = Boolean(document.fullscreenElement);
-      setIsFullscreen(isCurrentlyFullscreen);
-      if (!isCurrentlyFullscreen && !isSubmitted && !isReviewMode) {
-        setFullscreenExitCount(prev => {
-          const nextCount = prev + 1;
-          if (nextCount >= 2) {
-            setCheatWarning("CẢNH BÁO: Bạn đã thoát Toàn Màn hình quá 2 lần! Hệ thống đang tự động thu bài.");
-            setTimeout(() => {
-              handleSubmitExam(undefined, nextCount);
-            }, 1200);
-          } else {
-            setShowFullscreenWarningModal(true);
-            setCheatWarning("Cảnh báo: Bạn vừa thoát Toàn Màn hình! Vui lòng quay lại ngay (Vi phạm 1/2 lần).");
-          }
-          return nextCount;
-        });
-      }
-    };
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
-  }, [isSubmitted, isReviewMode, isHomework]);
-
-  useEffect(() => {
-    if (isHomework || isSubmitted || isReviewMode) return;
-    const handleFocusLoss = () => {
-      if (document.hidden || !document.hasFocus()) {
-        setTabSwitchCount(prev => {
-          const nextCount = prev + 1;
-          if (nextCount >= 2) {
-            setCheatWarning("CẢNH BÁO: Bạn đã rời khỏi màn hình làm bài lần 2! Hệ thống đang tự động thu bài.");
-            setTimeout(() => {
-              handleSubmitExam(nextCount);
-            }, 1200);
-          } else {
-            setCheatWarning("Cảnh báo vi phạm: Bạn đã rời khỏi màn hình làm bài (" + nextCount + "/2 lần)!");
-          }
-          return nextCount;
-        });
-      }
-    };
-    document.addEventListener("visibilitychange", handleFocusLoss);
-    window.addEventListener("blur", handleFocusLoss);
-    return () => {
-      document.removeEventListener("visibilitychange", handleFocusLoss);
-      window.removeEventListener("blur", handleFocusLoss);
-    };
-  }, [isSubmitted, isReviewMode, isHomework]);
-
-  useEffect(() => {
-    if (isHomework || isSubmitted || isReviewMode) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "F12") {
-        e.preventDefault();
-        setCheatWarning("Hành động bị cấm: Phím F12 đã bị vô hiệu hóa.");
-        return;
-      }
-      if (e.ctrlKey || e.metaKey) {
-        const k = e.key.toLowerCase();
-        if (k === "c" || k === "v" || k === "u" || (e.shiftKey && (k === "i" || k === "j" || k === "c"))) {
-          e.preventDefault();
-          setCheatWarning("Hành động bị cấm: Phím tắt đã bị vô hiệu hóa để bảo mật đề thi.");
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isSubmitted, isReviewMode, isHomework]);
-
-  useEffect(() => {
-    if (cheatWarning) {
-      const timer = setTimeout(() => setCheatWarning(""), 4500);
-      return () => clearTimeout(timer);
-    }
-  }, [cheatWarning]);
-
+  // TẢI ĐỀ THI
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
@@ -388,8 +267,8 @@ export function ExamRoomView({
                     key: opt.key,
                     text: opt.text_html || opt.text || ""
                   })),
-                  correctAnswer: q.correct_answer || "A",
-                  explanation: q.solution_html || q.solution || "Đang cập nhật lời giải chi tiết."
+                  correctAnswer: q.correct_answer || q.correctAnswer || "A",
+                  explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết."
                 });
               });
             });
@@ -403,8 +282,8 @@ export function ExamRoomView({
                 key: opt.key,
                 text: opt.text_html || opt.text || ""
               })),
-              correctAnswer: q.correct_answer || "A",
-              explanation: q.solution_html || q.solution || "Đang cập nhật lời giải chi tiết."
+              correctAnswer: q.correct_answer || q.correctAnswer || "A",
+              explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết."
             }));
           }
         }
@@ -422,6 +301,7 @@ export function ExamRoomView({
     loadExamQuestions();
   }, [quizId]);
 
+  // ĐỒNG HỒ ĐẾM GIỜ
   useEffect(() => {
     if (isSubmitted || isReviewMode) return;
     const timer = setInterval(() => {
@@ -478,12 +358,9 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   };
 
-  const handleSubmitExam = (overrideTabSwitches?: number, overrideFullscreenExits?: number) => {
-    exitFullscreen();
-    setShowFullscreenWarningModal(false);
+  // NỘP BÀI THI: GỬI THẲNG LÊN SUPABASE ĐẢM BẢO ADMIN NHẬN ĐIỂM 100%
+  const handleSubmitExam = async () => {
     setIsMobileDrawerOpen(false);
-    const switches = typeof overrideTabSwitches === "number" ? overrideTabSwitches : tabSwitchCount;
-    const exits = typeof overrideFullscreenExits === "number" ? overrideFullscreenExits : fullscreenExitCount;
     const answers = userAnswersRef.current;
 
     let totalPoints = 0;
@@ -542,38 +419,72 @@ export function ExamRoomView({
       } catch (e) {}
     }
 
+    const durationText = Math.floor(timeSpentSeconds / 60) + " phút " + (timeSpentSeconds % 60) + " giây";
+    const nowIso = new Date().toISOString();
+
+    const studentId = profile?.id || (profile as any)?.username || "dung123";
+    const studentName = profile?.full_name || (profile as any)?.username || "dung123";
+
+    // 1. LẬP BẢN GHI DỮ LIỆU ĐẦY ĐỦ
+    const attemptRecord: any = {
+      id: "att-" + Date.now(),
+      quizId,
+      exam_id: quizId,
+      quiz_id: quizId,
+      quizTitle,
+      examTitle: quizTitle,
+      title: quizTitle,
+      name: quizTitle,
+      studentId,
+      user_id: studentId,
+      student_id: studentId,
+      studentName,
+      user_name: studentName,
+      full_name: studentName,
+      username: (profile as any)?.username || studentId,
+      school: profile?.school || "THPT",
+      score: calculatedScore,
+      points: calculatedScore,
+      totalQuestions: questions.length,
+      correctCount: fullCorrectCount,
+      timeSpent: durationText,
+      duration_seconds: timeSpentSeconds,
+      isHomework: Boolean(isHomework),
+      type: isHomework ? "homework" : "practice",
+      answers,
+      userAnswers: answers,
+      createdAt: nowIso,
+      created_at: nowIso,
+      submittedAt: nowIso
+    };
+
+    // 2. GỬI ĐỒNG THỜI VÀO CẢ 3 BẢNG SUPABASE (KHÔNG SỢ LỆCH TÊN BẢNG)
+    try {
+      await Promise.allSettled([
+        supabase.from("exam_attempts").insert([attemptRecord]),
+        supabase.from("attempts").insert([attemptRecord]),
+        supabase.from("quiz_attempts").insert([attemptRecord])
+      ]);
+    } catch (err) {
+      console.error("Lỗi đồng bộ Supabase:", err);
+    }
+
+    // 3. LƯU VÀO LOCALSTORAGE CHO CẢ TAB
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
         const parsed = savedAttempts ? JSON.parse(savedAttempts) : [];
-        const newAttempt = {
-          attemptId: "att-" + Date.now(),
-          studentId: profile?.id || "stu-current",
-          studentName: profile?.full_name || "Học sinh TCT",
-          school: profile?.school || "THPT",
-          quizId,
-          quizTitle,
-          score: calculatedScore,
-          totalQuestions: questions.length,
-          correctCount: fullCorrectCount,
-          timeSpentSeconds,
-          tabSwitchCount: switches,
-          fullscreenExitCount: exits,
-          isHomework: Boolean(isHomework),
-          submittedAt: new Date().toISOString()
-        };
-
-        const updatedAttempts = [newAttempt, ...parsed];
+        const updatedAttempts = [attemptRecord, ...parsed];
         localStorage.setItem("edunexus_attempts", JSON.stringify(updatedAttempts));
         window.dispatchEvent(new Event("storage"));
 
         const studentPastAttempts = updatedAttempts.filter(
-          (a: any) => a.studentId === profile?.id && a.quizId === quizId
+          (a: any) => (a.studentId === studentId || a.studentName === studentName) && (a.quizId === quizId || a.quizTitle === quizTitle)
         );
         setHistoryAttemptsCount(studentPastAttempts.length);
 
-        const examAttempts = updatedAttempts.filter((a: any) => a.quizId === quizId);
-        const sorted = [...examAttempts].sort((a, b) => b.score - a.score || a.timeSpentSeconds - b.timeSpentSeconds);
+        const examAttempts = updatedAttempts.filter((a: any) => a.quizId === quizId || a.quizTitle === quizTitle);
+        const sorted = [...examAttempts].sort((a, b) => b.score - a.score || a.duration_seconds - b.duration_seconds);
         setRankingList(sorted.slice(0, 10));
       } catch (e) {}
     }
@@ -585,17 +496,12 @@ export function ExamRoomView({
     setIsSubmitted(false);
     setShowResultModal(false);
     setIsReviewMode(false);
-    setTabSwitchCount(0);
-    setFullscreenExitCount(0);
-    setShowFullscreenWarningModal(false);
     setIsMobileDrawerOpen(false);
     setSecondsRemaining(!isHomework && durationMinutes > 0 ? durationMinutes * 60 : 0);
     setTimeSpentSeconds(0);
-    if (!isHomework) enterFullscreen();
   };
 
   const handleViewSolutions = () => {
-    exitFullscreen();
     setShowResultModal(false);
     setIsReviewMode(true);
     setCurrentIdx(0);
@@ -625,7 +531,6 @@ export function ExamRoomView({
     if (isShort) {
       const currentAns = userAnswers[q.id] || "";
       const isCorrect = isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
-      const isWrong = isReviewMode && currentAns && !isCorrect;
 
       return (
         <div className="pt-2 space-y-3">
@@ -820,7 +725,7 @@ export function ExamRoomView({
     return (
       <div className="fixed inset-0 z-[200] bg-slate-900/60 flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-4 border-white/20 border-t-blue-500 rounded-full animate-spin mb-4" />
-        <p className="font-bold text-sm tracking-wide">Đang tải câu hỏi & dữ liệu hình vẽ...</p>
+        <p className="font-bold text-sm tracking-wide">Đang tải câu hỏi & dữ liệu bài thi...</p>
       </div>
     );
   }
@@ -829,81 +734,19 @@ export function ExamRoomView({
 
   return (
     <div
-      onContextMenu={(e) => !isHomework && e.preventDefault()}
-      onCopy={(e) => !isHomework && e.preventDefault()}
-      onCut={(e) => !isHomework && e.preventDefault()}
-      onPaste={(e) => !isHomework && e.preventDefault()}
       style={{
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Plus Jakarta Sans", sans-serif'
       }}
-      className="fixed inset-0 z-[120] bg-[#F8FAFC] text-slate-800 flex flex-col overflow-hidden select-none"
+      className="fixed inset-0 z-[120] bg-[#F8FAFC] text-slate-800 flex flex-col overflow-hidden"
     >
-      {/* 1. CẢNH BÁO VI PHẠM (CHỈ HIỂN THỊ KHI THI ĐỊNH KỲ / LUYỆN ĐỀ) */}
-      <AnimatePresence>
-        {!isHomework && cheatWarning && (
-          <motion.div
-            initial={{ opacity: 0, y: -24, x: "-50%" }}
-            animate={{ opacity: 1, y: 0, x: "-50%" }}
-            exit={{ opacity: 0, y: -24, x: "-50%" }}
-            className="fixed top-3 left-1/2 z-[600] bg-rose-600 text-white px-4 py-2 sm:px-6 sm:py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 font-bold text-xs sm:text-sm border border-rose-400 max-w-[90vw] text-center"
-          >
-            <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5 text-white shrink-0 animate-bounce" />
-            <span className="truncate">{cheatWarning}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* 2. MODAL CẢNH BÁO THOÁT TOÀN MÀN HÌNH (CHỈ DÀNH CHO THI CỬ) */}
-      <AnimatePresence>
-        {!isHomework && showFullscreenWarningModal && !isSubmitted && (
-          <div className="fixed inset-0 z-[700] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 text-center space-y-4 border-2 border-rose-500 shadow-2xl"
-            >
-              <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
-                <ShieldAlert className="w-8 h-8 animate-bounce" />
-              </div>
-              <div className="space-y-1.5">
-                <h3 className="text-lg sm:text-xl font-black text-rose-600 uppercase">
-                  Cảnh Báo Vi Phạm Quy Chế
-                </h3>
-                <p className="text-xs sm:text-sm font-bold text-slate-800">
-                  Bạn vừa thoát Toàn Màn hình (Vi phạm 1/2 lần)!
-                </p>
-                <p className="text-[11px] sm:text-xs text-slate-500 leading-relaxed">
-                  Nếu tái diễn hoặc chuyển tab lần 2, hệ thống sẽ tự động khóa và nộp bài làm của bạn.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  enterFullscreen();
-                  setShowFullscreenWarningModal(false);
-                }}
-                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Maximize2 className="w-4 h-4" />
-                <span>QUAY LẠI TOÀN MÀN HÌNH NGAY</span>
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* 3. THANH BAR GỌN GÀNG TRÊN CÙNG */}
+      {/* 1. THANH HEADER TRÊN CÙNG */}
       <header className="h-14 sm:h-16 px-3 sm:px-6 bg-white border-b border-slate-200 shadow-xs flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
             onClick={() => {
               if (!isSubmitted) {
-                if (isHomework) {
-                  onBackToDashboard();
-                } else if (confirm("Bạn có chắc muốn thoát phòng thi? Bài làm hiện tại sẽ được nộp để tính điểm!")) {
-                  handleSubmitExam();
+                if (confirm("Bạn có muốn thoát khỏi phòng làm bài?")) {
                   onBackToDashboard();
                 }
               } else {
@@ -922,14 +765,14 @@ export function ExamRoomView({
             </h2>
             <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold text-slate-500">
               <span className={isHomework ? "text-emerald-600 font-bold" : "text-[#1D4ED8] font-bold"}>
-                {isHomework ? "BÀI TẬP VỀ NHÀ (TỰ DO)" : "KIỂM TRA ĐỊNH KỲ"}
+                {isHomework ? "BÀI TẬP VỀ NHÀ" : "LUYỆN ĐỀ THỰC CHIẾN"}
               </span>
               <span className="hidden sm:inline">• {profile?.full_name}</span>
             </div>
           </div>
         </div>
 
-        {/* CỤM THỜI GIAN */}
+        {/* ĐỒNG HỒ THỜI GIAN */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-xl shadow-2xs">
           <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
           <span className="text-xs sm:text-sm font-black tracking-tight font-mono">
@@ -937,22 +780,8 @@ export function ExamRoomView({
           </span>
         </div>
 
-        {/* NÚT THAO TÁC BÊN PHẢI */}
+        {/* NÚT THAO TÁC */}
         <div className="flex items-center gap-1.5 sm:gap-2.5">
-          {!isHomework && (
-            <button
-              type="button"
-              onClick={() => {
-                if (document.fullscreenElement) exitFullscreen();
-                else enterFullscreen();
-              }}
-              className="hidden sm:flex p-2 rounded-xl text-slate-600 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
-              title="Toàn màn hình"
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
-          )}
-
           {!isSubmitted ? (
             <button
               type="button"
@@ -974,20 +803,19 @@ export function ExamRoomView({
         </div>
       </header>
 
-      {/* 4. VÙNG LÀM BÀI CHÍNH */}
+      {/* 2. VÙNG LÀM BÀI CHÍNH */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
         <main className="lg:col-span-9 p-3 sm:p-6 lg:p-8 overflow-y-auto custom-scrollbar flex flex-col justify-between">
           <div className="max-w-4xl w-full mx-auto space-y-4 sm:space-y-6 pb-20 lg:pb-0">
             
-            {/* THÔNG BÁO TỰ LƯU ĐỐI VỚI BTVN */}
             {isHomework && (
               <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
                   <BookOpen className="w-4 h-4 text-emerald-600" />
-                  Chế độ BTVN: Thời gian vô hạn, không giám sát, tự động lưu tiến độ làm bài liên tục.
+                  Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu kết quả khi nộp.
                 </span>
                 <span className="text-[11px] font-bold bg-white px-2 py-0.5 rounded border border-emerald-300">
-                  Đã lưu {answeredCount}/{questions.length} câu ✓
+                  Đã làm {answeredCount}/{questions.length} câu ✓
                 </span>
               </div>
             )}
@@ -1111,7 +939,7 @@ export function ExamRoomView({
           </div>
         </main>
 
-        {/* 5. SIDEBAR MA TRẬN & THỜI GIAN TRÊN DESKTOP */}
+        {/* 3. SIDEBAR MA TRẬN & THỜI GIAN TRÊN DESKTOP */}
         <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200 bg-white p-5 flex-col justify-between overflow-y-auto custom-scrollbar">
           <div className="space-y-4">
             <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1.5 text-left">
@@ -1121,22 +949,11 @@ export function ExamRoomView({
                 <span className="truncate">{profile?.school || "THPT"}</span>
                 <span className="font-bold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded-md">{profile?.grade || "Lớp 12"}</span>
               </div>
-              <div className="pt-1.5 border-t border-slate-100 text-[11px]">
-                {isHomework ? (
-                  <span className="text-emerald-700 font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Chế độ BTVN: Tự do làm bài
-                  </span>
-                ) : (
-                  <div className="flex items-center gap-1 text-blue-700 font-bold">
-                    <ShieldCheck className="w-3.5 h-3.5" /> Chế độ: Giám sát Toàn màn hình
-                  </div>
-                )}
-              </div>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-slate-900 text-white shadow-xs space-y-0.5 text-left">
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">
-                {isHomework ? "THỜI GIAN LÀM BTVN" : "THỜI GIAN CÒN LẠI"}
+                {isHomework ? "THỜI GIAN LÀM BÀI" : "THỜI GIAN CÒN LẠI"}
               </span>
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-blue-400" />
@@ -1204,7 +1021,7 @@ export function ExamRoomView({
         </aside>
       </div>
 
-      {/* 6. NÚT NỔI BÊN PHẢI MÀN HÌNH MỞ MA TRẬN CÂU HỎI TRÊN MOBILE/IPAD */}
+      {/* 4. NÚT NỔI MA TRẬN CHO MOBILE */}
       <div className="lg:hidden fixed bottom-4 right-4 z-40">
         <button
           type="button"
@@ -1216,7 +1033,7 @@ export function ExamRoomView({
         </button>
       </div>
 
-      {/* 7. DRAWER MA TRẬN CÂU HỎI CHO MOBILE & IPAD */}
+      {/* 5. DRAWER MOBILE */}
       <AnimatePresence>
         {isMobileDrawerOpen && (
           <div
@@ -1311,7 +1128,7 @@ export function ExamRoomView({
         )}
       </AnimatePresence>
 
-      {/* 8. MODAL KẾT QUẢ THI */}
+      {/* 6. MODAL KẾT QUẢ THI */}
       <AnimatePresence>
         {showResultModal && (
           <div
@@ -1378,7 +1195,7 @@ export function ExamRoomView({
                 </div>
               </div>
 
-              {/* BẢNG XẾP HẠNG */}
+              {/* BẢNG XẾP HẠNG KẾT QUẢ */}
               <div className="md:col-span-6 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-200 md:pl-6 space-y-3">
                 <div>
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-100 mb-2">
@@ -1411,8 +1228,8 @@ export function ExamRoomView({
                             {score.toFixed(1)}
                           </td>
                         </tr>
-                        {rankingList.filter(r => r.studentId !== profile?.id).map((r, idx) => (
-                          <tr key={r.attemptId || idx} className="hover:bg-slate-50 text-slate-700">
+                        {rankingList.filter(r => r.studentId !== (profile?.id || (profile as any)?.username)).map((r, idx) => (
+                          <tr key={r.attemptId || r.id || idx} className="hover:bg-slate-50 text-slate-700">
                             <td className="py-1.5 px-2.5 font-semibold text-slate-400">{idx + 2}</td>
                             <td className="py-1.5 px-2.5 font-bold truncate max-w-[120px]">{r.studentName}</td>
                             <td className="py-1.5 px-2 text-center font-black text-slate-800">{Number(r.score).toFixed(1)}</td>
