@@ -39,6 +39,7 @@ const EXAM_CATEGORIES = [
   "Luyện đề"
 ];
 
+// Hàm chuẩn hóa chuỗi không dấu để so khớp tiêu đề đề thi chính xác tuyệt đối
 const normalizeTitle = (str: any) => {
   if (!str) return "";
   return String(str)
@@ -99,10 +100,10 @@ type AdminTab = "lessons" | "analytics" | "practice" | "notifications" | "studen
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
-  // 1. NHẬN DIỆN TAB LINH HOẠT CẢ DẠNG HASH (#) LẪN PATHNAME (/) TRÁNH TRẮNG TRANG
-  const detectInitialTab = (): AdminTab => {
+  // 1. NHẬN DIỆN TAB LINH HOẠT CẢ DẠNG HASH (#) LẪN PATHNAME (/) ĐỂ KHÔNG BỊ TRẮNG TRANG
+  const detectTabFromLocation = (): AdminTab => {
     if (typeof window !== "undefined") {
-      const hash = window.location.hash.replace("#", "").split("?")[0];
+      const hash = window.location.hash.replace("#", "").split("?")[0].toLowerCase();
       const validTabs: AdminTab[] = ["lessons", "analytics", "practice", "notifications", "students", "online_schedule", "reports"];
       if (validTabs.includes(hash as AdminTab)) return hash as AdminTab;
       
@@ -114,11 +115,11 @@ function AdminDashboardContent() {
     return "practice";
   };
 
-  const [activeTab, setActiveTab] = useState<AdminTab>(detectInitialTab);
+  const [activeTab, setActiveTab] = useState<AdminTab>(detectTabFromLocation);
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH MẤT DỮ LIỆU CŨ
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH DELAY & MẤT DỮ LIỆU
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -319,7 +320,7 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // 3. THU THẬP & HỢP NHẤT TOÀN DIỆN ĐIỂM SỐ TỪ CẢ 3 BẢNG VÀ LOCALSTORAGE
+  // 3. KHÔI PHỤC TOÀN BỘ ĐIỂM SỐ CŨ VÀ MỚI (QUÉT ĐA BẢNG VÀ MERGE KHÔNG GHI ĐÈ XÓA MẤT)
   const fetchSupabaseAttempts = useCallback(async () => {
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
@@ -472,25 +473,27 @@ function AdminDashboardContent() {
     } catch (e) {}
   }, [fetchSupabaseAttempts]);
 
-  // 5. TỰ ĐỘNG ĐỒNG BỘ ĐỊNH KỲ (POLLING MỖI 3S) + REALTIME CHANNEL ĐẢM BẢO TỰ NHẢY ĐIỂM
+  // 5. TỰ ĐỘNG ĐỒNG BỘ NGAY LẬP TỨC: REALTIME CHANNEL + AUTO POLLING MỖI 3 GIÂY
   useEffect(() => {
     setMounted(true);
     loadStorageData();
     fetchSupabaseStudents();
 
     const handleLocationChange = () => {
-      setActiveTab(detectInitialTab());
+      setActiveTab(detectTabFromLocation());
     };
 
     window.addEventListener("popstate", handleLocationChange);
     window.addEventListener("hashchange", handleLocationChange);
     window.addEventListener("storage", loadStorageData);
 
-    // Kênh Realtime
     const channel = supabase
       .channel("admin-realtime-global-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () => loadStorageData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
       .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => fetchSupabaseAttempts())
       .on("postgres_changes", { event: "*", schema: "public", table: "attempts" }, () => fetchSupabaseAttempts())
+      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_attempts" }, () => fetchSupabaseAttempts())
       .on("broadcast", { event: "new_attempt" }, (payload: any) => {
         if (payload?.payload) {
           setAllAttempts(prev => [payload.payload, ...prev]);
@@ -498,13 +501,13 @@ function AdminDashboardContent() {
       })
       .subscribe();
 
-    // Tự động quét kiểm tra điểm mới mỗi 3 giây
-    const autoSyncInterval = setInterval(() => {
+    // Tự động kiểm tra và làm mới dữ liệu bài nộp liên tục mỗi 3 giây
+    const autoSyncTimer = setInterval(() => {
       fetchSupabaseAttempts();
     }, 3000);
 
     return () => {
-      clearInterval(autoSyncInterval);
+      clearInterval(autoSyncTimer);
       supabase.removeChannel(channel);
       window.removeEventListener("popstate", handleLocationChange);
       window.removeEventListener("hashchange", handleLocationChange);
@@ -1037,7 +1040,7 @@ function AdminDashboardContent() {
     return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
-  // CHỈ LẤY ĐÚNG ĐỀ THỰC CHIẾN - LOẠI TRỪ TRIỆT ĐỂ BTVN
+  // CHỈ LẤY ĐÚNG ĐỀ THỰC CHIẾN - LOẠI TRỪ TRIỆT ĐỂ BTVN (TRÁNH BỊ LẪN ĐỀ NHƯ ẢNH 5)
   const allConsolidatedPracticeExams = useMemo(() => {
     const list: any[] = [...(practiceExams || [])];
     const existingTitles = new Set(list.map(e => normalizeTitle(e.title)));
@@ -1066,7 +1069,7 @@ function AdminDashboardContent() {
     return list;
   }, [practiceExams, chapters]);
 
-  // BẢNG ĐIỂM XẾP HẠNG: SO KHỚP CHUẨN XÁC VỚI TẤT CẢ LƯỢT THI CỦA HỌC SINH
+  // BẢNG ĐIỂM XẾP HẠNG: SO KHỚP CHUẨN XÁC VỚI TẤT CẢ LƯỢT THI CỦA HỌC SINH (KỂ CẢ DUNG123)
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
@@ -1340,16 +1343,6 @@ function AdminDashboardContent() {
             {activeTab === "practice" ? "Quản trị Kho Luyện đề & Bảng Điểm" : activeTab === "analytics" ? "Tổng hợp Điểm & Xếp hạng" : activeTab === "lessons" ? "Quản lý nội dung bài học" : activeTab === "notifications" ? "Phát Thông Báo" : activeTab === "students" ? "Quản lý Học viên & Duyệt Tài khoản" : activeTab === "reports" ? "Báo cáo Phụ huynh" : "Lịch học & Điểm danh Online"}
           </h2>
           <div className="flex items-center gap-3">
-            <button
-              onClick={async () => {
-                await Promise.all([loadStorageData(), fetchSupabaseStudents(), fetchSupabaseAttempts()]);
-                showToast("Đã đồng bộ toàn bộ đề và điểm số tức thì!");
-              }}
-              title="Làm mới dữ liệu từ Supabase"
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] rounded-xl text-xs font-bold transition cursor-pointer border border-blue-200 shadow-2xs"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Đồng bộ dữ liệu
-            </button>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600">
               <GraduationCap className="w-4 h-4 text-blue-600" /> Ban Giám Khảo
             </div>
@@ -1674,7 +1667,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 2: ĐIỂM SỐ & XẾP HẠNG */}
+          {/* TAB 2: ĐIỂM SỐ & XẾP HẠNG (KHẮC PHỤC HOÀN TOÀN TRẮNG TRANG) */}
           {activeTab === "analytics" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -1717,8 +1710,8 @@ function AdminDashboardContent() {
                         <th className="py-3 px-4 font-bold min-w-[160px]">Học sinh</th>
                         <th className="py-3 px-3 font-bold text-center w-24">Phân hệ</th>
                         <th className="py-3 px-3 font-bold text-center w-24">Lượt làm</th>
-                        <th className="py-3 px-3 font-bold text-center w-24">Đ.Max BTVN</th>
-                        <th className="py-3 px-3 font-bold text-center w-24">Đ.Max KT</th>
+                        <th className="py-3 px-4 font-bold text-center w-24">Đ.Max BTVN</th>
+                        <th className="py-3 px-4 font-bold text-center w-24">Đ.Max KT</th>
                         <th className="py-3 px-4 font-bold text-center text-[#1D4ED8] w-28">Tổng kết</th>
                       </tr>
                     </thead>
@@ -1729,8 +1722,8 @@ function AdminDashboardContent() {
                           <td className="py-2.5 px-4 font-bold text-slate-800"><div>{st.name}</div><span className="text-[10px] text-slate-400 font-normal">{st.school || "THPT"}</span></td>
                           <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">{st.mode === "online" ? "Online" : "Offline"}</span></td>
                           <td className="py-2.5 px-3 text-center font-medium text-slate-600">{st.totalAttempts} lượt</td>
-                          <td className="py-2.5 px-3 text-center font-bold text-slate-600">{Number(st.hwAvg || 0).toFixed(1)}</td>
-                          <td className="py-2.5 px-3 text-center font-bold text-slate-600">{Number(st.testAvg || 0).toFixed(1)}</td>
+                          <td className="py-2.5 px-4 text-center font-bold text-slate-600">{Number(st.hwAvg || 0).toFixed(1)}</td>
+                          <td className="py-2.5 px-4 text-center font-bold text-slate-600">{Number(st.testAvg || 0).toFixed(1)}</td>
                           <td className="py-2.5 px-4 text-center"><span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
                         </tr>
                       ))}
@@ -1741,7 +1734,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 3: NỘI DUNG BÀI HỌC (MA TRẬN ĐẦY ĐỦ CỦA THẦY) */}
+          {/* TAB 3: NỘI DUNG BÀI HỌC (MA TRẬN ĐẦY ĐỦ CỦA BẠN) */}
           {activeTab === "lessons" && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
@@ -1833,7 +1826,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT (ĐẦY ĐỦ CỦA THẦY) */}
+          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN (ĐẦY ĐỦ BỘ LỌC VÀ NÚT THÊM HỌC SINH) */}
           {activeTab === "students" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1901,12 +1894,72 @@ function AdminDashboardContent() {
                         .map((student, idx) => (
                           <tr key={student.id || idx} className="hover:bg-slate-50/60 transition-colors bg-white/70">
                             <td className="py-4 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
-                            <td className="py-4 px-5 font-bold text-slate-800"><div>{student.full_name}</div></td>
-                            <td className="py-4 px-5"><div className="font-semibold text-slate-700">{student.email}</div></td>
-                            <td className="py-4 px-4"><div className="font-medium text-slate-800">{student.school}</div><div className="text-[10px] text-blue-600 font-bold">{student.grade}</div></td>
-                            <td className="py-4 px-4 text-center"><span className="px-2.5 py-1 bg-blue-50 text-[#1D4ED8] font-bold text-[10px] uppercase rounded-lg border border-blue-100">{student.learning_mode === "online" || student.study_mode === "online" ? "Online" : "Offline"}</span></td>
-                            <td className="py-4 px-4 text-center"><span className={"px-2.5 py-1 font-extrabold text-[10px] uppercase rounded-lg border " + (student.approval_status === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200")}>{student.approval_status === "approved" ? "Đã duyệt" : "Chờ duyệt"}</span></td>
-                            <td className="py-4 px-5 text-right"><button onClick={() => handleDeleteStudent(student.id)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                            <td className="py-4 px-5 font-bold text-slate-800">
+                              <div>{student.full_name}</div>
+                              <div className="text-[10px] text-slate-400 font-normal mt-0.5">
+                                ĐK: {new Date(student.created_at || Date.now()).toLocaleDateString("vi-VN")}
+                              </div>
+                            </td>
+                            <td className="py-4 px-5">
+                              <div className="font-semibold text-slate-700">{student.email}</div>
+                              <div className="text-[10px] text-slate-400">{student.phone || "--"}</div>
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="font-medium text-slate-800">{student.school}</div>
+                              <div className="text-[10px] text-blue-600 font-bold">{student.grade}</div>
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              {student.learning_mode === "online" || student.study_mode === "online" ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-[#1D4ED8] font-bold text-[10px] uppercase rounded-lg border border-blue-100">
+                                  <Globe className="w-3 h-3" /> Online
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 font-bold text-[10px] uppercase rounded-lg border border-purple-100">
+                                  <Users className="w-3 h-3" /> Offline
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              <span className={"px-2.5 py-1 font-extrabold text-[10px] uppercase rounded-lg border " + (student.approval_status === "approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200")}>
+                                {student.approval_status === "approved" ? "Đã duyệt" : "Chờ duyệt"}
+                              </span>
+                            </td>
+                            <td className="py-4 px-5 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {student.approval_status === "pending" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateStudentStatus(student.id, "approved")}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-xs"
+                                  >
+                                    <Check className="w-3.5 h-3.5" /> Duyệt
+                                  </button>
+                                )}
+                                {student.approval_status === "approved" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateStudentStatus(student.id, "rejected")}
+                                    className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-xl text-[11px] font-bold transition cursor-pointer"
+                                    title="Khóa quyền vào học"
+                                  >
+                                    Khóa
+                                  </button>
+                                )}
+                                {student.approval_status === "rejected" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateStudentStatus(student.id, "approved")}
+                                    className="px-2.5 py-1.5 bg-blue-100 hover:bg-blue-200 text-[#1D4ED8] rounded-xl text-[11px] font-bold transition cursor-pointer"
+                                    title="Mở khóa lại"
+                                  >
+                                    Mở lại
+                                  </button>
+                                )}
+                                <button onClick={() => handleDeleteStudent(student.id)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg cursor-pointer">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                     </tbody>
@@ -1916,7 +1969,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 6: LỊCH HỌC & ĐIỂM DANH TRỰC TUYẾN GRID (ĐẦY ĐỦ CỦA THẦY) */}
+          {/* TAB 6: LỊCH HỌC & ĐIỂM DANH TRỰC TUYẾN GRID (BẢO TOÀN ĐẦY ĐỦ BẢNG TÍNH GOOGLE SHEETS CỦA BẠN) */}
           {activeTab === "online_schedule" && (
             <div className="space-y-8 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white/90 backdrop-blur-2xl rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
@@ -2078,7 +2131,7 @@ function AdminDashboardContent() {
                 </form>
               </div>
 
-              {/* BẢNG ĐIỂM DANH GRID LƯỚI NGUYÊN BẢN CỦA THẦY */}
+              {/* BẢNG ĐIỂM DANH GRID LƯỚI NGUYÊN BẢN CỦA BẠN */}
               <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
                 <div className="p-5 bg-gradient-to-r from-slate-50 to-blue-50/40 border-b border-slate-200 flex flex-col gap-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2185,10 +2238,10 @@ function AdminDashboardContent() {
         </div>
       </main>
 
-      {/* MODAL XEM CHI TIẾT ĐIỂM AZOTA CỦA TỪNG ĐỀ */}
+      {/* MODAL XEM CHI TIẾT ĐIỂM AZOTA CHO TỪNG ĐỀ */}
       <AnimatePresence>
         {azotaScoreViewModal.isOpen && (
-          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden text-left">
               <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
                 <div>
@@ -2223,6 +2276,7 @@ function AdminDashboardContent() {
         )}
       </AnimatePresence>
 
+      {/* MODAL CONFIG ĐỀ THI AZOTA */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
