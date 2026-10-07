@@ -101,7 +101,6 @@ type AdminTab = "lessons" | "analytics" | "practice" | "notifications" | "studen
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
-  // 1. NHẬN DIỆN TAB CHUẨN XÁC TRÁNH TRẮNG TRANG
   const detectTabFromLocation = (): AdminTab => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "").split("?")[0].toLowerCase();
@@ -120,7 +119,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỪ LOCALSTORAGE - BẢO VỆ CHỐNG MẤT DỮ LIỆU TUYỆT ĐỐI
+  // KHỞI TẠO STATE CHỐNG MẤT DỮ LIỆU
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -242,7 +241,6 @@ function AdminDashboardContent() {
   const [resUrl, setResUrl] = useState(""); 
   const [vidType, setVidType] = useState<"lecture" | "homework_solution">("lecture");
 
-  // FORM MODAL THÊM / SỬA BÀI HỌC
   const [createModal, setCreateModal] = useState<{ type: "chapter" | "lesson"; chapterId?: string } | null>(null);
   const [newItemTitle, setNewItemTitle] = useState("");
   const [newItemDescription, setNewItemDescription] = useState("");
@@ -307,190 +305,22 @@ function AdminDashboardContent() {
     }
   };
 
-  // 3. HÀM LƯU DỮ LIỆU BÀI HỌC CHẮC CHẮN 100% VÀO LOCALSTORAGE VÀ SUPABASE
-  const saveToStorage = async (newChapters: any[]) => {
-    setChapters(newChapters);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
-      } catch (e) {}
-    }
-
+  // --- ĐỊNH NGHĨA CÁC HÀM TRUY VẤN DỮ LIỆU ĐẶT TRƯỚC USEEFFECT ---
+  const fetchSupabaseStudents = useCallback(async () => {
     try {
-      const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
-      if (existingRows && existingRows.length > 0) {
-        await supabase
-          .from("courses")
-          .update({ chapters: newChapters, updated_at: new Date().toISOString() })
-          .eq("id", existingRows[0].id);
-      } else {
-        await supabase
-          .from("courses")
-          .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
-      }
-    } catch (err: any) {}
-  };
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .neq("role", "admin")
+        .order("created_at", { ascending: false });
 
-  // XỬ LÝ TẠO MỚI CHƯƠNG / BÀI HỌC (ĐÃ FIX TRIỆT ĐỂ)
-  const handleCreateNewItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItemTitle.trim() || !createModal) return;
-
-    let newChapters = [...(chapters || [])];
-
-    if (createModal.type === "chapter") {
-      newChapters.push({ 
-        id: "chap-" + Date.now(), 
-        title: newItemTitle.trim(), 
-        target_mode: newItemTargetMode, 
-        lessons: [] 
-      });
-    } else if (createModal.type === "lesson") {
-      const targetChapterId = createModal.chapterId || (newChapters[0] ? newChapters[0].id : null);
-      if (!targetChapterId) {
-        alert("Vui lòng tạo ít nhất 1 Chương trước khi thêm bài học!");
-        return;
-      }
-
-      const newLesson = {
-        id: "les-" + Date.now(),
-        title: newItemTitle.trim(),
-        description: newItemDescription.trim(),
-        duration: 45,
-        format: newItemFormat || "Zoom",
-        target_mode: newItemTargetMode || "all",
-        lecture_files: [],
-        homework_files: [],
-        handwritten_notes: [],
-        video_list: [],
-        test_quizzes: [],
-        extra_resources: []
-      };
-
-      let chapterFound = false;
-      newChapters = newChapters.map(chap => {
-        if (chap.id === targetChapterId) {
-          chapterFound = true;
-          return {
-            ...chap,
-            lessons: [...(chap.lessons || []), newLesson]
-          };
+      if (!error && data && data.length > 0) {
+        setRegisteredStudents(data);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_registered_students", JSON.stringify(data));
         }
-        return chap;
-      });
-
-      if (!chapterFound && newChapters.length > 0) {
-        newChapters[0].lessons = [...(newChapters[0].lessons || []), newLesson];
       }
-    }
-
-    await saveToStorage(newChapters); 
-    setCreateModal(null); 
-    setNewItemTitle(""); 
-    setNewItemDescription(""); 
-    setNewItemFormat("Zoom");
-    setNewItemTargetMode("all");
-    showToast("Đã thêm " + (createModal.type === "chapter" ? "Chương" : "Bài học") + " thành công!");
-  };
-
-  // XỬ LÝ CHỈNH SỬA BÀI HỌC (ĐÃ FIX TRIỆT ĐỂ)
-  const handleEditLessonSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editLessonModal || !editLessonForm.title.trim()) return;
-
-    const targetLessonId = editLessonModal.lesson.id;
-    const newChapters = (chapters || []).map(chap => ({
-      ...chap,
-      lessons: (chap.lessons || []).map((les: any) => {
-        if (les.id === targetLessonId) {
-          return {
-            ...les,
-            title: editLessonForm.title.trim(),
-            description: editLessonForm.description.trim(),
-            duration: editLessonForm.duration || 45,
-            format: editLessonForm.format,
-            target_mode: editLessonForm.target_mode
-          };
-        }
-        return les;
-      })
-    }));
-
-    await saveToStorage(newChapters); 
-    setEditLessonModal(null); 
-    showToast("Đã cập nhật bài học thành công!");
-  };
-
-  const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
-    const newChapters = (chapters || []).map(chap => ({
-      ...chap,
-      lessons: (chap.lessons || []).filter((l: any) => l.id !== lessonId)
-    }));
-    await saveToStorage(newChapters); 
-    showToast("Đã xóa bài học!");
-  };
-
-  // 4. NẠP DỮ LIỆU AN TOÀN KHI F5 (BẢO TOÀN DỮ LIỆU ĐÃ CÓ TRONG LOCALSTORAGE)
-  const loadStorageData = useCallback(async () => {
-    if (typeof window === "undefined") return;
-
-    try {
-      const [courseRes, examRes, sessRes, notifRes] = await Promise.allSettled([
-        supabase.from("courses").select("*").limit(1).maybeSingle(),
-        supabase.from("practice_exams").select("*").order("created_at", { ascending: false }),
-        supabase.from("sessions").select("*").order("created_at", { ascending: false }),
-        supabase.from("system_notifications").select("*").order("created_at", { ascending: false })
-      ]);
-
-      // NẾU SERVER CÓ DỮ LIỆU CHƯƠNG/BÀI HỌC HỢP LỆ THÌ MỚI CẬP NHẬT
-      if (
-        courseRes.status === "fulfilled" && 
-        courseRes.value.data?.chapters && 
-        Array.isArray(courseRes.value.data.chapters) && 
-        courseRes.value.data.chapters.length > 0
-      ) {
-        setChapters(courseRes.value.data.chapters);
-        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
-      }
-
-      // KHO ĐỀ THI
-      let localExams: any[] = [];
-      try {
-        const rawExams = localStorage.getItem("edunexus_practice_exams");
-        if (rawExams) localExams = JSON.parse(rawExams);
-      } catch (e) {}
-
-      const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
-      const examMap = new Map();
-      localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
-      serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
-
-      const mergedExams = Array.from(examMap.values());
-      if (mergedExams.length > 0) {
-        setPracticeExams(mergedExams);
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(mergedExams));
-      }
-
-      if (sessRes.status === "fulfilled" && sessRes.value.data && sessRes.value.data.length > 0) {
-        setOnlineSessions(sessRes.value.data);
-        localStorage.setItem("edunexus_online_sessions", JSON.stringify(sessRes.value.data));
-        const datesFromSessions = Array.from(new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean)));
-        if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
-      }
-
-      if (notifRes.status === "fulfilled" && notifRes.value.data && notifRes.value.data.length > 0) {
-        setSysNotifications(notifRes.value.data);
-        localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
-      }
-    } catch (e) {}
-
-    await fetchSupabaseAttempts();
-
-    try {
-      const savedAtt = localStorage.getItem("edunexus_attendance");
-      if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
-    } catch (e) {}
+    } catch (err) {}
   }, []);
 
   const fetchSupabaseAttempts = useCallback(async () => {
@@ -552,6 +382,211 @@ function AdminDashboardContent() {
       }
     }
   }, []);
+
+  const loadStorageData = useCallback(async () => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const [courseRes, examRes, sessRes, notifRes] = await Promise.allSettled([
+        supabase.from("courses").select("*").limit(1).maybeSingle(),
+        supabase.from("practice_exams").select("*").order("created_at", { ascending: false }),
+        supabase.from("sessions").select("*").order("created_at", { ascending: false }),
+        supabase.from("system_notifications").select("*").order("created_at", { ascending: false })
+      ]);
+
+      if (
+        courseRes.status === "fulfilled" && 
+        courseRes.value.data?.chapters && 
+        Array.isArray(courseRes.value.data.chapters) && 
+        courseRes.value.data.chapters.length > 0
+      ) {
+        setChapters(courseRes.value.data.chapters);
+        localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
+      }
+
+      let localExams: any[] = [];
+      try {
+        const rawExams = localStorage.getItem("edunexus_practice_exams");
+        if (rawExams) localExams = JSON.parse(rawExams);
+      } catch (e) {}
+
+      const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
+      const examMap = new Map();
+      localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
+      serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
+
+      const mergedExams = Array.from(examMap.values());
+      if (mergedExams.length > 0) {
+        setPracticeExams(mergedExams);
+        localStorage.setItem("edunexus_practice_exams", JSON.stringify(mergedExams));
+      }
+
+      if (sessRes.status === "fulfilled" && sessRes.value.data && sessRes.value.data.length > 0) {
+        setOnlineSessions(sessRes.value.data);
+        localStorage.setItem("edunexus_online_sessions", JSON.stringify(sessRes.value.data));
+        const datesFromSessions = Array.from(new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean)));
+        if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
+      }
+
+      if (notifRes.status === "fulfilled" && notifRes.value.data && notifRes.value.data.length > 0) {
+        setSysNotifications(notifRes.value.data);
+        localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
+      }
+    } catch (e) {}
+
+    await fetchSupabaseAttempts();
+
+    try {
+      const savedAtt = localStorage.getItem("edunexus_attendance");
+      if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
+    } catch (e) {}
+  }, [fetchSupabaseAttempts]);
+
+  // USEEFFECT TỰ ĐỘNG ĐỒNG BỘ ĐẶT SAU KHI CÁC HÀM ĐÃ ĐƯỢC KHAI BÁO
+  useEffect(() => {
+    setMounted(true);
+    loadStorageData();
+    fetchSupabaseStudents();
+
+    const handleLocationChange = () => {
+      setActiveTab(detectTabFromLocation());
+    };
+
+    window.addEventListener("popstate", handleLocationChange);
+    window.addEventListener("hashchange", handleLocationChange);
+
+    const autoSyncTimer = setInterval(() => {
+      fetchSupabaseAttempts();
+    }, 3000);
+
+    return () => {
+      clearInterval(autoSyncTimer);
+      window.removeEventListener("popstate", handleLocationChange);
+      window.removeEventListener("hashchange", handleLocationChange);
+    };
+  }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts]);
+
+  // HÀM LƯU DỮ LIỆU BÀI HỌC
+  const saveToStorage = async (newChapters: any[]) => {
+    setChapters(newChapters);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
+      } catch (e) {}
+    }
+
+    try {
+      const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+      if (existingRows && existingRows.length > 0) {
+        await supabase
+          .from("courses")
+          .update({ chapters: newChapters, updated_at: new Date().toISOString() })
+          .eq("id", existingRows[0].id);
+      } else {
+        await supabase
+          .from("courses")
+          .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
+      }
+    } catch (err: any) {}
+  };
+
+  const handleCreateNewItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newItemTitle.trim() || !createModal) return;
+
+    let newChapters = [...(chapters || [])];
+
+    if (createModal.type === "chapter") {
+      newChapters.push({ 
+        id: "chap-" + Date.now(), 
+        title: newItemTitle.trim(), 
+        target_mode: newItemTargetMode, 
+        lessons: [] 
+      });
+    } else if (createModal.type === "lesson") {
+      const targetChapterId = createModal.chapterId || (newChapters[0] ? newChapters[0].id : null);
+      if (!targetChapterId) {
+        alert("Vui lòng tạo ít nhất 1 Chương trước khi thêm bài học!");
+        return;
+      }
+
+      const newLesson = {
+        id: "les-" + Date.now(),
+        title: newItemTitle.trim(),
+        description: newItemDescription.trim(),
+        duration: 45,
+        format: newItemFormat || "Zoom",
+        target_mode: newItemTargetMode || "all",
+        lecture_files: [],
+        homework_files: [],
+        handwritten_notes: [],
+        video_list: [],
+        test_quizzes: [],
+        extra_resources: []
+      };
+
+      let chapterFound = false;
+      newChapters = newChapters.map(chap => {
+        if (chap.id === targetChapterId) {
+          chapterFound = true;
+          return {
+            ...chap,
+            lessons: [...(chap.lessons || []), newLesson]
+          };
+        }
+        return chap;
+      });
+
+      if (!chapterFound && newChapters.length > 0) {
+        newChapters[0].lessons = [...(newChapters[0].lessons || []), newLesson];
+      }
+    }
+
+    await saveToStorage(newChapters); 
+    setCreateModal(null); 
+    setNewItemTitle(""); 
+    setNewItemDescription(""); 
+    setNewItemFormat("Zoom");
+    setNewItemTargetMode("all");
+    showToast("Đã thêm " + (createModal.type === "chapter" ? "Chương" : "Bài học") + " thành công!");
+  };
+
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editLessonModal || !editLessonForm.title.trim()) return;
+
+    const targetLessonId = editLessonModal.lesson.id;
+    const newChapters = (chapters || []).map(chap => ({
+      ...chap,
+      lessons: (chap.lessons || []).map((les: any) => {
+        if (les.id === targetLessonId) {
+          return {
+            ...les,
+            title: editLessonForm.title.trim(),
+            description: editLessonForm.description.trim(),
+            duration: editLessonForm.duration || 45,
+            format: editLessonForm.format,
+            target_mode: editLessonForm.target_mode
+          };
+        }
+        return les;
+      })
+    }));
+
+    await saveToStorage(newChapters); 
+    setEditLessonModal(null); 
+    showToast("Đã cập nhật bài học thành công!");
+  };
+
+  const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
+    const newChapters = (chapters || []).map(chap => ({
+      ...chap,
+      lessons: (chap.lessons || []).filter((l: any) => l.id !== lessonId)
+    }));
+    await saveToStorage(newChapters); 
+    showToast("Đã xóa bài học!");
+  };
 
   const savePracticeExams = async (newExams: any[]) => {
     setPracticeExams(newExams);
@@ -694,6 +729,42 @@ function AdminDashboardContent() {
       localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
     }
     showToast("Đã xóa học sinh.");
+  };
+
+  const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickStudentForm.firstName.trim()) {
+      alert("Vui lòng nhập Tên học sinh!");
+      return;
+    }
+
+    const full_name = (quickStudentForm.lastName.trim() + " " + quickStudentForm.firstName.trim()).trim();
+    const newStudent = {
+      id: "stu-" + Date.now(),
+      full_name,
+      email: "hocsinh_" + Date.now() + "@dungtruong.tct",
+      phone: "",
+      school: "Chưa cập nhật",
+      grade: "Lớp 12",
+      role: "student",
+      learning_mode: "online",
+      study_mode: "online",
+      approval_status: quickStudentForm.status,
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      await supabase.from("profiles").insert([newStudent]);
+    } catch {}
+
+    const updated = [newStudent, ...registeredStudents];
+    setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
+    setIsAddStudentModalOpen(false);
+    setQuickStudentForm({ lastName: "", firstName: "", status: "approved" });
+    showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
   const handleSaveSolutionVideo = async (e: React.FormEvent) => {
@@ -885,30 +956,6 @@ function AdminDashboardContent() {
     showToast("Đã phát link buổi học thành công!");
   };
 
-  useEffect(() => {
-    setMounted(true);
-    loadStorageData();
-    fetchSupabaseStudents();
-
-    const handleLocationChange = () => {
-      setActiveTab(detectTabFromLocation());
-    };
-
-    window.addEventListener("popstate", handleLocationChange);
-    window.addEventListener("hashchange", handleLocationChange);
-
-    const autoSyncTimer = setInterval(() => {
-      fetchSupabaseAttempts();
-    }, 3000);
-
-    return () => {
-      clearInterval(autoSyncTimer);
-      window.removeEventListener("popstate", handleLocationChange);
-      window.removeEventListener("hashchange", handleLocationChange);
-    };
-  }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts]);
-
-  // CHỈ LẤY ĐÚNG ĐỀ LUYỆN ĐỀ THỰC CHIẾN (LOẠI BỎ TRIỆT ĐỂ BTVN)
   const allConsolidatedPracticeExams = useMemo(() => {
     const list: any[] = [...(practiceExams || [])];
     const existingTitles = new Set(list.map(e => normalizeTitle(e.title)));
@@ -937,7 +984,26 @@ function AdminDashboardContent() {
     return list;
   }, [practiceExams, chapters]);
 
-  // BẢNG XẾP HẠNG
+  const quizMap = useMemo(() => {
+    const map: Record<string, { chapterId: string; lessonId: string; type: string }> = {};
+    (chapters || []).forEach(ch => { 
+      (ch?.lessons || []).forEach((ls: any) => { 
+        (ls?.test_quizzes || []).forEach((q: any) => { 
+          if (q?.id) map[q.id] = { chapterId: ch?.id, lessonId: ls?.id, type: "test" }; 
+        }); 
+        (ls?.homework_files || []).forEach((q: any) => { 
+          if (q?.is_quiz && q?.id) map[q.id] = { chapterId: ch?.id, lessonId: ls?.id, type: "homework" }; 
+        }); 
+      }); 
+    }); 
+    return map;
+  }, [chapters]);
+
+  const activeLessons = useMemo(() => {
+    if (selectedChapterId === "all") return (chapters || []).flatMap(ch => ch?.lessons || []);
+    return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
+  }, [chapters, selectedChapterId]);
+
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
@@ -1012,7 +1078,6 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, registeredStudents, analyticsModeFilter]);
 
-  // BẢNG ĐIỂM TỪNG ĐỀ THI
   const examsWithScoresData = useMemo(() => {
     let list = [...allConsolidatedPracticeExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -1220,7 +1285,7 @@ function AdminDashboardContent() {
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
           
-          {/* TAB: NỘI DUNG BÀI HỌC */}
+          {/* TAB 1: NỘI DUNG BÀI HỌC */}
           {activeTab === "lessons" && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
@@ -1271,7 +1336,7 @@ function AdminDashboardContent() {
                           <td className="py-4 px-4 text-center text-slate-500 font-bold text-xs border-r border-slate-100">{idx + 1}</td>
                           <td className="py-4 px-5 border-r border-slate-100"><h4 className="font-bold text-[#1D4ED8] text-[13px] uppercase leading-snug">{les?.title || "Bài học"}</h4></td>
                           <td className="py-4 px-4 text-center border-r border-slate-100 text-[11px] text-slate-500 font-semibold uppercase">{les.chapterTitle}</td>
-                          <td className="py-4 px-3 text-center border-r border-slate-100"><span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-100 text-[#1D4ED8] border border-blue-200">{les.target_mode === "online" ? "Online" : les.target_mode === "offline" ? "Offline" : "Cả 2"}</span></td>
+                          <td className="py-4 px-3 text-center border-r border-slate-100"><span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-100 text-[#1D4ED8] border border-blue-200">{les.target_mode === "online" ? "Online" : "Offline"}</span></td>
                           <td className="py-4 px-3 text-center border-r border-slate-100 text-xs font-bold text-slate-600">{les.format || "Zoom"}</td>
                           <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.video_list} label="Video" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "video_list" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "video_list", title: "Video", items: les.video_list })} /></td>
                           <td className="py-4 px-3 border-r border-slate-100"><MatrixCell items={les.lecture_files} label="Bài giảng" onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "lecture_files" })} onView={() => setViewResourcesModal({ lessonId: les.id, type: "lecture_files", title: "Bài giảng", items: les.lecture_files })} /></td>
@@ -1289,7 +1354,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB: KHO LUYỆN ĐỀ */}
+          {/* TAB 2: KHO LUYỆN ĐỀ */}
           {activeTab === "practice" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto">
               <div className="flex gap-2.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-2xs w-fit">
@@ -1357,7 +1422,7 @@ function AdminDashboardContent() {
                               </td>
                               <td className="py-3.5 px-3 text-center">
                                 <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border bg-blue-50 text-[#1D4ED8] border-blue-200">
-                                  {ex.target_mode === "online" ? "Online" : ex.target_mode === "offline" ? "Offline" : "Cả 2"}
+                                  {ex.target_mode === "online" ? "Online" : "Offline"}
                                 </span>
                               </td>
                               <td className="py-3.5 px-3 text-center">
@@ -1603,7 +1668,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB: ĐIỂM SỐ & XẾP HẠNG */}
+          {/* TAB 3: ĐIỂM SỐ & XẾP HẠNG */}
           {activeTab === "analytics" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -1651,7 +1716,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB: QUẢN LÝ THÔNG BÁO */}
+          {/* TAB 4: QUẢN LÝ THÔNG BÁO */}
           {activeTab === "notifications" && (
             <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-300">
               <div className="bg-white border border-slate-200 rounded-[24px] p-6 shadow-sm flex flex-col h-fit">
@@ -1685,7 +1750,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB: QUẢN LÝ HỌC VIÊN */}
+          {/* TAB 5: QUẢN LÝ HỌC VIÊN */}
           {activeTab === "students" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1829,7 +1894,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB: LỊCH HỌC & ĐIỂM DANH */}
+          {/* TAB 6: LỊCH HỌC & ĐIỂM DANH */}
           {activeTab === "online_schedule" && (
             <div className="space-y-8 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white/90 backdrop-blur-2xl rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
@@ -1980,7 +2045,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB: BÁO CÁO PHỤ HUYNH */}
+          {/* TAB 7: BÁO CÁO PHỤ HUYNH */}
           {activeTab === "reports" && (
             <motion.div key="reports" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
               <AdminStudentReportPanel 
@@ -2034,7 +2099,7 @@ function AdminDashboardContent() {
         )}
       </AnimatePresence>
 
-      {/* MODAL THÊM CHƯƠNG / THÊM BÀI HỌC (ĐÃ FIX 100%) */}
+      {/* MODAL THÊM CHƯƠNG / BÀI HỌC */}
       {createModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl">
           <form onSubmit={handleCreateNewItem} className="bg-white rounded-[32px] w-full max-w-md p-8 shadow-2xl border border-slate-100 space-y-5 text-left">
@@ -2096,7 +2161,7 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* MODAL CHỈNH SỬA BÀI HỌC (ĐÃ FIX 100%) */}
+      {/* MODAL SỬA BÀI HỌC */}
       {editLessonModal && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <form onSubmit={handleEditLessonSubmit} className="bg-white rounded-[24px] w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left">
@@ -2138,8 +2203,8 @@ function AdminDashboardContent() {
               </div>
             </div>
             <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
-              <button type="button" onClick={() => setEditLessonModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
-              <button type="submit" className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu thay đổi</button>
+              <button type="button" onClick={() => setEditLessonModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs">Hủy</button>
+              <button type="submit" className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs shadow-sm">Lưu thay đổi</button>
             </div>
           </form>
         </div>
