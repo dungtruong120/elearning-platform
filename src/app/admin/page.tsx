@@ -39,7 +39,6 @@ const EXAM_CATEGORIES = [
   "Luyện đề"
 ];
 
-// Hàm chuẩn hóa chuỗi không dấu để so khớp tiêu đề đề thi chính xác tuyệt đối
 const normalizeTitle = (str: any) => {
   if (!str) return "";
   return String(str)
@@ -53,6 +52,7 @@ const MatrixCell = ({ items, onAdd, onView, label }: { items: any[]; onAdd: () =
   if (items && items.length > 0) {
     return (
       <button 
+        type="button"
         onClick={onView} 
         title={"Xem danh sách (" + items.length + ")"} 
         className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-[#1D4ED8] text-[#1D4ED8] bg-blue-50 font-black text-xs hover:bg-[#1D4ED8] hover:text-white transition-all mx-auto cursor-pointer shadow-sm"
@@ -63,6 +63,7 @@ const MatrixCell = ({ items, onAdd, onView, label }: { items: any[]; onAdd: () =
   }
   return (
     <button 
+      type="button"
       onClick={onAdd} 
       title={"Thêm " + label} 
       className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-[#1D4ED8] hover:text-[#1D4ED8] hover:bg-blue-50 transition-all mx-auto cursor-pointer"
@@ -100,7 +101,7 @@ type AdminTab = "lessons" | "analytics" | "practice" | "notifications" | "studen
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
-  // 1. NHẬN DIỆN TAB LINH HOẠT CẢ DẠNG HASH (#) LẪN PATHNAME (/) ĐỂ KHÔNG BỊ TRẮNG TRANG
+  // 1. NHẬN DIỆN TAB CẢ DẠNG HASH VÀ PATHNAME
   const detectTabFromLocation = (): AdminTab => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "").split("?")[0].toLowerCase();
@@ -119,12 +120,15 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH DELAY & MẤT DỮ LIỆU
+  // 2. KHỞI TẠO TỪ LOCALSTORAGE (BẢO VỆ TUYỆT ĐỐI KHÔNG BỊ RESET KHI F5)
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_course_data");
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
       } catch (e) {}
     }
     return INITIAL_CHAPTERS;
@@ -320,7 +324,7 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // 3. KHÔI PHỤC TOÀN BỘ ĐIỂM SỐ CŨ VÀ MỚI (QUÉT ĐA BẢNG VÀ MERGE KHÔNG GHI ĐÈ XÓA MẤT)
+  // 3. KHÔI PHỤC TOÀN BỘ ĐIỂM SỐ - KHÔNG BAO GIỜ GHI ĐÈ BẰNG MẢNG RỖNG KHI F5
   const fetchSupabaseAttempts = useCallback(async () => {
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
@@ -417,7 +421,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!");
   };
 
-  // 4. LOAD STORAGE DỮ LIỆU BẢO TOÀN ĐỀ THI
+  // 4. LOAD DỮ LIỆU AN TOÀN: CHỈ CẬP NHẬT KHI SERVER CÓ DỮ LIỆU, KHÔNG XÓA SẠCH KHI F5
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -435,7 +439,8 @@ function AdminDashboardContent() {
         supabase.from("system_notifications").select("*").order("created_at", { ascending: false })
       ]);
 
-      if (courseRes.status === "fulfilled" && courseRes.value.data?.chapters) {
+      // CHỈ CẬP NHẬT NỘI DUNG BÀI HỌC KHI SERVER CÓ DỮ LIỆU THỰC SỰ
+      if (courseRes.status === "fulfilled" && courseRes.value.data?.chapters && Array.isArray(courseRes.value.data.chapters) && courseRes.value.data.chapters.length > 0) {
         setChapters(courseRes.value.data.chapters);
         localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
       }
@@ -443,6 +448,7 @@ function AdminDashboardContent() {
       const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
       const examMap = new Map();
       
+      // Giữ nguyên toàn bộ đề local đã có
       localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
       serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
 
@@ -452,14 +458,14 @@ function AdminDashboardContent() {
         localStorage.setItem("edunexus_practice_exams", JSON.stringify(mergedExams));
       }
 
-      if (sessRes.status === "fulfilled" && sessRes.value.data) {
+      if (sessRes.status === "fulfilled" && sessRes.value.data && sessRes.value.data.length > 0) {
         setOnlineSessions(sessRes.value.data);
         localStorage.setItem("edunexus_online_sessions", JSON.stringify(sessRes.value.data));
         const datesFromSessions = Array.from(new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean)));
         if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
       }
 
-      if (notifRes.status === "fulfilled" && notifRes.value.data) {
+      if (notifRes.status === "fulfilled" && notifRes.value.data && notifRes.value.data.length > 0) {
         setSysNotifications(notifRes.value.data);
         localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
       }
@@ -473,7 +479,7 @@ function AdminDashboardContent() {
     } catch (e) {}
   }, [fetchSupabaseAttempts]);
 
-  // 5. TỰ ĐỘNG ĐỒNG BỘ NGAY LẬP TỨC: REALTIME CHANNEL + AUTO POLLING MỖI 3 GIÂY
+  // 5. TỰ ĐỘNG ĐỒNG BỘ: POLLING 3 GIÂY + REALTIME KÊNH PHÒNG THI
   useEffect(() => {
     setMounted(true);
     loadStorageData();
@@ -501,7 +507,6 @@ function AdminDashboardContent() {
       })
       .subscribe();
 
-    // Tự động kiểm tra và làm mới dữ liệu bài nộp liên tục mỗi 3 giây
     const autoSyncTimer = setInterval(() => {
       fetchSupabaseAttempts();
     }, 3000);
@@ -515,6 +520,7 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts]);
 
+  // LƯU DỮ LIỆU NỘI DUNG BÀI HỌC LÊN CẢ LOCAL VÀ SUPABASE
   const saveToStorage = async (newChapters: any[]) => {
     setChapters(newChapters);
     if (typeof window !== "undefined") {
@@ -1040,7 +1046,7 @@ function AdminDashboardContent() {
     return (chapters || []).find(ch => ch?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
-  // CHỈ LẤY ĐÚNG ĐỀ THỰC CHIẾN - LOẠI TRỪ TRIỆT ĐỂ BTVN (TRÁNH BỊ LẪN ĐỀ NHƯ ẢNH 5)
+  // CHỈ LẤY ĐÚNG ĐỀ THỰC CHIẾN - LOẠI TRỪ TRIỆT ĐỂ BTVN (TRÁNH BỊ LẪN ĐỀ)
   const allConsolidatedPracticeExams = useMemo(() => {
     const list: any[] = [...(practiceExams || [])];
     const existingTitles = new Set(list.map(e => normalizeTitle(e.title)));
@@ -1069,7 +1075,7 @@ function AdminDashboardContent() {
     return list;
   }, [practiceExams, chapters]);
 
-  // BẢNG ĐIỂM XẾP HẠNG: SO KHỚP CHUẨN XÁC VỚI TẤT CẢ LƯỢT THI CỦA HỌC SINH (KỂ CẢ DUNG123)
+  // BẢNG ĐIỂM XẾP HẠNG: SO KHỚP CHUẨN XÁC VỚI TẤT CẢ LƯỢT THI CỦA HỌC SINH
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
@@ -1414,7 +1420,7 @@ function AdminDashboardContent() {
                                       <option key={cat} value={cat}>{cat}</option>
                                     ))}
                                   </select>
-                                  <ChevronDown className="w-3 h-3 text-indigo-500 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                  <ChevronDown className="w-3 text-indigo-500 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                                 </div>
                               </td>
                               <td className="py-3.5 px-3 text-center">
@@ -1667,7 +1673,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 2: ĐIỂM SỐ & XẾP HẠNG (KHẮC PHỤC HOÀN TOÀN TRẮNG TRANG) */}
+          {/* TAB 2: ĐIỂM SỐ & XẾP HẠNG */}
           {activeTab === "analytics" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -1710,8 +1716,6 @@ function AdminDashboardContent() {
                         <th className="py-3 px-4 font-bold min-w-[160px]">Học sinh</th>
                         <th className="py-3 px-3 font-bold text-center w-24">Phân hệ</th>
                         <th className="py-3 px-3 font-bold text-center w-24">Lượt làm</th>
-                        <th className="py-3 px-4 font-bold text-center w-24">Đ.Max BTVN</th>
-                        <th className="py-3 px-4 font-bold text-center w-24">Đ.Max KT</th>
                         <th className="py-3 px-4 font-bold text-center text-[#1D4ED8] w-28">Tổng kết</th>
                       </tr>
                     </thead>
@@ -1722,9 +1726,7 @@ function AdminDashboardContent() {
                           <td className="py-2.5 px-4 font-bold text-slate-800"><div>{st.name}</div><span className="text-[10px] text-slate-400 font-normal">{st.school || "THPT"}</span></td>
                           <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">{st.mode === "online" ? "Online" : "Offline"}</span></td>
                           <td className="py-2.5 px-3 text-center font-medium text-slate-600">{st.totalAttempts} lượt</td>
-                          <td className="py-2.5 px-4 text-center font-bold text-slate-600">{Number(st.hwAvg || 0).toFixed(1)}</td>
-                          <td className="py-2.5 px-4 text-center font-bold text-slate-600">{Number(st.testAvg || 0).toFixed(1)}</td>
-                          <td className="py-2.5 px-4 text-center"><span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-black rounded-lg border border-emerald-200">{Number(st.overallAvg || 0).toFixed(1)}</span></td>
+                          <td className="py-2.5 px-4 text-center font-bold text-slate-600">{Number(st.overallAvg || 0).toFixed(1)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1734,7 +1736,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 3: NỘI DUNG BÀI HỌC (MA TRẬN ĐẦY ĐỦ CỦA BẠN) */}
+          {/* TAB 3: NỘI DUNG BÀI HỌC */}
           {activeTab === "lessons" && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
@@ -1826,7 +1828,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN (ĐẦY ĐỦ BỘ LỌC VÀ NÚT THÊM HỌC SINH) */}
+          {/* TAB 5: QUẢN LÝ HỌC VIÊN & DUYỆT TÀI KHOẢN */}
           {activeTab === "students" && (
             <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1969,7 +1971,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          {/* TAB 6: LỊCH HỌC & ĐIỂM DANH TRỰC TUYẾN GRID (BẢO TOÀN ĐẦY ĐỦ BẢNG TÍNH GOOGLE SHEETS CỦA BẠN) */}
+          {/* TAB 6: LỊCH HỌC & ĐIỂM DANH TRỰC TUYẾN GRID (ĐẦY ĐỦ GOOGLE SHEETS SPREADSHEET CỦA BẠN) */}
           {activeTab === "online_schedule" && (
             <div className="space-y-8 animate-in fade-in duration-300 max-w-6xl mx-auto text-left">
               <div className="bg-white/90 backdrop-blur-2xl rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
@@ -2241,7 +2243,7 @@ function AdminDashboardContent() {
       {/* MODAL XEM CHI TIẾT ĐIỂM AZOTA CHO TỪNG ĐỀ */}
       <AnimatePresence>
         {azotaScoreViewModal.isOpen && (
-          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 overflow-hidden text-left">
               <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
                 <div>
