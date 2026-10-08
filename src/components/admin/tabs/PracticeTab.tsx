@@ -154,7 +154,7 @@ export default function PracticeTab({
                         <div className="flex flex-col items-center justify-center gap-3">
                           <Loader2 className="w-8 h-8 text-[#1D4ED8] animate-spin" />
                           <p className="text-xs font-bold text-slate-500">
-                            Đang nạp nhanh danh mục kho đề thực chiến từ Supabase...
+                            Đang nạp danh mục kho đề thực chiến từ Supabase...
                           </p>
                         </div>
                       </td>
@@ -292,19 +292,10 @@ export default function PracticeTab({
                             <button
                               type="button"
                               onClick={() => {
-                                const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
-                                const attemptsForExam = (allAttempts || []).filter(a => {
-                                  if (!a) return false;
-                                  const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
-                                  const aTitle = String(a.examTitle || a.quizTitle || a.title || "").trim().toLowerCase();
-                                  const matchTitle = cleanExTitle && aTitle && (aTitle === cleanExTitle || cleanExTitle.includes(aTitle) || aTitle.includes(cleanExTitle));
-                                  return matchId || matchTitle;
-                                });
-
                                 setAzotaScoreViewModal({
                                   isOpen: true,
                                   examTitle: ex.title,
-                                  attempts: attemptsForExam
+                                  attempts: ex.attempts || []
                                 });
                               }}
                               className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
@@ -317,7 +308,7 @@ export default function PracticeTab({
                               type="button"
                               onClick={() => onOpenExamEditor(ex)}
                               className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition cursor-pointer"
-                              title="Sửa cấu trúc câu hỏi, lời giải & đáp án (Tải on-demand)"
+                              title="Sửa cấu trúc câu hỏi, lời giải & đáp án"
                             >
                               <FileSignature className="w-4 h-4" />
                             </button>
