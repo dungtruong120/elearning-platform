@@ -1,15 +1,27 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Khởi tạo Supabase Server với Service Role Key để vượt qua RLS an toàn
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "";
-const supabaseServer = createClient(supabaseUrl, supabaseServiceKey);
-
 export async function GET() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+  // Debug môi trường
+  const envDebug = {
+    hasUrl: Boolean(supabaseUrl),
+    hasServiceKey: Boolean(serviceKey),
+    serviceKeyLength: serviceKey ? serviceKey.length : 0,
+    usingFallbackAnon: !serviceKey
+  };
+
+  console.log("=== CHECK SUPABASE SERVER KEY ===", envDebug);
+
+  // Khởi tạo client với key hiện có
+  const effectiveKey = serviceKey || anonKey;
+  const supabaseServer = createClient(supabaseUrl, effectiveKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+
   try {
     const [profilesRes, attemptsRes, resultsRes, examsRes] = await Promise.allSettled([
       supabaseServer
@@ -41,17 +53,25 @@ export async function GET() {
     const quizResults = resultsRes.status === "fulfilled" && resultsRes.value.data ? resultsRes.value.data : [];
     const practiceExams = examsRes.status === "fulfilled" && examsRes.value.data ? examsRes.value.data : [];
 
+    // Ghi nhận chi tiết lỗi của từng bảng nếu có
+    const errors = {
+      profilesError: profilesRes.status === "rejected" ? profilesRes.reason : (profilesRes.value as any)?.error,
+      attemptsError: attemptsRes.status === "rejected" ? attemptsRes.reason : (attemptsRes.value as any)?.error,
+      resultsError: resultsRes.status === "rejected" ? resultsRes.reason : (resultsRes.value as any)?.error
+    };
+
     return NextResponse.json({
       success: true,
+      envDebug,
+      errors,
       profiles,
       examAttempts,
       quizResults,
       practiceExams
     });
   } catch (error: any) {
-    console.error("Lỗi API Admin Data:", error);
     return NextResponse.json(
-      { error: error.message || "Lỗi xử lý server nội bộ" },
+      { error: error.message, envDebug },
       { status: 500 }
     );
   }
