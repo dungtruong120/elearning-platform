@@ -43,7 +43,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO STATE
+  // 2. KHỞI TẠO STATE TỪ LOCALSTORAGE TRÁNH MẤT TRẮNG DỮ LIỆU
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -59,6 +59,32 @@ function AdminDashboardContent() {
       try {
         const saved = localStorage.getItem("edunexus_practice_exams");
         if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [registeredStudents, setRegisteredStudents] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_registered_students");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const [allAttempts, setAllAttempts] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_attempts");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
       } catch (e) {}
     }
     return [];
@@ -88,8 +114,6 @@ function AdminDashboardContent() {
     return [];
   });
 
-  const [allAttempts, setAllAttempts] = useState<any[]>([]);
-
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -116,7 +140,6 @@ function AdminDashboardContent() {
   const [notifContent, setNotifContent] = useState("");
   const [notifType, setNotifType] = useState<"teacher" | "urgent" | "exam">("teacher");
 
-  const [registeredStudents, setRegisteredStudents] = useState<any[]>([]);
   const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [studentSearch, setStudentSearch] = useState("");
 
@@ -216,41 +239,38 @@ function AdminDashboardContent() {
     }
   };
 
-  const fetchSupabaseStudents = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, full_name, email, phone, school, grade, role, learning_mode, study_mode, approval_status, created_at, username")
-        .neq("role", "admin")
-        .order("created_at", { ascending: false });
-
-      if (!error && data) {
-        setRegisteredStudents(data);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_registered_students", JSON.stringify(data));
-        }
-      }
-    } catch (err) {}
-  }, []);
-
-  // QUERY TRỰC TIẾP TỪ SUPABASE: LẤY TOÀN BỘ LỊCH SỬ THI MỚI NHẤT
-  const fetchSupabaseAttempts = useCallback(async () => {
+  // NẠP DỮ LIỆU TOÀN DIỆN QUA API SERVER-SIDE (VƯỢT QUA 100% RÀO CẢN RLS)
+  const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
+    setIsLoadingExams(true);
 
     try {
-      const EXAM_ATTEMPTS_FIELDS = "id, quiz_id, exam_id, student_id, user_id, student_name, full_name, user_name, quiz_title, exam_title, score, points, type, is_homework, duration_seconds, time_spent, created_at, feedback";
-      const QUIZ_RESULTS_FIELDS = "id, quiz_id, student_id, score, created_at";
+      // 1. Gọi Endpoint Server với Service Role Key để lấy dữ liệu đầy đủ
+      const res = await fetch("/api/admin/data", { cache: "no-store" });
+      const apiData = await res.json();
 
-      const [res1, res2] = await Promise.allSettled([
-        supabase.from("exam_attempts").select(EXAM_ATTEMPTS_FIELDS).order("created_at", { ascending: false }).limit(3000),
-        supabase.from("quiz_results").select(QUIZ_RESULTS_FIELDS).order("created_at", { ascending: false }).limit(3000)
-      ]);
+      if (res.ok && apiData.success) {
+        // A. Cập nhật Profiles học sinh (Fallback an toàn)
+        if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
+          setRegisteredStudents(apiData.profiles);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("edunexus_registered_students", JSON.stringify(apiData.profiles));
+          }
+        }
 
-      const map = new Map();
+        // B. Cập nhật Đề thi
+        if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
+          setPracticeExams(apiData.practiceExams);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("edunexus_practice_exams", JSON.stringify(apiData.practiceExams));
+          }
+        }
 
-      // Nạp từ bảng exam_attempts
-      if (res1.status === "fulfilled" && Array.isArray(res1.value.data)) {
-        res1.value.data.forEach((item: any) => {
+        // C. Hợp nhất Điểm số thông minh (Tất cả 8 lượt thi)
+        const map = new Map();
+
+        // Nạp từ exam_attempts
+        (apiData.examAttempts || []).forEach((item: any) => {
           if (!item) return;
           const quizId = String(item.quiz_id || item.exam_id || "").trim();
           const studentId = String(item.student_id || item.user_id || "").trim();
@@ -281,11 +301,9 @@ function AdminDashboardContent() {
 
           map.set(normalized.id, normalized);
         });
-      }
 
-      // Nạp bổ sung từ bảng quiz_results (nếu exam_attempts chưa có)
-      if (res2.status === "fulfilled" && Array.isArray(res2.value.data)) {
-        res2.value.data.forEach((item: any) => {
+        // Nạp từ quiz_results
+        (apiData.quizResults || []).forEach((item: any) => {
           if (!item) return;
           const recordId = String(item.id);
           if (!map.has(recordId)) {
@@ -314,20 +332,52 @@ function AdminDashboardContent() {
             });
           }
         });
-      }
 
-      const finalAttempts = Array.from(map.values());
-      setAllAttempts(finalAttempts);
+        // Đọc thêm bản ghi từ LocalStorage nếu có
+        if (typeof window !== "undefined") {
+          try {
+            const rawLocal = localStorage.getItem("edunexus_attempts");
+            if (rawLocal) {
+              const localParsed = JSON.parse(rawLocal);
+              if (Array.isArray(localParsed)) {
+                localParsed.forEach((locItem: any) => {
+                  if (locItem?.id && !map.has(locItem.id)) {
+                    map.set(locItem.id, locItem);
+                  }
+                });
+              }
+            }
+          } catch (e) {}
+        }
 
-      if (typeof window !== "undefined") {
-        localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
+        const finalAttempts = Array.from(map.values());
+        if (finalAttempts.length > 0) {
+          setAllAttempts(finalAttempts);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
+          }
+        }
+      } else {
+        // Fallback Client Supabase nếu API Route gặp sự cố
+        fallbackFetchClient();
       }
     } catch (err) {
-      console.error("Lỗi đồng bộ điểm thi từ Supabase:", err);
+      console.warn("API Server không phản hồi, dùng client fallback:", err);
+      fallbackFetchClient();
     } finally {
       setIsLoadingAnalytics(false);
+      setIsLoadingExams(false);
     }
   }, []);
+
+  const fallbackFetchClient = async () => {
+    try {
+      const { data: dbStudents } = await supabase.from("profiles").select("*").neq("role", "admin");
+      if (dbStudents && dbStudents.length > 0) {
+        setRegisteredStudents(dbStudents);
+      }
+    } catch (e) {}
+  };
 
   const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -366,15 +416,9 @@ function AdminDashboardContent() {
   };
 
   const loadStorageData = useCallback(async () => {
-    setIsLoadingExams(true);
-
     try {
-      const [courseRes, examRes, sessRes, notifRes] = await Promise.allSettled([
+      const [courseRes, sessRes, notifRes] = await Promise.allSettled([
         supabase.from("courses").select("*").limit(1).maybeSingle(),
-        supabase
-          .from("practice_exams")
-          .select("id, title, category, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, duration_minutes, created_at")
-          .order("created_at", { ascending: false }),
         supabase.from("sessions").select("*").order("created_at", { ascending: false }),
         supabase.from("system_notifications").select("*").order("created_at", { ascending: false })
       ]);
@@ -383,13 +427,6 @@ function AdminDashboardContent() {
         setChapters(courseRes.value.data.chapters);
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
-        }
-      }
-
-      if (examRes.status === "fulfilled" && Array.isArray(examRes.value.data)) {
-        setPracticeExams(examRes.value.data);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(examRes.value.data));
         }
       }
 
@@ -408,24 +445,20 @@ function AdminDashboardContent() {
           localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
         }
       }
-    } catch (e) {
-    } finally {
-      setIsLoadingExams(false);
-    }
+    } catch (e) {}
 
-    // Luôn refetch điểm mới nhất từ Supabase
-    await fetchSupabaseAttempts();
+    // Gọi hàm đồng bộ tổng thể qua Server Route
+    await syncAdminGlobalData();
 
     try {
       const savedAtt = localStorage.getItem("edunexus_attendance");
       if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
     } catch (e) {}
-  }, [fetchSupabaseAttempts]);
+  }, [syncAdminGlobalData]);
 
   useEffect(() => {
     setMounted(true);
     loadStorageData();
-    fetchSupabaseStudents();
 
     const handlePopState = () => {
       if (typeof window !== "undefined") {
@@ -441,24 +474,24 @@ function AdminDashboardContent() {
 
     window.addEventListener("popstate", handlePopState);
 
-    // REALTIME GLOBAL LISTENER
+    // KÊNH REALTIME TOÀN CỤC: NHẬN DIỆN CẢ EVENT DB LẪN BROADCAST HỌC SINH NỘP BÀI
     const channel = supabase
       .channel("admin-realtime-global-sync")
       .on("broadcast", { event: "new_attempt" }, () => {
-        fetchSupabaseAttempts();
+        syncAdminGlobalData();
         showToast("Đã có lượt nộp bài mới từ học sinh! Đang cập nhật...", "success");
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => fetchSupabaseAttempts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_results" }, () => fetchSupabaseAttempts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => fetchSupabaseStudents())
+      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => syncAdminGlobalData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_results" }, () => syncAdminGlobalData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => syncAdminGlobalData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => syncAdminGlobalData())
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts, showToast]);
+  }, [loadStorageData, syncAdminGlobalData, showToast]);
 
   const saveToStorage = async (newChapters: any[]): Promise<boolean> => {
     try {
@@ -789,6 +822,9 @@ function AdminDashboardContent() {
     } catch {}
     const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
     setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
     showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!", "success");
   };
 
@@ -799,6 +835,9 @@ function AdminDashboardContent() {
     } catch {}
     const updated = registeredStudents.filter(s => s.id !== studentId);
     setRegisteredStudents(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+    }
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.", "success");
   };
 
@@ -1098,7 +1137,6 @@ function AdminDashboardContent() {
     return list.map(ex => {
       const exId = String(ex?.id || "").trim();
       const cleanTitle = cleanMatchKey(ex?.title);
-      // Trích xuất phần số nhận dạng đề (ví dụ "1791195620073")
       const exNumericId = exId.replace(/[^0-9]/g, "");
 
       const attempts = (allAttempts || []).filter(a => {
@@ -1328,8 +1366,8 @@ function AdminDashboardContent() {
         <AdminHeader
           activeTab={activeTab}
           onSyncData={async () => {
-            await Promise.all([loadStorageData(), fetchSupabaseStudents()]);
-            showToast("Đã đồng bộ toàn bộ dữ liệu tức thì!", "success");
+            await loadStorageData();
+            showToast("Đã đồng bộ toàn bộ dữ liệu tức thì từ Server!", "success");
           }}
         />
 
