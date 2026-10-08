@@ -13,6 +13,7 @@ import { LessonWorkspaceView } from "@/components/student/LessonWorkspaceView";
 import PracticeExamWorkspace from "@/components/student/PracticeExamWorkspace";
 import { Profile } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
+import { useAutoSyncAttempts } from "@/hooks/useAutoSyncAttempts";
 import { 
   Target, BookOpen, Play, CheckCircle2, Award, Sparkles, Clock, 
   Calendar, Edit3, Check, Quote, Layers, FileText, X, ArrowLeft, 
@@ -68,6 +69,9 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     }
     return null;
   });
+
+  // TÍCH HỢP HOOK ĐỒNG BỘ NGẦM LỊCH SỬ THI KHÔNG GÂY LAG
+  useAutoSyncAttempts(profile);
 
   useEffect(() => {
     if (initialProfile) {
@@ -302,7 +306,6 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     loadSessionsData();
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
 
-    // LẮNG NGHE SỰ KIỆN NÚT BACK / FORWARD CỦA TRÌNH DUYỆT
     const handlePopState = () => {
       if (typeof window !== "undefined") {
         const hash = window.location.hash.replace("#", "").trim();
@@ -944,7 +947,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                                     {exam.category}
                                   </span>
                                   <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                                    <Clock className="w-3 h-3"/> {exam.duration_minutes}p
+                                    <Clock className="w-3.5 h-3.5"/> {exam.duration_minutes}p
                                   </span>
                                 </div>
                                 <h3 className="text-sm font-bold text-slate-800 mb-1 leading-snug line-clamp-2 group-hover:text-[#1D4ED8] transition-colors">{exam.title}</h3>
