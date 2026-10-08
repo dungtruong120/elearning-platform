@@ -4,8 +4,6 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/student/Sidebar";
 import { Header } from "@/components/student/Header";
-import { ChapterAccordion } from "@/components/student/ChapterAccordion";
-import { ProgressTrackingView } from "@/components/student/ProgressTrackingView";
 import { StudentLeaderboardView } from "@/components/student/StudentLeaderboardView";
 import ScheduleView from "@/components/student/ScheduleView";
 import { ExamRoomView } from "@/components/student/ExamRoomView";
@@ -18,7 +16,8 @@ import {
   Target, BookOpen, Play, CheckCircle2, Award, Sparkles, Clock, 
   Calendar, Edit3, Check, Quote, Layers, FileText, X, ArrowLeft, 
   Bell, AlertTriangle, MessageSquare, ArrowRight, Library, BarChart3, 
-  ListOrdered, Video, MapPin, Users, CheckSquare, Trash2, Plus
+  ListOrdered, Video, MapPin, Users, CheckSquare, Trash2, Plus,
+  ChevronDown, ChevronUp, BookMarked, HelpCircle
 } from "lucide-react";
 
 const MOTIVATIONAL_QUOTES = [
@@ -53,12 +52,22 @@ const DEFAULT_CHAPTERS = [
 
 const VALID_TABS = ["overview", "courses", "practice", "schedule", "progress", "assessments", "leaderboard", "notifications"];
 
+function normalizeStr(str: any): string {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[−–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 interface StudentOfflineDashboardProps {
   initialProfile?: Profile | null;
   onLogout?: () => void;
 }
 
-export default function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDashboardProps) {
+function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDashboardProps) {
   const [profile, setProfile] = useState<Profile | null>(() => {
     if (initialProfile) return { ...initialProfile, learning_mode: "offline", study_mode: "offline" };
     if (typeof window !== "undefined") {
@@ -79,7 +88,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     }
   }, [initialProfile]);
 
-  // 1. ĐỒNG BỘ TAB TỪ URL HASH ĐỂ F5 KHÔNG BỊ VĂNG VỀ TRANG ĐẦU
+  // 1. ĐỒNG BỘ TAB TỪ URL HASH & HIỆU ỨNG LOADING CHUYỂN TAB MƯỢT MÀ
   const [activeTab, setActiveTabState] = useState<string>(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "").trim();
@@ -88,17 +97,24 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     return "overview";
   });
 
+  const [isTabChanging, setIsTabChanging] = useState<boolean>(false);
+
   const setActiveTab = useCallback((newTab: string) => {
+    if (newTab === activeTab) return;
+    setIsTabChanging(true);
     setActiveTabState(newTab);
     if (typeof window !== "undefined") {
       window.history.pushState({ tab: newTab }, "", "#" + newTab);
     }
-  }, []);
+    setTimeout(() => {
+      setIsTabChanging(false);
+    }, 280);
+  }, [activeTab]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ 1-2 GIÂY KHI MỞ TRANG
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ TRANG
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -127,6 +143,14 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
       } catch (e) {}
     }
     return [];
+  });
+
+  const [isLoadingExams, setIsLoadingExams] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("edunexus_practice_exams");
+      return !saved;
+    }
+    return true;
   });
 
   const [sysNotifications, setSysNotifications] = useState<any[]>(() => {
@@ -182,6 +206,11 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   const [practiceSubTab, setPracticeSubTab] = useState<"list" | "history">("list");
   const [historyModalExamId, setHistoryModalExamId] = useState<string | null>(null);
 
+  const [collapsedChapters, setCollapsedChapters] = useState<Record<string, boolean>>({});
+  const toggleChapterCollapse = (chapId: string) => {
+    setCollapsedChapters(prev => ({ ...prev, [chapId]: !prev[chapId] }));
+  };
+
   const [studyGoal, setStudyGoal] = useState<string>(() => { 
     return typeof window !== "undefined" ? localStorage.getItem("edunexus_study_goal") || "Chinh phục 9.5+ Toán & Kỳ thi ĐGNL/TSA" : ""; 
   });
@@ -226,6 +255,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     } catch (e) {}
 
     try {
+      setIsLoadingExams(true);
       const { data: dbExams } = await supabase
         .from("practice_exams")
         .select("*")
@@ -237,7 +267,9 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
           localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
         }
       }
-    } catch (e) {}
+    } catch (e) {} finally {
+      setIsLoadingExams(false);
+    }
 
     try {
       const { data: dbNotifs } = await supabase
@@ -379,21 +411,42 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     return () => window.removeEventListener("readNotifsUpdated", syncReadNotifs);
   }, [syncReadNotifs]);
 
+  // 4. LỌC TOÀN BỘ BÀI NỘP CỦA CHÍNH HỌC SINH NÀY (HỖ TRỢ ĐA TẦNG UUID, USERNAME, EMAIL, FULL_NAME)
+  const myAttempts = useMemo(() => {
+    if (!profile) return [];
+    const pId = String(profile.id || "").trim().toLowerCase();
+    const pUser = String(profile.username || "").trim().toLowerCase();
+    const pName = normalizeStr(profile.full_name || "");
+    const pEmailPrefix = profile.email ? String(profile.email).split("@")[0].trim().toLowerCase() : "";
+
+    return (allAttempts || []).filter(a => {
+      if (!a) return false;
+      const attStuId = String(a.studentId || a.student_id || a.user_id || "").trim().toLowerCase();
+      const attName = normalizeStr(a.studentName || a.student_name || a.full_name || a.username || "");
+      const attUser = String(a.username || "").trim().toLowerCase();
+
+      if (pId && (attStuId === pId || attStuId.includes(pId))) return true;
+      if (pUser && (attStuId === pUser || attUser === pUser || attName.includes(pUser))) return true;
+      if (pEmailPrefix && (attStuId.includes(pEmailPrefix) || attUser.includes(pEmailPrefix))) return true;
+      if (pName && attName && (attName === pName || attName.includes(pName) || pName.includes(attName))) return true;
+      return false;
+    });
+  }, [allAttempts, profile]);
+
   const notificationsList = useMemo(() => {
     const combined: any[] = [];
-    const myAttempts = allAttempts.filter(a => a.studentId === profile?.id);
     
     myAttempts.forEach(att => {
       const isPractice = att.type === "practice";
       combined.push({
-        id: "score-" + att.attemptId, 
+        id: "score-" + (att.id || att.attemptId || Math.random()), 
         title: "Điểm kiểm tra mới", 
-        desc: 'Bài "' + att.quizTitle + '" đạt kết quả: ' + att.score + '/10 điểm.', 
+        desc: 'Bài "' + (att.quizTitle || att.examTitle || "Đề thi") + '" đạt kết quả: ' + att.score + '/10 điểm.', 
         type: "success", 
-        timestamp: new Date(att.submittedAt).getTime(), 
-        dateStr: new Date(att.submittedAt).toLocaleString("vi-VN"), 
+        timestamp: new Date(att.createdAt || att.created_at || att.submittedAt || Date.now()).getTime(), 
+        dateStr: new Date(att.createdAt || att.created_at || att.submittedAt || Date.now()).toLocaleString("vi-VN"), 
         actionType: isPractice ? "practice_score" : "course_score", 
-        quizId: att.quizId
+        quizId: att.quizId || att.quiz_id
       });
     });
     
@@ -416,14 +469,14 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
         title: sys.title, 
         desc: sys.content, 
         type: sys.type === "urgent" ? "warning" : "teacher", 
-        timestamp: new Date(sys.createdAt || sys.created_at).getTime(), 
-        dateStr: new Date(sys.createdAt || sys.created_at).toLocaleString("vi-VN"), 
+        timestamp: new Date(sys.createdAt || sys.created_at || Date.now()).getTime(), 
+        dateStr: new Date(sys.createdAt || sys.created_at || Date.now()).toLocaleString("vi-VN"), 
         actionType: "system_modal"
       });
     });
     
     return combined.sort((a, b) => b.timestamp - a.timestamp);
-  }, [allAttempts, practiceExams, sysNotifications, profile?.id]);
+  }, [myAttempts, practiceExams, sysNotifications]);
 
   const handleMarkAllAsRead = () => {
     const allIds = notificationsList.map(n => n.id);
@@ -454,31 +507,33 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   };
 
   const practiceHistoryGrouped = useMemo(() => {
-    const myPracticeAttempts = allAttempts.filter(a => a.studentId === profile?.id && a.type === "practice");
+    const myPracticeAttempts = myAttempts.filter(a => a.type === "practice" || (!a.is_homework && !a.isHomework));
     const grouped: Record<string, any> = {};
     myPracticeAttempts.forEach(att => {
-      if (!grouped[att.quizId]) {
-        grouped[att.quizId] = {
-          quizId: att.quizId,
-          title: att.quizTitle,
+      const qKey = att.quizId || att.quiz_id || att.exam_id;
+      if (!qKey) return;
+      if (!grouped[qKey]) {
+        grouped[qKey] = {
+          quizId: qKey,
+          title: att.quizTitle || att.examTitle || "Đề thi",
           category: att.category || "Luyện đề",
           attempts: [],
           maxScore: 0,
           lastDate: 0
         };
       }
-      grouped[att.quizId].attempts.push(att);
-      grouped[att.quizId].maxScore = Math.max(grouped[att.quizId].maxScore, att.score);
-      const attTime = new Date(att.submittedAt).getTime();
-      if (attTime > grouped[att.quizId].lastDate) {
-        grouped[att.quizId].lastDate = attTime;
+      grouped[qKey].attempts.push(att);
+      grouped[qKey].maxScore = Math.max(grouped[qKey].maxScore, Number(att.score ?? att.points ?? 0));
+      const attTime = new Date(att.createdAt || att.created_at || att.submittedAt || Date.now()).getTime();
+      if (attTime > grouped[qKey].lastDate) {
+        grouped[qKey].lastDate = attTime;
       }
     });
     Object.values(grouped).forEach(group => {
-      group.attempts.sort((a: any, b: any) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime());
+      group.attempts.sort((a: any, b: any) => new Date(a.createdAt || a.created_at || a.submittedAt).getTime() - new Date(b.createdAt || b.created_at || b.submittedAt).getTime());
     });
     return Object.values(grouped).sort((a, b) => b.lastDate - a.lastDate);
-  }, [allAttempts, profile?.id]);
+  }, [myAttempts]);
 
   const formatCompletionTime = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -610,6 +665,93 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     setTimeout(() => setOfflineToast(""), 4000);
   };
 
+  // KIỂM TRA TRẠNG THÁI HOÀN THÀNH CỦA BÀI HỌC DỰA TRÊN LƯỢT LÀM BÀI
+  const getLessonCompletionStatus = useCallback((lesson: any) => {
+    const hwIds = (lesson.homework_files || []).map((h: any) => String(h.id || "").trim().toLowerCase()).filter(Boolean);
+    const testIds = (lesson.test_quizzes || []).map((t: any) => String(t.id || "").trim().toLowerCase()).filter(Boolean);
+    const targetIds = [...hwIds, ...testIds];
+
+    if (targetIds.length === 0) return "in_progress";
+
+    const doneCount = targetIds.filter(id => 
+      myAttempts.some(a => {
+        const aId = String(a.quizId || a.quiz_id || "").trim().toLowerCase();
+        return aId === id;
+      })
+    ).length;
+
+    if (doneCount === targetIds.length) return "completed";
+    if (doneCount > 0) return "in_progress";
+    return "not_started";
+  }, [myAttempts]);
+
+  // HÀM TRA CỨU BÀI LÀM ĐA TẦNG CHO BTVN VÀ BÀI KIỂM TRA
+  const findAttemptForLesson = useCallback((quiz: any, lessonTitle: string, isHomeworkCheck: boolean) => {
+    const qId = quiz?.id ? String(quiz.id).trim().toLowerCase() : "";
+    const qTitle = quiz?.title ? normalizeStr(quiz.title) : "";
+    const lesTitle = normalizeStr(lessonTitle);
+
+    const matchLessonNum = lesTitle.match(/b[aà]i\s*(\d+)/i);
+    const lessonNumKey = matchLessonNum ? `bài ${matchLessonNum[1]}` : "";
+
+    return (myAttempts || []).find(a => {
+      const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "").trim().toLowerCase();
+      const aTitle = normalizeStr(a.quizTitle || a.examTitle || a.title || "");
+      const isHw = Boolean(a.isHomework || a.is_homework || a.type === "homework");
+
+      if (isHomeworkCheck && !isHw) return false;
+      if (!isHomeworkCheck && isHw) return false;
+
+      // 1. So khớp ID trực tiếp
+      if (qId && aQuizId && aQuizId === qId) return true;
+
+      // 2. So khớp ID không phân biệt tiền tố (exam-, prac-)
+      const cleanQId = qId.replace(/^(exam-|prac-)/, "");
+      const cleanAId = aQuizId.replace(/^(exam-|prac-)/, "");
+      if (cleanQId && cleanAId && cleanQId === cleanAId) return true;
+
+      // 3. So khớp theo tiêu đề bài tập
+      if (qTitle && aTitle && (aTitle === qTitle || aTitle.includes(qTitle) || qTitle.includes(aTitle))) return true;
+
+      // 4. So khớp theo tiêu đề bài học đầy đủ
+      if (lesTitle && aTitle && (aTitle.includes(lesTitle) || lesTitle.includes(aTitle))) return true;
+
+      // 5. So khớp theo số hiệu bài (ví dụ: bài 8)
+      if (lessonNumKey && aTitle.includes(lessonNumKey)) return true;
+
+      return false;
+    }) || null;
+  }, [myAttempts]);
+
+  // DỮ LIỆU TÍNH TOÁN TIẾN ĐỘ HỌC TẬP TAB #PROGRESS
+  const progressStats = useMemo(() => {
+    let totalHw = 0;
+    let submittedHw = 0;
+    let totalTest = 0;
+    let completedTest = 0;
+
+    offlineChapters.forEach((chap: any) => {
+      (chap.lessons || []).forEach((les: any) => {
+        (les.homework_files || []).forEach((hw: any) => {
+          totalHw++;
+          const att = findAttemptForLesson(hw, les.title, true);
+          if (att) submittedHw++;
+        });
+        (les.test_quizzes || []).forEach((tq: any) => {
+          totalTest++;
+          const att = findAttemptForLesson(tq, les.title, false);
+          if (att) completedTest++;
+        });
+      });
+    });
+
+    const totalTasks = totalHw + totalTest;
+    const completedTasks = submittedHw + completedTest;
+    const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    return { totalHw, submittedHw, totalTest, completedTest, totalTasks, completedTasks, percent };
+  }, [offlineChapters, findAttemptForLesson]);
+
   if (examRoom) {
     return (
       <ExamRoomView 
@@ -644,7 +786,7 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
       <PracticeExamWorkspace
         exam={workspacePracticeExam}
         profile={profile!}
-        attempts={allAttempts.filter(a => a.studentId === profile?.id && a.quizId === workspacePracticeExam.id)}
+        attempts={allAttempts.filter(a => a.studentId === profile?.id && (a.quizId === workspacePracticeExam.id || a.quiz_id === workspacePracticeExam.id))}
         onBack={() => setWorkspacePracticeExam(null)}
         onRetake={() => {
           const exam = workspacePracticeExam;
@@ -657,27 +799,28 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
   }
 
   return (
-    <div className="h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 flex overflow-hidden relative selection:bg-blue-500/20">
+    <div className="h-screen w-full bg-[#F8FAFC] antialiased text-slate-800 tracking-normal leading-relaxed flex overflow-hidden relative selection:bg-blue-500/20">
       <AnimatePresence>
         {offlineToast && (
           <motion.div 
             initial={{ opacity: 0, y: -20 }} 
             animate={{ opacity: 1, y: 0 }} 
             exit={{ opacity: 0, y: -20 }} 
-            className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-xs sm:text-sm border border-emerald-400"
+            className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 font-semibold text-xs sm:text-sm border border-emerald-400"
           >
-            <CheckCircle2 className="w-5 h-5 text-white" /> {offlineToast}
+            <CheckCircle2 className="w-4 h-4 text-white" /> {offlineToast}
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* SIDEBAR BÊN TRÁI TINH TẾ */}
       <div 
         className={"h-full shrink-0 transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden hidden md:block z-40 " + (
-          isSidebarOpen ? "w-64 opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-10"
+          isSidebarOpen ? "w-60 opacity-100 translate-x-0" : "w-0 opacity-0 -translate-x-10"
         )}
         style={{ willChange: "width, transform" }}
       >
-        <div className="w-64 h-full">
+        <div className="w-60 h-full">
           <Sidebar user={profile!} activeTab={activeTab} setActiveTab={setActiveTab} onToggleSidebar={() => setIsSidebarOpen(false)} onLogout={onLogout} />
         </div>
       </div>
@@ -695,396 +838,712 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
           />
         </div>
         
-        <main className="flex-1 p-4 sm:p-5 md:p-8 pb-24 md:pb-6 overflow-y-auto custom-scrollbar">
-          <AnimatePresence mode="wait">
-            <motion.div key={activeTab} initial={{ opacity: 0, y: 10, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -10, scale: 0.99 }} transition={{ duration: 0.2, ease: "easeInOut" }}>
-              {activeTab === "overview" && (
-                <div className="max-w-4xl space-y-6 text-left">
-                  {todayOfflineSession && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-3 sm:px-5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-white/20"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="p-2 rounded-xl bg-white/20 text-white shrink-0">
-                          <MapPin className="w-4 h-4" />
+        <main className="flex-1 p-3.5 sm:px-6 py-4 pb-20 md:pb-6 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out w-full">
+          {/* HIỆU ỨNG SKELETON LOADING KHI CHUYỂN TAB MƯỢT MÀ */}
+          {isTabChanging ? (
+            <div className="max-w-5xl mx-auto space-y-4 animate-pulse">
+              <div className="h-14 bg-slate-200/70 rounded-xl w-full" />
+              <div className="h-32 bg-slate-200/60 rounded-xl w-full" />
+              <div className="space-y-2.5">
+                <div className="h-12 bg-slate-200/50 rounded-xl w-full" />
+                <div className="h-12 bg-slate-200/50 rounded-xl w-full" />
+                <div className="h-12 bg-slate-200/50 rounded-xl w-full" />
+              </div>
+            </div>
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div 
+                key={activeTab} 
+                initial={{ opacity: 0, y: 6 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                exit={{ opacity: 0, y: -6 }} 
+                transition={{ duration: 0.16, ease: "easeInOut" }}
+                className="w-full"
+              >
+                {/* TAB 1: TỔNG QUAN (#OVERVIEW) - VERTICAL LIST VIEW */}
+                {activeTab === "overview" && (
+                  <div className="w-full max-w-5xl mx-auto space-y-4 text-left">
+                    {/* BANNER CA HỌC TRỰC TIẾP TẠI LỚP TCT */}
+                    {todayOfflineSession && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-3.5 sm:px-4.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-white/20"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 rounded-lg bg-white/20 text-white shrink-0">
+                            <MapPin className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0 text-left">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
+                              <span>{isOfflineLiveNow ? "ĐANG DIỄN RA CA HỌC TRỰC TIẾP" : "SẮP BẮT ĐẦU CA HỌC (TRƯỚC 15 PHÚT)"}</span>
+                              <span className="px-1.5 py-0.2 rounded bg-emerald-500 text-white text-[9px] font-semibold">TCT</span>
+                            </p>
+                            <p className="text-xs sm:text-sm font-semibold text-white truncate">
+                              {(todayOfflineSession.subject || todayOfflineSession.title) + " (" + todayOfflineSession.timeSlot + ")"}
+                              <span className="text-blue-200 text-xs font-normal ml-2">• {todayOfflineSession.room || "P.201 TCT"}</span>
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0 text-left">
-                          <p className="text-[11px] font-black uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
-                            <span>{isOfflineLiveNow ? "ĐANG DIỄN RA CA HỌC TRỰC TIẾP" : "SẮP BẮT ĐẦU CA HỌC (TRƯỚC 15 PHÚT)"}</span>
-                            <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[9px] font-extrabold">TCT</span>
-                          </p>
-                          <p className="text-xs sm:text-sm font-extrabold text-white truncate">
-                            {(todayOfflineSession.subject || todayOfflineSession.title) + " (" + todayOfflineSession.timeSlot + ")"}
-                            <span className="text-blue-200 text-xs font-medium ml-2">• {todayOfflineSession.room || "P.201 TCT"}</span>
-                          </p>
-                        </div>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-2">
-                        {isAttendedTodayOffline ? (
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-200 font-black text-xs border border-emerald-400/30 backdrop-blur-md">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                              <span>Đã điểm danh ✓</span>
-                            </span>
+                        <div className="shrink-0 flex items-center gap-2">
+                          {isAttendedTodayOffline ? (
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-100 font-semibold text-xs border border-emerald-400/30">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                                <span>Đã điểm danh ✓</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab("courses");
+                                  setOfflineToast("Đang mở không gian học tập: " + (todayOfflineSession.subject || todayOfflineSession.title));
+                                }}
+                                className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span>Vào học</span>
+                              </button>
+                            </div>
+                          ) : (
                             <button
                               type="button"
-                              onClick={() => {
-                                setActiveTab("courses");
-                                setOfflineToast("Đang mở không gian học tập: " + (todayOfflineSession.subject || todayOfflineSession.title));
-                              }}
-                              className="px-3.5 py-1.5 bg-white text-[#1D4ED8] hover:bg-blue-50 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                              onClick={handleOfflineSelfCheckIn}
+                              className="px-4 py-2 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                             >
-                              <BookOpen className="w-3.5 h-3.5" />
-                              <span>Vào học</span>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
+                              <span>Xác nhận có mặt</span>
                             </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={handleOfflineSelfCheckIn}
-                            className="px-5 py-2 bg-white text-[#1D4ED8] hover:bg-blue-50 font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <CheckCircle2 className="w-4 h-4 text-[#1D4ED8]" />
-                            <span>Xác nhận có mặt</span>
-                          </button>
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-200/60">
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Chương trình 12</h2>
-                    <span className="text-xs font-bold text-slate-500">{offlineChapters.length} Chương chính khóa (Lớp Offline TCT)</span>
-                  </div>
-                  <div className="space-y-4">
-                    {offlineChapters.map((chap, idx) => (
-                      <div key={chap.id || idx} className="space-y-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs">
-                        <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-2">
-                          <span className="text-[#1D4ED8] uppercase text-xs tracking-widest bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">Chương {idx + 1}</span> {chap.title}
-                        </h3>
-                        <div className="pl-3 space-y-2 border-l-2 border-emerald-500/20 ml-2">
-                          {(chap.lessons || []).map((les: any) => (
-                            <div key={les.id} className="flex items-center gap-2 text-slate-700 hover:text-[#1D4ED8] transition-colors cursor-default text-xs sm:text-sm font-medium">
-                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                              <span className="truncate">{les.title}</span>
-                            </div>
-                          ))}
+                          )}
                         </div>
-                      </div>
-                    ))}
-                    {offlineChapters.length === 0 && (
-                      <div className="py-8 text-center text-slate-400 font-medium bg-white rounded-2xl border border-slate-200">
-                        Chưa có chương trình học nào. Giáo viên sẽ cập nhật bài giảng sớm nhất.
-                      </div>
+                      </motion.div>
                     )}
-                  </div>
-                </div>
-              )}
 
-              {activeTab === "courses" && (
-                <div className="max-w-6xl mx-auto space-y-6 text-left justify-start">
-                  <div className="bg-white/90 backdrop-blur-xl rounded-[20px] p-4 sm:p-5 border border-slate-200/70 shadow-sm flex flex-col gap-3.5 text-left">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-1 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-extrabold uppercase tracking-widest border border-blue-100">Hệ thống TCT (Lớp Offline)</span>
-                      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md text-[10px] font-bold border border-emerald-100"><Clock className="w-3.5 h-3.5" /> Thời gian học: {formattedStudyTimeToday}</div>
-                    </div>
-                    <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">Xin chào, {profile?.full_name}!</h2>
-                    <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">MỤC TIÊU CÁ NHÂN:</span>
-                        {!isEditingGoal && (<button onClick={() => { setTempGoal(studyGoal); setIsEditingGoal(true); }} className="text-[11px] font-bold text-[#1D4ED8] hover:underline flex items-center gap-1 cursor-pointer"><Edit3 className="w-3 h-3" /> Chỉnh sửa</button>)}
+                    {/* THANH CHÀO MỪNG SLIM WELCOME BAR TINH GỌN */}
+                    <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="text-[13.5px] font-semibold text-slate-800">
+                          Chào <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>!
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                          🎯 <span className="font-medium text-slate-700">{studyGoal}</span>
+                        </span>
                       </div>
-                      {isEditingGoal ? (
-                        <div className="flex items-center gap-2 max-w-md">
-                          <input type="text" value={tempGoal} onChange={e => setTempGoal(e.target.value)} className="flex-1 px-3 py-1.5 border border-blue-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white shadow-sm" placeholder="Nhập mục tiêu..."/>
-                          <button onClick={handleSaveGoal} className="px-3 py-1.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-lg text-xs font-bold transition shadow-sm flex items-center gap-1 cursor-pointer"><Check className="w-3.5 h-3.5" /> Lưu</button>
-                        </div>
-                      ) : (<p className="text-[13px] font-bold text-slate-700 bg-slate-50/80 px-3.5 py-2 rounded-xl border border-slate-200/60 inline-block">🎯 {studyGoal}</p>)}
-                    </div>
-                  </div>
-                  
-                  <div className="bg-gradient-to-r from-[#1E40AF] to-[#1D4ED8] rounded-xl py-3 px-4 sm:px-5 text-white shadow-sm flex items-center gap-3 text-left">
-                    <Quote className="w-5 h-5 text-yellow-300 opacity-90 shrink-0" />
-                    <p className="text-xs sm:text-[13px] font-semibold text-white leading-snug">"{dailyQuote}"</p>
-                  </div>
-                  
-                  <div className="pt-2 space-y-4 text-left justify-start">
-                    <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
-                      <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">Chương trình học chính khóa</h3>
-                    </div>
-                    <ChapterAccordion 
-                      chapters={offlineChapters.filter(chap => chap.title.toLowerCase().includes(searchQuery.toLowerCase()) || chap.lessons?.some((l: any) => l.title.toLowerCase().includes(searchQuery.toLowerCase())))} 
-                      pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} 
-                      onOpenLesson={(les) => setSelectedLesson(les)} 
-                      onStartExam={(qId, qTitle, isHomework, durationMinutes) => { 
-                        setExamRoom({ id: qId, title: qTitle, duration: durationMinutes || 45, isHomework }); 
-                      }} 
-                    />
-                  </div>
-                </div>
-              )}
 
-              {activeTab === "notifications" && (
-                <div className="max-w-4xl mx-auto space-y-6 text-left">
-                  <div className="flex items-center justify-between pb-4 border-b border-slate-200/60">
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => setActiveTab("courses")} className="w-9 h-9 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:text-[#1D4ED8] hover:border-[#1D4ED8] flex items-center justify-center transition-colors cursor-pointer"><ArrowLeft className="w-4 h-4" /></button>
-                      <div>
-                        <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Trung tâm thông báo</h2>
-                        <p className="text-xs sm:text-sm text-slate-500 font-medium">Tin tức lớp học, kết quả thi & nhắc nhở từ giáo viên.</p>
-                      </div>
-                    </div>
-                    <button onClick={handleMarkAllAsRead} className="px-4 py-2 bg-blue-50 text-[#1D4ED8] font-bold text-xs rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm cursor-pointer">Đã đọc tất cả</button>
-                  </div>
-                  <div className="space-y-3">
-                    {notificationsList.length === 0 ? (
-                      <div className="py-12 text-center text-slate-400 font-medium bg-white/80 backdrop-blur-xl rounded-3xl border border-slate-200/80 shadow-sm">Chưa có thông báo nào.</div>
-                    ) : (
-                      notificationsList.map(item => {
-                        const isUnread = !readNotifIds.includes(item.id);
-                        return (
-                          <div key={item.id} onClick={() => handleActionFromCenter(item)} className={"p-4 sm:p-5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group cursor-pointer " + (isUnread ? "bg-blue-50/40 border-[#1D4ED8] shadow-sm" : "bg-white/80 border-slate-200/80 hover:border-slate-300 shadow-2xs")}> 
-                            <div className="flex items-start gap-3">
-                              <div className={"w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-xs " + (item.type === "warning" ? "bg-rose-50 text-rose-500 border border-rose-100" : item.type === "success" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : item.type === "teacher" ? "bg-indigo-50 text-indigo-500 border border-indigo-100" : "bg-blue-50 text-blue-500 border border-blue-100")}>
-                                {item.type === "warning" && <AlertTriangle className="w-5 h-5" />}
-                                {item.type === "success" && <CheckCircle2 className="w-5 h-5" />}
-                                {item.type === "teacher" && <MessageSquare className="w-5 h-5" />}
-                                {(item.type === "info" || !["warning","success","teacher"].includes(item.type)) && <Clock className="w-5 h-5" />}
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2 mb-0.5">
-                                  <h4 className={"text-sm tracking-tight " + (isUnread ? "font-black text-[#1D4ED8]" : "font-bold text-slate-800")}>{item.title}</h4>
-                                  {isUnread && <span className="w-2 h-2 rounded-full bg-[#1D4ED8] shadow-sm"></span>}
-                                </div>
-                                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-1.5">{item.desc}</p>
-                                <span className="text-[10px] text-slate-400 font-bold">{item.dateStr}</span>
-                              </div>
-                            </div>
-                            <div className="shrink-0 sm:self-center mt-2 sm:mt-0">
-                              <button onClick={(e) => { e.stopPropagation(); handleActionFromCenter(item); }} className="px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer bg-[#1D4ED8] text-white hover:bg-[#1E40AF]">Xem chi tiết <ArrowRight className="w-3.5 h-3.5" /></button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "schedule" && (
-                <div className="space-y-6 max-w-6xl mx-auto text-left">
-                  <ScheduleView profile={profile} mode="offline" />
-                </div>
-              )}
-              {(activeTab === "progress" || activeTab === "assessments") && <ProgressTrackingView chapters={chapters} pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} onStartExam={(qId, qTitle, isHomework, durationMinutes) => { setExamRoom({ id: qId, title: qTitle, duration: durationMinutes || 45, isHomework }); }} />}
-              {activeTab === "leaderboard" && <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode="offline" />}
-              
-              {activeTab === "practice" && (
-                <div className="max-w-6xl mx-auto space-y-5 text-left justify-start">
-                  <div className="bg-white/85 backdrop-blur-2xl py-4 px-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-50 text-[#1D4ED8] rounded-xl flex items-center justify-center shadow-sm shrink-0">
-                        <Target className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                          Hệ thống Luyện đề Thực chiến (Lớp Offline)
-                        </h2>
-                        <span className="inline-flex items-center gap-1 mt-0.5 text-[11px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-lg border border-emerald-100">
-                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> {practiceExams.length} đề thi khả dụng
+                      <div className="flex items-center gap-2.5 text-xs text-slate-500">
+                        <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-100">
+                          {offlineChapters.length} Chương
+                        </span>
+                        <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5" /> {formattedStudyTimeToday}
                         </span>
                       </div>
                     </div>
-                    <div className="flex bg-slate-100/80 p-1.5 rounded-xl border border-slate-200/60 shrink-0">
-                      <button 
-                        onClick={() => setPracticeSubTab("list")}
-                        className={"px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
-                      >
-                        <Library className="w-4 h-4"/> Danh sách đề
-                      </button>
-                      <button 
-                        onClick={() => setPracticeSubTab("history")}
-                        className={"px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-[#1D4ED8] shadow-sm" : "text-slate-500 hover:text-slate-800")}
-                      >
-                        <BarChart3 className="w-4 h-4"/> Lịch sử làm bài
-                      </button>
+
+                    {/* DANH SÁCH BÀI HỌC CỘT DỌC ĐẦY ĐẶN, THOÁNG MẮT */}
+                    <div className="space-y-3.5">
+                      {offlineChapters.map((chap, idx) => (
+                        <div key={chap.id || idx} className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                            <h3 className="font-semibold text-slate-900 text-sm sm:text-[14.5px] flex items-center gap-2.5">
+                              <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                Chương {idx + 1}
+                              </span>
+                              <span>{chap.title}</span>
+                            </h3>
+                            <span className="text-xs font-semibold text-slate-400">
+                              {chap.lessons?.length || 0} bài học
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col space-y-2 pt-1">
+                            {(chap.lessons || []).map((les: any) => (
+                              <div 
+                                key={les.id} 
+                                onClick={() => setSelectedLesson(les)}
+                                className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                  <span className="text-[13.5px] sm:text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">
+                                    {les.title}
+                                  </span>
+                                </div>
+                                <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
+                )}
 
-                  {practiceSubTab === "list" && (
-                    <div className="space-y-4 animate-in fade-in duration-300">
-                      <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-                        {["Tất cả đề", "ĐGNL HSA (ĐHQGHN)", "ĐGTD TSA (ĐHBK)", "Tốt Nghiệp THPT", "Giữa Kì 1", "Học Kì 1", "Giữa Kì 2", "Học Kì 2"].map(cat => (
-                          <button 
-                            key={cat}
-                            onClick={() => setSelectedPracticeCategory(cat)}
-                            className={"px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all shadow-2xs cursor-pointer " + (
-                              selectedPracticeCategory === cat 
-                                ? "bg-[#1D4ED8] text-white border border-[#1D4ED8]" 
-                                : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
-                            )}
-                          >
-                            {cat}
-                          </button>
-                        ))}
+                {/* TAB 2: BÀI HỌC (#COURSES) */}
+                {activeTab === "courses" && (
+                  <div className="max-w-5xl mx-auto space-y-4 text-left">
+                    <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-semibold uppercase tracking-wider border border-blue-100">
+                            Lớp Offline TCT
+                          </span>
+                          <span className="text-xs sm:text-[13px] font-semibold text-slate-800">
+                            Học viên: <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isEditingGoal ? (
+                            <div className="flex items-center gap-1.5">
+                              <input 
+                                type="text" 
+                                value={tempGoal} 
+                                onChange={e => setTempGoal(e.target.value)} 
+                                className="px-2.5 py-1 border border-blue-300 rounded text-xs font-semibold text-slate-800 focus:outline-none" 
+                              />
+                              <button 
+                                onClick={handleSaveGoal} 
+                                className="px-2.5 py-1 bg-blue-600 text-white rounded text-xs font-semibold cursor-pointer"
+                              >
+                                Lưu
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-slate-600 font-medium">🎯 {studyGoal}</span>
+                              <button 
+                                onClick={() => { setTempGoal(studyGoal); setIsEditingGoal(true); }}
+                                className="text-slate-400 hover:text-blue-600 p-0.5 cursor-pointer" 
+                                title="Sửa mục tiêu"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {(practiceExams || [])
-                          .filter((e: any) => {
-                            const tMode = (e.target_mode || "all").toLowerCase();
-                            return tMode === "offline" || tMode === "all";
-                          })
-                          .filter(e => selectedPracticeCategory === "Tất cả đề" || e.category === selectedPracticeCategory)
-                          .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
-                          .map(exam => {
-                            const canViewFile = exam.allowViewFile !== false;
-                            return (
-                              <div key={exam.id} className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs hover:border-[#1D4ED8]/50 hover:shadow-md transition-all flex flex-col group">
-                                <div className="flex justify-between items-start mb-2.5">
-                                  <span className="text-[9px] font-black uppercase bg-blue-50 text-[#1D4ED8] px-2 py-0.5 rounded-md border border-blue-100">
-                                    {exam.category}
-                                  </span>
-                                  <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-                                    <Clock className="w-3.5 h-3.5"/> {exam.duration_minutes}p
-                                  </span>
-                                </div>
-                                <h3 className="text-sm font-bold text-slate-800 mb-1 leading-snug line-clamp-2 group-hover:text-[#1D4ED8] transition-colors">{exam.title}</h3>
-                                <p className="text-[11px] text-slate-500 font-medium mb-4">Số câu: {exam.data?.reduce((acc: number, sec: any) => acc + (sec.questions?.length || 0), 0) || 0} câu</p>
-                                
-                                <div className="mt-auto flex flex-col gap-2">
-                                  {canViewFile && (
-                                    <button 
-                                      onClick={() => {
-                                        if (exam.driveUrl && exam.driveUrl.trim() !== "") window.open(exam.driveUrl, "_blank");
-                                        else setPreviewExam(exam);
-                                      }}
-                                      className="w-full py-2 bg-white border border-[#1D4ED8] text-[#1D4ED8] hover:bg-blue-50 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                                    >
-                                      <FileText className="w-3.5 h-3.5"/> Xem file đề
-                                    </button>
-                                  )}
-                                  
-                                  <button
-                                    onClick={() => setWorkspacePracticeExam(exam)}
-                                    className="w-full py-2 bg-amber-50 hover:bg-amber-100/80 border border-amber-200 text-amber-800 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-                                  >
-                                    <Video className="w-3.5 h-3.5 text-amber-600"/> Video chữa bài
-                                  </button>
+                      <p className="text-xs text-slate-500 italic border-t border-slate-100 pt-2 flex items-center gap-1.5">
+                        <Quote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>"{dailyQuote}"</span>
+                      </p>
+                    </div>
 
-                                  <button 
-                                    onClick={() => { setExamRoom({ id: exam.id, title: exam.title, duration: exam.duration_minutes, isHomework: false }); }}
-                                    className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl text-xs font-bold shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
-                                  >
-                                    Vào thi ngay
-                                  </button>
+                    <div className="space-y-3.5 pt-1">
+                      {offlineChapters.map((chap, idx) => {
+                        const isCollapsed = Boolean(collapsedChapters[chap.id]);
+                        const lessonCount = chap.lessons?.length || 0;
+
+                        return (
+                          <div key={chap.id || idx} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => toggleChapterCollapse(chap.id)}
+                              className="w-full px-4.5 py-3.5 bg-slate-50/70 hover:bg-slate-50 border-b border-slate-100 flex items-center justify-between text-left transition cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                  Chương {idx + 1}
+                                </span>
+                                <h3 className="font-semibold text-slate-900 text-[13.5px] sm:text-sm">
+                                  {chap.title}
+                                </h3>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-slate-400">
+                                  {lessonCount} bài học
+                                </span>
+                                {isCollapsed ? (
+                                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                                ) : (
+                                  <ChevronUp className="w-4 h-4 text-slate-400" />
+                                )}
+                              </div>
+                            </button>
+
+                            {!isCollapsed && (
+                              <div className="divide-y divide-slate-100">
+                                {(chap.lessons || []).map((les: any, lIdx: number) => {
+                                  const status = getLessonCompletionStatus(les);
+                                  const docCount = (les.lecture_files?.length || 0) + (les.homework_files?.length || 0);
+
+                                  return (
+                                    <div 
+                                      key={les.id || lIdx}
+                                      className="p-3.5 sm:p-4 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left"
+                                    >
+                                      <div className="min-w-0 space-y-1.5">
+                                        <div className="flex items-center gap-2">
+                                          <h4 className="text-[14.5px] sm:text-[15.5px] font-semibold text-slate-800 truncate">
+                                            {les.title}
+                                          </h4>
+
+                                          {status === "completed" ? (
+                                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
+                                              <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
+                                            </span>
+                                          ) : status === "in_progress" ? (
+                                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
+                                              Đang học
+                                            </span>
+                                          ) : (
+                                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
+                                              Chưa học
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="flex items-center gap-3 text-xs text-slate-500 font-normal">
+                                          <span className="flex items-center gap-1.5">
+                                            <Clock className="w-3.5 h-3.5 text-slate-400" /> {les.duration || 45} phút
+                                          </span>
+                                          <span>•</span>
+                                          <span className="flex items-center gap-1.5">
+                                            <FileText className="w-3.5 h-3.5 text-slate-400" /> {docCount} tài liệu & BTVN
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div className="shrink-0 flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedLesson(les)}
+                                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                          <span>Vào học</span>
+                                          <ArrowRight className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 3: LUYỆN ĐỀ (#PRACTICE) - TÍCH HỢP SKELETON UI */}
+                {activeTab === "practice" && (
+                  <div className="max-w-6xl mx-auto space-y-4 text-left">
+                    <div className="bg-white py-3.5 px-4.5 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-blue-50 text-blue-700 rounded-lg flex items-center justify-center shrink-0 border border-blue-100">
+                          <Target className="w-4.5 h-4.5" />
+                        </div>
+                        <div>
+                          <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight">
+                            Luyện đề
+                          </h2>
+                          <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                            {isLoadingExams ? "Đang tải đề thi..." : `${practiceExams.length} đề thi sẵn sàng`}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+                        <button 
+                          onClick={() => setPracticeSubTab("list")}
+                          className={"px-3.5 py-1.5 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
+                        >
+                          <Library className="w-3.5 h-3.5"/> Danh sách đề
+                        </button>
+                        <button 
+                          onClick={() => setPracticeSubTab("history")}
+                          className={"px-3.5 py-1.5 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
+                        >
+                          <BarChart3 className="w-3.5 h-3.5"/> Lịch sử làm bài
+                        </button>
+                      </div>
+                    </div>
+
+                    {practiceSubTab === "list" && (
+                      <div className="space-y-3.5">
+                        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+                          {["Tất cả đề", "ĐGNL HSA (ĐHQGHN)", "ĐGTD TSA (ĐHBK)", "Tốt Nghiệp THPT", "Giữa Kì 1", "Học Kì 1", "Giữa Kì 2", "Học Kì 2"].map(cat => (
+                            <button 
+                              key={cat}
+                              onClick={() => setSelectedPracticeCategory(cat)}
+                              className={"px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer " + (
+                                selectedPracticeCategory === cat 
+                                  ? "bg-blue-600 text-white shadow-2xs" 
+                                  : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
+                              )}
+                            >
+                              {cat}
+                            </button>
+                          ))}
+                        </div>
+
+                        {isLoadingExams ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                            {[1, 2, 3, 4, 5, 6].map((i) => (
+                              <div key={i} className="p-4 rounded-xl border border-slate-200/80 bg-white space-y-3 animate-pulse">
+                                <div className="flex justify-between items-center">
+                                  <div className="h-4 w-16 bg-slate-200 rounded-md" />
+                                  <div className="h-3.5 w-12 bg-slate-100 rounded" />
+                                </div>
+                                <div className="h-4 w-3/4 bg-slate-200 rounded" />
+                                <div className="h-3 w-1/3 bg-slate-100 rounded" />
+                                <div className="pt-2 flex gap-2">
+                                  <div className="h-8 w-1/4 bg-slate-100 rounded-lg" />
+                                  <div className="h-8 flex-1 bg-slate-200 rounded-lg" />
                                 </div>
                               </div>
-                            );
-                        })}
-                        {practiceExams.length === 0 && (
-                          <div className="col-span-full py-10 text-center text-slate-400 text-sm font-medium">Chưa có đề thi nào trong danh mục này.</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                            {(practiceExams || [])
+                              .filter((e: any) => {
+                                const tMode = (e.target_mode || "all").toLowerCase();
+                                return tMode === "offline" || tMode === "all";
+                              })
+                              .filter(e => selectedPracticeCategory === "Tất cả đề" || e.category === selectedPracticeCategory)
+                              .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                              .map(exam => {
+                                const canViewFile = exam.allowViewFile !== false;
+                                const qCount = exam.data?.reduce((acc: number, sec: any) => acc + (sec.questions?.length || 0), 0) || 0;
+
+                                return (
+                                  <div key={exam.id} className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs hover:border-blue-300 transition flex flex-col justify-between group">
+                                    <div>
+                                      <div className="flex justify-between items-center mb-2.5">
+                                        <span className="text-[10px] font-semibold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">
+                                          {exam.category}
+                                        </span>
+                                        <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+                                          <Clock className="w-3.5 h-3.5"/> {exam.duration_minutes}p
+                                        </span>
+                                      </div>
+                                      <h3 className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
+                                        {exam.title}
+                                      </h3>
+                                      <p className="text-xs text-slate-400 font-normal mb-3.5">
+                                        Số câu: {qCount} câu
+                                      </p>
+                                    </div>
+                                    
+                                    <div className="pt-2.5 border-t border-slate-100 flex items-center gap-2">
+                                      {canViewFile && (
+                                        <button 
+                                          onClick={() => {
+                                            if (exam.driveUrl && exam.driveUrl.trim() !== "") window.open(exam.driveUrl, "_blank");
+                                            else setPreviewExam(exam);
+                                          }}
+                                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold transition"
+                                          title="Xem file đề"
+                                        >
+                                          <FileText className="w-4 h-4"/>
+                                        </button>
+                                      )}
+                                      
+                                      <button
+                                        onClick={() => setWorkspacePracticeExam(exam)}
+                                        className="p-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 text-xs font-semibold transition"
+                                        title="Video chữa bài"
+                                      >
+                                        <Video className="w-4 h-4"/>
+                                      </button>
+
+                                      <button 
+                                        onClick={() => { setExamRoom({ id: exam.id, title: exam.title, duration: exam.duration_minutes, isHomework: false }); }}
+                                        className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition flex items-center justify-center gap-1 cursor-pointer"
+                                      >
+                                        <span>Vào thi</span>
+                                        <ArrowRight className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                            })}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {practiceSubTab === "history" && (
-                    <div className="bg-white/80 backdrop-blur-2xl rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden animate-in fade-in duration-300">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-[13px]">
-                          <thead className="bg-slate-50/80 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200/80">
-                            <tr>
-                              <th className="py-3 px-5 font-bold w-1/3">Tên đề thi</th>
-                              <th className="py-3 px-5 font-bold text-center">Lượt làm</th>
-                              <th className="py-3 px-5 font-bold text-center">Điểm cao nhất</th>
-                              <th className="py-3 px-5 font-bold text-center">Lần cuối</th>
-                              <th className="py-3 px-5 font-bold text-right">Thao tác</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-[13px]">
-                            {practiceHistoryGrouped.length === 0 ? (
-                              <tr><td colSpan={5} className="py-12 text-center text-slate-400 italic">Bạn chưa hoàn thành đề thi nào.</td></tr>
-                            ) : (
-                              practiceHistoryGrouped.map((grp: any) => (
-                                <tr key={grp.quizId} className="hover:bg-slate-50/50 transition-colors">
-                                  <td className="py-3 px-5">
-                                    <span className="font-bold text-slate-800 block line-clamp-1">{grp.title}</span>
-                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase mt-1 inline-block">{grp.category}</span>
-                                  </td>
-                                  <td className="py-3 px-5 text-center">
-                                    <span className="bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-lg text-xs">{grp.attempts.length} lần</span>
-                                  </td>
-                                  <td className="py-3 px-5 text-center">
-                                    <span className="font-black text-[#1D4ED8] text-sm bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-xl shadow-xs">
-                                      {grp.maxScore.toFixed(1)}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-5 text-center text-slate-500 text-xs font-medium">
-                                    {new Date(grp.lastDate).toLocaleDateString("vi-VN")}
-                                  </td>
-                                  <td className="py-3 px-5 text-right">
-                                    <button 
-                                      onClick={() => setHistoryModalExamId(grp.quizId)}
-                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#1D4ED8] text-[#1D4ED8] hover:bg-blue-50 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
-                                    >
-                                      <ListOrdered className="w-3.5 h-3.5" /> Chi tiết
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
+                    {practiceSubTab === "history" && (
+                      <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                              <tr>
+                                <th className="py-2.5 px-4 font-semibold">Tên đề thi</th>
+                                <th className="py-2.5 px-3 font-semibold text-center">Lượt làm</th>
+                                <th className="py-2.5 px-3 font-semibold text-center">Điểm cao nhất</th>
+                                <th className="py-2.5 px-3 font-semibold text-center">Lần cuối</th>
+                                <th className="py-2.5 px-3 font-semibold text-right">Chi tiết</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {practiceHistoryGrouped.length === 0 ? (
+                                <tr><td colSpan={5} className="py-8 text-center text-slate-400 italic">Bạn chưa hoàn thành đề thi nào.</td></tr>
+                              ) : (
+                                practiceHistoryGrouped.map((grp: any) => (
+                                  <tr key={grp.quizId} className="hover:bg-slate-50/50 transition">
+                                    <td className="py-2.5 px-4">
+                                      <span className="font-semibold text-slate-800 block truncate max-w-xs">{grp.title}</span>
+                                      <span className="text-[10px] font-semibold text-slate-400 uppercase">{grp.category}</span>
+                                    </td>
+                                    <td className="py-2.5 px-3 text-center">
+                                      <span className="bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded text-xs">{grp.attempts.length} lần</span>
+                                    </td>
+                                    <td className="py-2.5 px-3 text-center">
+                                      <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-100">
+                                        {grp.maxScore.toFixed(1)}
+                                      </span>
+                                    </td>
+                                    <td className="py-2.5 px-3 text-center text-slate-400 text-xs">
+                                      {new Date(grp.lastDate).toLocaleDateString("vi-VN")}
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right">
+                                      <button 
+                                        onClick={() => setHistoryModalExamId(grp.quizId)}
+                                        className="px-3 py-1 text-blue-700 hover:bg-blue-50 rounded text-xs font-semibold transition cursor-pointer"
+                                      >
+                                        Xem
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 4: LỊCH HỌC (#SCHEDULE) */}
+                {activeTab === "schedule" && (
+                  <div className="space-y-4 max-w-5xl mx-auto text-left">
+                    <ScheduleView profile={profile} mode="offline" />
+                  </div>
+                )}
+
+                {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - BÁO CÁO TRẠNG THÁI TĨNH 3 CỘT THẲNG HÀNG */}
+                {(activeTab === "progress" || activeTab === "assessments") && (
+                  <div className="max-w-5xl mx-auto space-y-4 text-left">
+                    {/* KHỐI TỔNG QUAN TIẾN ĐỘ NGANG THANH THOÁT */}
+                    <div className="bg-white rounded-xl p-4 sm:p-4.5 border border-slate-200/80 shadow-2xs space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
+                            Tiến độ nhiệm vụ học tập
+                          </h3>
+                          <p className="text-xs text-slate-500 font-medium">
+                            Bạn đã hoàn thành <span className="font-semibold text-blue-700">{progressStats.completedTasks}/{progressStats.totalTasks}</span> nhiệm vụ.
+                          </p>
+                        </div>
+
+                        {/* 2 BADGE BTVN VÀ KIỂM TRA NẰM NGANG GỌN GÀNG */}
+                        <div className="flex items-center gap-2.5 text-xs">
+                          <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
+                            <span className="text-[11px] uppercase font-semibold text-slate-400">BTVN:</span>
+                            <span className="font-semibold text-slate-800">
+                              {progressStats.submittedHw}/{progressStats.totalHw} đã nộp
+                            </span>
+                          </div>
+
+                          <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
+                            <span className="text-[11px] uppercase font-semibold text-slate-400">Kiểm tra:</span>
+                            <span className="font-semibold text-slate-800">
+                              {progressStats.completedTest}/{progressStats.totalTest} hoàn thành
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* THANH PROGRESS BAR MẢNH */}
+                      <div className="space-y-1.5">
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
+                          <div 
+                            className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                            style={{ width: `${progressStats.percent}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-[11px] text-slate-400">
+                          <span>Bắt đầu</span>
+                          <span className="font-semibold text-blue-700">{progressStats.percent}%</span>
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </motion.div>
-          </AnimatePresence>
+
+                    {/* DANH SÁCH BÀI HỌC DẠNG HÀNG COMPACT ROW */}
+                    <div className="space-y-3.5">
+                      {offlineChapters.map((chap, cIdx) => (
+                        <div key={chap.id || cIdx} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                          <div className="px-4.5 py-3 bg-slate-50/70 border-b border-slate-100 flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-blue-700" />
+                            <h4 className="font-semibold text-slate-800 text-xs sm:text-[13px]">
+                              {chap.title}
+                            </h4>
+                          </div>
+
+                          <div className="divide-y divide-slate-100">
+                            {(chap.lessons || []).map((les: any, lIdx: number) => {
+                              const hwList = les.homework_files || [];
+                              const testList = les.test_quizzes || [];
+
+                              const hw = hwList[0];
+                              const testQuiz = testList[0];
+
+                              // Tra cứu đối soát bài nộp chuẩn xác từ myAttempts
+                              const hwAttempt = findAttemptForLesson(hw, les.title, true);
+                              const testAttempt = findAttemptForLesson(testQuiz, les.title, false);
+
+                              return (
+                                <div 
+                                  key={les.id || lIdx} 
+                                  className="py-2.5 px-4 sm:px-4.5 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left"
+                                >
+                                  {/* CỘT 1: TÊN BÀI HỌC */}
+                                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                    <BookOpen className="w-4 h-4 text-slate-400 shrink-0" />
+                                    <span className="text-sm font-semibold text-slate-800 truncate">
+                                      {les.title}
+                                    </span>
+                                  </div>
+
+                                  {/* CỤM CỘT 2 (BTVN) VÀ CỘT 3 (BÀI KIỂM TRA) - TRẠNG THÁI TĨNH */}
+                                  <div className="flex items-center gap-4 sm:gap-6 shrink-0 text-xs">
+                                    {/* CỘT 2: BÀI TẬP VỀ NHÀ */}
+                                    <div className="flex items-center gap-1.5 w-36 sm:w-44 justify-end">
+                                      {hwList.length > 0 ? (
+                                        hwAttempt ? (
+                                          <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
+                                            <Check className="w-3 h-3 stroke-[3]" /> Đã nộp ({Number(hwAttempt.score ?? hwAttempt.points ?? 0).toFixed(1)}đ)
+                                          </span>
+                                        ) : (
+                                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
+                                            Chưa làm
+                                          </span>
+                                        )
+                                      ) : (
+                                        <span className="text-slate-400 text-xs italic">Không có BTVN</span>
+                                      )}
+                                    </div>
+
+                                    {/* CỘT 3: BÀI KIỂM TRA ĐỊNH KỲ */}
+                                    <div className="flex items-center gap-1.5 w-36 sm:w-44 justify-end">
+                                      {testList.length > 0 ? (
+                                        testAttempt ? (
+                                          <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
+                                            <Check className="w-3 h-3 stroke-[3]" /> Đã thi ({Number(testAttempt.score ?? testAttempt.points ?? 0).toFixed(1)}đ)
+                                          </span>
+                                        ) : (
+                                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
+                                            Chưa thi
+                                          </span>
+                                        )
+                                      ) : (
+                                        <span className="text-slate-400 text-xs italic">Không có bài KT</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 6: XẾP HẠNG (#LEADERBOARD) */}
+                {activeTab === "leaderboard" && (
+                  <div className="max-w-5xl mx-auto text-left">
+                    <StudentLeaderboardView profile={profile!} chapters={chapters} allAttempts={allAttempts} allowedMode="offline" />
+                  </div>
+                )}
+
+                {/* TAB 7: THÔNG BÁO (#NOTIFICATIONS) */}
+                {activeTab === "notifications" && (
+                  <div className="w-full max-w-5xl mx-auto space-y-3.5 text-left">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/60">
+                      <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight">Trung tâm thông báo</h2>
+                      <button onClick={handleMarkAllAsRead} className="px-3.5 py-1.5 bg-blue-50 text-blue-700 font-semibold text-xs rounded-lg hover:bg-blue-100 transition cursor-pointer">
+                        Đã đọc tất cả
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {notificationsList.length === 0 ? (
+                        <div className="py-8 text-center text-slate-400 text-xs bg-white rounded-xl border border-slate-200">Chưa có thông báo nào.</div>
+                      ) : (
+                        notificationsList.map(item => {
+                          const isUnread = !readNotifIds.includes(item.id);
+                          return (
+                            <div 
+                              key={item.id} 
+                              onClick={() => handleActionFromCenter(item)} 
+                              className={"p-3.5 rounded-xl border transition flex items-center justify-between gap-3 cursor-pointer " + (isUnread ? "bg-blue-50/30 border-blue-300" : "bg-white border-slate-200 hover:border-slate-300")}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
+                                  <Clock className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className={"text-xs truncate " + (isUnread ? "font-semibold text-blue-800" : "font-semibold text-slate-800")}>{item.title}</h4>
+                                  <p className="text-xs text-slate-500 truncate">{item.desc}</p>
+                                </div>
+                              </div>
+                              <span className="text-xs text-slate-400 shrink-0 font-medium">{item.dateStr}</span>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          )}
         </main>
       </div>
 
+      {/* MODAL LỊCH SỬ CHI TIẾT */}
       {historyModalExamId && (
         <div 
           onClick={(e) => { if (e.target === e.currentTarget) setHistoryModalExamId(null); }} 
-          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md cursor-pointer"
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
         >
-          <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl rounded-[28px] w-full max-w-3xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-white/50 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 cursor-default">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <div>
-                <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2">
-                  <ListOrdered className="w-5 h-5 text-[#1D4ED8]" /> Lịch sử làm bài
-                </h3>
-                <p className="text-xs text-[#1D4ED8] font-bold mt-1">{practiceHistoryGrouped.find((g:any) => g.quizId === historyModalExamId)?.title}</p>
-              </div>
-              <button onClick={() => setHistoryModalExamId(null)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer">
-                <X className="w-5 h-5" />
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden cursor-default animate-in zoom-in-95 duration-150">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-semibold text-slate-900 text-xs sm:text-sm flex items-center gap-1.5">
+                <ListOrdered className="w-4 h-4 text-blue-700" /> Lịch sử làm bài
+              </h3>
+              <button onClick={() => setHistoryModalExamId(null)} className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-4 h-4" />
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto max-h-[60vh] custom-scrollbar">
-              <table className="w-full text-left text-[13px] border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm">
-                <thead className="bg-slate-50/80 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200/60">
+            <div className="p-4 overflow-y-auto max-h-[50vh] custom-scrollbar">
+              <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
-                    <th className="py-3 px-5 font-bold text-center">Lần</th>
-                    <th className="py-3 px-5 font-bold">Thời gian nộp</th>
-                    <th className="py-3 px-5 font-bold text-center">Thời lượng</th>
-                    <th className="py-3 px-5 font-bold text-center">Điểm số</th>
+                    <th className="py-2.5 px-3.5 text-center">Lần</th>
+                    <th className="py-2.5 px-3.5">Thời gian nộp</th>
+                    <th className="py-2.5 px-3.5 text-center">Thời lượng</th>
+                    <th className="py-2.5 px-3.5 text-center">Điểm số</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {practiceHistoryGrouped.find((g:any) => g.quizId === historyModalExamId)?.attempts.map((att: any, idx: number) => {
-                    const isMax = att.score === practiceHistoryGrouped.find((g:any) => g.quizId === historyModalExamId)?.maxScore;
+                  {practiceHistoryGrouped.find((g: any) => g.quizId === historyModalExamId)?.attempts.map((att: any, idx: number) => {
+                    const isMax = att.score === practiceHistoryGrouped.find((g: any) => g.quizId === historyModalExamId)?.maxScore;
                     return (
-                      <tr key={att.attemptId} className={"hover:bg-slate-50/50 transition-colors " + (isMax ? "bg-amber-50/30" : "")}>
-                        <td className="py-3 px-5 text-center font-bold text-slate-700">Lần {idx + 1}</td>
-                        <td className="py-3 px-5 text-slate-600 font-medium">{new Date(att.submittedAt).toLocaleString("vi-VN")}</td>
-                        <td className="py-3 px-5 text-center text-slate-500">{formatCompletionTime(Number(att.completionTime) || 0)}</td>
-                        <td className="py-3 px-5 text-center">
-                          <span className={"font-black " + (isMax ? "text-amber-600 text-[15px]" : "text-[#1D4ED8]")}>{att.score.toFixed(1)}</span>
+                      <tr key={idx} className={"hover:bg-slate-50/50 " + (isMax ? "bg-amber-50/30" : "")}>
+                        <td className="py-2.5 px-3.5 text-center font-semibold text-slate-700">{idx + 1}</td>
+                        <td className="py-2.5 px-3.5 text-slate-600">{new Date(att.createdAt || att.created_at || att.submittedAt).toLocaleString("vi-VN")}</td>
+                        <td className="py-2.5 px-3.5 text-center text-slate-500">{formatCompletionTime(Number(att.durationSeconds || att.completionTime) || 0)}</td>
+                        <td className="py-2.5 px-3.5 text-center">
+                          <span className={"font-semibold " + (isMax ? "text-amber-600" : "text-blue-700")}>{Number(att.score ?? att.points ?? 0).toFixed(1)}</span>
                         </td>
                       </tr>
                     );
@@ -1092,85 +1551,58 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
                 </tbody>
               </table>
             </div>
-            
-            <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50/30">
-              <button onClick={() => setHistoryModalExamId(null)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-sm">
-                Đóng lại
-              </button>
-            </div>
           </div>
         </div>
       )}
 
+      {/* MODAL THÔNG BÁO CHI TIẾT */}
       {selectedSysNotif && (
         <div 
           onClick={(e) => { if (e.target === e.currentTarget) setSelectedSysNotif(null); }} 
-          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
         >
-          <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl rounded-[28px] w-full max-w-lg shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-white/50 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 cursor-default">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-[#1D4ED8]" /> Thông báo chi tiết
-              </h3>
-              <button onClick={() => setSelectedSysNotif(null)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer"><X className="w-5 h-5" /></button>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 p-5 cursor-default">
+            <h4 className="text-sm font-semibold text-slate-900 mb-2">{selectedSysNotif.title}</h4>
+            <div className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl mb-4 border border-slate-100">
+              {selectedSysNotif.desc}
             </div>
-            
-            <div className="p-6">
-              <h4 className="text-base sm:text-lg font-black text-slate-900 mb-2 leading-snug">{selectedSysNotif.title}</h4>
-              <div className="flex flex-wrap items-center gap-2 mb-4 text-xs font-semibold text-slate-500">
-                <span className="bg-blue-50 text-[#1D4ED8] px-2 py-0.5 rounded-md border border-blue-100">Ban Giám Thị TCT</span>
-                <span>{selectedSysNotif.dateStr}</span>
-              </div>
-              <div className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                {selectedSysNotif.desc}
-              </div>
-            </div>
-            
-            <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50/30">
-              <button onClick={() => setSelectedSysNotif(null)} className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer">
-                Đóng
-              </button>
-            </div>
+            <button onClick={() => setSelectedSysNotif(null)} className="w-full py-2.5 bg-slate-800 text-white rounded-xl text-xs font-semibold cursor-pointer">
+              Đóng
+            </button>
           </div>
         </div>
       )}
 
+      {/* MODAL XEM TRƯỚC FILE ĐỀ */}
       {previewExam && (
         <div 
           onClick={(e) => { if (e.target === e.currentTarget) setPreviewExam(null); }} 
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-md cursor-pointer"
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
         >
-          <div className="bg-white/85 dark:bg-slate-900/85 backdrop-blur-2xl rounded-3xl w-full max-w-4xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-white/50 flex flex-col max-h-[85vh] overflow-hidden cursor-default">
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-2">
-                <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-[#1D4ED8]" /> Xem trước: {previewExam.title}
-              </h3>
-              <button onClick={() => setPreviewExam(null)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer">
-                <X className="w-5 h-5" />
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[80vh] overflow-hidden cursor-default">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-semibold text-slate-900 text-xs sm:text-sm">Xem trước: {previewExam.title}</h3>
+              <button onClick={() => setPreviewExam(null)} className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar bg-slate-50/30">
+            <div className="p-4 overflow-y-auto custom-scrollbar space-y-3.5">
               {previewExam.data?.map((sec: any, sIdx: number) => (
-                <div key={sIdx} className="mb-6">
-                  {sec.section_title && <h4 className="font-bold text-[#1D4ED8] mb-3 bg-blue-50 px-3 py-1.5 rounded-lg inline-block text-xs sm:text-sm">{sec.section_title}</h4>}
-                  <div className="space-y-4">
-                    {sec.questions?.map((q: any, qIdx: number) => (
-                      <div key={qIdx} className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-                        <div className="font-bold text-slate-800 text-xs sm:text-sm mb-2.5 flex items-start gap-2">
-                          <span className="shrink-0 text-[#1D4ED8]">Câu {q.order_index}:</span> 
-                          <span className="font-medium" dangerouslySetInnerHTML={{ __html: q.prompt_html }} />
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2 sm:pl-8">
-                          {q.options?.map((opt: any, oIdx: number) => (
-                            <div key={oIdx} className="text-xs text-slate-600 flex items-start gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                              <span className="font-bold text-slate-900">{opt.key}.</span> 
-                              <span dangerouslySetInnerHTML={{ __html: opt.text_html }} />
-                            </div>
-                          ))}
-                        </div>
+                <div key={sIdx} className="space-y-2">
+                  <h4 className="text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded inline-block">{sec.section_title || "Phần câu hỏi"}</h4>
+                  {(sec.questions || []).map((q: any, qIdx: number) => (
+                    <div key={qIdx} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                      <div className="font-medium" dangerouslySetInnerHTML={{ __html: q.prompt_html || q.prompt }} />
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {(q.options || []).map((opt: any, oIdx: number) => (
+                          <div key={oIdx} className="p-2 bg-white rounded border border-slate-200 text-slate-700">
+                            <span className="font-semibold text-blue-700 mr-1">{opt.key}.</span>
+                            <span dangerouslySetInnerHTML={{ __html: opt.text_html || opt.text }} />
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -1180,3 +1612,5 @@ export default function StudentOfflineDashboard({ initialProfile, onLogout }: St
     </div>
   );
 }
+
+export default StudentOfflineDashboard;
