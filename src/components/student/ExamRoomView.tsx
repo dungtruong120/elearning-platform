@@ -359,7 +359,7 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   };
 
-  // NỘP BÀI THI: XỬ LÝ AN TOÀN QUA API ROUTE VÀ FALLBACK SUPABASE CLIENT
+  // NỘP BÀI THI: XỬ LÝ AN TOÀN VÀ ĐỒNG BỘ REALTIME
   const handleSubmitExam = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -444,7 +444,9 @@ export function ExamRoomView({
       answers
     };
 
-    // 1. GỬI QUA API ROUTE SERVER-SIDE (ĐẢM BẢO KHÔNG BỊ RLS CHẶN)
+    let savedRecordFromApi: any = null;
+
+    // 1. GỬI QUA API ROUTE SERVER-SIDE (VƯỢT RLS BẢO MẬT AN TOÀN)
     try {
       const response = await fetch("/api/student/submit-quiz", {
         method: "POST",
@@ -452,15 +454,17 @@ export function ExamRoomView({
         body: JSON.stringify(attemptPayload)
       });
       const resJson = await response.json();
-      if (!response.ok) {
-        console.warn("API Server phản hồi lỗi, kích hoạt fallback client:", resJson);
+      if (response.ok && resJson.success) {
+        savedRecordFromApi = resJson.record;
+      } else {
+        console.warn("API Server phản hồi lỗi hoặc không thành công:", resJson);
       }
     } catch (apiErr) {
-      console.warn("Không kết nối được API Route, dùng client fallback:", apiErr);
+      console.warn("Không kết nối được API Route:", apiErr);
     }
 
-    // 2. FALLBACK TRỰC TIẾP TỪ SUPABASE CLIENT
-    const clientRecord: any = {
+    // 2. TẠO BẢN GHI ĐỒNG BỘ CHUẨN XÁC ĐỂ PHÁT REALTIME VÀ LƯU LOCALSTORAGE
+    const finalRecord: any = savedRecordFromApi || {
       id: "att-" + Date.now(),
       quiz_id: String(quizId),
       quizId: String(quizId),
@@ -469,6 +473,7 @@ export function ExamRoomView({
       quizTitle: String(quizTitle),
       exam_title: String(quizTitle),
       examTitle: String(quizTitle),
+      title: String(quizTitle),
       student_id: String(studentId),
       studentId: String(studentId),
       user_id: String(studentId),
@@ -476,6 +481,7 @@ export function ExamRoomView({
       studentName: String(studentName),
       full_name: String(studentName),
       user_name: String(studentName),
+      username: String((profile as any)?.username || studentId),
       school: profile?.school || "THPT",
       score: calculatedScore,
       points: calculatedScore,
@@ -493,32 +499,22 @@ export function ExamRoomView({
       createdAt: nowIso
     };
 
-    try {
-      await Promise.allSettled([
-        supabase.from("exam_attempts").insert([clientRecord]),
-        supabase.from("attempts").insert([clientRecord]),
-        supabase.from("quiz_attempts").insert([clientRecord])
-      ]);
-    } catch (clientErr) {
-      console.error("Lỗi Fallback Client:", clientErr);
-    }
-
-    // 3. PHÁT REALTIME CHO TOÀN BỘ CÁC TAB ADMIN ĐANG MỞ
+    // 3. PHÁT REALTIME CHANNEL TỨC THÌ CHO TOÀN BỘ CÁC TAB ADMIN ĐANG MỞ
     try {
       const channel = supabase.channel("admin-realtime-global-sync");
       channel.send({
         type: "broadcast",
         event: "new_attempt",
-        payload: clientRecord
+        payload: finalRecord
       });
     } catch (e) {}
 
-    // 4. LƯU LOCALSTORAGE ĐỂ PHỤC VỤ HIỂN THỊ OFFLINE
+    // 4. LƯU BẢN GHI TẠI LOCALSTORAGE CỦA HỌC SINH ĐỂ HIỂN THỊ NGAY LẬP TỨC
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
         const parsed = savedAttempts ? JSON.parse(savedAttempts) : [];
-        const updatedAttempts = [clientRecord, ...parsed];
+        const updatedAttempts = [finalRecord, ...parsed];
         localStorage.setItem("edunexus_attempts", JSON.stringify(updatedAttempts));
         window.dispatchEvent(new Event("storage"));
 
