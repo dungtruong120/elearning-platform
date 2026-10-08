@@ -1,8 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Clock, CheckCircle2, RotateCcw, Award, Check, Eye } from "lucide-react";
+import { 
+  ArrowLeft, Clock, CheckCircle2, RotateCcw, Award, 
+  Check, Eye, Home, AlertCircle, ChevronRight, HelpCircle 
+} from "lucide-react";
 import { Profile } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -29,14 +32,19 @@ export function ExamRoomView({
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showResultModal, setShowResultModal] = useState<boolean>(false);
+  const [isReviewMode, setIsReviewMode] = useState<boolean>(false);
+  
   const [examResult, setExamResult] = useState<{
     score: number;
     correctCount: number;
     totalCount: number;
     submittedAt: string;
+    attemptsCount: number;
   } | null>(null);
 
-  // 1. TẢI CÂU HỎI ĐỀ THI
+  const syncTriggeredRef = useRef<boolean>(false);
+
+  // 1. TẢI CẤU TRÚC ĐỀ THI GỐC
   useEffect(() => {
     async function loadExam() {
       setIsLoading(true);
@@ -62,9 +70,9 @@ export function ExamRoomView({
     loadExam();
   }, [quizId]);
 
-  // 2. ĐẾM NGƯỢC THỜI GIAN
+  // 2. BẢO TOÀN CƠ CHẾ ĐẾM NGƯỢC THỜI GIAN
   useEffect(() => {
-    if (showResultModal || isSubmitting) return;
+    if (showResultModal || isSubmitting || isReviewMode) return;
     const timer = setInterval(() => {
       setSecondsRemaining(prev => {
         if (prev <= 1) {
@@ -76,14 +84,71 @@ export function ExamRoomView({
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [showResultModal, isSubmitting]);
+  }, [showResultModal, isSubmitting, isReviewMode]);
 
   const allQuestions = useMemo(() => {
     if (!examData?.data || !Array.isArray(examData.data)) return [];
     return examData.data.flatMap((sec: any) => sec.questions || []);
   }, [examData]);
 
-  // 3. HÀM NỘP BÀI TẬP TRUNG DUY NHẤT (ONLINE & OFFLINE)
+  // 3. CƠ CHẾ QUÉT VÉT BÙ CÁC LƯỢT THI CŨ CHƯA ĐỒNG BỘ LÊN SERVER
+  useEffect(() => {
+    if (!profile?.id || syncTriggeredRef.current) return;
+    syncTriggeredRef.current = true;
+
+    const timer = setTimeout(async () => {
+      try {
+        const rawLocal = localStorage.getItem("edunexus_attempts");
+        if (!rawLocal) return;
+
+        const localList: any[] = JSON.parse(rawLocal);
+        if (!Array.isArray(localList) || localList.length === 0) return;
+
+        const myUnsynced = localList.filter((item: any) => {
+          if (!item) return false;
+          const qId = String(item.quizId || item.quiz_id || item.exam_id || "").trim();
+          const targetQuizId = String(quizId).trim();
+          return (
+            qId === targetQuizId ||
+            (targetQuizId && qId.includes(targetQuizId.replace("prac-", "")))
+          );
+        });
+
+        for (const att of myUnsynced) {
+          const payload = {
+            id: att.id || `att-recovery-${Date.now()}`,
+            quizId: quizId,
+            quizTitle: quizTitle,
+            studentId: profile.id,
+            studentName: profile.full_name || profile.username || "Học sinh",
+            username: profile.username || profile.id,
+            learningMode: profile.learning_mode || profile.study_mode || "offline",
+            school: profile.school || "THPT",
+            score: Number(att.score ?? att.points ?? 0),
+            totalQuestions: Number(att.totalQuestions || att.total_questions || allQuestions.length || 20),
+            correctCount: Number(att.correctCount || att.correct_count || 0),
+            timeSpent: att.timeSpent || att.time_spent || "15 phút",
+            durationSeconds: Number(att.durationSeconds || att.duration_seconds || 900),
+            isHomework: Boolean(isHomework),
+            answers: att.answers || att.userAnswers || {},
+            createdAt: att.createdAt || att.created_at || new Date().toISOString()
+          };
+
+          try {
+            await fetch("/api/student/submit-quiz", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+          } catch (e) {}
+        }
+      } catch (e) {}
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [profile, quizId, quizTitle, isHomework, allQuestions.length]);
+
+  // 4. HÀM NỘP BÀI TẬP TRUNG DUY NHẤT (BẢO TOÀN LOGIC CHẤM ĐIỂM VÀ ĐẨY DỮ LIỆU)
   const handleSubmitExam = useCallback(async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -129,7 +194,7 @@ export function ExamRoomView({
       createdAt: nowIso
     };
 
-    // A. Gửi ngay lập tức lên Server API
+    // A. Gửi trực tiếp lên Serverless API
     try {
       await fetch("/api/student/submit-quiz", {
         method: "POST",
@@ -137,18 +202,24 @@ export function ExamRoomView({
         body: JSON.stringify(payload)
       });
     } catch (e) {
-      console.warn("Lỗi gửi bài qua API server:", e);
+      console.warn("Lỗi đồng bộ qua submit-quiz:", e);
     }
 
-    // B. Lưu đồng bộ ngay vào key chuẩn duy nhất edunexus_attempts
+    // B. Cập nhật vào LocalStorage
+    let updatedAttemptsCount = 1;
     try {
       const rawLocal = localStorage.getItem("edunexus_attempts");
       const localList = rawLocal ? JSON.parse(rawLocal) : [];
       const updatedList = [payload, ...(Array.isArray(localList) ? localList : [])];
       localStorage.setItem("edunexus_attempts", JSON.stringify(updatedList));
+
+      const myAttemptsForThisQuiz = updatedList.filter(
+        (a: any) => String(a.quizId || a.quiz_id) === String(quizId)
+      );
+      updatedAttemptsCount = myAttemptsForThisQuiz.length || 1;
     } catch (e) {}
 
-    // C. Bắn Realtime cho Admin nhận điểm lập tức
+    // C. Bắn Realtime cho Admin cập nhật tức thời
     try {
       const channel = supabase.channel("admin-realtime-global-sync");
       channel.send({
@@ -167,8 +238,10 @@ export function ExamRoomView({
       score: calculatedScore,
       correctCount: correct,
       totalCount: total,
-      submittedAt: nowIso
+      submittedAt: nowIso,
+      attemptsCount: updatedAttemptsCount
     });
+
     setIsSubmitting(false);
     setShowResultModal(true);
   }, [allQuestions, userAnswers, durationMinutes, secondsRemaining, quizId, quizTitle, profile, isHomework, isSubmitting]);
@@ -181,7 +254,7 @@ export function ExamRoomView({
 
   if (isLoading) {
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-slate-50 font-sans">
+      <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 font-sans">
         <div className="text-center space-y-3">
           <div className="w-10 h-10 border-4 border-[#1D4ED8] border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-xs font-bold text-slate-500">Đang chuẩn bị đề thi...</p>
@@ -192,8 +265,8 @@ export function ExamRoomView({
 
   return (
     <div className="min-h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 flex flex-col">
-      {/* HEADER PHÒNG THI */}
-      <header className="sticky top-0 z-50 bg-white border-b border-slate-200 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-xs">
+      {/* HEADER PHÒNG THI GỐC */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -205,12 +278,12 @@ export function ExamRoomView({
           <div>
             <h1 className="text-sm sm:text-base font-extrabold text-slate-900 line-clamp-1">{quizTitle}</h1>
             <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">
-              {profile.full_name} • Phân hệ: {profile.learning_mode === "offline" ? "Lớp Offline" : "Lớp Online"}
+              {profile.full_name} • {profile.learning_mode === "offline" ? "Lớp Offline" : "Lớp Online"}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <div className="flex items-center gap-2 px-3.5 py-1.5 bg-blue-50 text-[#1D4ED8] rounded-xl border border-blue-100 font-black text-xs sm:text-sm shadow-2xs">
             <Clock className="w-4 h-4" />
             <span>{formatTimer(secondsRemaining)}</span>
@@ -221,16 +294,17 @@ export function ExamRoomView({
             disabled={isSubmitting}
             className="px-5 py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer disabled:opacity-50"
           >
-            {isSubmitting ? "Đang nộp..." : "Nộp bài thi"}
+            {isSubmitting ? "Đang nộp bài..." : "Nộp bài thi"}
           </button>
         </div>
       </header>
 
-      {/* DANH SÁCH CÂU HỎI */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6 pb-24">
+      {/* DANH SÁCH CÂU HỎI THEO GIAO DIỆN NGUYÊN BẢN */}
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6 pb-28">
         {allQuestions.map((q: any, idx: number) => {
           const qKey = q.id || `q_${idx + 1}`;
           const currentAns = userAnswers[qKey];
+          const correctAns = String(q.correctAnswer || q.answer || "").trim().toUpperCase();
 
           return (
             <div key={qKey} className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
@@ -248,25 +322,33 @@ export function ExamRoomView({
                 {(q.options || []).map((opt: any, oIdx: number) => {
                   const optKey = opt.key || String.fromCharCode(65 + oIdx);
                   const isSelected = currentAns === optKey;
+                  const isCorrect = isReviewMode && optKey === correctAns;
+                  const isWrongSelected = isReviewMode && isSelected && optKey !== correctAns;
+
+                  let btnStyle = "bg-slate-50/50 border-slate-200 text-slate-700 hover:bg-slate-100";
+                  let badgeStyle = "bg-white border border-slate-300 text-slate-600";
+
+                  if (isSelected) {
+                    btnStyle = "bg-blue-50 border-[#1D4ED8] text-[#1D4ED8] shadow-xs";
+                    badgeStyle = "bg-[#1D4ED8] text-white";
+                  }
+                  if (isCorrect) {
+                    btnStyle = "bg-emerald-50 border-emerald-500 text-emerald-800";
+                    badgeStyle = "bg-emerald-600 text-white";
+                  } else if (isWrongSelected) {
+                    btnStyle = "bg-rose-50 border-rose-500 text-rose-800";
+                    badgeStyle = "bg-rose-600 text-white";
+                  }
 
                   return (
                     <button
                       key={optKey}
                       type="button"
+                      disabled={isReviewMode}
                       onClick={() => setUserAnswers(prev => ({ ...prev, [qKey]: optKey }))}
-                      className={
-                        "p-3 rounded-xl border text-left text-xs font-semibold flex items-center gap-3 transition cursor-pointer " +
-                        (isSelected
-                          ? "bg-blue-50 border-[#1D4ED8] text-[#1D4ED8] shadow-xs"
-                          : "bg-slate-50/50 border-slate-200 text-slate-700 hover:bg-slate-100")
-                      }
+                      className={`p-3 rounded-xl border text-left text-xs font-semibold flex items-center gap-3 transition cursor-pointer ${btnStyle}`}
                     >
-                      <div
-                        className={
-                          "w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center shrink-0 " +
-                          (isSelected ? "bg-[#1D4ED8] text-white" : "bg-white border border-slate-300 text-slate-600")
-                        }
-                      >
+                      <div className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${badgeStyle}`}>
                         {optKey}
                       </div>
                       <div dangerouslySetInnerHTML={{ __html: opt.text_html || opt.text || "" }} />
@@ -274,83 +356,137 @@ export function ExamRoomView({
                   );
                 })}
               </div>
+
+              {/* LỜI GIẢI CHI TIẾT (KHI BẬT CHẾ ĐỘ XEM ĐÁP ÁN) */}
+              {isReviewMode && q.explanation && (
+                <div className="mt-4 p-4 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed">
+                  <p className="font-bold text-amber-800 mb-1 flex items-center gap-1.5">
+                    <HelpCircle className="w-4 h-4" /> Lời giải chi tiết:
+                  </p>
+                  <div dangerouslySetInnerHTML={{ __html: q.explanation_html || q.explanation }} />
+                </div>
+              )}
             </div>
           );
         })}
       </main>
 
-      {/* POPUP KẾT QUẢ THI HOÀN CHỈNH */}
+      {/* POPUP HOÀN THÀNH BÀI THI NGUYÊN BẢN GỐC (KHỚP 100% ẢNH THỰC TẾ) */}
       <AnimatePresence>
         {showResultModal && examResult && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div 
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowResultModal(false);
+              }
+            }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs cursor-pointer"
+          >
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white rounded-[28px] max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col md:flex-row"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[28px] max-w-4xl w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col md:flex-row cursor-default"
             >
-              {/* BÊN TRÁI: ĐIỂM SỐ CỦA BẠN */}
-              <div className="p-6 md:p-8 flex-1 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-100 bg-white">
+              {/* CỘT TRÁI: ĐIỂM SỐ VÀ CÁC THAO TÁC */}
+              <div className="p-8 md:p-10 flex-1 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-100 bg-white">
                 <div>
-                  <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center mb-5">
                     <Award className="w-6 h-6" />
                   </div>
-                  <h2 className="text-xl font-black text-slate-900 mb-1">Hoàn Thành Bài Thi!</h2>
-                  <p className="text-xs font-bold text-slate-500 mb-6">{quizTitle}</p>
+                  <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-1">
+                    Hoàn Thành Bài Thi!
+                  </h2>
+                  <p className="text-xs font-bold text-slate-400 mb-8">{quizTitle}</p>
 
-                  <div className="bg-blue-50/60 border border-blue-100 rounded-2xl p-5 mb-6 text-center">
-                    <p className="text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">ĐIỂM ĐẠT ĐƯỢC</p>
-                    <div className="text-4xl font-black text-[#1D4ED8] mb-2">{examResult.score.toFixed(1)} <span className="text-sm text-slate-400">/ 10</span></div>
-                    <p className="text-xs font-bold text-slate-600">
-                      Đúng {examResult.correctCount}/{examResult.totalCount} câu trọn vẹn
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowResultModal(false);
-                      setUserAnswers({});
-                      setSecondsRemaining(durationMinutes * 60);
-                    }}
-                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <RotateCcw className="w-4 h-4" /> Làm lại bài
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onBackToDashboard}
-                    className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
-                  >
-                    Về Trang Chủ
-                  </button>
-                </div>
-              </div>
-
-              {/* BÊN PHẢI: BẢNG XẾP HẠNG KẾT QUẢ VỚI TÊN THẬT */}
-              <div className="p-6 md:p-8 w-full md:w-72 bg-slate-50/50 flex flex-col justify-between">
-                <div>
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
-                    <Award className="w-4 h-4 text-amber-500" /> Bảng Xếp Hạng Kết Quả
-                  </h3>
-
-                  <div className="space-y-2">
-                    <div className="bg-white p-3.5 rounded-xl border border-blue-200 shadow-2xs flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-6 h-6 rounded-lg bg-[#1D4ED8] text-white font-black text-xs flex items-center justify-center">1</div>
-                        <div>
-                          <p className="text-xs font-black text-slate-900">{profile.full_name || profile.username}</p>
-                          <span className="text-[10px] font-bold text-[#1D4ED8] bg-blue-50 px-1.5 py-0.2 rounded border border-blue-100">BẠN</span>
-                        </div>
+                  <div className="bg-blue-50/40 border border-blue-100 rounded-2xl p-6 mb-8 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-[#1D4ED8] mb-1">
+                        ĐIỂM ĐẠT ĐƯỢC
+                      </p>
+                      <div className="text-4xl font-black text-[#1D4ED8]">
+                        {examResult.score.toFixed(1)} <span className="text-sm font-bold text-slate-400">/ 10</span>
                       </div>
-                      <span className="text-sm font-black text-[#1D4ED8]">{examResult.score.toFixed(1)}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-black text-slate-700">
+                        Đúng {examResult.correctCount}/{examResult.totalCount} câu trọn vẹn
+                      </p>
+                      <span className="text-[11px] font-bold text-slate-400">
+                        ({examResult.attemptsCount} lần nộp)
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <p className="text-[10px] text-slate-400 font-semibold text-center mt-6">
-                  Dữ liệu đã được đồng bộ trực tiếp lên hệ thống TCT.
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowResultModal(false);
+                      setIsReviewMode(false);
+                      setUserAnswers({});
+                      setSecondsRemaining(durationMinutes * 60);
+                    }}
+                    className="flex-1 py-3 px-4 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" /> Làm lại bài
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowResultModal(false);
+                      setIsReviewMode(true);
+                    }}
+                    className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4" /> Xem đáp án
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onBackToDashboard}
+                    className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Home className="w-4 h-4" /> Trang chủ
+                  </button>
+                </div>
+              </div>
+
+              {/* CỘT PHẢI: BẢNG XẾP HẠNG KẾT QUẢ GỐC */}
+              <div className="p-8 md:p-10 w-full md:w-80 bg-slate-50/50 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-6 flex items-center gap-2">
+                    <Award className="w-4 h-4 text-amber-500" /> Bảng Xếp Hạng Kết Quả
+                  </h3>
+
+                  <div className="space-y-3">
+                    <div className="bg-white p-4 rounded-2xl border border-blue-200 shadow-2xs flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-6 h-6 rounded-lg bg-[#1D4ED8] text-white font-black text-xs flex items-center justify-center">
+                          1
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-slate-900">
+                              {profile.full_name || profile.username}
+                            </span>
+                            <span className="text-[9px] font-black text-[#1D4ED8] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                              BẠN
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-sm font-black text-[#1D4ED8]">
+                        {examResult.score.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-slate-400 font-medium text-center mt-8 italic">
+                  Bấm ra ngoài vùng hộp thoại để đóng bảng kết quả.
                 </p>
               </div>
             </motion.div>
