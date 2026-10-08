@@ -177,8 +177,8 @@ export function ExamRoomView({
     return {};
   });
 
-  // Chế độ xem: "scroll" (Cuộn danh sách) hoặc "single" (Từng câu chuẩn TSA/HSA)
-  const [layoutMode, setLayoutMode] = useState<"single" | "scroll">("scroll");
+  // Chế độ xem: "scroll" (Cuộn danh sách) hoặc "single" (Từng câu)
+  const [layoutMode, setLayoutMode] = useState<"single" | "scroll">("single");
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
@@ -601,11 +601,18 @@ export function ExamRoomView({
   }, [answeredCount, questions.length]);
 
   // Màu đồng hồ theo thời gian (Thanh lịch & Cảnh báo khi dưới 5 phút)
-  const timerColorStyles = useMemo(() => {
-    if (isHomework) return "bg-blue-50/70 border-blue-200/80 text-blue-700";
+  const timerHeaderStyles = useMemo(() => {
+    if (isHomework) return "bg-blue-50/70 border-blue-200/70 text-blue-700";
     if (secondsRemaining <= 60) return "bg-rose-50 border-rose-300 text-rose-600 animate-pulse";
     if (secondsRemaining <= 300) return "bg-amber-50 border-amber-300 text-amber-700";
-    return "bg-blue-50/70 border-blue-200/80 text-blue-700";
+    return "bg-blue-50/70 border-blue-200/70 text-blue-700";
+  }, [secondsRemaining, isHomework]);
+
+  const timerSidebarStyles = useMemo(() => {
+    if (isHomework) return "bg-blue-50/60 border-blue-100 text-blue-600";
+    if (secondsRemaining <= 60) return "bg-rose-50 border-rose-200 text-rose-600 animate-pulse";
+    if (secondsRemaining <= 300) return "bg-amber-50 border-amber-200 text-amber-700";
+    return "bg-blue-50/60 border-blue-100 text-blue-600";
   }, [secondsRemaining, isHomework]);
 
   const renderQuestionOptions = (q: QuestionItem) => {
@@ -857,7 +864,7 @@ export function ExamRoomView({
 
         {/* CỤM ĐIỀU KHIỂN GIỮA: NÚT TOGGLE CHẾ ĐỘ XEM & ĐỒNG HỒ THỜI GIAN */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* SEGMENTED CONTROL: BẬT TẮT CHẾ ĐỘ CUỘN / TỪNG CÂU */}
+          {/* SEGMENTED CONTROL: BẬT TẮT CHẾ ĐỘ CUỘN / TỪNG CÂU (ĐÃ SỬA NHÃN GỌN ĐẸP) */}
           <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
             <button
               type="button"
@@ -881,12 +888,12 @@ export function ExamRoomView({
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Từng câu (TSA/HSA)</span>
+              <span>Từng câu</span>
             </button>
           </div>
 
-          {/* ĐỒNG HỒ THỜI GIAN TRÊN HEADER (TYPOGRAPHY GỌN ĐẸP) */}
-          <div className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl border shadow-2xs font-mono font-bold text-xs sm:text-sm tabular-nums tracking-tight ${timerColorStyles}`}>
+          {/* ĐỒNG HỒ THỜI GIAN TRÊN HEADER (TYPOGRAPHY NHỎ GỌN, CHUẨN XÁC) */}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border shadow-2xs font-mono font-semibold text-xs tabular-nums tracking-tight ${timerHeaderStyles}`}>
             <Clock className="w-3.5 h-3.5 shrink-0" />
             <span>
               {isHomework ? formatTimer(timeSpentSeconds) + " (Tự do)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
@@ -1000,48 +1007,50 @@ export function ExamRoomView({
                   </div>
                 )}
 
-                {/* CỤM NÚT ĐIỀU HƯỚNG TỪNG CÂU CHUẨN TSA/HSA */}
-                <div className="flex items-center justify-between pt-2.5 border-t border-slate-100">
+                {/* CỤM NÚT ĐIỀU HƯỚNG GỌN GÀNG CÂN ĐỐI (COMPACT CONTROL BAR) */}
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-center gap-3">
                   <button
                     type="button"
                     onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))}
                     disabled={currentIdx === 0}
-                    className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-xs font-semibold text-slate-700 transition flex items-center gap-1 cursor-pointer shadow-2xs"
                   >
-                    <ChevronLeft className="w-4 h-4" /> Câu trước
+                    <ChevronLeft className="w-3.5 h-3.5" /> Câu trước
                   </button>
 
-                  <div className="flex items-center gap-2">
-                    {currentIdx < questions.length - 1 ? (
+                  <span className="text-xs font-medium text-slate-500 px-2 select-none">
+                    Câu {currentIdx + 1} / {questions.length}
+                  </span>
+
+                  {currentIdx < questions.length - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentIdx(prev => Math.min(questions.length - 1, prev + 1))}
+                      className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                    >
+                      Câu tiếp theo <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    !isSubmitted && (
                       <button
                         type="button"
-                        onClick={() => setCurrentIdx(prev => Math.min(questions.length - 1, prev + 1))}
-                        className="px-4 py-1.5 sm:px-5 sm:py-2 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                        disabled={isSubmitting}
+                        onClick={() => handleSubmitExam()}
+                        className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
                       >
-                        Câu tiếp theo <ChevronRight className="w-4 h-4" />
+                        {isSubmitting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Đang nộp...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" /> Nộp bài thi
+                          </>
+                        )}
                       </button>
-                    ) : (
-                      !isSubmitted && (
-                        <button
-                          type="button"
-                          disabled={isSubmitting}
-                          onClick={() => handleSubmitExam()}
-                          className="px-4 py-1.5 sm:px-5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Đang nộp...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Send className="w-3.5 h-3.5" /> Nộp bài thi
-                            </>
-                          )}
-                        </button>
-                      )
-                    )}
-                  </div>
+                    )
+                  )}
                 </div>
               </div>
             ) : (
@@ -1125,14 +1134,14 @@ export function ExamRoomView({
               </div>
             </div>
 
-            {/* KHỐI ĐỒNG HỒ ĐẾM NGƯỢC THANH LỊCH (FONT MONO TABULAR-NUMS GỌN ĐẸP) */}
-            <div className={`p-3 rounded-xl border shadow-2xs space-y-0.5 text-left transition-colors ${timerColorStyles}`}>
+            {/* KHỐI ĐỒNG HỒ ĐẾM NGƯỢC THANH LỊCH (TYPOGRAPHY CHUẨN XÁC, KHÔNG BỊ THÔ) */}
+            <div className={`p-3 rounded-xl border shadow-2xs space-y-0.5 text-left transition-colors ${timerSidebarStyles}`}>
               <span className="text-[10px] font-black uppercase tracking-wider opacity-75 block">
                 {isHomework ? "THỜI GIAN LÀM BÀI" : "THỜI GIAN CÒN LẠI"}
               </span>
               <div className="flex items-center gap-2 pt-0.5">
                 <Clock className="w-4 h-4 shrink-0" />
-                <span className="text-lg sm:text-xl font-bold tracking-tight font-mono tabular-nums">
+                <span className="text-lg font-bold tracking-tight font-mono tabular-nums">
                   {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
@@ -1290,13 +1299,13 @@ export function ExamRoomView({
                     layoutMode === "single" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-500"
                   }`}
                 >
-                  Từng câu (HSA)
+                  Từng câu
                 </button>
               </div>
 
               <div className="py-2.5 flex items-center justify-between text-xs font-bold text-slate-600 bg-slate-50 px-3 rounded-xl my-1">
                 <span>Thời gian:</span>
-                <span className="text-blue-700 font-bold font-mono tabular-nums">
+                <span className="text-blue-700 font-semibold font-mono tabular-nums">
                   {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
