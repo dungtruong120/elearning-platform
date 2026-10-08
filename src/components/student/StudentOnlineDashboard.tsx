@@ -52,6 +52,15 @@ const DEFAULT_CHAPTERS = [
 
 const VALID_TABS = ["overview", "courses", "practice", "schedule", "progress", "assessments", "leaderboard", "notifications"];
 
+function normalizeStr(str: any): string {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 interface StudentOnlineDashboardProps {
   initialProfile?: Profile | null;
   onLogout?: () => void;
@@ -613,6 +622,36 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return "not_started";
   }, [allAttempts, profile?.id]);
 
+  // HÀM TRA CỨU BÀI LÀM ĐA TẦNG CHO BTVN VÀ BÀI KIỂM TRA (GIẢI QUYẾT TRIỆT ĐỂ LỖI DỮ LIỆU)
+  const findAttemptForQuiz = useCallback((quiz: any, lessonTitle: string, isHomeworkCheck: boolean) => {
+    if (!quiz && !lessonTitle) return null;
+    const qId = quiz?.id ? String(quiz.id).trim().toLowerCase() : "";
+    const qTitle = quiz?.title ? normalizeStr(quiz.title) : "";
+    const lesTitle = normalizeStr(lessonTitle);
+
+    return (allAttempts || []).find(a => {
+      if (a.studentId !== profile?.id) return false;
+
+      const aQuizId = String(a.quizId || a.quiz_id || "").trim().toLowerCase();
+      const aTitle = normalizeStr(a.quizTitle || a.examTitle || a.title);
+      const isHw = Boolean(a.isHomework || a.is_homework || a.type === "homework");
+
+      // 1. So khớp theo ID trực tiếp
+      if (qId && aQuizId && aQuizId === qId) return true;
+
+      // 2. So khớp theo tiêu đề bài tập / bài kiểm tra
+      if (qTitle && aTitle && (aTitle === qTitle || aTitle.includes(qTitle) || qTitle.includes(aTitle))) return true;
+
+      // 3. So khớp theo tiêu đề bài học (cho phép tìm các bài nộp theo bài học)
+      if (lesTitle && aTitle && (aTitle.includes(lesTitle) || lesTitle.includes(aTitle))) {
+        if (isHomeworkCheck && isHw) return true;
+        if (!isHomeworkCheck && !isHw) return true;
+      }
+
+      return false;
+    }) || null;
+  }, [allAttempts, profile?.id]);
+
   // DỮ LIỆU TÍNH TOÁN TIẾN ĐỘ HỌC TẬP TAB #PROGRESS
   const progressStats = useMemo(() => {
     let totalHw = 0;
@@ -624,15 +663,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       (chap.lessons || []).forEach((les: any) => {
         (les.homework_files || []).forEach((hw: any) => {
           totalHw++;
-          if (allAttempts.some(a => a.studentId === profile?.id && (a.quizId === hw.id || a.quiz_id === hw.id))) {
-            submittedHw++;
-          }
+          const att = findAttemptForQuiz(hw, les.title, true);
+          if (att) submittedHw++;
         });
         (les.test_quizzes || []).forEach((tq: any) => {
           totalTest++;
-          if (allAttempts.some(a => a.studentId === profile?.id && (a.quizId === tq.id || a.quiz_id === tq.id))) {
-            completedTest++;
-          }
+          const att = findAttemptForQuiz(tq, les.title, false);
+          if (att) completedTest++;
         });
       });
     });
@@ -642,7 +679,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     return { totalHw, submittedHw, totalTest, completedTest, totalTasks, completedTasks, percent };
-  }, [onlineChapters, allAttempts, profile?.id]);
+  }, [onlineChapters, findAttemptForQuiz]);
 
   if (examRoom) {
     return (
@@ -691,7 +728,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   }
 
   return (
-    <div className="h-screen w-full bg-[#F8FAFC] text-slate-800 flex overflow-hidden relative selection:bg-blue-500/20">
+    <div 
+      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+      className="h-screen w-full bg-[#F8FAFC] antialiased text-slate-800 tracking-tight flex overflow-hidden relative selection:bg-blue-500/20"
+    >
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+      `}</style>
+
       <AnimatePresence>
         {onlineToast && (
           <motion.div 
@@ -810,7 +854,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                       <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-100">
                         {onlineChapters.length} Chương
                       </span>
-                      <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex items-center gap-1.5">
+                      <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex items-center gap-1.5 font-mono tabular-nums">
                         <Clock className="w-3.5 h-3.5" /> {formattedStudyTimeToday}
                       </span>
                     </div>
@@ -827,7 +871,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             </span>
                             <span>{chap.title}</span>
                           </h3>
-                          <span className="text-xs font-semibold text-slate-400">
+                          <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums">
                             {chap.lessons?.length || 0} bài học
                           </span>
                         </div>
@@ -934,7 +978,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             </div>
 
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-semibold text-slate-400">
+                              <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums">
                                 {lessonCount} bài học
                               </span>
                               {isCollapsed ? (
@@ -1024,7 +1068,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight">
                           Luyện đề
                         </h2>
-                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 font-mono tabular-nums">
                           {practiceExams.length} đề thi sẵn sàng
                         </span>
                       </div>
@@ -1085,14 +1129,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                     <span className="text-[10px] font-semibold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">
                                       {exam.category}
                                     </span>
-                                    <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+                                    <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 font-mono tabular-nums">
                                       <Clock className="w-3.5 h-3.5"/> {exam.duration_minutes}p
                                     </span>
                                   </div>
                                   <h3 className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
                                     {exam.title}
                                   </h3>
-                                  <p className="text-xs text-slate-400 font-normal mb-3.5">
+                                  <p className="text-xs text-slate-400 font-normal mb-3.5 font-mono tabular-nums">
                                     Số câu: {qCount} câu
                                   </p>
                                 </div>
@@ -1147,20 +1191,20 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               <th className="py-2.5 px-3 font-semibold text-right">Chi tiết</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100">
+                          <tbody className="divide-y divide-slate-100 font-mono tabular-nums">
                             {practiceHistoryGrouped.length === 0 ? (
-                              <tr><td colSpan={5} className="py-8 text-center text-slate-400 italic">Bạn chưa hoàn thành đề thi nào.</td></tr>
+                              <tr><td colSpan={5} className="py-8 text-center text-slate-400 italic font-sans">Bạn chưa hoàn thành đề thi nào.</td></tr>
                             ) : (
                               practiceHistoryGrouped.map((grp: any) => (
-                                <tr key={grp.quizId} className="hover:bg-slate-50/50 transition">
+                                <tr key={grp.quizId} className="hover:bg-slate-50/50 transition font-sans">
                                   <td className="py-2.5 px-4">
                                     <span className="font-semibold text-slate-800 block truncate max-w-xs">{grp.title}</span>
                                     <span className="text-[10px] font-semibold text-slate-400 uppercase">{grp.category}</span>
                                   </td>
-                                  <td className="py-2.5 px-3 text-center">
+                                  <td className="py-2.5 px-3 text-center font-mono tabular-nums">
                                     <span className="bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded text-xs">{grp.attempts.length} lần</span>
                                   </td>
-                                  <td className="py-2.5 px-3 text-center">
+                                  <td className="py-2.5 px-3 text-center font-mono tabular-nums">
                                     <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-100">
                                       {grp.maxScore.toFixed(1)}
                                     </span>
@@ -1194,7 +1238,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - BÁO CÁO TRẠNG THÁI THUẦN TÚY 3 CỘT (KHÔNG CÓ NÚT BẤM LÀM BÀI) */}
+              {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - BÁO CÁO TRẠNG THÁI THUẦN TÚY 3 CỘT THẲNG HÀNG */}
               {(activeTab === "progress" || activeTab === "assessments") && (
                 <div className="max-w-5xl mx-auto space-y-4 text-left">
                   {/* KHỐI TỔNG QUAN TIẾN ĐỘ NGANG THANH THOÁT */}
@@ -1205,7 +1249,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           Tiến độ nhiệm vụ học tập
                         </h3>
                         <p className="text-xs text-slate-500 font-medium">
-                          Bạn đã hoàn thành <span className="font-semibold text-blue-700">{progressStats.completedTasks}/{progressStats.totalTasks}</span> nhiệm vụ.
+                          Bạn đã hoàn thành <span className="font-semibold text-blue-700 font-mono tabular-nums">{progressStats.completedTasks}/{progressStats.totalTasks}</span> nhiệm vụ.
                         </p>
                       </div>
 
@@ -1213,14 +1257,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                       <div className="flex items-center gap-2.5 text-xs">
                         <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
                           <span className="text-[11px] uppercase font-semibold text-slate-400">BTVN:</span>
-                          <span className="font-semibold text-slate-800">
+                          <span className="font-semibold text-slate-800 font-mono tabular-nums">
                             {progressStats.submittedHw}/{progressStats.totalHw} đã nộp
                           </span>
                         </div>
 
                         <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
                           <span className="text-[11px] uppercase font-semibold text-slate-400">Kiểm tra:</span>
-                          <span className="font-semibold text-slate-800">
+                          <span className="font-semibold text-slate-800 font-mono tabular-nums">
                             {progressStats.completedTest}/{progressStats.totalTest} hoàn thành
                           </span>
                         </div>
@@ -1237,12 +1281,12 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                       </div>
                       <div className="flex justify-between items-center text-[11px] text-slate-400">
                         <span>Bắt đầu</span>
-                        <span className="font-semibold text-blue-700">{progressStats.percent}%</span>
+                        <span className="font-semibold text-blue-700 font-mono tabular-nums">{progressStats.percent}%</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* DANH SÁCH BÀI HỌC DẠNG HÀNG COMPACT ROW (BÁO CÁO TRẠNG THÁI THUẦN TÚY 3 CỘT THẲNG HÀNG) */}
+                  {/* DANH SÁCH BÀI HỌC DẠNG HÀNG COMPACT ROW (BÁO CÁO TRẠNG THÁI TĨNH 3 CỘT) */}
                   <div className="space-y-3.5">
                     {onlineChapters.map((chap, cIdx) => (
                       <div key={chap.id || cIdx} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
@@ -1256,11 +1300,15 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         {/* DANH SÁCH CÁC HÀNG BÀI HỌC */}
                         <div className="divide-y divide-slate-100">
                           {(chap.lessons || []).map((les: any, lIdx: number) => {
-                            const hw = (les.homework_files || [])[0];
-                            const testQuiz = (les.test_quizzes || [])[0];
+                            const hwList = les.homework_files || [];
+                            const testList = les.test_quizzes || [];
 
-                            const hwAttempt = hw ? allAttempts.find(a => a.studentId === profile?.id && (a.quizId === hw.id || a.quiz_id === hw.id)) : null;
-                            const testAttempt = testQuiz ? allAttempts.find(a => a.studentId === profile?.id && (a.quizId === testQuiz.id || a.quiz_id === testQuiz.id)) : null;
+                            const hw = hwList[0];
+                            const testQuiz = testList[0];
+
+                            // Tra cứu đối soát đa tầng
+                            const hwAttempt = findAttemptForQuiz(hw, les.title, true);
+                            const testAttempt = findAttemptForQuiz(testQuiz, les.title, false);
 
                             return (
                               <div 
@@ -1275,13 +1323,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                   </span>
                                 </div>
 
-                                {/* CỤM CỘT 2 (BTVN) VÀ CỘT 3 (BÀI KIỂM TRA) - HIỂN THỊ NHÃN TRẠNG THÁI TĨNH */}
+                                {/* CỤM CỘT 2 (BTVN) VÀ CỘT 3 (BÀI KIỂM TRA) - TRẠNG THÁI TĨNH THUẦN TÚY */}
                                 <div className="flex items-center gap-4 sm:gap-6 shrink-0 text-xs">
                                   {/* CỘT 2: BÀI TẬP VỀ NHÀ */}
-                                  <div className="flex items-center gap-1.5 w-36 sm:w-40 justify-end">
-                                    {hw ? (
+                                  <div className="flex items-center gap-1.5 w-36 sm:w-44 justify-end">
+                                    {hwList.length > 0 ? (
                                       hwAttempt ? (
-                                        <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
+                                        <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1 font-mono tabular-nums">
                                           <Check className="w-3 h-3 stroke-[3]" /> Đã nộp ({Number(hwAttempt.score).toFixed(1)}đ)
                                         </span>
                                       ) : (
@@ -1290,15 +1338,15 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                         </span>
                                       )
                                     ) : (
-                                      <span className="text-slate-300 font-semibold select-none">-</span>
+                                      <span className="text-slate-400 text-xs italic">Không có BTVN</span>
                                     )}
                                   </div>
 
                                   {/* CỘT 3: BÀI KIỂM TRA ĐỊNH KỲ */}
-                                  <div className="flex items-center gap-1.5 w-36 sm:w-40 justify-end">
-                                    {testQuiz ? (
+                                  <div className="flex items-center gap-1.5 w-36 sm:w-44 justify-end">
+                                    {testList.length > 0 ? (
                                       testAttempt ? (
-                                        <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
+                                        <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1 font-mono tabular-nums">
                                           <Check className="w-3 h-3 stroke-[3]" /> Đã thi ({Number(testAttempt.score).toFixed(1)}đ)
                                         </span>
                                       ) : (
@@ -1307,7 +1355,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                         </span>
                                       )
                                     ) : (
-                                      <span className="text-slate-300 font-semibold select-none">-</span>
+                                      <span className="text-slate-400 text-xs italic">Không có bài KT</span>
                                     )}
                                   </div>
                                 </div>
@@ -1358,7 +1406,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                 <p className="text-xs text-slate-500 truncate">{item.desc}</p>
                               </div>
                             </div>
-                            <span className="text-xs text-slate-400 shrink-0 font-medium">{item.dateStr}</span>
+                            <span className="text-xs text-slate-400 shrink-0 font-medium font-mono tabular-nums">{item.dateStr}</span>
                           </div>
                         );
                       })
@@ -1397,7 +1445,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     <th className="py-2.5 px-3.5 text-center">Điểm số</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
+                <tbody className="divide-y divide-slate-100 bg-white font-mono tabular-nums">
                   {practiceHistoryGrouped.find((g: any) => g.quizId === historyModalExamId)?.attempts.map((att: any, idx: number) => {
                     const isMax = att.score === practiceHistoryGrouped.find((g: any) => g.quizId === historyModalExamId)?.maxScore;
                     return (
