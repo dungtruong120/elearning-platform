@@ -1,64 +1,161 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export async function GET() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+export const dynamic = "force-dynamic";
 
-  const effectiveKey = serviceKey || anonKey;
-  const supabaseServer = createClient(supabaseUrl, effectiveKey, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const effectiveKey = serviceKey || anonKey;
 
+const supabaseServer = createClient(supabaseUrl, effectiveKey, {
+  auth: { persistSession: false, autoRefreshToken: false }
+});
+
+export async function POST(req: Request) {
   try {
-    const [profilesRes, attemptsRes, resultsRes, examsRes] = await Promise.allSettled([
-      // 1. BẢNG PROFILES: Đã bỏ cột 'username' gây lỗi 42703
-      supabaseServer
-        .from("profiles")
-        .select("id, full_name, email, phone, school, grade, role, learning_mode, study_mode, approval_status, created_at")
-        .neq("role", "admin")
-        .order("created_at", { ascending: false }),
+    const body = await req.json();
+    const {
+      id,
+      quizId,
+      quizTitle,
+      studentId,
+      studentName,
+      username,
+      learningMode,
+      school,
+      score,
+      totalQuestions,
+      correctCount,
+      timeSpent,
+      durationSeconds,
+      isHomework,
+      answers,
+      createdAt
+    } = body;
 
-      // 2. BẢNG EXAM_ATTEMPTS: Đã bỏ cột 'user_id' gây lỗi 42703
-      supabaseServer
+    if (!quizId || score === undefined) {
+      return NextResponse.json(
+        { error: "Thiếu quizId hoặc score bắt buộc" },
+        { status: 400 }
+      );
+    }
+
+    const nowIso = createdAt || new Date().toISOString();
+    const finalScore = Number(score) || 0;
+    const finalStudentId = String(studentId || username || "student").trim();
+    const finalStudentName = String(studentName || username || "Học sinh").trim();
+    const finalLearningMode = String(learningMode || "online").toLowerCase();
+    const cleanDuration =
+      timeSpent ||
+      (durationSeconds
+        ? `${Math.floor(durationSeconds / 60)} phút ${durationSeconds % 60} giây`
+        : "15 phút");
+    const uniqueId = id || `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+    let savedSuccessfully = false;
+    const executionResults: Record<string, any> = {};
+
+    // 1. GHI VÀO EXAM_ATTEMPTS: Đảm bảo lưu đúng student_name, full_name, quiz_title
+    try {
+      const fullSnakeRecord: any = {
+        id: uniqueId,
+        quiz_id: String(quizId),
+        exam_id: String(quizId),
+        quiz_title: String(quizTitle || "Đề thi"),
+        exam_title: String(quizTitle || "Đề thi"),
+        student_id: finalStudentId,
+        student_name: finalStudentName,
+        full_name: finalStudentName,
+        school: school || "THPT",
+        score: finalScore,
+        points: finalScore,
+        type: isHomework ? "homework" : "practice",
+        is_homework: Boolean(isHomework),
+        created_at: nowIso
+      };
+
+      const { error: err1 } = await supabaseServer
         .from("exam_attempts")
-        .select("id, quiz_id, exam_id, student_id, student_name, full_name, user_name, quiz_title, exam_title, score, points, type, is_homework, duration_seconds, time_spent, created_at, feedback")
-        .order("created_at", { ascending: false })
-        .limit(3000),
+        .upsert([fullSnakeRecord], { onConflict: "id", ignoreDuplicates: true });
 
-      // 3. BẢNG QUIZ_RESULTS: Đã bỏ cột 'created_at' gây lỗi 42703
-      supabaseServer
+      if (!err1) {
+        executionResults["exam_attempts"] = "success";
+        savedSuccessfully = true;
+      } else {
+        // Fallback tối giản nếu schema thiếu một số trường phụ
+        const minimalRecord = {
+          id: uniqueId,
+          quiz_id: String(quizId),
+          student_id: finalStudentId,
+          score: finalScore,
+          type: isHomework ? "homework" : "practice",
+          created_at: nowIso
+        };
+        const { error: fallbackErr } = await supabaseServer
+          .from("exam_attempts")
+          .upsert([minimalRecord], { onConflict: "id", ignoreDuplicates: true });
+
+        if (!fallbackErr) {
+          executionResults["exam_attempts"] = "success_minimal";
+          savedSuccessfully = true;
+        } else {
+          executionResults["exam_attempts"] = fallbackErr.message;
+        }
+      }
+    } catch (e: any) {
+      executionResults["exam_attempts"] = e.message;
+    }
+
+    // 2. GHI VÀO QUIZ_RESULTS: Đảm bảo không ghi các cột không tồn tại
+    try {
+      const quizResultRecord = {
+        id: uniqueId,
+        quiz_id: String(quizId),
+        student_id: finalStudentId,
+        score: finalScore
+      };
+
+      const { error: err2 } = await supabaseServer
         .from("quiz_results")
-        .select("id, quiz_id, student_id, score")
-        .limit(3000),
+        .upsert([quizResultRecord], { onConflict: "id", ignoreDuplicates: true });
 
-      // 4. BẢNG PRACTICE_EXAMS: Hoạt động chuẩn xác
-      supabaseServer
-        .from("practice_exams")
-        .select("id, title, category, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, duration_minutes, created_at")
-        .order("created_at", { ascending: false })
-    ]);
-
-    const profiles = profilesRes.status === "fulfilled" && profilesRes.value.data ? profilesRes.value.data : [];
-    const examAttempts = attemptsRes.status === "fulfilled" && attemptsRes.value.data ? attemptsRes.value.data : [];
-    const quizResults = resultsRes.status === "fulfilled" && resultsRes.value.data ? resultsRes.value.data : [];
-    const practiceExams = examsRes.status === "fulfilled" && examsRes.value.data ? examsRes.value.data : [];
+      if (!err2) {
+        executionResults["quiz_results"] = "success";
+        savedSuccessfully = true;
+      } else {
+        executionResults["quiz_results"] = err2.message;
+      }
+    } catch (e: any) {
+      executionResults["quiz_results"] = e.message;
+    }
 
     return NextResponse.json({
-      success: true,
-      counts: {
-        profilesCount: profiles.length,
-        attemptsCount: examAttempts.length,
-        resultsCount: quizResults.length,
-        examsCount: practiceExams.length
-      },
-      profiles,
-      examAttempts,
-      quizResults,
-      practiceExams
+      success: savedSuccessfully,
+      results: executionResults,
+      record: {
+        id: uniqueId,
+        quizId: String(quizId),
+        quiz_id: String(quizId),
+        quizTitle: String(quizTitle || "Đề thi"),
+        examTitle: String(quizTitle || "Đề thi"),
+        studentId: finalStudentId,
+        student_id: finalStudentId,
+        studentName: finalStudentName,
+        student_name: finalStudentName,
+        learningMode: finalLearningMode,
+        score: finalScore,
+        type: isHomework ? "homework" : "practice",
+        timeSpent: cleanDuration,
+        createdAt: nowIso,
+        created_at: nowIso
+      }
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Lỗi API submit-quiz:", error);
+    return NextResponse.json(
+      { error: error.message || "Lỗi xử lý server nội bộ" },
+      { status: 500 }
+    );
   }
 }
