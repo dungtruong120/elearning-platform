@@ -4,7 +4,7 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, Edit3, UserCheck, FileText, FileUp, Link as LinkIcon, 
-  Zap, Video 
+  Zap, Video, Loader2 
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { STANDARD_SHIFTS } from "@/types";
@@ -23,7 +23,7 @@ interface AdminModalsProps {
   azotaScoreViewModal: any;
   setAzotaScoreViewModal: (m: any) => void;
   supabase: any;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, type?: "success" | "error") => void;
   isAddStudentModalOpen: boolean;
   setIsAddStudentModalOpen: (open: boolean) => void;
   quickStudentForm: any;
@@ -52,6 +52,7 @@ interface AdminModalsProps {
   newItemDescription: string;
   setNewItemDescription: (d: string) => void;
   handleCreateNewItem: (e: React.FormEvent) => Promise<void>;
+  isCreatingItem?: boolean;
   testFile: File | null;
   editingExamData: any;
   uploadMode: "course" | "practice";
@@ -138,6 +139,7 @@ export default function AdminModals({
   newItemDescription,
   setNewItemDescription,
   handleCreateNewItem,
+  isCreatingItem = false,
   testFile,
   editingExamData,
   uploadMode,
@@ -299,7 +301,7 @@ export default function AdminModals({
                                 try {
                                   await supabase.from("exam_attempts").update({ feedback: newCmt }).eq("id", att.id);
                                 } catch {}
-                                showToast("Đã lưu nhận xét học sinh!");
+                                showToast("Đã lưu nhận xét học sinh!", "success");
                               }
                             }}
                             className="p-1 text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
@@ -559,6 +561,7 @@ export default function AdminModals({
                   value={createModal.chapterId || ""} 
                   onChange={e => setCreateModal({ ...createModal, chapterId: e.target.value })}
                   className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] font-semibold outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white cursor-pointer"
+                  disabled={isCreatingItem}
                 >
                   {(chapters || []).map(c => (
                     <option key={c.id} value={c.id}>{c.title}</option>
@@ -569,7 +572,16 @@ export default function AdminModals({
 
             <div>
               <label className="block text-[13px] font-bold text-slate-700 mb-2">Tên {createModal.type === "chapter" ? "chương" : "bài học"} <span className="text-rose-500">*</span></label>
-              <input autoFocus required type="text" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} placeholder={createModal.type === "chapter" ? "VD: Chương 1..." : "VD: Bài 1..."} className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] font-semibold outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm" />
+              <input 
+                autoFocus 
+                required 
+                disabled={isCreatingItem}
+                type="text" 
+                value={newItemTitle} 
+                onChange={e => setNewItemTitle(e.target.value)} 
+                placeholder={createModal.type === "chapter" ? "VD: Chương 1..." : "VD: Bài 1..."} 
+                className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] font-semibold outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm disabled:bg-slate-100" 
+              />
             </div>
             
             {createModal.type === "lesson" && (
@@ -579,9 +591,10 @@ export default function AdminModals({
                   <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
+                      disabled={isCreatingItem}
                       onClick={() => setNewItemTargetMode("online")}
                       className={
-                        "py-2.5 px-3 rounded-xl text-xs font-black border transition " + 
+                        "py-2.5 px-3 rounded-xl text-xs font-black border transition cursor-pointer disabled:opacity-50 " + 
                         (newItemTargetMode === "online"
                           ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
                           : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
@@ -591,9 +604,10 @@ export default function AdminModals({
                     </button>
                     <button
                       type="button"
+                      disabled={isCreatingItem}
                       onClick={() => setNewItemTargetMode("offline")}
                       className={
-                        "py-2.5 px-3 rounded-xl text-xs font-black border transition " + 
+                        "py-2.5 px-3 rounded-xl text-xs font-black border transition cursor-pointer disabled:opacity-50 " + 
                         (newItemTargetMode === "offline"
                           ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
                           : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
@@ -603,9 +617,10 @@ export default function AdminModals({
                     </button>
                     <button
                       type="button"
+                      disabled={isCreatingItem}
                       onClick={() => setNewItemTargetMode("all")}
                       className={
-                        "py-2.5 px-3 rounded-xl text-xs font-black border transition " + 
+                        "py-2.5 px-3 rounded-xl text-xs font-black border transition cursor-pointer disabled:opacity-50 " + 
                         (newItemTargetMode === "all"
                           ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
                           : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
@@ -617,7 +632,12 @@ export default function AdminModals({
                 </div>
                 <div>
                   <label className="block text-[13px] font-bold text-slate-700 mb-2">Hình thức giảng dạy</label>
-                  <select value={newItemFormat} onChange={e => setNewItemFormat(e.target.value)} className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white">
+                  <select 
+                    disabled={isCreatingItem}
+                    value={newItemFormat} 
+                    onChange={e => setNewItemFormat(e.target.value)} 
+                    className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white disabled:bg-slate-100 cursor-pointer"
+                  >
                     <option value="Zoom">Zoom / Google Meet</option>
                     <option value="Video">Video quay sẵn</option>
                     <option value="Facebook">Facebook Group</option>
@@ -626,13 +646,40 @@ export default function AdminModals({
                 </div>
                 <div>
                   <label className="block text-[13px] font-bold text-slate-700 mb-2">Mô tả bài học</label>
-                  <textarea rows={3} value={newItemDescription} onChange={e => setNewItemDescription(e.target.value)} placeholder="Nội dung hướng dẫn học..." className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm resize-none" />
+                  <textarea 
+                    disabled={isCreatingItem}
+                    rows={3} 
+                    value={newItemDescription} 
+                    onChange={e => setNewItemDescription(e.target.value)} 
+                    placeholder="Nội dung hướng dẫn học..." 
+                    className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm resize-none disabled:bg-slate-100" 
+                  />
                 </div>
               </>
             )}
             <div className="flex gap-3 justify-end pt-4">
-              <button type="button" onClick={() => setCreateModal(null)} className="px-6 py-3 bg-slate-100 hover:bg-slate-200 rounded-2xl text-[13px] font-bold text-slate-700 transition-colors cursor-pointer">Hủy</button>
-              <button type="submit" className="px-6 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-2xl text-[13px] font-bold shadow-md transition-colors cursor-pointer">Thêm mới</button>
+              <button 
+                type="button" 
+                disabled={isCreatingItem}
+                onClick={() => setCreateModal(null)} 
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 rounded-2xl text-[13px] font-bold text-slate-700 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button 
+                type="submit" 
+                disabled={isCreatingItem}
+                className="px-6 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-2xl text-[13px] font-bold shadow-md transition-colors cursor-pointer disabled:opacity-70 flex items-center gap-2"
+              >
+                {isCreatingItem ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Đang lưu lên hệ thống...</span>
+                  </>
+                ) : (
+                  <span>Thêm mới</span>
+                )}
+              </button>
             </div>
           </form>
         </div>
