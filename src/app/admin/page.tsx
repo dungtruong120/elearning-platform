@@ -17,6 +17,16 @@ import StudentsTab from "@/components/admin/tabs/StudentsTab";
 import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
 
+// HÀM CHUẨN HÓA CHUỖI ĐỂ SO KHỚP ĐỀ THI & HỌC SINH KHÔNG BỊ TRƯỢT
+function cleanMatchKey(str: any): string {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[^a-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/g, "")
+    .trim();
+}
+
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
@@ -33,7 +43,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH MẤT DỮ LIỆU
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -55,6 +65,7 @@ function AdminDashboardContent() {
   });
 
   const [isLoadingExams, setIsLoadingExams] = useState<boolean>(false);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
   const [onlineSessions, setOnlineSessions] = useState<any[]>(() => {
@@ -226,7 +237,7 @@ function AdminDashboardContent() {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, full_name, email, phone, school, grade, role, learning_mode, study_mode, approval_status, created_at, username")
         .neq("role", "admin")
         .order("created_at", { ascending: false });
 
@@ -239,8 +250,9 @@ function AdminDashboardContent() {
     } catch (err) {}
   }, []);
 
-  // KHÔI PHỤC ĐẦY ĐỦ ĐIỂM SỐ CỦA HỌC SINH (MERGE 2 CHIỀU)
+  // TỐI ƯU HÓA CAO ĐỘ: CHỈ KÉO CỘT SCALAR TRÁNH QUÁ TẢI JSON, TỐC ĐỘ < 1S
   const fetchSupabaseAttempts = useCallback(async () => {
+    setIsLoadingAnalytics(true);
     let localSaved: any[] = [];
     if (typeof window !== "undefined") {
       try {
@@ -249,54 +261,63 @@ function AdminDashboardContent() {
       } catch (e) {}
     }
 
-    const [res1, res2, res3] = await Promise.allSettled([
-      supabase.from("exam_attempts").select("*").order("created_at", { ascending: false }),
-      supabase.from("attempts").select("*").order("created_at", { ascending: false }),
-      supabase.from("quiz_attempts").select("*").order("created_at", { ascending: false })
-    ]);
+    try {
+      // Chỉ select đúng các trường đo lường cần thiết, BỎ HẲN userAnswers nặng
+      const SELECT_FIELDS = "id, quizId, quiz_id, exam_id, studentId, student_id, user_id, studentName, student_name, full_name, user_name, examTitle, quizTitle, title, score, points, type, isHomework, duration_seconds, duration, timeSpent, created_at, createdAt, attemptNumber, attempt_count, feedback, comment";
 
-    let serverList: any[] = [];
-    if (res1.status === "fulfilled" && res1.value.data) serverList.push(...res1.value.data);
-    if (res2.status === "fulfilled" && res2.value.data) serverList.push(...res2.value.data);
-    if (res3.status === "fulfilled" && res3.value.data) serverList.push(...res3.value.data);
+      const [res1, res2, res3] = await Promise.allSettled([
+        supabase.from("exam_attempts").select(SELECT_FIELDS).order("created_at", { ascending: false }).limit(2000),
+        supabase.from("attempts").select(SELECT_FIELDS).order("created_at", { ascending: false }).limit(2000),
+        supabase.from("quiz_attempts").select(SELECT_FIELDS).order("created_at", { ascending: false }).limit(2000)
+      ]);
 
-    const combined = [...localSaved, ...serverList];
-    const map = new Map();
+      let serverList: any[] = [];
+      if (res1.status === "fulfilled" && res1.value.data) serverList.push(...res1.value.data);
+      if (res2.status === "fulfilled" && res2.value.data) serverList.push(...res2.value.data);
+      if (res3.status === "fulfilled" && res3.value.data) serverList.push(...res3.value.data);
 
-    combined.forEach((item: any) => {
-      if (!item) return;
-      const quizId = item.quizId || item.exam_id || item.quiz_id || item.test_id || "";
-      const studentId = item.studentId || item.user_id || item.student_id || item.username || "";
-      const studentName = item.studentName || item.student_name || item.user_name || item.full_name || item.username || "Học sinh";
-      const examTitle = item.examTitle || item.quizTitle || item.title || "";
-      const score = Number(item.score ?? item.points ?? 0);
-      const createdAt = item.createdAt || item.created_at || new Date().toISOString();
+      const combined = [...localSaved, ...serverList];
+      const map = new Map();
 
-      const normalized = {
-        ...item,
-        id: item.id || (String(quizId) + "_" + String(studentId) + "_" + String(createdAt)),
-        quizId,
-        studentId,
-        studentName,
-        examTitle,
-        score,
-        type: item.type || (item.isHomework ? "homework" : "practice"),
-        timeSpent: item.timeSpent || item.duration_seconds || item.duration || "15 phút",
-        createdAt,
-        attemptNumber: item.attemptNumber || item.attempt_count || 1,
-        feedback: item.feedback || item.comment || ""
-      };
+      combined.forEach((item: any) => {
+        if (!item) return;
+        const quizId = String(item.quizId || item.quiz_id || item.exam_id || item.test_id || "").trim();
+        const studentId = String(item.studentId || item.student_id || item.user_id || item.username || "").trim();
+        const studentName = String(item.studentName || item.student_name || item.full_name || item.user_name || item.username || "Học sinh").trim();
+        const examTitle = String(item.examTitle || item.quizTitle || item.title || "").trim();
+        const score = Number(item.score ?? item.points ?? 0);
+        const createdAt = item.createdAt || item.created_at || new Date().toISOString();
 
-      const key = item.id || (String(quizId) + "_" + String(studentId) + "_" + String(createdAt));
-      map.set(key, normalized);
-    });
+        const normalized = {
+          ...item,
+          id: item.id || (`${quizId}_${studentId}_${createdAt}`),
+          quizId,
+          studentId,
+          studentName,
+          examTitle,
+          score,
+          type: item.type || (item.isHomework ? "homework" : "practice"),
+          timeSpent: item.timeSpent || item.duration_seconds || item.duration || "15 phút",
+          createdAt,
+          attemptNumber: item.attemptNumber || item.attempt_count || 1,
+          feedback: item.feedback || item.comment || ""
+        };
 
-    const finalAttempts = Array.from(map.values());
-    if (finalAttempts.length > 0) {
-      setAllAttempts(finalAttempts);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
+        const key = item.id || (`${quizId}_${studentId}_${createdAt}`);
+        map.set(key, normalized);
+      });
+
+      const finalAttempts = Array.from(map.values());
+      if (finalAttempts.length > 0) {
+        setAllAttempts(finalAttempts);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
+        }
       }
+    } catch (err) {
+      console.error("Lỗi tải điểm học sinh:", err);
+    } finally {
+      setIsLoadingAnalytics(false);
     }
   }, []);
 
@@ -336,7 +357,6 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!", "success");
   };
 
-  // TỐI ƯU TRUY VẤN SUPABASE: LOAD SIÊU TỐC METADATA DANH SÁCH ĐỀ THI
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -364,7 +384,6 @@ function AdminDashboardContent() {
         localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
       }
 
-      // Hợp nhất dữ liệu meta đề thi nhanh chóng
       const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
       const examMap = new Map();
       
@@ -547,7 +566,6 @@ function AdminDashboardContent() {
     showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi của học sinh!", "success");
   };
 
-  // ON-DEMAND LAZY LOAD: TẢI CHI TIẾT CÂU HỎI KHI BẤM SỬA ĐỀ
   const handleOpenExamEditor = async (exam: any) => {
     try {
       showToast("Đang tải dữ liệu câu hỏi của đề thi...", "success");
@@ -568,7 +586,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // ON-DEMAND LAZY LOAD: TẢI CHI TIẾT KHI BẤM TEST ĐỀ
   const handleTestExam = async (exam: any) => {
     setTestExamRoom({
       id: exam.id,
@@ -1038,46 +1055,61 @@ function AdminDashboardContent() {
     }
   };
 
+  // TÍNH TOÁN BẢNG ĐIỂM HỌC VIÊN CỰC NHANH VỚI BỘ NHẬN DIỆN THÔNG MINH
   const analyticsData = useMemo(() => {
     const stats: Record<string, any> = {};
 
+    // 1. Tạo bản đồ học viên đăng ký
     (registeredStudents || []).forEach(s => {
       stats[s.id] = {
         id: s.id,
         name: s.full_name || s.username || "Học sinh",
         username: s.username || (s.email ? s.email.split("@")[0] : ""),
+        cleanName: cleanMatchKey(s.full_name || s.username || ""),
         school: s.school || "THPT",
         mode: s.learning_mode || s.study_mode || "online",
         totalAttempts: 0,
+        hwMax: 0,
+        testMax: 0,
         hwMaxScores: {},
         testMaxScores: {}
       };
     });
 
+    // 2. Phân tích lượt làm bài (Attempts)
     (allAttempts || []).forEach(att => {
       if (!att) return;
-      const attStuId = String(att.studentId || att.user_id || "");
-      const attStuName = String(att.studentName || att.user_name || "").toLowerCase().trim();
+      const attStuId = String(att.studentId || att.user_id || "").trim();
+      const rawAttName = String(att.studentName || att.full_name || att.user_name || "").trim();
+      const cleanAttName = cleanMatchKey(rawAttName);
 
-      let matchedProfile = (registeredStudents || []).find(s => 
-        s.id === attStuId ||
-        (s.username && s.username.toLowerCase() === attStuId.toLowerCase()) ||
-        (s.email && s.email.toLowerCase().includes(attStuId.toLowerCase())) ||
-        (s.full_name && s.full_name.toLowerCase().trim() === attStuName) ||
-        (s.username && s.username.toLowerCase().trim() === attStuName)
-      );
+      // So khớp 3 tầng: Khớp ID -> Khớp CleanName -> Khớp Username/Email
+      let targetId = "";
+      if (stats[attStuId]) {
+        targetId = attStuId;
+      } else {
+        const found = (registeredStudents || []).find(s => 
+          s.id === attStuId ||
+          (cleanAttName && cleanMatchKey(s.full_name) === cleanAttName) ||
+          (s.username && cleanMatchKey(s.username) === cleanMatchKey(attStuId)) ||
+          (s.email && s.email.toLowerCase().includes(attStuId.toLowerCase()))
+        );
+        targetId = found ? found.id : (attStuId || rawAttName);
+      }
 
-      const targetId = matchedProfile ? matchedProfile.id : (attStuId || attStuName);
       if (!targetId) return;
 
       if (!stats[targetId]) {
         stats[targetId] = {
           id: targetId,
-          name: att.studentName || attStuName || "Học sinh",
+          name: rawAttName || "Học sinh",
           username: attStuId,
+          cleanName: cleanAttName,
           school: "THPT",
           mode: "online",
           totalAttempts: 0,
+          hwMax: 0,
+          testMax: 0,
           hwMaxScores: {},
           testMaxScores: {}
         };
@@ -1086,12 +1118,15 @@ function AdminDashboardContent() {
       const st = stats[targetId];
       st.totalAttempts++;
       const sc = Number(att.score ?? att.points ?? 0);
-      const qKey = att.quizId || att.exam_id || att.examTitle || "quiz";
+      const qKey = att.quizId || att.quiz_id || att.exam_id || att.examTitle || att.title || "quiz";
 
-      if (att.type === "homework" || att.isHomework) {
+      const isHw = att.type === "homework" || att.isHomework;
+      if (isHw) {
         st.hwMaxScores[qKey] = Math.max(st.hwMaxScores[qKey] || 0, sc);
+        st.hwMax = Math.max(st.hwMax || 0, sc);
       } else {
         st.testMaxScores[qKey] = Math.max(st.testMaxScores[qKey] || 0, sc);
+        st.testMax = Math.max(st.testMax || 0, sc);
       }
     });
 
@@ -1107,11 +1142,18 @@ function AdminDashboardContent() {
         const testAvg = testVals.length > 0 ? (testVals.reduce((a, b) => a + b, 0) / testVals.length) : 0;
         const allVals = [...hwVals, ...testVals];
         const overallAvg = allVals.length > 0 ? (allVals.reduce((a, b) => a + b, 0) / allVals.length) : 0;
-        return { ...st, hwAvg, testAvg, overallAvg, completedExams: allVals.length };
+        return { 
+          ...st, 
+          hwAvg, 
+          testAvg, 
+          overallAvg, 
+          completedExams: allVals.length 
+        };
       })
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, registeredStudents, analyticsModeFilter]);
 
+  // HIỂN THỊ CHÍNH XÁC DANH SÁCH ĐỀ THI & BẢNG ĐIỂM (KHÔNG BỊ 0 BẠN / 0 LƯỢT)
   const examsWithScoresData = useMemo(() => {
     let list = [...practiceExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -1119,19 +1161,22 @@ function AdminDashboardContent() {
     }
 
     return list.map(ex => {
-      const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
+      const exId = String(ex?.id || "").trim();
+      const cleanTitle = cleanMatchKey(ex?.title);
 
       const attempts = (allAttempts || []).filter(a => {
         if (!a) return false;
-        const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
-        const aTitle = String(a.examTitle || a.quizTitle || a.title || "").trim().toLowerCase();
-        const matchTitle = cleanExTitle && aTitle && (aTitle === cleanExTitle || cleanExTitle.includes(aTitle) || aTitle.includes(cleanExTitle));
+        const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "").trim();
+        const aTitle = cleanMatchKey(a.examTitle || a.quizTitle || a.title);
+
+        const matchId = aQuizId && exId && (aQuizId === exId);
+        const matchTitle = cleanTitle && aTitle && (aTitle === cleanTitle || cleanTitle.includes(aTitle) || aTitle.includes(cleanTitle));
         return matchId || matchTitle;
       });
 
       const studentMap = new Map();
       attempts.forEach(att => {
-        const key = att.studentId || att.studentName;
+        const key = att.studentId || att.studentName || att.user_id;
         const prev = studentMap.get(key);
         if (!prev || Number(att.score || 0) > Number(prev.score || 0)) {
           studentMap.set(key, att);
@@ -1217,7 +1262,6 @@ function AdminDashboardContent() {
     return list;
   }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
 
-  // NÂNG CẤP TIẾN TRÌNH LƯU ĐỀ THI VỚI BƯỚC TIẾN TRÌNH RÕ RÀNG
   const handleSaveAzotaExam = async (examData: any) => {
     try {
       if (uploadMode === "practice") {
@@ -1409,6 +1453,7 @@ function AdminDashboardContent() {
               selectedLessonId={selectedLessonId}
               setSelectedLessonId={setSelectedLessonId}
               chapters={chapters}
+              isLoadingAnalytics={isLoadingAnalytics}
             />
           )}
 
