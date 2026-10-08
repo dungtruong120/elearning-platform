@@ -1,11 +1,25 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo } from "react";
 import { 
   X, Pencil, Trash2, Plus, Upload, Link as LinkIcon, 
   ExternalLink, Video, FileText, PenTool, CheckSquare, 
-  Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, Save, FileUp 
+  Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, 
+  Save, FileUp, Edit3, UploadCloud, CheckCircle2, FileSignature, 
+  Sparkles 
 } from "lucide-react";
+import dynamic from "next/dynamic";
+
+// DYNAMIC IMPORT MODAL TRÍCH XUẤT ĐỀ THI WORD & MATHTYPE
+const AzotaExamConfigModal = dynamic(
+  () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
+  { ssr: false }
+);
+
+const MathTypeExamConfigModal = dynamic(
+  () => import("@/app/admin/MathTypeExamConfigModal").then((mod: any) => mod.MathTypeExamConfigModal || mod.default || mod),
+  { ssr: false }
+);
 
 interface AdminModalsProps {
   azotaScoreViewModal?: {
@@ -35,9 +49,17 @@ interface AdminModalsProps {
   setEditLessonModal?: (modal: { chapterId: string; lesson: any } | null) => void;
   editLessonForm?: any;
   setEditLessonForm?: (form: any) => void;
+  testFile?: File | null;
   setTestFile?: (file: File | null) => void;
+  uploadMode?: "course" | "practice";
   setUploadMode?: (mode: "course" | "practice") => void;
+  azotaTarget?: { lessonId: string; type: "homework_files" | "test_quizzes" } | null;
   setAzotaTarget?: (target: { lessonId: string; type: "homework_files" | "test_quizzes" } | null) => void;
+  editingExamData?: any | null;
+  setEditingExamData?: (data: any | null) => void;
+  practiceExams?: any[];
+  savePracticeExams?: (exams: any[]) => Promise<void>;
+  handleRecalculateExamScores?: (examId: string, sections: any[]) => Promise<void>;
   [key: string]: any;
 }
 
@@ -64,9 +86,17 @@ export default function AdminModals(props: AdminModalsProps) {
     setEditLessonModal,
     editLessonForm = null,
     setEditLessonForm,
+    testFile = null,
     setTestFile,
+    uploadMode = "course",
     setUploadMode,
-    setAzotaTarget
+    azotaTarget = null,
+    setAzotaTarget,
+    editingExamData = null,
+    setEditingExamData,
+    practiceExams = [],
+    savePracticeExams,
+    handleRecalculateExamScores
   } = props;
 
   // State bộ nút gạt phân loại học sinh: Tất cả | Online | Offline
@@ -790,7 +820,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 5. MODAL CHỌN PHƯƠNG THỨC THÊM BTVN / ĐỀ KIỂM TRA */}
+      {/* 5. MODAL CHỌN PHƯƠNG THỨC THÊM BTVN / ĐỀ KIỂM TRA (TÍCH HỢP TRÍCH WORD & PDF) */}
       {uploadMethodModal && (
         <div 
           onClick={() => setUploadMethodModal && setUploadMethodModal(null)} 
@@ -1119,6 +1149,92 @@ export default function AdminModals(props: AdminModalsProps) {
             </div>
           </form>
         </div>
+      )}
+
+      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA (.PDF / .DOCX QUA GEMINI AI & MATHTYPE) */}
+      {testFile && (
+        <AzotaExamConfigModal 
+          isOpen={true} 
+          file={testFile}
+          initialData={editingExamData ? {
+            title: editingExamData.title,
+            category: editingExamData.category,
+            duration_minutes: editingExamData.duration_minutes,
+            sections: editingExamData.data,
+            mediaMap: editingExamData.media_map
+          } : undefined}
+          mode={uploadMode} 
+          onClose={() => { 
+            if (setTestFile) setTestFile(null); 
+            if (setEditingExamData) setEditingExamData(null); 
+          }} 
+          onSave={async (examData: any) => {
+            if (uploadMode === "practice") {
+              const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
+              const newExam = { 
+                id: examId, 
+                title: examData.title, 
+                category: examData.category || "Tự do", 
+                duration_minutes: examData.duration_minutes || 45, 
+                allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
+                allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
+                driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
+                solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
+                data: examData.sections, 
+                media_map: examData.mediaMap || {},
+                created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
+              };
+
+              let updatedExams: any[];
+              if (editingExamData) {
+                updatedExams = practiceExams.map((ex: any) => ex.id === examId ? newExam : ex);
+              } else {
+                updatedExams = [newExam, ...(practiceExams || [])];
+              }
+
+              if (savePracticeExams) await savePracticeExams(updatedExams);
+
+              try {
+                if (supabase) await supabase.from("practice_exams").upsert(newExam);
+              } catch (err: any) {}
+
+              if (editingExamData && handleRecalculateExamScores) {
+                await handleRecalculateExamScores(examId, examData.sections);
+                if (showToast) showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!");
+              } else {
+                if (showToast) showToast("Đã thêm vào kho Luyện đề: " + examData.category);
+              }
+            } else {
+              if (!azotaTarget) return;
+              const isHw = azotaTarget.type === "homework_files";
+              const newExam = { 
+                id: "exam-" + Date.now(), 
+                title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
+                isHomework: isHw, 
+                duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
+                is_quiz: true, 
+                data: examData.sections, 
+                mediaMap: examData.mediaMap 
+              };
+              const newChapters = (chapters || []).map((chap: any) => ({ 
+                ...chap, 
+                lessons: (chap?.lessons || []).map((les: any) => { 
+                  if (les?.id === azotaTarget.lessonId) { 
+                    return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
+                  } 
+                  return les; 
+                }) 
+              }));
+
+              await persistChapters(newChapters); 
+              if (showToast) showToast("Đã tải đề thi trắc nghiệm vào bài học!");
+            }
+
+            if (setTestFile) setTestFile(null); 
+            if (setEditingExamData) setEditingExamData(null);
+            if (setAzotaTarget) setAzotaTarget(null);
+          }}
+        />
       )}
     </>
   );
