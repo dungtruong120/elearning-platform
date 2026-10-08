@@ -54,6 +54,9 @@ function AdminDashboardContent() {
     return [];
   });
 
+  const [isLoadingExams, setIsLoadingExams] = useState<boolean>(false);
+  const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
+
   const [onlineSessions, setOnlineSessions] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -333,6 +336,7 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!", "success");
   };
 
+  // TỐI ƯU TRUY VẤN SUPABASE: LOAD SIÊU TỐC METADATA DANH SÁCH ĐỀ THI
   const loadStorageData = useCallback(async () => {
     if (typeof window === "undefined") return;
 
@@ -342,10 +346,15 @@ function AdminDashboardContent() {
       if (rawExams) localExams = JSON.parse(rawExams);
     } catch (e) {}
 
+    setIsLoadingExams(true);
+
     try {
       const [courseRes, examRes, sessRes, notifRes] = await Promise.allSettled([
         supabase.from("courses").select("*").limit(1).maybeSingle(),
-        supabase.from("practice_exams").select("*").order("created_at", { ascending: false }),
+        supabase
+          .from("practice_exams")
+          .select("id, title, category, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, duration_minutes, created_at")
+          .order("created_at", { ascending: false }),
         supabase.from("sessions").select("*").order("created_at", { ascending: false }),
         supabase.from("system_notifications").select("*").order("created_at", { ascending: false })
       ]);
@@ -355,17 +364,21 @@ function AdminDashboardContent() {
         localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
       }
 
+      // Hợp nhất dữ liệu meta đề thi nhanh chóng
       const serverExams = (examRes.status === "fulfilled" && examRes.value.data) ? examRes.value.data : [];
       const examMap = new Map();
       
       localExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
-      serverExams.forEach((ex: any) => { if (ex?.id) examMap.set(ex.id, ex); });
+      serverExams.forEach((ex: any) => { 
+        if (ex?.id) {
+          const old = examMap.get(ex.id) || {};
+          examMap.set(ex.id, { ...old, ...ex }); 
+        }
+      });
 
       const mergedExams = Array.from(examMap.values());
-      if (mergedExams.length > 0) {
-        setPracticeExams(mergedExams);
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(mergedExams));
-      }
+      setPracticeExams(mergedExams);
+      localStorage.setItem("edunexus_practice_exams", JSON.stringify(mergedExams));
 
       if (sessRes.status === "fulfilled" && sessRes.value.data) {
         setOnlineSessions(sessRes.value.data);
@@ -378,7 +391,10 @@ function AdminDashboardContent() {
         setSysNotifications(notifRes.value.data);
         localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
       }
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      setIsLoadingExams(false);
+    }
 
     await fetchSupabaseAttempts();
 
@@ -426,13 +442,10 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts]);
 
-  // NÂNG CẤP XỬ LÝ LƯU SUPABASE CHẶT CHẼ CÓ BÁO LỖI VÀ CHỜ PHẢN HỒI
   const saveToStorage = async (newChapters: any[]): Promise<boolean> => {
     try {
       const { data: existingRows, error: checkError } = await supabase.from("courses").select("id").limit(1);
-      if (checkError) {
-        throw new Error(checkError.message);
-      }
+      if (checkError) throw new Error(checkError.message);
 
       if (existingRows && existingRows.length > 0) {
         const { error: updateError } = await supabase
@@ -449,7 +462,6 @@ function AdminDashboardContent() {
         if (insertError) throw new Error(insertError.message);
       }
 
-      // Chỉ cập nhật state và LocalStorage khi Supabase đã ghi nhận thành công
       setChapters(newChapters);
       if (typeof window !== "undefined") {
         try {
@@ -535,7 +547,37 @@ function AdminDashboardContent() {
     showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi của học sinh!", "success");
   };
 
-  // NÂNG CẤP TIẾN TRÌNH THÊM CHƯƠNG / BÀI HỌC VỚI LOADING STATE VÀ BẮT LỖI
+  // ON-DEMAND LAZY LOAD: TẢI CHI TIẾT CÂU HỎI KHI BẤM SỬA ĐỀ
+  const handleOpenExamEditor = async (exam: any) => {
+    try {
+      showToast("Đang tải dữ liệu câu hỏi của đề thi...", "success");
+      const { data, error } = await supabase
+        .from("practice_exams")
+        .select("id, title, category, duration_minutes, data, media_map, driveUrl, solutionVideoUrl, allowRetake, allowViewFile, created_at")
+        .eq("id", exam.id)
+        .maybeSingle();
+
+      const fullExam = (!error && data) ? { ...exam, ...data } : exam;
+      setEditingExamData(fullExam);
+      setUploadMode("practice");
+      setTestFile(new File(["dummy"], String(fullExam?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+    } catch (err) {
+      setEditingExamData(exam);
+      setUploadMode("practice");
+      setTestFile(new File(["dummy"], String(exam?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+    }
+  };
+
+  // ON-DEMAND LAZY LOAD: TẢI CHI TIẾT KHI BẤM TEST ĐỀ
+  const handleTestExam = async (exam: any) => {
+    setTestExamRoom({
+      id: exam.id,
+      title: "[TEST ADMIN] " + exam.title,
+      duration: exam.duration_minutes || 45,
+      isHomework: false
+    });
+  };
+
   const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
@@ -581,7 +623,6 @@ function AdminDashboardContent() {
       setNewItemFormat("Zoom");
       setNewItemTargetMode("all");
       showToast("Đã thêm " + itemLabel + " mới thành công!", "success");
-      // Refetch lại dữ liệu từ Supabase ngay để đảm bảo trạng thái đồng bộ 100%
       await loadStorageData();
     }
   };
@@ -1176,73 +1217,83 @@ function AdminDashboardContent() {
     return list;
   }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
 
+  // NÂNG CẤP TIẾN TRÌNH LƯU ĐỀ THI VỚI BƯỚC TIẾN TRÌNH RÕ RÀNG
   const handleSaveAzotaExam = async (examData: any) => {
-    if (uploadMode === "practice") {
-      const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
-      const newExam = { 
-        id: examId, 
-        title: examData.title, 
-        category: examData.category || "Tự do", 
-        duration_minutes: examData.duration_minutes || 45, 
-        allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
-        allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
-        driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
-        solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
-        data: examData.sections, 
-        media_map: examData.mediaMap || {},
-        created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
-      };
+    try {
+      if (uploadMode === "practice") {
+        setUploadProgressText("Đang bóc tách dữ liệu câu hỏi và lưu vào kho đề...");
+        const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
+        const newExam = { 
+          id: examId, 
+          title: examData.title, 
+          category: examData.category || "Tự do", 
+          duration_minutes: examData.duration_minutes || 45, 
+          allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
+          allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
+          driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
+          solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
+          data: examData.sections, 
+          media_map: examData.mediaMap || {},
+          created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
+        };
 
-      let updatedExams: any[];
-      if (editingExamData) {
-        updatedExams = practiceExams.map(ex => ex.id === examId ? newExam : ex);
+        const { error: upsertErr } = await supabase.from("practice_exams").upsert(newExam);
+        if (upsertErr) throw new Error(upsertErr.message);
+
+        let updatedExams: any[];
+        if (editingExamData) {
+          updatedExams = practiceExams.map(ex => ex.id === examId ? newExam : ex);
+        } else {
+          updatedExams = [newExam, ...(practiceExams || [])];
+        }
+
+        await savePracticeExams(updatedExams);
+
+        if (editingExamData) {
+          setUploadProgressText("Đang tự động chấm lại điểm cho các lượt thi học sinh...");
+          await handleRecalculateExamScores(examId, examData.sections);
+          showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!", "success");
+        } else {
+          showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
+        }
       } else {
-        updatedExams = [newExam, ...(practiceExams || [])];
+        if (!azotaTarget) return;
+        setUploadProgressText("Đang nạp đề kiểm tra/BTVN vào bài học...");
+        const isHw = azotaTarget.type === "homework_files";
+        const newExam = { 
+          id: "exam-" + Date.now(), 
+          title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
+          isHomework: isHw, 
+          duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
+          is_quiz: true, 
+          data: examData.sections, 
+          mediaMap: examData.mediaMap 
+        };
+        const newChapters = (chapters || []).map(chap => ({ 
+          ...chap, 
+          lessons: (chap?.lessons || []).map((les: any) => { 
+            if (les?.id === azotaTarget.lessonId) { 
+              return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
+            } 
+            return les; 
+          }) 
+        }));
+
+        const isSuccess = await saveToStorage(newChapters); 
+        if (isSuccess) {
+          showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
+        }
       }
-
-      await savePracticeExams(updatedExams);
-
-      try {
-        await supabase.from("practice_exams").upsert(newExam);
-      } catch (err: any) {}
-
-      if (editingExamData) {
-        await handleRecalculateExamScores(examId, examData.sections);
-        showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!", "success");
-      } else {
-        showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
-      }
-    } else {
-      if (!azotaTarget) return;
-      const isHw = azotaTarget.type === "homework_files";
-      const newExam = { 
-        id: "exam-" + Date.now(), 
-        title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
-        isHomework: isHw, 
-        duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
-        is_quiz: true, 
-        data: examData.sections, 
-        mediaMap: examData.mediaMap 
-      };
-      const newChapters = (chapters || []).map(chap => ({ 
-        ...chap, 
-        lessons: (chap?.lessons || []).map((les: any) => { 
-          if (les?.id === azotaTarget.lessonId) { 
-            return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
-          } 
-          return les; 
-        }) 
-      }));
-
-      const isSuccess = await saveToStorage(newChapters); 
-      if (isSuccess) {
-        showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
-        await loadStorageData();
-      }
+    } catch (err: any) {
+      console.error("Lỗi lưu đề thi:", err);
+      showToast("Lỗi lưu đề thi: " + (err?.message || "Không xác định"), "error");
+    } finally {
+      setUploadProgressText(null);
+      setTestFile(null); 
+      setEditingExamData(null);
+      setAzotaTarget(null);
+      await loadStorageData();
     }
-    setTestFile(null); 
-    setEditingExamData(null);
-    setAzotaTarget(null);
   };
 
   if (!mounted) {
@@ -1326,17 +1377,20 @@ function AdminDashboardContent() {
               setPracticeSubTab={setPracticeSubTab}
               practiceExams={practiceExams}
               allAttempts={allAttempts}
+              isLoadingExams={isLoadingExams}
+              uploadProgressText={uploadProgressText}
               setTestFile={setTestFile}
               setUploadMode={setUploadMode}
               setEditingExamData={setEditingExamData}
               handleChangeExamCategory={handleChangeExamCategory}
               savePracticeExams={savePracticeExams}
               supabase={supabase}
-              showToast={(msg) => showToast(msg, "success")}
+              showToast={showToast}
               setVideoModalExam={setVideoModalExam}
               setSolutionVideoInput={setSolutionVideoInput}
               setAzotaScoreViewModal={setAzotaScoreViewModal}
-              setTestExamRoom={setTestExamRoom}
+              onOpenExamEditor={handleOpenExamEditor}
+              onTestExam={handleTestExam}
               practiceCategoryFilter={practiceCategoryFilter}
               setPracticeCategoryFilter={setPracticeCategoryFilter}
               examsWithScoresData={examsWithScoresData}
