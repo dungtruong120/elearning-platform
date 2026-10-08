@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef } from "react";
 import { 
   X, Pencil, Trash2, Plus, Upload, Link as LinkIcon, 
   ExternalLink, Video, FileText, PenTool, CheckSquare, 
-  Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, Save 
+  Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, Save, FileUp 
 } from "lucide-react";
 
 interface AdminModalsProps {
@@ -18,9 +18,9 @@ interface AdminModalsProps {
   supabase?: any;
   showToast?: (msg: string, type?: "success" | "error") => void;
 
-  // CÁC PROPS KẾT NỐI VỚI LESSONS TAB
+  // CÁC PROPS KẾT NỐI VỚI LESSONS TAB VÀ DASHBOARD GỐC
   chapters?: any[];
-  setChapters?: (chapters: any[]) => void;
+  saveToStorage?: (newChapters: any[]) => Promise<void>;
   createModal?: { type: "chapter" | "lesson"; chapterId?: string } | null;
   setCreateModal?: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
   resourceModal?: any;
@@ -35,6 +35,9 @@ interface AdminModalsProps {
   setEditLessonModal?: (modal: { chapterId: string; lesson: any } | null) => void;
   editLessonForm?: any;
   setEditLessonForm?: (form: any) => void;
+  setTestFile?: (file: File | null) => void;
+  setUploadMode?: (mode: "course" | "practice") => void;
+  setAzotaTarget?: (target: { lessonId: string; type: "homework_files" | "test_quizzes" } | null) => void;
   [key: string]: any;
 }
 
@@ -46,7 +49,7 @@ export default function AdminModals(props: AdminModalsProps) {
     supabase,
     showToast,
     chapters = [],
-    setChapters,
+    saveToStorage,
     createModal = null,
     setCreateModal,
     resourceModal = null,
@@ -60,73 +63,68 @@ export default function AdminModals(props: AdminModalsProps) {
     editLessonModal = null,
     setEditLessonModal,
     editLessonForm = null,
-    setEditLessonForm
+    setEditLessonForm,
+    setTestFile,
+    setUploadMode,
+    setAzotaTarget
   } = props;
 
   // State bộ nút gạt phân loại học sinh: Tất cả | Online | Offline
   const [filterMode, setFilterMode] = useState<"all" | "online" | "offline">("all");
 
   // State form thêm tài nguyên (Video / Bài giảng / Viết tay)
-  const [resourceTitle, setResourceTitle] = useState<string>("");
-  const [resourceUrl, setResourceUrl] = useState<string>("");
-  const [resourceVideoType, setResourceVideoType] = useState<"lecture" | "homework_solution">("lecture");
-  const [isUploading, setIsUploading] = useState<boolean>(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // State form thêm BTVN / Đề kiểm tra
-  const [quizTitle, setQuizTitle] = useState<string>("");
-  const [quizDuration, setQuizDuration] = useState<number>(45);
-  const [quizFileUrl, setQuizFileUrl] = useState<string>("");
-  const quizFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [resTitle, setResTitle] = useState<string>("");
+  const [resUrl, setResUrl] = useState<string>("");
+  const [vidType, setVidType] = useState<"lecture" | "homework_solution">("lecture");
 
   // State form tạo Chương / Bài học mới
-  const [newChapterTitle, setNewChapterTitle] = useState<string>("");
-  const [newLessonData, setNewLessonData] = useState({
-    title: "",
-    description: "",
-    duration: 45,
-    format: "Zoom",
-    target_mode: "online" as "online" | "offline" | "all"
-  });
+  const [newItemTitle, setNewItemTitle] = useState<string>("");
+  const [newItemDescription, setNewItemDescription] = useState<string>("");
+  const [newItemFormat, setNewItemFormat] = useState<string>("Zoom");
+  const [newItemTargetMode, setNewItemTargetMode] = useState<"online" | "offline" | "all">("all");
 
-  // State form thêm tài liệu tăng cường
-  const [boostTitle, setBoostTitle] = useState<string>("");
-  const [boostUrl, setBoostUrl] = useState<string>("");
-  const [boostNote, setBoostNote] = useState<string>("");
+  // State form tài liệu tăng cường
+  const [boostForm, setBoostForm] = useState({ title: "", type: "video", url: "", note: "" });
 
-  // HÀM LƯU CHƯƠNG TRÌNH HỌC VÀO SUPABASE & LOCALSTORAGE
-  const persistChapters = async (updatedChapters: any[]) => {
-    if (setChapters) setChapters(updatedChapters);
+  // State form đính kèm link Drive cho BTVN / Đề KT
+  const [driveLinkModal, setDriveLinkModal] = useState<{ lessonId: string; type: "homework_files" | "test_quizzes" } | null>(null);
+  const [driveLinkForm, setDriveLinkForm] = useState({ title: "", url: "" });
+
+  // State form sửa tài nguyên đang xem
+  const [editResourceModal, setEditResourceModal] = useState<{ lessonId: string; type: string; item: any } | null>(null);
+  const [editResourceForm, setEditResourceForm] = useState({ title: "", url: "", type: "lecture" });
+
+  // HÀM LƯU CHƯƠNG VÀO DATABASE THÔNG QUA PROP HOẶC SUPABASE TRỰC TIẾP
+  const persistChapters = async (newChapters: any[]) => {
+    if (saveToStorage) {
+      await saveToStorage(newChapters);
+      return;
+    }
+
     if (typeof window !== "undefined") {
       try {
-        localStorage.setItem("edunexus_course_data", JSON.stringify(updatedChapters));
+        localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
     }
 
     try {
       if (supabase) {
-        const { data: existing } = await supabase
-          .from("courses")
-          .select("id")
-          .limit(1)
-          .maybeSingle();
-
-        if (existing?.id) {
+        const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+        if (existingRows && existingRows.length > 0) {
           await supabase
             .from("courses")
-            .update({ chapters: updatedChapters, updated_at: new Date().toISOString() })
-            .eq("id", existing.id);
+            .update({ chapters: newChapters, updated_at: new Date().toISOString() })
+            .eq("id", existingRows[0].id);
         } else {
           await supabase
             .from("courses")
-            .insert([{ title: "Toán 12 TCT", chapters: updatedChapters, updated_at: new Date().toISOString() }]);
+            .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
         }
       }
-      if (showToast) showToast("Đã cập nhật bài học thành công!", "success");
+      if (showToast) showToast("Đã lưu dữ liệu bài học thành công!", "success");
     } catch (err) {
       console.error("Lỗi khi lưu Supabase:", err);
-      if (showToast) showToast("Lỗi lưu cơ sở dữ liệu", "error");
     }
   };
 
@@ -248,246 +246,193 @@ export default function AdminModals(props: AdminModalsProps) {
     }
   };
 
-  // UPLOAD FILE LÊN SUPABASE STORAGE
-  const handleUploadFileToStorage = async (file: File, onSuccess: (url: string, title: string) => void) => {
-    setIsUploading(true);
-    try {
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const filePath = `course_materials/${fileName}`;
+  // 3. THÊM TÀI NGUYÊN (VIDEO / BÀI GIẢNG / VIẾT TAY)
+  const handleAddResource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
 
-      if (supabase) {
-        const { error } = await supabase.storage.from("public_files").upload(filePath, file);
-        if (!error) {
-          const { data: publicUrlData } = supabase.storage.from("public_files").getPublicUrl(filePath);
-          onSuccess(publicUrlData.publicUrl, file.name.replace(`.${fileExt}`, ""));
-          setIsUploading(false);
-          return;
-        }
-      }
-
-      // Fallback Data URL nếu Storage chưa tạo bucket
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        onSuccess(e.target?.result as string, file.name.replace(`.${fileExt}`, ""));
-        setIsUploading(false);
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error("Lỗi upload:", err);
-      alert("Lỗi khi tải file, vui lòng dán liên kết Drive trực tiếp.");
-      setIsUploading(false);
-    }
-  };
-
-  // XỬ LÝ LƯU TÀI NGUYÊN (VIDEO, BÀI GIẢNG, VIẾT TAY)
-  const handleSaveResource = () => {
-    if (!resourceModal) return;
-    if (!resourceTitle.trim() && !resourceUrl.trim()) {
-      return alert("Vui lòng nhập tiêu đề hoặc liên kết tài liệu!");
-    }
-
-    const { lessonId, type } = resourceModal;
-    const newItem = {
-      id: "res-" + Date.now(),
-      title: resourceTitle.trim() || (type === "video_list" ? "Video bài giảng" : "Tài liệu học tập"),
-      url: resourceUrl.trim(),
-      type: type === "video_list" ? resourceVideoType : type,
-      duration: 45
+    const newResource = { 
+      id: "res-" + Date.now(), 
+      title: resTitle.trim(), 
+      url: resUrl.trim(), 
+      type: resourceModal.type === "video_list" ? vidType : undefined 
     };
 
-    const updatedChapters = chapters.map((c: any) => ({
-      ...c,
-      lessons: (c.lessons || []).map((l: any) => {
-        if (l.id !== lessonId) return l;
-        return {
-          ...l,
-          [type]: [...(l[type] || []), newItem]
-        };
-      })
+    const newChapters = (chapters || []).map((chap: any) => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === resourceModal.lessonId) { 
+          return { ...les, [resourceModal.type]: [...(les[resourceModal.type] || []), newResource] }; 
+        } 
+        return les; 
+      }) 
     }));
 
-    persistChapters(updatedChapters);
-    if (setResourceModal) setResourceModal(null);
-    setResourceTitle("");
-    setResourceUrl("");
+    await persistChapters(newChapters); 
+    setResTitle(""); 
+    setResUrl(""); 
+    setVidType("lecture");
+    if (setResourceModal) setResourceModal(null); 
+    if (showToast) showToast("Đã thêm tài nguyên thành công!");
   };
 
-  // XỬ LÝ XÓA TÀI NGUYÊN TRONG VIEW RESOURCES MODAL
-  const handleDeleteResourceItem = (resourceId: string) => {
-    if (!viewResourcesModal) return;
-    if (!confirm("Bạn có chắc chắn muốn xóa mục này khỏi bài học?")) return;
-
-    const { lessonId, type } = viewResourcesModal;
-    const updatedChapters = chapters.map((c: any) => ({
-      ...c,
-      lessons: (c.lessons || []).map((l: any) => {
-        if (l.id !== lessonId) return l;
-        return {
-          ...l,
-          [type]: (l[type] || []).filter((item: any) => item.id !== resourceId)
-        };
-      })
+  // 4. XÓA TÀI NGUYÊN TRONG VIEW RESOURCES MODAL
+  const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
+    if (!confirm("Xác nhận xóa tài nguyên này?")) return;
+    const newChapters = (chapters || []).map((chap: any) => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
     }));
 
-    persistChapters(updatedChapters);
-
-    // Cập nhật lại danh sách đang xem
-    const targetLes = updatedChapters.flatMap((c: any) => c.lessons || []).find((l: any) => l.id === lessonId);
-    if (targetLes && setViewResourcesModal) {
+    await persistChapters(newChapters);
+    if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType && setViewResourcesModal) {
       setViewResourcesModal({
         ...viewResourcesModal,
-        items: targetLes[type] || []
+        items: (viewResourcesModal.items || []).filter((i: any) => i?.id !== resId)
       });
     }
+    if (showToast) showToast("Đã xóa tài nguyên!");
   };
 
-  // XỬ LÝ LƯU BTVN / ĐỀ KIỂM TRA
-  const handleSaveQuizItem = (isHomework: boolean) => {
-    if (!uploadMethodModal) return;
-    if (!quizTitle.trim()) return alert("Vui lòng nhập tên bài tập/đề thi!");
+  // 5. SỬA TÀI NGUYÊN
+  const handleEditResourceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editResourceModal || !editResourceForm.title.trim()) return;
 
-    const { lessonId, type } = uploadMethodModal;
-    const newItem = {
-      id: "quiz-" + Date.now(),
-      title: quizTitle.trim(),
-      url: quizFileUrl.trim(),
-      duration_minutes: Number(quizDuration) || 45,
-      is_quiz: true,
-      isHomework: isHomework
-    };
-
-    const updatedChapters = chapters.map((c: any) => ({
-      ...c,
-      lessons: (c.lessons || []).map((l: any) => {
-        if (l.id !== lessonId) return l;
-        return {
-          ...l,
-          [type]: [...(l[type] || []), newItem]
-        };
-      })
+    const newChapters = (chapters || []).map((chap: any) => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === editResourceModal.lessonId) { 
+          return { 
+            ...les, 
+            [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) => 
+              r?.id === editResourceModal.item.id ? { 
+                ...r, 
+                title: editResourceForm.title, 
+                url: editResourceForm.url || r.url,
+                type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type
+              } : r 
+            )
+          }; 
+        } 
+        return les; 
+      }) 
     }));
 
-    persistChapters(updatedChapters);
-    if (setUploadMethodModal) setUploadMethodModal(null);
-    setQuizTitle("");
-    setQuizFileUrl("");
-    setQuizDuration(45);
+    await persistChapters(newChapters);
+    setEditResourceModal(null); 
+    if (showToast) showToast("Đã cập nhật thông tin tài liệu!");
   };
 
-  // XỬ LÝ LƯU TÀI LIỆU TĂNG CƯỜNG
-  const handleSaveBoostResource = () => {
-    if (!boostModal || !boostTitle.trim()) return alert("Vui lòng nhập tên tài liệu tăng cường!");
+  // 6. THÊM FILE GOOGLE DRIVE THỦ CÔNG
+  const handleAddDriveFile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
 
-    const newItem = {
-      id: "boost-" + Date.now(),
-      title: boostTitle.trim(),
-      url: boostUrl.trim(),
-      note: boostNote.trim()
+    const newItem = { 
+      id: "drive-" + Date.now(), 
+      title: driveLinkForm.title, 
+      url: driveLinkForm.url, 
+      is_quiz: false, 
+      is_drive_file: true 
     };
 
-    const updatedChapters = chapters.map((c: any) => ({
-      ...c,
-      lessons: (c.lessons || []).map((l: any) => {
-        if (l.id !== boostModal) return l;
-        return {
-          ...l,
-          extra_resources: [...(l.extra_resources || []), newItem]
-        };
-      })
+    const newChapters = (chapters || []).map((chap: any) => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === driveLinkModal.lessonId) { 
+          return { ...les, [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem] }; 
+        } 
+        return les; 
+      }) 
     }));
 
-    persistChapters(updatedChapters);
-    if (setBoostModal) setBoostModal(null);
-    setBoostTitle("");
-    setBoostUrl("");
-    setBoostNote("");
+    await persistChapters(newChapters); 
+    setDriveLinkModal(null); 
+    setDriveLinkForm({ title: "", url: "" }); 
+    if (showToast) showToast("Đã đính kèm file Drive!");
   };
 
-  // XỬ LÝ TẠO CHƯƠNG MỚI
-  const handleCreateChapter = () => {
-    if (!newChapterTitle.trim()) return alert("Vui lòng nhập tên chương!");
-    const newChap = {
-      id: "chap-" + Date.now(),
-      title: newChapterTitle.trim(),
-      lessons: []
-    };
+  // 7. THÊM TÀI LIỆU TĂNG CƯỜNG
+  const handleAddBoost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
 
-    persistChapters([...chapters, newChap]);
-    if (setCreateModal) setCreateModal(null);
-    setNewChapterTitle("");
+    const newBoost = { id: "boost-" + Date.now(), ...boostForm };
+    const newChapters = (chapters || []).map((chap: any) => ({ 
+      ...chap, 
+      lessons: (chap?.lessons || []).map((les: any) => { 
+        if (les?.id === boostModal) { 
+          return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] }; 
+        } 
+        return les; 
+      }) 
+    }));
+
+    await persistChapters(newChapters); 
+    if (setBoostModal) setBoostModal(null); 
+    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
+    if (showToast) showToast("Đã thêm tài liệu tăng cường!");
   };
 
-  // XỬ LÝ TẠO BÀI HỌC MỚI
-  const handleCreateLesson = () => {
-    if (!newLessonData.title.trim()) return alert("Vui lòng nhập tên bài học!");
-    const targetCId = createModal?.chapterId || chapters[0]?.id;
-    if (!targetCId) return alert("Vui lòng thêm Chương trước khi tạo Bài học!");
+  // 8. TẠO CHƯƠNG HOẶC BÀI HỌC MỚI
+  const handleCreateNewItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newItemTitle.trim() || !createModal) return;
 
-    const newLes = {
-      id: "les-" + Date.now(),
-      title: newLessonData.title.trim(),
-      description: newLessonData.description.trim(),
-      duration: Number(newLessonData.duration) || 45,
-      format: newLessonData.format,
-      target_mode: newLessonData.target_mode,
-      lecture_files: [],
-      homework_files: [],
-      handwritten_notes: [],
-      video_list: [],
-      test_quizzes: [],
-      extra_resources: []
-    };
+    let newChapters = [...(chapters || [])];
+    if (createModal.type === "chapter") {
+      newChapters.push({ 
+        id: "chap-" + Date.now(), 
+        title: newItemTitle.trim(), 
+        target_mode: newItemTargetMode, 
+        lessons: [] 
+      });
+    } else if (createModal.type === "lesson" && createModal.chapterId) {
+      newChapters = newChapters.map((chap: any) => chap?.id === createModal.chapterId ? {
+        ...chap, lessons: [...(chap.lessons || []), {
+          id: "les-" + Date.now(), 
+          title: newItemTitle.trim(), 
+          description: newItemDescription.trim(), 
+          duration: 45, 
+          format: newItemFormat, 
+          target_mode: newItemTargetMode,
+          lecture_files: [], 
+          homework_files: [], 
+          handwritten_notes: [], 
+          video_list: [], 
+          test_quizzes: [], 
+          extra_resources: []
+        }]
+      } : chap);
+    }
 
-    const updatedChapters = chapters.map((c: any) => {
-      if (c.id !== targetCId) return c;
-      return {
-        ...c,
-        lessons: [...(c.lessons || []), newLes]
-      };
-    });
-
-    persistChapters(updatedChapters);
-    if (setCreateModal) setCreateModal(null);
-    setNewLessonData({
-      title: "",
-      description: "",
-      duration: 45,
-      format: "Zoom",
-      target_mode: "online"
-    });
+    await persistChapters(newChapters); 
+    if (setCreateModal) setCreateModal(null); 
+    setNewItemTitle(""); 
+    setNewItemDescription(""); 
+    setNewItemFormat("Zoom");
+    setNewItemTargetMode("all");
+    if (showToast) showToast("Đã thêm " + (createModal.type === "chapter" ? "chương" : "bài học") + " thành công!");
   };
 
-  // XỬ LÝ SỬA BÀI HỌC
-  const handleUpdateLesson = () => {
-    if (!editLessonModal || !editLessonForm?.title?.trim()) return alert("Vui lòng nhập tên bài học!");
+  // 9. SỬA BÀI HỌC
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editLessonModal || !editLessonForm.title.trim()) return;
 
-    const { chapterId, lesson } = editLessonModal;
-    const updatedChapters = chapters.map((c: any) => {
-      if (c.id !== chapterId) return c;
-      return {
-        ...c,
-        lessons: (c.lessons || []).map((l: any) => {
-          if (l.id !== lesson.id) return l;
-          return {
-            ...l,
-            title: editLessonForm.title.trim(),
-            description: editLessonForm.description?.trim() || "",
-            duration: Number(editLessonForm.duration) || 45,
-            format: editLessonForm.format || "Zoom",
-            target_mode: editLessonForm.target_mode || "all"
-          };
-        })
-      };
-    });
+    const newChapters = (chapters || []).map((chap: any) => chap?.id === editLessonModal.chapterId ? {
+      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
+    } : chap);
 
-    persistChapters(updatedChapters);
-    if (setEditLessonModal) setEditLessonModal(null);
+    await persistChapters(newChapters); 
+    if (setEditLessonModal) setEditLessonModal(null); 
+    if (showToast) showToast("Đã cập nhật thông tin bài học!");
   };
 
   return (
     <>
-      {/* 1. MODAL XEM ĐIỂM AZOTA */}
+      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA */}
       {azotaScoreViewModal?.isOpen && (
         <div
           onClick={(e) => {
@@ -497,7 +442,7 @@ export default function AdminModals(props: AdminModalsProps) {
           }}
           className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
         >
-          <div className="bg-white rounded-[24px] max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] cursor-default animate-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-[24px] max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] cursor-default animate-in zoom-in-95 duration-150 text-left">
             <div className="p-5 sm:p-6 pb-3.5 border-b border-slate-100 flex items-start justify-between relative bg-white">
               <div>
                 <span className="px-2.5 py-0.5 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-bold uppercase tracking-wider border border-blue-100">
@@ -659,469 +604,520 @@ export default function AdminModals(props: AdminModalsProps) {
       {/* 2. MODAL THÊM TÀI NGUYÊN (VIDEO / BÀI GIẢNG / VIẾT TAY) */}
       {resourceModal && (
         <div 
-          onClick={() => setResourceModal && setResourceModal(null)}
-          className="fixed inset-0 z-[500] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+          onClick={() => setResourceModal && setResourceModal(null)} 
+          className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-2xl p-5 space-y-4 cursor-default text-left">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                {resourceModal.type === "video_list" ? <Video className="w-4 h-4 text-blue-600" /> : <FileText className="w-4 h-4 text-indigo-600" />}
-                <span>{resourceModal.type === "video_list" ? "Thêm Video bài giảng" : resourceModal.type === "lecture_files" ? "Thêm Bài giảng PDF" : "Thêm Ghi chép viết tay"}</span>
-              </h3>
-              <button type="button" onClick={() => setResourceModal && setResourceModal(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-md p-6 shadow-xl cursor-default text-left">
+            <h3 className="font-bold text-[15px] mb-4 text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
+              {resourceModal.type === "video_list" ? <Video className="w-4 h-4 text-blue-600" /> : <FileText className="w-4 h-4 text-indigo-600" />}
+              <span>Thêm {resourceModal.type === "video_list" ? "Video" : "Tài liệu"} cho {resourceModal.lessonTitle}</span>
+            </h3>
+            <form onSubmit={handleAddResource} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Tiêu đề tài liệu:</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Tiêu đề hiển thị *</label>
                 <input 
-                  type="text" 
-                  value={resourceTitle} 
-                  onChange={(e) => setResourceTitle(e.target.value)} 
-                  placeholder="Ví dụ: Video phần 1, Lý thuyết trọng tâm..." 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
+                  required 
+                  value={resTitle} 
+                  onChange={e => setResTitle(e.target.value)} 
+                  placeholder={resourceModal.type === "video_list" ? "VD: Video bài giảng phần 1" : "VD: Tài liệu viết tay"} 
+                  className="w-full border border-slate-300 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm"
                 />
               </div>
 
               {resourceModal.type === "video_list" && (
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Loại video:</label>
-                  <select 
-                    value={resourceVideoType} 
-                    onChange={(e) => setResourceVideoType(e.target.value as any)} 
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500"
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Phân loại Video *</label>
+                  <select
+                    value={vidType}
+                    onChange={e => setVidType(e.target.value as any)}
+                    className="w-full border border-slate-300 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm font-bold text-slate-800 bg-white cursor-pointer"
                   >
-                    <option value="lecture">Video Bài giảng lý thuyết</option>
-                    <option value="homework_solution">Video Chữa BTVN</option>
+                    <option value="lecture">Video Bài Giảng (Lý thuyết)</option>
+                    <option value="homework_solution">Video Chữa BTVN (Chi tiết)</option>
                   </select>
                 </div>
               )}
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-700">Liên kết Drive / YouTube:</label>
-                  <button 
-                    type="button" 
-                    onClick={() => fileInputRef.current?.click()} 
-                    disabled={isUploading}
-                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Upload className="w-3 h-3" />
-                    <span>{isUploading ? "Đang nạp file..." : "Tải file lên"}</span>
-                  </button>
-                </div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Link (URL YouTube / Google Drive) *</label>
                 <input 
-                  type="text" 
-                  value={resourceUrl} 
-                  onChange={(e) => setResourceUrl(e.target.value)} 
-                  placeholder="https://drive.google.com/... hoặc https://youtube.com/..." 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-blue-500" 
-                />
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleUploadFileToStorage(f, (url, title) => {
-                      setResourceUrl(url);
-                      if (!resourceTitle) setResourceTitle(title);
-                    });
-                  }} 
-                  className="hidden" 
+                  required 
+                  type="url" 
+                  value={resUrl} 
+                  onChange={e => setResUrl(e.target.value)} 
+                  placeholder="https://..." 
+                  className="w-full border border-slate-300 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm"
                 />
               </div>
 
-              <div className="pt-2 flex gap-2">
-                <button type="button" onClick={() => setResourceModal && setResourceModal(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
+              <div className="flex gap-2 justify-end pt-2">
+                <button type="button" onClick={() => setResourceModal && setResourceModal(null)} className="px-4 py-2 text-slate-600 bg-slate-100 rounded-xl text-xs font-bold cursor-pointer">
                   Hủy
                 </button>
-                <button type="button" onClick={handleSaveResource} className="flex-1 py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl text-xs font-bold transition shadow-2xs">
-                  Xác nhận thêm
+                <button type="submit" className="bg-[#1D4ED8] hover:bg-[#1E40AF] text-white px-5 py-2 rounded-xl text-xs font-bold shadow-sm cursor-pointer">
+                  Lưu tài nguyên
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* 3. MODAL XEM CHI TIẾT TÀI NGUYÊN HIỆN CÓ CỦA CELL */}
+      {/* 3. MODAL XEM CHI TIẾT TÀI NGUYÊN (VIEW RESOURCES MODAL) */}
       {viewResourcesModal && (
         <div 
-          onClick={() => setViewResourcesModal && setViewResourcesModal(null)} 
-          className="fixed inset-0 z-[500] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+          onClick={() => setViewResourcesModal && setViewResourcesModal(null)}
+          className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-lg border border-slate-200 shadow-2xl p-5 space-y-4 cursor-default text-left">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-slate-900">
-                Danh sách {viewResourcesModal.title} ({viewResourcesModal.items?.length || 0})
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[80vh] overflow-hidden animate-in zoom-in-95 duration-200 cursor-default text-left">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2">
+                Danh sách {viewResourcesModal.title} ({(viewResourcesModal.items || []).length})
               </h3>
-              <button type="button" onClick={() => setViewResourcesModal && setViewResourcesModal(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
-                <X className="w-4 h-4" />
+              <button onClick={() => setViewResourcesModal && setViewResourcesModal(null)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer">
+                <X className="w-5 h-5"/>
               </button>
             </div>
-
-            <div className="max-h-[50vh] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
               {(!viewResourcesModal.items || viewResourcesModal.items.length === 0) ? (
-                <p className="text-xs text-slate-400 italic text-center py-6">Chưa có mục nào được tải lên.</p>
+                <p className="text-center text-slate-400 text-sm py-4">Chưa có tài nguyên nào.</p>
               ) : (
-                viewResourcesModal.items.map((it: any, i: number) => (
-                  <div key={it.id || i} className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3 shadow-2xs">
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-800 truncate">{it.title || `Mục ${i + 1}`}</p>
-                      {it.url && (
-                        <a href={it.url} target="_blank" rel="noreferrer" className="text-[11px] text-blue-600 hover:underline flex items-center gap-1 mt-0.5 truncate max-w-xs">
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                          <span className="truncate">{it.url}</span>
-                        </a>
-                      )}
+                viewResourcesModal.items.map((item: any) => (
+                  <div key={item.id} className="flex flex-col gap-2 p-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-[#1D4ED8]/50 transition-colors group">
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="font-bold text-slate-800 text-[13px] truncate">{item.title}</h4>
+                          {viewResourcesModal.type === "video_list" && (
+                            <span className={"px-2 py-0.5 text-[9px] font-black uppercase rounded-md tracking-wider " + (
+                              item.type === "homework_solution"
+                                ? "bg-amber-100 text-amber-800 border border-amber-300"
+                                : "bg-blue-100 text-blue-800 border border-blue-300"
+                            )}>
+                              {item.type === "homework_solution" ? "Chữa BTVN" : "Bài Giảng"}
+                            </span>
+                          )}
+                          {item.is_drive_file && <span className="px-2 py-0.5 text-[9px] bg-indigo-100 text-indigo-700 font-bold uppercase rounded-md shrink-0">Drive</span>}
+                          {viewResourcesModal.type === 'extra_resources' && <span className="px-2 py-0.5 text-[9px] bg-amber-100 text-amber-700 font-bold uppercase rounded-md shrink-0">Tăng cường</span>}
+                        </div>
+                        {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-500 hover:underline truncate block mt-1">{item.url}</a>}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => {
+                          setEditResourceModal({ lessonId: viewResourcesModal.lessonId, type: viewResourcesModal.type, item });
+                          setEditResourceForm({ title: item.title, url: item.url || "", type: item.type || "lecture" });
+                        }} className="p-2 text-slate-300 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer shrink-0">
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDeleteResource(viewResourcesModal.lessonId, viewResourcesModal.type, item.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <button 
-                      type="button" 
-                      onClick={() => handleDeleteResourceItem(it.id)} 
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                      title="Xóa mục này"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
                 ))
               )}
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex justify-end">
-              <button type="button" onClick={() => setViewResourcesModal && setViewResourcesModal(null)} className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold transition">
-                Đóng
+            <div className="p-4 border-t border-slate-100 bg-slate-50/50">
+              <button 
+                onClick={() => {
+                  const currentType = viewResourcesModal.type;
+                  const currentLessonId = viewResourcesModal.lessonId;
+                  setViewResourcesModal && setViewResourcesModal(null);
+
+                  if (currentType === 'homework_files' || currentType === 'test_quizzes') {
+                    if (setUploadMethodModal) setUploadMethodModal({ lessonId: currentLessonId, type: currentType as any });
+                  } else if (currentType === 'extra_resources') {
+                    if (setBoostModal) setBoostModal(currentLessonId);
+                  } else {
+                    if (setResourceModal) setResourceModal({ isOpen: true, lessonId: currentLessonId, lessonTitle: "bài học", type: currentType });
+                  }
+                }}
+                className="w-full py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[13px] font-bold rounded-xl transition shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" /> Thêm tài liệu
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. MODAL THÊM BTVN / ĐỀ KIỂM TRA ĐỊNH KỲ */}
+      {/* 4. MODAL SỬA TÀI NGUYÊN (EDIT RESOURCE MODAL) */}
+      {editResourceModal && (
+        <div 
+          onClick={() => setEditResourceModal(null)} 
+          className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+        >
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditResourceSubmit} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2"><Edit3 className="w-5 h-5 text-[#1D4ED8]" /> Sửa thông tin tài liệu</h3>
+              <button type="button" onClick={() => setEditResourceModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề tài liệu</label>
+                <input required type="text" value={editResourceForm.title} onChange={e => setEditResourceForm({...editResourceForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+              </div>
+              
+              {editResourceModal.type === "video_list" && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân loại Video *</label>
+                  <select
+                    value={editResourceForm.type}
+                    onChange={e => setEditResourceForm({ ...editResourceForm, type: e.target.value as any })}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-[#1D4ED8] bg-white cursor-pointer"
+                  >
+                    <option value="lecture">Video Bài Giảng (Lý thuyết)</option>
+                    <option value="homework_solution">Video Chữa BTVN (Chi tiết)</option>
+                  </select>
+                </div>
+              )}
+
+              {(!editResourceModal.item?.is_quiz || editResourceModal.item?.is_drive_file) && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Đường dẫn (URL / Link Drive / YouTube)</label>
+                  <input required type="url" value={editResourceForm.url} onChange={e => setEditResourceForm({...editResourceForm, url: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
+              <button type="button" onClick={() => setEditResourceModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
+              <button type="submit" className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu thay đổi</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 5. MODAL CHỌN PHƯƠNG THỨC THÊM BTVN / ĐỀ KIỂM TRA */}
       {uploadMethodModal && (
         <div 
           onClick={() => setUploadMethodModal && setUploadMethodModal(null)} 
-          className="fixed inset-0 z-[500] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+          className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-2xl p-5 space-y-4 cursor-default text-left">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                {uploadMethodModal.type === "homework_files" ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Award className="w-4 h-4 text-emerald-600" />}
-                <span>{uploadMethodModal.type === "homework_files" ? "Thêm Bài tập về nhà (BTVN)" : "Thêm Đề kiểm tra định kỳ"}</span>
-              </h3>
-              <button type="button" onClick={() => setUploadMethodModal && setUploadMethodModal(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-[28px] p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Tên bài tập / Đề thi:</label>
-                <input 
-                  type="text" 
-                  value={quizTitle} 
-                  onChange={(e) => setQuizTitle(e.target.value)} 
-                  placeholder="Ví dụ: BTVN Bài 8 - Đồ thị hàm số..." 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                />
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  Thêm {uploadMethodModal.type === 'homework_files' ? 'Bài tập về nhà (BTVN)' : 'Đề Kiểm Tra'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Chọn phương thức nạp đề thi để hệ thống tự động bóc tách</p>
               </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Thời gian làm bài (phút):</label>
-                <input 
-                  type="number" 
-                  value={quizDuration} 
-                  onChange={(e) => setQuizDuration(Number(e.target.value))} 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-slate-700">Link file đề / Drive (tùy chọn):</label>
-                  <button 
-                    type="button" 
-                    onClick={() => quizFileInputRef.current?.click()} 
-                    disabled={isUploading}
-                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Upload className="w-3 h-3" />
-                    <span>{isUploading ? "Đang nạp file..." : "Tải file lên"}</span>
-                  </button>
-                </div>
-                <input 
-                  type="text" 
-                  value={quizFileUrl} 
-                  onChange={(e) => setQuizFileUrl(e.target.value)} 
-                  placeholder="https://drive.google.com/..." 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-blue-500" 
-                />
-                <input 
-                  type="file" 
-                  ref={quizFileInputRef} 
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleUploadFileToStorage(f, (url, title) => {
-                      setQuizFileUrl(url);
-                      if (!quizTitle) setQuizTitle(title);
-                    });
-                  }} 
-                  className="hidden" 
-                />
-              </div>
-
-              <div className="pt-2 flex gap-2">
-                <button type="button" onClick={() => setUploadMethodModal && setUploadMethodModal(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
-                  Hủy
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => handleSaveQuizItem(uploadMethodModal.type === "homework_files")} 
-                  className="flex-1 py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl text-xs font-bold transition shadow-2xs"
-                >
-                  Xác nhận lưu
-                </button>
-              </div>
+              <button type="button" onClick={() => setUploadMethodModal && setUploadMethodModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer p-1"><X className="w-5 h-5"/></button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 5. MODAL TẠO CHƯƠNG / BÀI HỌC MỚI */}
-      {createModal && (
-        <div 
-          onClick={() => setCreateModal && setCreateModal(null)} 
-          className="fixed inset-0 z-[500] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
-        >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-2xl p-5 space-y-4 cursor-default text-left">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                {createModal.type === "chapter" ? <FolderPlus className="w-4 h-4 text-blue-600" /> : <BookOpen className="w-4 h-4 text-indigo-600" />}
-                <span>{createModal.type === "chapter" ? "Thêm Chương mới" : "Thêm Bài học mới"}</span>
-              </h3>
-              <button type="button" onClick={() => setCreateModal && setCreateModal(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {createModal.type === "chapter" ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Tên chương:</label>
-                  <input 
-                    type="text" 
-                    value={newChapterTitle} 
-                    onChange={(e) => setNewChapterTitle(e.target.value)} 
-                    placeholder="Ví dụ: Chương 1: Ứng dụng đạo hàm..." 
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                  />
+            
+            <div className="flex flex-col gap-3 mt-4">
+              <label className="relative p-4 border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl hover:bg-indigo-100/60 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
+                <div className="p-3 bg-white text-indigo-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
+                  <FileText className="w-6 h-6" />
                 </div>
-                <div className="pt-2 flex gap-2">
-                  <button type="button" onClick={() => setCreateModal && setCreateModal(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
-                    Hủy
-                  </button>
-                  <button type="button" onClick={handleCreateChapter} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs">
-                    Lưu Chương
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Tên bài học:</label>
-                  <input 
-                    type="text" 
-                    value={newLessonData.title} 
-                    onChange={(e) => setNewLessonData({ ...newLessonData, title: e.target.value })} 
-                    placeholder="Ví dụ: Bài 8: Khảo sát và vẽ đồ thị hàm số..." 
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 block mb-1">Phân luồng:</label>
-                    <select 
-                      value={newLessonData.target_mode} 
-                      onChange={(e) => setNewLessonData({ ...newLessonData, target_mode: e.target.value as any })} 
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
-                    >
-                      <option value="online">Lớp Online</option>
-                      <option value="offline">Lớp Offline</option>
-                      <option value="all">Toàn khóa</option>
-                    </select>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-indigo-950 text-[14px]">Tải lên file PDF (.pdf)</span>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
                   </div>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-700 block mb-1">Thời lượng (phút):</label>
-                    <input 
-                      type="number" 
-                      value={newLessonData.duration} 
-                      onChange={(e) => setNewLessonData({ ...newLessonData, duration: Number(e.target.value) })} 
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                    />
+                  <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
+                    AI Gemini Vision sẽ quét trang PDF trực tiếp, khôi phục 100% MathType, phân số, căn thức và toạ độ Oxyz mà không bị trượt byte.
                   </div>
                 </div>
+                <input type="file" accept=".pdf" className="hidden" onChange={(e) => {
+                  if (e.target.files?.[0]) {
+                    if (setTestFile) setTestFile(e.target.files[0]);
+                    if (setUploadMode) setUploadMode("course");
+                    if (setAzotaTarget) setAzotaTarget({ lessonId: uploadMethodModal.lessonId, type: uploadMethodModal.type });
+                    if (setUploadMethodModal) setUploadMethodModal(null);
+                  }
+                  e.target.value = '';
+                }}/>
+              </label>
 
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Mô tả tóm tắt:</label>
-                  <textarea 
-                    rows={2} 
-                    value={newLessonData.description} 
-                    onChange={(e) => setNewLessonData({ ...newLessonData, description: e.target.value })} 
-                    placeholder="Nội dung cốt lõi của bài học..." 
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-blue-500" 
-                  />
+              <label className="relative p-4 border border-blue-200 bg-blue-50/40 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
+                <div className="p-3 bg-white text-blue-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
+                  <FileUp className="w-6 h-6" />
                 </div>
-
-                <div className="pt-2 flex gap-2">
-                  <button type="button" onClick={() => setCreateModal && setCreateModal(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
-                    Hủy
-                  </button>
-                  <button type="button" onClick={handleCreateLesson} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs">
-                    Lưu Bài học
-                  </button>
+                <div className="flex-1">
+                  <div className="font-extrabold text-blue-950 text-[14px]">Tải lên file Word (.docx)</div>
+                  <div className="text-xs text-blue-800/80 mt-1 leading-relaxed">
+                    Hệ thống sẽ trích xuất nhanh cấu trúc văn bản và thẻ ảnh đồ thị từ file Word gốc.
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 6. MODAL SỬA BÀI HỌC */}
-      {editLessonModal && editLessonForm && (
-        <div 
-          onClick={() => setEditLessonModal && setEditLessonModal(null)} 
-          className="fixed inset-0 z-[500] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
-        >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-2xl p-5 space-y-4 cursor-default text-left">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-slate-900">Sửa thông tin bài học</h3>
-              <button type="button" onClick={() => setEditLessonModal && setEditLessonModal(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
-                <X className="w-4 h-4" />
+                <input type="file" accept=".docx" className="hidden" onChange={(e) => {
+                  if (e.target.files?.[0]) {
+                    if (setTestFile) setTestFile(e.target.files[0]);
+                    if (setUploadMode) setUploadMode("course");
+                    if (setAzotaTarget) setAzotaTarget({ lessonId: uploadMethodModal.lessonId, type: uploadMethodModal.type });
+                    if (setUploadMethodModal) setUploadMethodModal(null);
+                  }
+                  e.target.value = '';
+                }}/>
+              </label>
+              
+              <button 
+                type="button"
+                onClick={() => { 
+                  setDriveLinkModal(uploadMethodModal); 
+                  if (setUploadMethodModal) setUploadMethodModal(null); 
+                }} 
+                className="p-4 border border-emerald-200 bg-emerald-50/40 rounded-2xl hover:bg-emerald-100/50 transition cursor-pointer flex items-start gap-4 text-left group shadow-2xs"
+              >
+                <div className="p-3 bg-white text-emerald-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
+                  <LinkIcon className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-extrabold text-emerald-950 text-[14px]">Đính kèm Link Google Drive</div>
+                  <div className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
+                    Dán link file PDF/Word để học sinh tải về hoặc tự làm thủ công (không chấm tự động).
+                  </div>
+                </div>
               </button>
             </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Tên bài học:</label>
-                <input 
-                  type="text" 
-                  value={editLessonForm.title || ""} 
-                  onChange={(e) => setEditLessonForm && setEditLessonForm({ ...editLessonForm, title: e.target.value })} 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Phân luồng:</label>
-                  <select 
-                    value={editLessonForm.target_mode || "all"} 
-                    onChange={(e) => setEditLessonForm && setEditLessonForm({ ...editLessonForm, target_mode: e.target.value })} 
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
-                  >
-                    <option value="online">Lớp Online</option>
-                    <option value="offline">Lớp Offline</option>
-                    <option value="all">Toàn khóa</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Thời lượng (phút):</label>
-                  <input 
-                    type="number" 
-                    value={editLessonForm.duration || 45} 
-                    onChange={(e) => setEditLessonForm && setEditLessonForm({ ...editLessonForm, duration: Number(e.target.value) })} 
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Mô tả tóm tắt:</label>
-                <textarea 
-                  rows={2} 
-                  value={editLessonForm.description || ""} 
-                  onChange={(e) => setEditLessonForm && setEditLessonForm({ ...editLessonForm, description: e.target.value })} 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-blue-500" 
-                />
-              </div>
-
-              <div className="pt-2 flex gap-2">
-                <button type="button" onClick={() => setEditLessonModal && setEditLessonModal(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
-                  Hủy
-                </button>
-                <button type="button" onClick={handleUpdateLesson} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs">
-                  Cập nhật
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
 
-      {/* 7. MODAL THÊM TÀI LIỆU TĂNG CƯỜNG */}
+      {/* 6. MODAL ĐÍNH KÈM LINK DRIVE CHO BTVN / ĐỀ KIỂM TRA */}
+      {driveLinkModal && (
+        <div 
+          onClick={() => setDriveLinkModal(null)} 
+          className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleAddDriveFile} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-emerald-700 text-[15px] flex items-center gap-2"><LinkIcon className="w-5 h-5" /> Đính kèm Link Google Drive</h3>
+              <button type="button" onClick={() => setDriveLinkModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề (VD: File đề luyện tập 1)</label>
+                <input required type="text" value={driveLinkForm.title} onChange={e => setDriveLinkForm({...driveLinkForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-emerald-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Link Google Drive (Chia sẻ công khai)</label>
+                <input required type="url" placeholder="https://drive.google.com/..." value={driveLinkForm.url} onChange={e => setDriveLinkForm({...driveLinkForm, url: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-emerald-500 outline-none" />
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
+              <button type="button" onClick={() => setDriveLinkModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
+              <button type="submit" className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu file Drive</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 7. MODAL THÊM TÀI LIỆU TĂNG CƯỜNG (BOOST MODAL) */}
       {boostModal && (
         <div 
           onClick={() => setBoostModal && setBoostModal(null)} 
-          className="fixed inset-0 z-[500] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md border border-slate-200 shadow-2xl p-5 space-y-4 cursor-default text-left">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-sm text-amber-700 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 fill-amber-500 text-amber-500" />
-                <span>Thêm tài liệu tăng cường</span>
-              </h3>
-              <button type="button" onClick={() => setBoostModal && setBoostModal(null)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
-                <X className="w-4 h-4" />
-              </button>
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleAddBoost} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-amber-600 text-[15px] flex items-center gap-2"><Zap className="w-5 h-5 fill-amber-500" /> Thêm tài liệu tăng cường</h3>
+              <button type="button" onClick={() => setBoostModal && setBoostModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
             </div>
-
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Tên tài liệu:</label>
-                <input 
-                  type="text" 
-                  value={boostTitle} 
-                  onChange={(e) => setBoostTitle(e.target.value)} 
-                  placeholder="Ví dụ: Phương pháp giải nhanh Casio, Đề nâng cao..." 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-blue-500" 
-                />
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề</label>
+                <input required type="text" value={boostForm.title} onChange={e => setBoostForm({...boostForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none" />
               </div>
-
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Liên kết Drive / Web:</label>
-                <input 
-                  type="text" 
-                  value={boostUrl} 
-                  onChange={(e) => setBoostUrl(e.target.value)} 
-                  placeholder="https://drive.google.com/..." 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-blue-500" 
-                />
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Loại tài liệu</label>
+                <select value={boostForm.type} onChange={e => setBoostForm({...boostForm, type: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none bg-white cursor-pointer">
+                  <option value="video">Video bài giảng (YouTube/Drive)</option>
+                  <option value="document">Tài liệu / File đề PDF (Drive)</option>
+                </select>
               </div>
-
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Ghi chú lưu ý:</label>
-                <input 
-                  type="text" 
-                  value={boostNote} 
-                  onChange={(e) => setBoostNote(e.target.value)} 
-                  placeholder="Dành riêng cho học sinh ôn thi 9.5+..." 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-blue-500" 
-                />
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Link / URL truy cập</label>
+                <input required type="url" placeholder="https://..." value={boostForm.url} onChange={e => setBoostForm({...boostForm, url: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none" />
               </div>
-
-              <div className="pt-2 flex gap-2">
-                <button type="button" onClick={() => setBoostModal && setBoostModal(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
-                  Hủy
-                </button>
-                <button type="button" onClick={handleSaveBoostResource} className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-2xs">
-                  Xác nhận thêm
-                </button>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Ghi chú (Tùy chọn)</label>
+                <textarea rows={2} value={boostForm.note} onChange={e => setBoostForm({...boostForm, note: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none resize-none" />
               </div>
             </div>
-          </div>
+            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
+              <button type="button" onClick={() => setBoostModal && setBoostModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
+              <button type="submit" className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu tăng cường</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI (CREATE MODAL) */}
+      {createModal && (
+        <div 
+          onClick={() => setCreateModal && setCreateModal(null)} 
+          className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl cursor-pointer"
+        >
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleCreateNewItem} className="bg-white/95 backdrop-blur-2xl rounded-[32px] w-full max-w-md p-8 shadow-2xl border border-white/50 space-y-5 cursor-default text-left">
+            <h3 className="font-extrabold text-slate-900 text-[17px] border-b border-slate-200/60 pb-4 mb-5 tracking-tight">
+              {createModal.type === "chapter" ? "Thêm Chương Mới" : "Thêm Bài Học Mới"}
+            </h3>
+            
+            {createModal.type === "lesson" && (
+              <div>
+                <label className="block text-[13px] font-bold text-slate-700 mb-2">Chọn chương chứa bài học <span className="text-rose-500">*</span></label>
+                <select 
+                  value={createModal.chapterId || ""} 
+                  onChange={e => setCreateModal && setCreateModal({ ...createModal, chapterId: e.target.value })}
+                  className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] font-semibold outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white cursor-pointer"
+                >
+                  {(chapters || []).map((c: any) => (
+                    <option key={c.id} value={c.id}>{c.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[13px] font-bold text-slate-700 mb-2">Tên {createModal.type === "chapter" ? "chương" : "bài học"} <span className="text-rose-500">*</span></label>
+              <input autoFocus required type="text" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} placeholder={createModal.type === "chapter" ? "VD: Chương 1: Ứng dụng đạo hàm..." : "VD: Bài 1: Tính đơn điệu của hàm số..."} className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] font-semibold outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm" />
+            </div>
+            
+            {createModal.type === "lesson" && (
+              <>
+                <div>
+                  <label className="block text-[13px] font-bold text-slate-700 mb-2">Phân luồng bài học (Target Mode) *</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewItemTargetMode("online")}
+                      className={"py-2.5 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                        newItemTargetMode === "online"
+                          ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
+                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Lớp Online
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewItemTargetMode("offline")}
+                      className={"py-2.5 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                        newItemTargetMode === "offline"
+                          ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
+                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Lớp Offline
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewItemTargetMode("all")}
+                      className={"py-2.5 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                        newItemTargetMode === "all"
+                          ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
+                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Cả 2 (Full)
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-bold text-slate-700 mb-2">Hình thức giảng dạy</label>
+                  <select value={newItemFormat} onChange={e => setNewItemFormat(e.target.value)} className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white cursor-pointer">
+                    <option value="Zoom">Zoom / Google Meet</option>
+                    <option value="Video">Video quay sẵn</option>
+                    <option value="Facebook">Facebook Group</option>
+                    <option value="Tự học">Tự học</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-bold text-slate-700 mb-2">Mô tả bài học</label>
+                  <textarea rows={3} value={newItemDescription} onChange={e => setNewItemDescription(e.target.value)} placeholder="Nội dung hướng dẫn học..." className="w-full px-5 py-3 border border-slate-300 rounded-2xl text-[13px] outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm resize-none" />
+                </div>
+              </>
+            )}
+            <div className="flex gap-3 justify-end pt-4">
+              <button type="button" onClick={() => setCreateModal && setCreateModal(null)} className="px-6 py-3 bg-slate-100 hover:bg-slate-200 rounded-2xl text-[13px] font-bold text-slate-700 transition-colors cursor-pointer">Hủy</button>
+              <button type="submit" className="px-6 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-2xl text-[13px] font-bold shadow-md transition-colors cursor-pointer">Thêm mới</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 9. MODAL CHỈNH SỬA THÔNG TIN BÀI HỌC (EDIT LESSON MODAL) */}
+      {editLessonModal && editLessonForm && (
+        <div 
+          onClick={() => setEditLessonModal && setEditLessonModal(null)} 
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+        >
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditLessonSubmit} className="bg-white rounded-[24px] w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2"><Edit3 className="w-5 h-5 text-[#1D4ED8]" /> Chỉnh sửa bài học</h3>
+              <button type="button" onClick={() => setEditLessonModal && setEditLessonModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề bài học</label>
+                <input required type="text" value={editLessonForm.title} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân luồng bài học (Target Mode) *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditLessonForm && setEditLessonForm({ ...editLessonForm, target_mode: "online" })}
+                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                      editLessonForm.target_mode === "online"
+                        ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Lớp Online
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditLessonForm && setEditLessonForm({ ...editLessonForm, target_mode: "offline" })}
+                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                      editLessonForm.target_mode === "offline"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Lớp Offline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditLessonForm && setEditLessonForm({ ...editLessonForm, target_mode: "all" })}
+                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                      editLessonForm.target_mode === "all" || !editLessonForm.target_mode
+                        ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Cả 2 (Full)
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Thời lượng (phút)</label>
+                  <input required type="number" value={editLessonForm.duration} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, duration: parseInt(e.target.value) || 0})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Hình thức</label>
+                  <select value={editLessonForm.format} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, format: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white cursor-pointer">
+                    <option value="Zoom">Zoom</option>
+                    <option value="Facebook">Facebook Group</option>
+                    <option value="Video">Video quay sẵn</option>
+                    <option value="Tự học">Tự học</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Mô tả</label>
+                <textarea rows={2} value={editLessonForm.description} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, description: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none resize-none" />
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
+              <button type="button" onClick={() => setEditLessonModal && setEditLessonModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
+              <button type="submit" className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu thay đổi</button>
+            </div>
+          </form>
         </div>
       )}
     </>
