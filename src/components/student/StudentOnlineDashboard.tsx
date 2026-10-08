@@ -691,7 +691,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   }
 
   return (
-    <div className="h-screen w-full bg-[#F8FAFC] font-sans antialiased text-slate-800 flex overflow-hidden relative selection:bg-blue-500/20">
+    <div className="h-screen w-full bg-[#F8FAFC] font-['Be_Vietnam_Pro','Plus_Jakarta_Sans',sans-serif] tracking-normal leading-relaxed antialiased text-slate-800 flex overflow-hidden relative selection:bg-blue-500/20">
       <AnimatePresence>
         {onlineToast && (
           <motion.div 
@@ -740,18 +740,18 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               transition={{ duration: 0.16, ease: "easeInOut" }}
               className="w-full"
             >
-              {/* TAB 1: TỔNG QUAN (#OVERVIEW) - VERTICAL LIST VIEW */}
+              {/* TAB 1: TỔNG QUAN (#OVERVIEW) - ĐẦY ĐẶN, THOÁNG MẮT */}
               {activeTab === "overview" && (
-                <div className="w-full max-w-5xl mx-auto space-y-3.5 text-left">
+                <div className="w-full max-w-5xl mx-auto space-y-4 text-left">
                   {/* BANNER CA HỌC TRỰC TUYẾN LIVE ZOOM */}
                   {liveOnlineSession && (
                     <motion.div
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="p-3 sm:px-4 rounded-xl bg-blue-600 text-white shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border border-blue-500"
+                      className="p-3.5 sm:px-4.5 rounded-xl bg-blue-600 text-white shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-blue-500"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="p-1.5 rounded-lg bg-white/20 text-white shrink-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 rounded-lg bg-white/20 text-white shrink-0">
                           <Video className="w-4 h-4" />
                         </div>
                         <div className="min-w-0 text-left">
@@ -767,16 +767,16 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                       <div className="shrink-0 flex items-center gap-2">
                         {isAttendedTodayOnline ? (
                           <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-100 font-semibold text-xs border border-emerald-400/30">
+                            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-100 font-semibold text-xs border border-emerald-400/30">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
                               <span>Đã điểm danh ✓</span>
                             </span>
                             <button
                               type="button"
                               onClick={handleOnlineJoinMeeting}
-                              className="px-3 py-1 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                              className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
                             >
-                              <Video className="w-3 h-3" />
+                              <Video className="w-3.5 h-3.5" />
                               <span>Vào học</span>
                             </button>
                           </div>
@@ -784,9 +784,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           <button
                             type="button"
                             onClick={handleOnlineJoinMeeting}
-                            className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                            className="px-4 py-2 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                           >
-                            <Play className="w-3 h-3 fill-blue-700" />
+                            <Play className="w-3.5 h-3.5 fill-blue-700" />
                             <span>Vào học & Điểm danh</span>
                           </button>
                         )}
@@ -795,58 +795,58 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                   )}
 
                   {/* THANH CHÀO MỪNG SLIM WELCOME BAR TINH GỌN */}
-                  <div className="bg-white rounded-xl p-3 sm:px-4 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-semibold text-slate-800">
+                  <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="text-[13.5px] font-semibold text-slate-800">
                         Chào <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>!
                       </span>
                       <span className="text-slate-300">•</span>
-                      <span className="text-xs text-slate-500 flex items-center gap-1">
-                        🎯 <span className="font-semibold text-slate-700">{studyGoal}</span>
+                      <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                        🎯 <span className="font-medium text-slate-700">{studyGoal}</span>
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                      <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-100">
+                    <div className="flex items-center gap-2.5 text-xs text-slate-500">
+                      <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-100">
                         {onlineChapters.length} Chương
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex items-center gap-1 font-mono tabular-nums">
-                        <Clock className="w-3 h-3" /> {formattedStudyTimeToday}
+                      <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex items-center gap-1.5 font-mono tabular-nums">
+                        <Clock className="w-3.5 h-3.5" /> {formattedStudyTimeToday}
                       </span>
                     </div>
                   </div>
 
-                  {/* DANH SÁCH CHƯƠNG VÀ BÀI HỌC DẠNG CỘT DỌC DUY NHẤT (VERTICAL LIST) */}
-                  <div className="space-y-3">
+                  {/* DANH SÁCH BÀI HỌC CỘT DỌC ĐẦY ĐẶN, THOÁNG MẮT */}
+                  <div className="space-y-3.5">
                     {onlineChapters.map((chap, idx) => (
-                      <div key={chap.id || idx} className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                          <h3 className="font-semibold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
-                            <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                      <div key={chap.id || idx} className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                          <h3 className="font-semibold text-slate-900 text-sm sm:text-[14.5px] flex items-center gap-2.5">
+                            <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
                               Chương {idx + 1}
                             </span>
                             <span>{chap.title}</span>
                           </h3>
-                          <span className="text-[11px] font-semibold text-slate-400 font-mono tabular-nums">
+                          <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums">
                             {chap.lessons?.length || 0} bài học
                           </span>
                         </div>
 
-                        {/* CỘT DỌC DUY NHẤT CÁC BÀI HỌC COMPACT ROW */}
-                        <div className="flex flex-col space-y-1.5 pt-1">
+                        {/* CỘT DỌC CÁC BÀI HỌC VỚI KHOẢNG ĐỆM ĐẦY ĐẶN py-3 px-3.5 */}
+                        <div className="flex flex-col space-y-2 pt-1">
                           {(chap.lessons || []).map((les: any) => (
                             <div 
                               key={les.id} 
                               onClick={() => setSelectedLesson(les)}
-                              className="py-2.5 px-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                              className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
                             >
                               <div className="flex items-center gap-2.5 min-w-0">
                                 <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
-                                <span className="text-xs font-semibold text-slate-700 truncate group-hover:text-blue-700">
+                                <span className="text-[13.5px] sm:text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">
                                   {les.title}
                                 </span>
                               </div>
-                              <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                              <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                             </div>
                           ))}
                         </div>
@@ -856,17 +856,17 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB 2: BÀI HỌC (#COURSES) - MINIMAL SAAS REDESIGN */}
+              {/* TAB 2: BÀI HỌC (#COURSES) - KÍCH THƯỚC NÂNG LÊN VỪA VẶN, NÚT ĐẦM TAY */}
               {activeTab === "courses" && (
-                <div className="max-w-5xl mx-auto space-y-3.5 text-left">
-                  {/* SLIM WELCOME BAR & DANH NGÔN GỌN GÀNG */}
-                  <div className="bg-white rounded-xl p-3 sm:px-4 border border-slate-200/80 shadow-2xs space-y-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-semibold uppercase tracking-wider border border-blue-100">
+                <div className="max-w-5xl mx-auto space-y-4 text-left">
+                  {/* SLIM WELCOME BAR & DANH NGÔN */}
+                  <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-semibold uppercase tracking-wider border border-blue-100">
                           Lớp Online TCT
                         </span>
-                        <span className="text-xs font-semibold text-slate-800">
+                        <span className="text-xs sm:text-[13px] font-semibold text-slate-800">
                           Học viên: <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>
                         </span>
                       </div>
@@ -879,24 +879,24 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               type="text" 
                               value={tempGoal} 
                               onChange={e => setTempGoal(e.target.value)} 
-                              className="px-2 py-1 border border-blue-300 rounded text-xs font-semibold text-slate-800 focus:outline-none" 
+                              className="px-2.5 py-1 border border-blue-300 rounded text-xs font-semibold text-slate-800 focus:outline-none" 
                             />
                             <button 
                               onClick={handleSaveGoal} 
-                              className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-semibold cursor-pointer"
+                              className="px-2.5 py-1 bg-blue-600 text-white rounded text-xs font-semibold cursor-pointer"
                             >
                               Lưu
                             </button>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-slate-600">🎯 {studyGoal}</span>
+                            <span className="text-xs text-slate-600 font-medium">🎯 {studyGoal}</span>
                             <button 
                               onClick={() => { setTempGoal(studyGoal); setIsEditingGoal(true); }}
                               className="text-slate-400 hover:text-blue-600 p-0.5 cursor-pointer" 
                               title="Sửa mục tiêu"
                             >
-                              <Edit3 className="w-3 h-3" />
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         )}
@@ -904,37 +904,37 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     </div>
 
                     {/* DÒNG DANH NGÔN NHỎ THANH LỊCH */}
-                    <p className="text-[11px] text-slate-500 italic border-t border-slate-100 pt-1.5 flex items-center gap-1.5">
-                      <Quote className="w-3 h-3 text-amber-500 shrink-0" />
+                    <p className="text-xs text-slate-500 italic border-t border-slate-100 pt-2 flex items-center gap-1.5">
+                      <Quote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                       <span>"{dailyQuote}"</span>
                     </p>
                   </div>
 
-                  {/* ACCORDION DANH SÁCH BÀI HỌC THEO TỪNG CHƯƠNG */}
-                  <div className="space-y-3 pt-1">
+                  {/* ACCORDION DANH SÁCH BÀI HỌC VỚI NÚT VÀO HỌC ĐẦM TAY */}
+                  <div className="space-y-3.5 pt-1">
                     {onlineChapters.map((chap, idx) => {
                       const isCollapsed = Boolean(collapsedChapters[chap.id]);
                       const lessonCount = chap.lessons?.length || 0;
 
                       return (
                         <div key={chap.id || idx} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
-                          {/* HEADER CHƯƠNG GỌN GÀNG VỚI NÚT ĐÓNG MỞ */}
+                          {/* HEADER CHƯƠNG */}
                           <button
                             type="button"
                             onClick={() => toggleChapterCollapse(chap.id)}
-                            className="w-full px-4 py-3 bg-slate-50/70 hover:bg-slate-50 border-b border-slate-100 flex items-center justify-between text-left transition cursor-pointer"
+                            className="w-full px-4.5 py-3.5 bg-slate-50/70 hover:bg-slate-50 border-b border-slate-100 flex items-center justify-between text-left transition cursor-pointer"
                           >
                             <div className="flex items-center gap-2.5">
                               <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
                                 Chương {idx + 1}
                               </span>
-                              <h3 className="font-semibold text-slate-900 text-xs sm:text-sm">
+                              <h3 className="font-semibold text-slate-900 text-[13.5px] sm:text-sm">
                                 {chap.title}
                               </h3>
                             </div>
 
                             <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-semibold text-slate-400 font-mono tabular-nums">
+                              <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums">
                                 {lessonCount} bài học
                               </span>
                               {isCollapsed ? (
@@ -945,7 +945,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             </div>
                           </button>
 
-                          {/* DANH SÁCH CÁC BÀI HỌC DẠNG HÀNG COMPACT ROW */}
+                          {/* DANH SÁCH CÁC BÀI HỌC: TIÊU ĐỀ 15PX, NÚT VÀO HỌC ĐẦM TAY px-5 py-2.5 */}
                           {!isCollapsed && (
                             <div className="divide-y divide-slate-100">
                               {(chap.lessons || []).map((les: any, lIdx: number) => {
@@ -955,37 +955,37 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                 return (
                                   <div 
                                     key={les.id || lIdx}
-                                    className="p-3 sm:px-4 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-left"
+                                    className="p-3.5 sm:p-4 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left"
                                   >
-                                    <div className="min-w-0 space-y-1">
+                                    <div className="min-w-0 space-y-1.5">
                                       <div className="flex items-center gap-2">
-                                        <h4 className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                                        <h4 className="text-[14.5px] sm:text-[15.5px] font-semibold text-slate-800 truncate">
                                           {les.title}
                                         </h4>
 
                                         {/* HUY HIỆU TRẠNG THÁI TIẾN TRÌNH */}
                                         {status === "completed" ? (
-                                          <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
+                                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
                                             <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
                                           </span>
                                         ) : status === "in_progress" ? (
-                                          <span className="px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
+                                          <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
                                             Đang học
                                           </span>
                                         ) : (
-                                          <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
+                                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
                                             Chưa học
                                           </span>
                                         )}
                                       </div>
 
-                                      <div className="flex items-center gap-3 text-[11px] text-slate-400 font-medium font-mono tabular-nums">
-                                        <span className="flex items-center gap-1 font-sans">
-                                          <Clock className="w-3 h-3 text-slate-400" /> {les.duration || 45} phút
+                                      <div className="flex items-center gap-3 text-xs text-slate-500 font-normal">
+                                        <span className="flex items-center gap-1.5">
+                                          <Clock className="w-3.5 h-3.5 text-slate-400" /> {les.duration || 45} phút
                                         </span>
                                         <span>•</span>
-                                        <span className="flex items-center gap-1 font-sans">
-                                          <FileText className="w-3 h-3 text-slate-400" /> {docCount} tài liệu & BTVN
+                                        <span className="flex items-center gap-1.5">
+                                          <FileText className="w-3.5 h-3.5 text-slate-400" /> {docCount} tài liệu & BTVN
                                         </span>
                                       </div>
                                     </div>
@@ -994,7 +994,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                       <button
                                         type="button"
                                         onClick={() => setSelectedLesson(les)}
-                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                                       >
                                         <span>Vào học</span>
                                         <ArrowRight className="w-3.5 h-3.5" />
@@ -1012,20 +1012,19 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB 3: LUYỆN ĐỀ (#PRACTICE) - TIÊU ĐỀ RÚT GỌN "LUYỆN ĐỀ" */}
+              {/* TAB 3: LUYỆN ĐỀ (#PRACTICE) */}
               {activeTab === "practice" && (
-                <div className="max-w-6xl mx-auto space-y-3.5 text-left">
-                  <div className="bg-white py-3 px-4 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 bg-blue-50 text-blue-700 rounded-lg flex items-center justify-center shrink-0 border border-blue-100">
-                        <Target className="w-4 h-4" />
+                <div className="max-w-6xl mx-auto space-y-4 text-left">
+                  <div className="bg-white py-3.5 px-4.5 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 bg-blue-50 text-blue-700 rounded-lg flex items-center justify-center shrink-0 border border-blue-100">
+                        <Target className="w-4.5 h-4.5" />
                       </div>
                       <div>
-                        {/* TIÊU ĐỀ RÚT GỌN CHUẨN XÁC: "Luyện đề" */}
                         <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight">
                           Luyện đề
                         </h2>
-                        <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 font-mono tabular-nums">
+                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 font-mono tabular-nums">
                           {practiceExams.length} đề thi sẵn sàng
                         </span>
                       </div>
@@ -1034,13 +1033,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
                       <button 
                         onClick={() => setPracticeSubTab("list")}
-                        className={"px-3 py-1 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
+                        className={"px-3.5 py-1.5 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
                       >
                         <Library className="w-3.5 h-3.5"/> Danh sách đề
                       </button>
                       <button 
                         onClick={() => setPracticeSubTab("history")}
-                        className={"px-3 py-1 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
+                        className={"px-3.5 py-1.5 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
                       >
                         <BarChart3 className="w-3.5 h-3.5"/> Lịch sử làm bài
                       </button>
@@ -1048,14 +1047,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                   </div>
 
                   {practiceSubTab === "list" && (
-                    <div className="space-y-3">
+                    <div className="space-y-3.5">
                       {/* BỘ LỌC DANH MỤC ĐỀ THI */}
-                      <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                      <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
                         {["Tất cả đề", "ĐGNL HSA (ĐHQGHN)", "ĐGTD TSA (ĐHBK)", "Tốt Nghiệp THPT", "Giữa Kì 1", "Học Kì 1", "Giữa Kì 2", "Học Kì 2"].map(cat => (
                           <button 
                             key={cat}
                             onClick={() => setSelectedPracticeCategory(cat)}
-                            className={"px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer " + (
+                            className={"px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer " + (
                               selectedPracticeCategory === cat 
                                 ? "bg-blue-600 text-white shadow-2xs" 
                                 : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
@@ -1067,7 +1066,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                       </div>
 
                       {/* LƯỚI CARD ĐỀ THI 3 CỘT COMPACT */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                         {(practiceExams || [])
                           .filter((e: any) => {
                             const tMode = (e.target_mode || "all").toLowerCase();
@@ -1080,53 +1079,52 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             const qCount = exam.data?.reduce((acc: number, sec: any) => acc + (sec.questions?.length || 0), 0) || 0;
 
                             return (
-                              <div key={exam.id} className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-2xs hover:border-blue-300 transition flex flex-col justify-between group">
+                              <div key={exam.id} className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs hover:border-blue-300 transition flex flex-col justify-between group">
                                 <div>
-                                  <div className="flex justify-between items-center mb-2">
-                                    <span className="text-[9px] font-semibold uppercase bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100">
+                                  <div className="flex justify-between items-center mb-2.5">
+                                    <span className="text-[10px] font-semibold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">
                                       {exam.category}
                                     </span>
-                                    <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1 font-mono tabular-nums">
-                                      <Clock className="w-3 h-3"/> {exam.duration_minutes}p
+                                    <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 font-mono tabular-nums">
+                                      <Clock className="w-3.5 h-3.5"/> {exam.duration_minutes}p
                                     </span>
                                   </div>
-                                  <h3 className="text-xs sm:text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
+                                  <h3 className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
                                     {exam.title}
                                   </h3>
-                                  <p className="text-[11px] text-slate-400 font-medium mb-3 font-mono tabular-nums">
+                                  <p className="text-xs text-slate-400 font-normal mb-3.5 font-mono tabular-nums">
                                     Số câu: {qCount} câu
                                   </p>
                                 </div>
                                 
-                                {/* CỤM NÚT THAO TÁC GỌN GÀNG */}
-                                <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5">
+                                <div className="pt-2.5 border-t border-slate-100 flex items-center gap-2">
                                   {canViewFile && (
                                     <button 
                                       onClick={() => {
                                         if (exam.driveUrl && exam.driveUrl.trim() !== "") window.open(exam.driveUrl, "_blank");
                                         else setPreviewExam(exam);
                                       }}
-                                      className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold transition"
+                                      className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold transition"
                                       title="Xem file đề"
                                     >
-                                      <FileText className="w-3.5 h-3.5"/>
+                                      <FileText className="w-4 h-4"/>
                                     </button>
                                   )}
                                   
                                   <button
                                     onClick={() => setWorkspacePracticeExam(exam)}
-                                    className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 text-xs font-semibold transition"
+                                    className="p-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 text-xs font-semibold transition"
                                     title="Video chữa bài"
                                   >
-                                    <Video className="w-3.5 h-3.5"/>
+                                    <Video className="w-4 h-4"/>
                                   </button>
 
                                   <button 
                                     onClick={() => { setExamRoom({ id: exam.id, title: exam.title, duration: exam.duration_minutes, isHomework: false }); }}
-                                    className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition flex items-center justify-center gap-1 cursor-pointer"
+                                    className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition flex items-center justify-center gap-1 cursor-pointer"
                                   >
                                     <span>Vào thi</span>
-                                    <ArrowRight className="w-3 h-3" />
+                                    <ArrowRight className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               </div>
@@ -1157,23 +1155,23 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                 <tr key={grp.quizId} className="hover:bg-slate-50/50 transition font-sans">
                                   <td className="py-2.5 px-4">
                                     <span className="font-semibold text-slate-800 block truncate max-w-xs">{grp.title}</span>
-                                    <span className="text-[9px] font-semibold text-slate-400 uppercase">{grp.category}</span>
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase">{grp.category}</span>
                                   </td>
                                   <td className="py-2.5 px-3 text-center font-mono tabular-nums">
-                                    <span className="bg-slate-100 text-slate-600 font-semibold px-1.5 py-0.5 rounded text-[11px]">{grp.attempts.length} lần</span>
+                                    <span className="bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded text-xs">{grp.attempts.length} lần</span>
                                   </td>
                                   <td className="py-2.5 px-3 text-center font-mono tabular-nums">
                                     <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-100">
                                       {grp.maxScore.toFixed(1)}
                                     </span>
                                   </td>
-                                  <td className="py-2.5 px-3 text-center text-slate-400 text-[11px] font-mono tabular-nums">
+                                  <td className="py-2.5 px-3 text-center text-slate-400 text-xs font-mono tabular-nums">
                                     {new Date(grp.lastDate).toLocaleDateString("vi-VN")}
                                   </td>
                                   <td className="py-2.5 px-3 text-right">
                                     <button 
                                       onClick={() => setHistoryModalExamId(grp.quizId)}
-                                      className="px-2.5 py-1 text-blue-700 hover:bg-blue-50 rounded text-xs font-semibold transition cursor-pointer"
+                                      className="px-3 py-1 text-blue-700 hover:bg-blue-50 rounded text-xs font-semibold transition cursor-pointer"
                                     >
                                       Xem
                                     </button>
@@ -1196,32 +1194,32 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - THIẾT KẾ COMPACT SAAS TINH GỌN (THAY THẾ VÒNG TRÒN 67% CŨ) */}
+              {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - TIẾN ĐỘ NGANG & BADGE ROW THANH LỊCH */}
               {(activeTab === "progress" || activeTab === "assessments") && (
-                <div className="max-w-5xl mx-auto space-y-3.5 text-left">
+                <div className="max-w-5xl mx-auto space-y-4 text-left">
                   {/* KHỐI TỔNG QUAN TIẾN ĐỘ NGANG (THAY THẾ VÒNG TRÒN 67% CŨ) */}
-                  <div className="bg-white rounded-xl p-3.5 sm:p-4 border border-slate-200/80 shadow-2xs space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="bg-white rounded-xl p-4 sm:p-4.5 border border-slate-200/80 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-xs sm:text-sm font-semibold text-slate-900 tracking-tight">
+                        <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
                           Tiến độ nhiệm vụ học tập
                         </h3>
-                        <p className="text-[11px] text-slate-500 font-medium">
+                        <p className="text-xs text-slate-500 font-medium">
                           Bạn đã hoàn thành <span className="font-semibold text-blue-700 font-mono tabular-nums">{progressStats.completedTasks}/{progressStats.totalTasks}</span> nhiệm vụ.
                         </p>
                       </div>
 
                       {/* 2 MINI STAT CARDS NẰM NGANG */}
-                      <div className="flex items-center gap-2 sm:gap-3 text-xs">
-                        <div className="px-2.5 py-1 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
-                          <span className="text-[10px] uppercase font-semibold text-slate-400">BTVN:</span>
+                      <div className="flex items-center gap-2.5 text-xs">
+                        <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
+                          <span className="text-[11px] uppercase font-semibold text-slate-400">BTVN:</span>
                           <span className="font-semibold text-slate-800 font-mono tabular-nums">
                             {progressStats.submittedHw}/{progressStats.totalHw} đã nộp
                           </span>
                         </div>
 
-                        <div className="px-2.5 py-1 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
-                          <span className="text-[10px] uppercase font-semibold text-slate-400">Kiểm tra:</span>
+                        <div className="px-3 py-1.5 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
+                          <span className="text-[11px] uppercase font-semibold text-slate-400">Kiểm tra:</span>
                           <span className="font-semibold text-slate-800 font-mono tabular-nums">
                             {progressStats.completedTest}/{progressStats.totalTest} hoàn thành
                           </span>
@@ -1230,27 +1228,27 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     </div>
 
                     {/* THANH PROGRESS BAR MẢNH 6PX */}
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
                         <div 
                           className="h-full bg-blue-600 rounded-full transition-all duration-300"
                           style={{ width: `${progressStats.percent}%` }}
                         />
                       </div>
-                      <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono tabular-nums">
+                      <div className="flex justify-between items-center text-[11px] text-slate-400 font-mono tabular-nums">
                         <span>Bắt đầu</span>
                         <span className="font-semibold text-blue-700 font-sans">{progressStats.percent}%</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* DANH SÁCH NHIỆM VỤ THEO TỪNG BÀI - COMPACT BADGE ROW (KHÔNG CHIA Ô THÔ) */}
-                  <div className="space-y-3">
+                  {/* DANH SÁCH NHIỆM VỤ THEO TỪNG BÀI - COMPACT BADGE ROW */}
+                  <div className="space-y-3.5">
                     {onlineChapters.map((chap, cIdx) => (
                       <div key={chap.id || cIdx} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
-                        <div className="px-4 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center gap-2">
-                          <Layers className="w-3.5 h-3.5 text-blue-700" />
-                          <h4 className="font-semibold text-slate-800 text-xs">
+                        <div className="px-4.5 py-3 bg-slate-50/70 border-b border-slate-100 flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-blue-700" />
+                          <h4 className="font-semibold text-slate-800 text-xs sm:text-[13px]">
                             {chap.title}
                           </h4>
                         </div>
@@ -1261,35 +1259,35 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             const testList = les.test_quizzes || [];
 
                             return (
-                              <div key={les.id || lIdx} className="p-3 sm:px-4 space-y-2">
+                              <div key={les.id || lIdx} className="p-3.5 sm:px-4.5 space-y-2.5">
                                 <div className="flex items-center gap-2">
-                                  <BookOpen className="w-3.5 h-3.5 text-slate-400" />
-                                  <h5 className="text-xs sm:text-[13px] font-semibold text-slate-800 truncate">
+                                  <BookOpen className="w-4 h-4 text-slate-400" />
+                                  <h5 className="text-[13.5px] sm:text-sm font-semibold text-slate-800 truncate">
                                     {les.title}
                                   </h5>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-0.5">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs pt-0.5">
                                   {/* CỘT NHIỆM VỤ BTVN */}
-                                  <div className="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center justify-between gap-2">
-                                    <span className="text-[10px] uppercase font-semibold text-slate-400 shrink-0">BTVN:</span>
+                                  <div className="p-2.5 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center justify-between gap-2">
+                                    <span className="text-[11px] uppercase font-semibold text-slate-400 shrink-0">BTVN:</span>
                                     {hwList.length === 0 ? (
-                                      <span className="text-slate-400 text-[11px] italic">Không có BTVN</span>
+                                      <span className="text-slate-400 text-xs italic">Không có BTVN</span>
                                     ) : (
                                       hwList.map((hw: any) => {
                                         const myAtt = allAttempts.find(a => a.studentId === profile?.id && (a.quizId === hw.id || a.quiz_id === hw.id));
                                         return (
-                                          <div key={hw.id} className="flex items-center gap-1.5 min-w-0">
-                                            <span className="truncate text-slate-700 font-medium text-[11px] max-w-[120px]">{hw.title}</span>
+                                          <div key={hw.id} className="flex items-center gap-2 min-w-0">
+                                            <span className="truncate text-slate-700 font-medium text-xs max-w-[130px]">{hw.title}</span>
                                             {myAtt ? (
-                                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold font-mono tabular-nums shrink-0">
+                                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold font-mono tabular-nums shrink-0">
                                                 Đã nộp ({Number(myAtt.score).toFixed(1)}đ)
                                               </span>
                                             ) : (
                                               <button
                                                 type="button"
                                                 onClick={() => setExamRoom({ id: hw.id, title: hw.title, duration: hw.duration_minutes || 0, isHomework: true })}
-                                                className="px-2.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-semibold shrink-0 cursor-pointer transition shadow-2xs"
+                                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shrink-0 cursor-pointer transition shadow-2xs"
                                               >
                                                 Làm bài
                                               </button>
@@ -1301,25 +1299,25 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                   </div>
 
                                   {/* CỘT KIỂM TRA ĐỊNH KỲ */}
-                                  <div className="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center justify-between gap-2">
-                                    <span className="text-[10px] uppercase font-semibold text-slate-400 shrink-0">Kiểm tra:</span>
+                                  <div className="p-2.5 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center justify-between gap-2">
+                                    <span className="text-[11px] uppercase font-semibold text-slate-400 shrink-0">Kiểm tra:</span>
                                     {testList.length === 0 ? (
-                                      <span className="text-slate-400 text-[11px] italic">Không có bài KT</span>
+                                      <span className="text-slate-400 text-xs italic">Không có bài KT</span>
                                     ) : (
                                       testList.map((tq: any) => {
                                         const myAtt = allAttempts.find(a => a.studentId === profile?.id && (a.quizId === tq.id || a.quiz_id === tq.id));
                                         return (
-                                          <div key={tq.id} className="flex items-center gap-1.5 min-w-0">
-                                            <span className="truncate text-slate-700 font-medium text-[11px] max-w-[120px]">{tq.title}</span>
+                                          <div key={tq.id} className="flex items-center gap-2 min-w-0">
+                                            <span className="truncate text-slate-700 font-medium text-xs max-w-[130px]">{tq.title}</span>
                                             {myAtt ? (
-                                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold font-mono tabular-nums shrink-0">
+                                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold font-mono tabular-nums shrink-0">
                                                 Hoàn thành ({Number(myAtt.score).toFixed(1)}đ)
                                               </span>
                                             ) : (
                                               <button
                                                 type="button"
                                                 onClick={() => setExamRoom({ id: tq.id, title: tq.title, duration: tq.duration_minutes || 45, isHomework: false })}
-                                                className="px-2.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-semibold shrink-0 cursor-pointer transition shadow-2xs"
+                                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shrink-0 cursor-pointer transition shadow-2xs"
                                               >
                                                 Vào làm
                                               </button>
@@ -1350,9 +1348,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               {/* TAB 7: THÔNG BÁO (#NOTIFICATIONS) */}
               {activeTab === "notifications" && (
                 <div className="w-full max-w-5xl mx-auto space-y-3.5 text-left">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/60">
                     <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight">Trung tâm thông báo</h2>
-                    <button onClick={handleMarkAllAsRead} className="px-3 py-1 bg-blue-50 text-blue-700 font-semibold text-xs rounded-lg hover:bg-blue-100 transition cursor-pointer">
+                    <button onClick={handleMarkAllAsRead} className="px-3.5 py-1.5 bg-blue-50 text-blue-700 font-semibold text-xs rounded-lg hover:bg-blue-100 transition cursor-pointer">
                       Đã đọc tất cả
                     </button>
                   </div>
@@ -1366,18 +1364,18 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           <div 
                             key={item.id} 
                             onClick={() => handleActionFromCenter(item)} 
-                            className={"p-3 rounded-xl border transition flex items-center justify-between gap-3 cursor-pointer " + (isUnread ? "bg-blue-50/30 border-blue-300" : "bg-white border-slate-200 hover:border-slate-300")}
+                            className={"p-3.5 rounded-xl border transition flex items-center justify-between gap-3 cursor-pointer " + (isUnread ? "bg-blue-50/30 border-blue-300" : "bg-white border-slate-200 hover:border-slate-300")}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="flex items-center gap-3 min-w-0">
                               <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
                                 <Clock className="w-4 h-4" />
                               </div>
                               <div className="min-w-0">
                                 <h4 className={"text-xs truncate " + (isUnread ? "font-semibold text-blue-800" : "font-semibold text-slate-800")}>{item.title}</h4>
-                                <p className="text-[11px] text-slate-500 truncate">{item.desc}</p>
+                                <p className="text-xs text-slate-500 truncate">{item.desc}</p>
                               </div>
                             </div>
-                            <span className="text-[10px] text-slate-400 shrink-0 font-medium font-mono tabular-nums">{item.dateStr}</span>
+                            <span className="text-xs text-slate-400 shrink-0 font-medium font-mono tabular-nums">{item.dateStr}</span>
                           </div>
                         );
                       })
@@ -1410,10 +1408,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
-                    <th className="py-2 px-3 text-center">Lần</th>
-                    <th className="py-2 px-3">Thời gian nộp</th>
-                    <th className="py-2 px-3 text-center">Thời lượng</th>
-                    <th className="py-2 px-3 text-center">Điểm số</th>
+                    <th className="py-2.5 px-3.5 text-center">Lần</th>
+                    <th className="py-2.5 px-3.5">Thời gian nộp</th>
+                    <th className="py-2.5 px-3.5 text-center">Thời lượng</th>
+                    <th className="py-2.5 px-3.5 text-center">Điểm số</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white font-mono tabular-nums">
@@ -1421,10 +1419,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     const isMax = att.score === practiceHistoryGrouped.find((g: any) => g.quizId === historyModalExamId)?.maxScore;
                     return (
                       <tr key={idx} className={"hover:bg-slate-50/50 " + (isMax ? "bg-amber-50/30" : "")}>
-                        <td className="py-2 px-3 text-center font-semibold text-slate-700">{idx + 1}</td>
-                        <td className="py-2 px-3 text-slate-600">{new Date(att.createdAt || att.submittedAt).toLocaleString("vi-VN")}</td>
-                        <td className="py-2 px-3 text-center text-slate-500">{formatCompletionTime(Number(att.durationSeconds || att.completionTime) || 0)}</td>
-                        <td className="py-2 px-3 text-center">
+                        <td className="py-2.5 px-3.5 text-center font-semibold text-slate-700">{idx + 1}</td>
+                        <td className="py-2.5 px-3.5 text-slate-600">{new Date(att.createdAt || att.submittedAt).toLocaleString("vi-VN")}</td>
+                        <td className="py-2.5 px-3.5 text-center text-slate-500">{formatCompletionTime(Number(att.durationSeconds || att.completionTime) || 0)}</td>
+                        <td className="py-2.5 px-3.5 text-center">
                           <span className={"font-semibold " + (isMax ? "text-amber-600" : "text-blue-700")}>{Number(att.score).toFixed(1)}</span>
                         </td>
                       </tr>
@@ -1445,10 +1443,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         >
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 p-5 cursor-default">
             <h4 className="text-sm font-semibold text-slate-900 mb-2">{selectedSysNotif.title}</h4>
-            <div className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl mb-4 border border-slate-100">
+            <div className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl mb-4 border border-slate-100">
               {selectedSysNotif.desc}
             </div>
-            <button onClick={() => setSelectedSysNotif(null)} className="w-full py-2 bg-slate-800 text-white rounded-xl text-xs font-semibold cursor-pointer">
+            <button onClick={() => setSelectedSysNotif(null)} className="w-full py-2.5 bg-slate-800 text-white rounded-xl text-xs font-semibold cursor-pointer">
               Đóng
             </button>
           </div>
@@ -1468,16 +1466,16 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 overflow-y-auto custom-scrollbar space-y-3">
+            <div className="p-4 overflow-y-auto custom-scrollbar space-y-3.5">
               {previewExam.data?.map((sec: any, sIdx: number) => (
                 <div key={sIdx} className="space-y-2">
-                  <h4 className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded inline-block">{sec.section_title || "Phần câu hỏi"}</h4>
+                  <h4 className="text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded inline-block">{sec.section_title || "Phần câu hỏi"}</h4>
                   {(sec.questions || []).map((q: any, qIdx: number) => (
-                    <div key={qIdx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                    <div key={qIdx} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
                       <div className="font-medium" dangerouslySetInnerHTML={{ __html: q.prompt_html || q.prompt }} />
-                      <div className="grid grid-cols-2 gap-1.5 pt-1">
+                      <div className="grid grid-cols-2 gap-2 pt-1">
                         {(q.options || []).map((opt: any, oIdx: number) => (
-                          <div key={oIdx} className="p-1.5 bg-white rounded border border-slate-200 text-slate-700">
+                          <div key={oIdx} className="p-2 bg-white rounded border border-slate-200 text-slate-700">
                             <span className="font-semibold text-blue-700 mr-1">{opt.key}.</span>
                             <span dangerouslySetInnerHTML={{ __html: opt.text_html || opt.text }} />
                           </div>
