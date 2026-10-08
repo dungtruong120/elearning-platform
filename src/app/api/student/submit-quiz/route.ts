@@ -1,88 +1,127 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Khởi tạo Supabase Client phía Server
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseServer = createClient(supabaseUrl, supabaseServiceKey);
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { quiz_id, student_id, answers } = await req.json();
+    const body = await req.json();
+    const {
+      quizId,
+      quizTitle,
+      studentId,
+      studentName,
+      username,
+      school,
+      score,
+      totalQuestions,
+      correctCount,
+      timeSpent,
+      durationSeconds,
+      isHomework,
+      answers
+    } = body;
 
-    if (!quiz_id || !student_id || !answers) {
-      return NextResponse.json({ error: "Thiếu dữ liệu bài làm." }, { status: 400 });
+    if (!quizId || score === undefined) {
+      return NextResponse.json({ error: "Thiếu thông tin bắt buộc của bài thi" }, { status: 400 });
     }
 
-    const { data: questions, error: qError } = await supabaseAdmin
-      .from("quiz_questions")
-      .select("id, question_text, options, correct_option, explanation, order_index")
-      .eq("quiz_id", quiz_id)
-      .order("order_index", { ascending: true });
+    const nowIso = new Date().toISOString();
+    const finalScore = Number(score) || 0;
+    const finalStudentId = String(studentId || username || "student").trim();
+    const finalStudentName = String(studentName || username || "Học sinh").trim();
+    const cleanDuration = timeSpent || (durationSeconds ? `${Math.floor(durationSeconds / 60)} phút ${durationSeconds % 60} giây` : "15 phút");
 
-    if (qError || !questions || questions.length === 0) {
-      return NextResponse.json({ error: "Không tìm thấy câu hỏi của bài kiểm tra." }, { status: 404 });
-    }
+    // 1. Chuẩn bị payload chuẩn snake_case
+    const snakePayload = {
+      id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      quiz_id: String(quizId),
+      exam_id: String(quizId),
+      quiz_title: String(quizTitle || ""),
+      exam_title: String(quizTitle || ""),
+      student_id: finalStudentId,
+      user_id: finalStudentId,
+      student_name: finalStudentName,
+      full_name: finalStudentName,
+      user_name: finalStudentName,
+      school: school || "THPT",
+      score: finalScore,
+      points: finalScore,
+      total_questions: Number(totalQuestions) || 0,
+      correct_count: Number(correctCount) || 0,
+      time_spent: cleanDuration,
+      duration_seconds: Number(durationSeconds) || 0,
+      is_homework: Boolean(isHomework),
+      type: isHomework ? "homework" : "practice",
+      answers: answers || {},
+      created_at: nowIso
+    };
 
-    let correctCount = 0;
-    const totalQuestions = questions.length;
+    // 2. Chuẩn bị payload camelCase dự phòng
+    const camelPayload = {
+      id: snakePayload.id,
+      quizId: String(quizId),
+      examId: String(quizId),
+      quizTitle: String(quizTitle || ""),
+      examTitle: String(quizTitle || ""),
+      studentId: finalStudentId,
+      userId: finalStudentId,
+      studentName: finalStudentName,
+      fullName: finalStudentName,
+      userName: finalStudentName,
+      school: school || "THPT",
+      score: finalScore,
+      points: finalScore,
+      totalQuestions: Number(totalQuestions) || 0,
+      correctCount: Number(correctCount) || 0,
+      timeSpent: cleanDuration,
+      durationSeconds: Number(durationSeconds) || 0,
+      isHomework: Boolean(isHomework),
+      type: isHomework ? "homework" : "practice",
+      answers: answers || {},
+      createdAt: nowIso
+    };
 
-    const details = questions.map((q) => {
-      const userAnswer = answers[q.id] || "";
-      const isCorrect = userAnswer.toUpperCase() === q.correct_option.toUpperCase();
-      if (isCorrect) correctCount++;
+    // 3. Tiến hành ghi an toàn vào các bảng điểm hiện có trên Supabase
+    const tables = ["exam_attempts", "attempts", "quiz_attempts"];
+    let savedSuccessfully = false;
+    const results: Record<string, any> = {};
 
-      return {
-        question_id: q.id,
-        question_text: q.question_text,
-        options: q.options,
-        user_answer: userAnswer,
-        correct_option: q.correct_option,
-        is_correct: isCorrect,
-        explanation: q.explanation,
-      };
-    });
+    for (const table of tables) {
+      try {
+        // Thử insert snake_case trước
+        let { data, error } = await supabaseServer.from(table).insert([snakePayload]).select();
+        
+        // Nếu lỗi do tên cột không khớp, thử insert bản camelCase
+        if (error) {
+          const retry = await supabaseServer.from(table).insert([camelPayload]).select();
+          if (!retry.error) {
+            results[table] = "success_camel";
+            savedSuccessfully = true;
+            continue;
+          }
+        } else {
+          results[table] = "success_snake";
+          savedSuccessfully = true;
+          continue;
+        }
 
-    const finalScore = Number(((correctCount / totalQuestions) * 10).toFixed(2));
-
-    await supabaseAdmin.from("quiz_results").insert([
-      {
-        quiz_id,
-        student_id,
-        score: finalScore,
-        total_score: 10,
-        answers,
-      },
-    ]);
-
-    const { data: quizInfo } = await supabaseAdmin
-      .from("quizzes")
-      .select("lesson_id")
-      .eq("id", quiz_id)
-      .single();
-
-    if (quizInfo) {
-      await supabaseAdmin.from("submissions").insert([
-        {
-          lesson_id: quizInfo.lesson_id,
-          student_id,
-          file_url: `quiz_score:${finalScore}/10`,
-          status: "graded",
-          score: finalScore,
-        },
-      ]);
+        results[table] = error?.message;
+      } catch (tableErr: any) {
+        results[table] = tableErr?.message;
+      }
     }
 
     return NextResponse.json({
-      success: true,
-      score: finalScore,
-      total_score: 10,
-      correct_count: correctCount,
-      total_questions: totalQuestions,
-      details,
+      success: savedSuccessfully,
+      results,
+      savedRecord: snakePayload
     });
   } catch (error: any) {
-    console.error("Lỗi chấm điểm:", error);
-    return NextResponse.json({ error: error.message || "Lỗi máy chủ khi chấm điểm." }, { status: 500 });
+    console.error("Lỗi API nộp bài submit-quiz:", error);
+    return NextResponse.json({ error: error.message || "Lỗi server nội bộ" }, { status: 500 });
   }
 }
