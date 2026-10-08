@@ -6,7 +6,7 @@ import {
   ArrowLeft, Clock, CheckCircle2, XCircle, AlertCircle,
   HelpCircle, ChevronLeft, ChevronRight, RotateCcw,
   Eye, Trophy, Home, Send, List, LayoutGrid, Award, Check,
-  Maximize2, Minimize2, X, Grid3X3, BookOpen, PenLine
+  Maximize2, Minimize2, X, Grid3X3, BookOpen, PenLine, Loader2
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -149,6 +149,7 @@ export function ExamRoomView({
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
 
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>(() => {
@@ -358,8 +359,10 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   };
 
-  // NỘP BÀI THI: ĐẢM BẢO GỬI THẲNG LÊN DATABASE SUPABASE
+  // NỘP BÀI THI: XỬ LÝ AN TOÀN QUA API ROUTE VÀ FALLBACK SUPABASE CLIENT
   const handleSubmitExam = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     setIsMobileDrawerOpen(false);
     const answers = userAnswersRef.current;
 
@@ -422,11 +425,42 @@ export function ExamRoomView({
     const durationText = Math.floor(timeSpentSeconds / 60) + " phút " + (timeSpentSeconds % 60) + " giây";
     const nowIso = new Date().toISOString();
 
-    const studentId = profile?.id || (profile as any)?.username || "dung123";
-    const studentName = profile?.full_name || (profile as any)?.username || "dung123";
+    const studentId = profile?.id || (profile as any)?.username || "student";
+    const studentName = profile?.full_name || (profile as any)?.username || "Học sinh";
 
-    // BẢN GHI DỮ LIỆU ĐẦY ĐỦ CÁC CỘT TƯƠNG THÍCH MỌI SCHEMA
-    const attemptRecord: any = {
+    const attemptPayload = {
+      quizId: String(quizId),
+      quizTitle: String(quizTitle),
+      studentId: String(studentId),
+      studentName: String(studentName),
+      username: String((profile as any)?.username || studentId),
+      school: profile?.school || "THPT",
+      score: calculatedScore,
+      totalQuestions: questions.length,
+      correctCount: fullCorrectCount,
+      timeSpent: durationText,
+      durationSeconds: timeSpentSeconds,
+      isHomework: Boolean(isHomework),
+      answers
+    };
+
+    // 1. GỬI QUA API ROUTE SERVER-SIDE (ĐẢM BẢO KHÔNG BỊ RLS CHẶN)
+    try {
+      const response = await fetch("/api/student/submit-quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(attemptPayload)
+      });
+      const resJson = await response.json();
+      if (!response.ok) {
+        console.warn("API Server phản hồi lỗi, kích hoạt fallback client:", resJson);
+      }
+    } catch (apiErr) {
+      console.warn("Không kết nối được API Route, dùng client fallback:", apiErr);
+    }
+
+    // 2. FALLBACK TRỰC TIẾP TỪ SUPABASE CLIENT
+    const clientRecord: any = {
       id: "att-" + Date.now(),
       quiz_id: String(quizId),
       quizId: String(quizId),
@@ -435,15 +469,13 @@ export function ExamRoomView({
       quizTitle: String(quizTitle),
       exam_title: String(quizTitle),
       examTitle: String(quizTitle),
-      title: String(quizTitle),
-      name: String(quizTitle),
       student_id: String(studentId),
       studentId: String(studentId),
+      user_id: String(studentId),
       student_name: String(studentName),
       studentName: String(studentName),
-      user_name: String(studentName),
       full_name: String(studentName),
-      username: String((profile as any)?.username || studentId),
+      user_name: String(studentName),
       school: profile?.school || "THPT",
       score: calculatedScore,
       points: calculatedScore,
@@ -457,40 +489,36 @@ export function ExamRoomView({
       is_homework: Boolean(isHomework),
       isHomework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
-      answers,
-      userAnswers: answers,
       created_at: nowIso,
-      createdAt: nowIso,
-      submittedAt: nowIso
+      createdAt: nowIso
     };
 
-    // 1. GỬI TỨC THÌ LÊN CƠ SỞ DỮ LIỆU SUPABASE
     try {
       await Promise.allSettled([
-        supabase.from("exam_attempts").insert([attemptRecord]),
-        supabase.from("attempts").insert([attemptRecord]),
-        supabase.from("quiz_attempts").insert([attemptRecord])
+        supabase.from("exam_attempts").insert([clientRecord]),
+        supabase.from("attempts").insert([clientRecord]),
+        supabase.from("quiz_attempts").insert([clientRecord])
       ]);
-    } catch (err) {
-      console.error("Lỗi đẩy điểm lên Supabase:", err);
+    } catch (clientErr) {
+      console.error("Lỗi Fallback Client:", clientErr);
     }
 
-    // 2. PHÁT TÍN HIỆU REALTIME BROADCAST CHO ADMIN NHẬN NGAY
+    // 3. PHÁT REALTIME CHO TOÀN BỘ CÁC TAB ADMIN ĐANG MỞ
     try {
       const channel = supabase.channel("admin-realtime-global-sync");
       channel.send({
         type: "broadcast",
         event: "new_attempt",
-        payload: attemptRecord
+        payload: clientRecord
       });
     } catch (e) {}
 
-    // 3. LƯU BẢN GHI TẠI LOCALSTORAGE
+    // 4. LƯU LOCALSTORAGE ĐỂ PHỤC VỤ HIỂN THỊ OFFLINE
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
         const parsed = savedAttempts ? JSON.parse(savedAttempts) : [];
-        const updatedAttempts = [attemptRecord, ...parsed];
+        const updatedAttempts = [clientRecord, ...parsed];
         localStorage.setItem("edunexus_attempts", JSON.stringify(updatedAttempts));
         window.dispatchEvent(new Event("storage"));
 
@@ -504,6 +532,8 @@ export function ExamRoomView({
         setRankingList(sorted.slice(0, 10));
       } catch (e) {}
     }
+
+    setIsSubmitting(false);
   };
 
   const handleRetake = () => {
@@ -798,11 +828,21 @@ export function ExamRoomView({
           {!isSubmitted ? (
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => handleSubmitExam()}
-              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm shadow-xs flex items-center gap-1 cursor-pointer shrink-0"
+              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm shadow-xs flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-60"
             >
-              <Send className="w-3.5 h-3.5" />
-              <span>{isHomework ? "Nộp bài tập" : "Nộp bài"} <span className="hidden sm:inline">({answeredCount}/{questions.length})</span></span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Đang nộp...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isHomework ? "Nộp bài tập" : "Nộp bài"} <span className="hidden sm:inline">({answeredCount}/{questions.length})</span></span>
+                </>
+              )}
             </button>
           ) : (
             <button
@@ -893,10 +933,20 @@ export function ExamRoomView({
                       !isSubmitted && (
                         <button
                           type="button"
+                          disabled={isSubmitting}
                           onClick={() => handleSubmitExam()}
-                          className="px-4 py-1.5 sm:px-5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                          className="px-4 py-1.5 sm:px-5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
                         >
-                          <Send className="w-3.5 h-3.5" /> Hoàn tất
+                          {isSubmitting ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Đang nộp...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3.5 h-3.5" /> Hoàn tất
+                            </>
+                          )}
                         </button>
                       )
                     )}
@@ -1016,10 +1066,20 @@ export function ExamRoomView({
             {!isSubmitted ? (
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => handleSubmitExam()}
-                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
               >
-                <Send className="w-3.5 h-3.5" /> {isHomework ? "Nộp BTVN" : "Nộp bài thi"}
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Đang nộp...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" /> {isHomework ? "Nộp BTVN" : "Nộp bài thi"}
+                  </>
+                )}
               </button>
             ) : (
               <button
@@ -1126,13 +1186,23 @@ export function ExamRoomView({
                 {!isSubmitted && (
                   <button
                     type="button"
+                    disabled={isSubmitting}
                     onClick={() => {
                       setIsMobileDrawerOpen(false);
                       handleSubmitExam();
                     }}
-                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                   >
-                    <Send className="w-3.5 h-3.5" /> Nộp bài
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Đang nộp...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" /> Nộp bài
+                      </>
+                    )}
                   </button>
                 )}
               </div>
