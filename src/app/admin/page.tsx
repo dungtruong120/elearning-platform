@@ -17,13 +17,13 @@ import StudentsTab from "@/components/admin/tabs/StudentsTab";
 import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
 
-// HÀM CHUẨN HÓA KHÓA SO KHỚP CHUẨN UNICODE NFC CHỐNG LỆCH DỮ LIỆU
-function cleanMatchKey(str: any): string {
+// HÀM CHUẨN HÓA TIÊU ĐỀ KHÔNG BỊ LỖI FONT TIẾNG VIỆT
+function normalizeText(str: any): string {
   if (!str) return "";
   return String(str)
     .normalize("NFC")
     .toLowerCase()
-    .replace(/[^a-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -239,18 +239,17 @@ function AdminDashboardContent() {
     }
   };
 
-  // NẠP DỮ LIỆU TOÀN DIỆN QUA API SERVER-SIDE (VƯỢT QUA 100% RÀO CẢN RLS)
+  // NẠP DỮ LIỆU QUA API SERVER ĐỒNG THỜI BẢO VỆ FALLBACK CHỐNG XÓA TRẮNG
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
 
     try {
-      // 1. Gọi Endpoint Server với Service Role Key để lấy dữ liệu đầy đủ
       const res = await fetch("/api/admin/data", { cache: "no-store" });
       const apiData = await res.json();
 
       if (res.ok && apiData.success) {
-        // A. Cập nhật Profiles học sinh (Fallback an toàn)
+        // A. CẬP NHẬT HỌC VIÊN: TUYỆT ĐỐI CHỈ SET KHI CÓ DỮ LIỆU > 0, KHÔNG ĐÈ MẢNG RỖNG
         if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
           setRegisteredStudents(apiData.profiles);
           if (typeof window !== "undefined") {
@@ -258,7 +257,7 @@ function AdminDashboardContent() {
           }
         }
 
-        // B. Cập nhật Đề thi
+        // B. CẬP NHẬT ĐỀ THI
         if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
           setPracticeExams(apiData.practiceExams);
           if (typeof window !== "undefined") {
@@ -266,10 +265,25 @@ function AdminDashboardContent() {
           }
         }
 
-        // C. Hợp nhất Điểm số thông minh (Tất cả 8 lượt thi)
+        // C. HỢP NHẤT TẤT CẢ CÁC BẢN GHI ĐIỂM SỐ
         const map = new Map();
 
-        // Nạp từ exam_attempts
+        // Nạp trước dữ liệu đã có trong LocalStorage để làm nền tảng bảo toàn
+        if (typeof window !== "undefined") {
+          try {
+            const rawLocal = localStorage.getItem("edunexus_attempts");
+            if (rawLocal) {
+              const localParsed = JSON.parse(rawLocal);
+              if (Array.isArray(localParsed)) {
+                localParsed.forEach((locItem: any) => {
+                  if (locItem?.id) map.set(locItem.id, locItem);
+                });
+              }
+            }
+          } catch (e) {}
+        }
+
+        // Nạp tiếp từ exam_attempts
         (apiData.examAttempts || []).forEach((item: any) => {
           if (!item) return;
           const quizId = String(item.quiz_id || item.exam_id || "").trim();
@@ -302,7 +316,7 @@ function AdminDashboardContent() {
           map.set(normalized.id, normalized);
         });
 
-        // Nạp từ quiz_results
+        // Nạp tiếp từ quiz_results
         (apiData.quizResults || []).forEach((item: any) => {
           if (!item) return;
           const recordId = String(item.id);
@@ -333,23 +347,6 @@ function AdminDashboardContent() {
           }
         });
 
-        // Đọc thêm bản ghi từ LocalStorage nếu có
-        if (typeof window !== "undefined") {
-          try {
-            const rawLocal = localStorage.getItem("edunexus_attempts");
-            if (rawLocal) {
-              const localParsed = JSON.parse(rawLocal);
-              if (Array.isArray(localParsed)) {
-                localParsed.forEach((locItem: any) => {
-                  if (locItem?.id && !map.has(locItem.id)) {
-                    map.set(locItem.id, locItem);
-                  }
-                });
-              }
-            }
-          } catch (e) {}
-        }
-
         const finalAttempts = Array.from(map.values());
         if (finalAttempts.length > 0) {
           setAllAttempts(finalAttempts);
@@ -357,27 +354,14 @@ function AdminDashboardContent() {
             localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
           }
         }
-      } else {
-        // Fallback Client Supabase nếu API Route gặp sự cố
-        fallbackFetchClient();
       }
     } catch (err) {
-      console.warn("API Server không phản hồi, dùng client fallback:", err);
-      fallbackFetchClient();
+      console.warn("Lỗi syncAdminGlobalData:", err);
     } finally {
       setIsLoadingAnalytics(false);
       setIsLoadingExams(false);
     }
   }, []);
-
-  const fallbackFetchClient = async () => {
-    try {
-      const { data: dbStudents } = await supabase.from("profiles").select("*").neq("role", "admin");
-      if (dbStudents && dbStudents.length > 0) {
-        setRegisteredStudents(dbStudents);
-      }
-    } catch (e) {}
-  };
 
   const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -447,7 +431,6 @@ function AdminDashboardContent() {
       }
     } catch (e) {}
 
-    // Gọi hàm đồng bộ tổng thể qua Server Route
     await syncAdminGlobalData();
 
     try {
@@ -474,7 +457,6 @@ function AdminDashboardContent() {
 
     window.addEventListener("popstate", handlePopState);
 
-    // KÊNH REALTIME TOÀN CỤC: NHẬN DIỆN CẢ EVENT DB LẪN BROADCAST HỌC SINH NỘP BÀI
     const channel = supabase
       .channel("admin-realtime-global-sync")
       .on("broadcast", { event: "new_attempt" }, () => {
@@ -483,7 +465,7 @@ function AdminDashboardContent() {
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => syncAdminGlobalData())
       .on("postgres_changes", { event: "*", schema: "public", table: "quiz_results" }, () => syncAdminGlobalData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => syncAdminGlobalData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => syncAdminGlobalData())
       .subscribe();
 
@@ -1041,7 +1023,7 @@ function AdminDashboardContent() {
         id: s.id,
         name: s.full_name || s.username || "Học sinh",
         username: s.username || (s.email ? s.email.split("@")[0] : ""),
-        cleanName: cleanMatchKey(s.full_name || s.username || ""),
+        cleanName: normalizeText(s.full_name || s.username || ""),
         school: s.school || "THPT",
         mode: s.learning_mode || s.study_mode || "online",
         totalAttempts: 0,
@@ -1056,7 +1038,7 @@ function AdminDashboardContent() {
       if (!att) return;
       const attStuId = String(att.studentId || att.student_id || att.user_id || "").trim();
       const rawAttName = String(att.studentName || att.student_name || att.full_name || att.user_name || "").trim();
-      const cleanAttName = cleanMatchKey(rawAttName);
+      const cleanAttName = normalizeText(rawAttName);
 
       let targetId = "";
       if (stats[attStuId]) {
@@ -1064,8 +1046,8 @@ function AdminDashboardContent() {
       } else {
         const found = (registeredStudents || []).find(s => 
           s.id === attStuId ||
-          (cleanAttName && cleanMatchKey(s.full_name) === cleanAttName) ||
-          (s.username && cleanMatchKey(s.username) === cleanMatchKey(attStuId)) ||
+          (cleanAttName && normalizeText(s.full_name) === cleanAttName) ||
+          (s.username && normalizeText(s.username) === normalizeText(attStuId)) ||
           (s.email && s.email.toLowerCase().includes(attStuId.toLowerCase()))
         );
         targetId = found ? found.id : (attStuId || rawAttName);
@@ -1127,7 +1109,7 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => Number(b.overallAvg || 0) - Number(a.overallAvg || 0));
   }, [allAttempts, registeredStudents, analyticsModeFilter]);
 
-  // HIỂN THỊ CHÍNH XÁC KHO LUYỆN ĐỀ & BẢNG ĐIỂM TỪNG ĐỀ (TÍNH ĐÚNG 8 LƯỢT & ĐIỂM CAO NHẤT 2.9)
+  // SO KHỚP ĐỀ THI LINH HOẠT VÀ TÍNH ĐÚNG 8 LƯỢT + ĐIỂM CAO NHẤT 2.9
   const examsWithScoresData = useMemo(() => {
     let list = [...practiceExams];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -1136,18 +1118,24 @@ function AdminDashboardContent() {
 
     return list.map(ex => {
       const exId = String(ex?.id || "").trim();
-      const cleanTitle = cleanMatchKey(ex?.title);
-      const exNumericId = exId.replace(/[^0-9]/g, "");
+      const exTitleNorm = normalizeText(ex?.title);
+      // Trích xuất chuỗi số nhận dạng duy nhất (ví dụ "1791195620073")
+      const exNumMatch = exId.match(/\d{10,}/)?.[0] || "";
 
       const attempts = (allAttempts || []).filter(a => {
         if (!a) return false;
         const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || a.examId || "").trim();
-        const aNumericId = aQuizId.replace(/[^0-9]/g, "");
-        const aTitle = cleanMatchKey(a.examTitle || a.exam_title || a.quizTitle || a.title);
+        const aTitleNorm = normalizeText(a.examTitle || a.exam_title || a.quizTitle || a.title);
+        const aNumMatch = aQuizId.match(/\d{10,}/)?.[0] || "";
 
-        const matchId = (aQuizId && exId && aQuizId === exId) || (exNumericId && aNumericId && exNumericId === aNumericId);
-        const matchTitle = cleanTitle && aTitle && (aTitle === cleanTitle || cleanTitle.includes(aTitle) || aTitle.includes(cleanTitle));
-        return matchId || matchTitle;
+        // So khớp 1: ID tuyệt đối
+        if (aQuizId && exId && aQuizId === exId) return true;
+        // So khớp 2: Trùng chuỗi số định danh (dù là prac- hay exam-)
+        if (exNumMatch && aNumMatch && exNumMatch === aNumMatch) return true;
+        // So khớp 3: Tiêu đề tương đương nhau
+        if (exTitleNorm && aTitleNorm && (exTitleNorm === aTitleNorm || exTitleNorm.includes(aTitleNorm) || aTitleNorm.includes(exTitleNorm))) return true;
+
+        return false;
       });
 
       const studentMap = new Map();
