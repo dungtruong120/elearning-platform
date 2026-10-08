@@ -16,24 +16,33 @@ export const MatrixCell = ({
   onView: () => void;
   label: string;
 }) => {
-  if (items && items.length > 0) {
+  const count = items && Array.isArray(items) ? items.length : 0;
+
+  if (count > 0) {
     return (
       <button 
         type="button"
-        onClick={onView} 
-        title={"Xem danh sách (" + items.length + ")"} 
-        className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-[#1D4ED8] text-[#1D4ED8] bg-blue-50 font-black text-xs hover:bg-[#1D4ED8] hover:text-white transition-all mx-auto cursor-pointer shadow-sm"
+        onClick={(e) => {
+          e.stopPropagation();
+          onView();
+        }} 
+        title={`Xem danh sách ${label} (${count})`} 
+        className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-[#1D4ED8] text-[#1D4ED8] bg-blue-50 font-black text-xs hover:bg-[#1D4ED8] hover:text-white transition-all mx-auto cursor-pointer shadow-sm select-none"
       >
-        {items.length}
+        {count}
       </button>
     );
   }
+
   return (
     <button 
       type="button"
-      onClick={onAdd} 
-      title={"Thêm " + label} 
-      className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-[#1D4ED8] hover:text-[#1D4ED8] hover:bg-blue-50 transition-all mx-auto cursor-pointer"
+      onClick={(e) => {
+        e.stopPropagation();
+        onAdd();
+      }} 
+      title={`Thêm ${label}`} 
+      className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-[#1D4ED8] hover:text-[#1D4ED8] hover:bg-blue-50 transition-all mx-auto cursor-pointer select-none"
     >
       <Plus className="w-3.5 h-3.5" />
     </button>
@@ -74,7 +83,8 @@ export default function LessonsTab({
   handleDeleteLesson
 }: LessonsTabProps) {
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="space-y-6 animate-in fade-in duration-300 text-left">
+      {/* THANH ĐIỀU HƯỚNG BỘ LỌC VÀ NÚT TẠO MỚI */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
         <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
           <button
@@ -139,6 +149,7 @@ export default function LessonsTab({
         </div>
       </div>
 
+      {/* BẢNG QUẢN LÝ MATRIX NỘI DUNG */}
       <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full min-w-[1100px] text-left border-collapse">
@@ -191,6 +202,8 @@ export default function LessonsTab({
                     <td className="py-4 px-3 text-center border-r border-slate-100 text-xs font-bold text-slate-600">
                       {les.format || "Zoom"}
                     </td>
+
+                    {/* CỘT VIDEO */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.video_list} 
@@ -199,6 +212,8 @@ export default function LessonsTab({
                         onView={() => setViewResourcesModal({ lessonId: les.id, type: "video_list", title: "Video", items: les.video_list })} 
                       />
                     </td>
+
+                    {/* CỘT BÀI GIẢNG */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.lecture_files} 
@@ -207,6 +222,8 @@ export default function LessonsTab({
                         onView={() => setViewResourcesModal({ lessonId: les.id, type: "lecture_files", title: "Bài giảng", items: les.lecture_files })} 
                       />
                     </td>
+
+                    {/* CỘT VIẾT TAY */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.handwritten_notes} 
@@ -215,6 +232,8 @@ export default function LessonsTab({
                         onView={() => setViewResourcesModal({ lessonId: les.id, type: "handwritten_notes", title: "Viết tay", items: les.handwritten_notes })} 
                       />
                     </td>
+
+                    {/* CỘT BTVN */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.homework_files} 
@@ -223,6 +242,8 @@ export default function LessonsTab({
                         onView={() => setViewResourcesModal({ lessonId: les.id, type: "homework_files", title: "BTVN", items: les.homework_files })} 
                       />
                     </td>
+
+                    {/* CỘT ĐỀ KT */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.test_quizzes} 
@@ -231,6 +252,8 @@ export default function LessonsTab({
                         onView={() => setViewResourcesModal({ lessonId: les.id, type: "test_quizzes", title: "Đề kiểm tra", items: les.test_quizzes })} 
                       />
                     </td>
+
+                    {/* CỘT TĂNG CƯỜNG */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.extra_resources} 
@@ -239,6 +262,8 @@ export default function LessonsTab({
                         onView={() => setViewResourcesModal({ lessonId: les.id, type: "extra_resources", title: "Tăng cường", items: les.extra_resources })} 
                       />
                     </td>
+
+                    {/* THAO TÁC */}
                     <td className="py-4 px-4">
                       <div className="flex items-center justify-center gap-2">
                         <button 
@@ -248,8 +273,8 @@ export default function LessonsTab({
                             setEditLessonForm({ 
                               title: les.title, 
                               description: les.description || "", 
-                              duration: 45, 
-                              format: "Zoom", 
+                              duration: les.duration || 45, 
+                              format: les.format || "Zoom", 
                               target_mode: les.target_mode || "all" 
                             }); 
                           }} 
