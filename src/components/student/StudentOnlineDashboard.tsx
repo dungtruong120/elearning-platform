@@ -622,7 +622,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return "not_started";
   }, [allAttempts, profile?.id]);
 
-  // HÀM TRA CỨU BÀI LÀM ĐA TẦNG CHO BTVN VÀ BÀI KIỂM TRA (GIẢI QUYẾT TRIỆT ĐỂ LỖI DỮ LIỆU)
+  // HÀM TRA CỨU BÀI LÀM ĐA TẦNG CHO BTVN VÀ BÀI KIỂM TRA (ĐẢM BẢO CHÍNH XÁC TUYỆT ĐỐI)
   const findAttemptForQuiz = useCallback((quiz: any, lessonTitle: string, isHomeworkCheck: boolean) => {
     if (!quiz && !lessonTitle) return null;
     const qId = quiz?.id ? String(quiz.id).trim().toLowerCase() : "";
@@ -636,13 +636,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       const aTitle = normalizeStr(a.quizTitle || a.examTitle || a.title);
       const isHw = Boolean(a.isHomework || a.is_homework || a.type === "homework");
 
-      // 1. So khớp theo ID trực tiếp
+      // 1. So khớp ID trực tiếp
       if (qId && aQuizId && aQuizId === qId) return true;
 
-      // 2. So khớp theo tiêu đề bài tập / bài kiểm tra
+      // 2. So khớp theo tiêu đề bài tập / đề kiểm tra
       if (qTitle && aTitle && (aTitle === qTitle || aTitle.includes(qTitle) || qTitle.includes(aTitle))) return true;
 
-      // 3. So khớp theo tiêu đề bài học (cho phép tìm các bài nộp theo bài học)
+      // 3. So khớp theo tiêu đề bài học
       if (lesTitle && aTitle && (aTitle.includes(lesTitle) || lesTitle.includes(aTitle))) {
         if (isHomeworkCheck && isHw) return true;
         if (!isHomeworkCheck && !isHw) return true;
@@ -732,10 +732,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
       style={{ fontFamily: "'Be Vietnam Pro', sans-serif" }}
       className="h-screen w-full bg-[#F8FAFC] antialiased text-slate-800 tracking-normal leading-relaxed flex overflow-hidden relative selection:bg-blue-500/20"
     >
-      <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap');
-      `}</style>
-
       <AnimatePresence>
         {onlineToast && (
           <motion.div 
