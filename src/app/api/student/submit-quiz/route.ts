@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Khởi tạo Supabase Client phía Server (Ưu tiên dùng Service Role Key để vượt qua RLS nếu có)
+// Khởi tạo Supabase Client phía Server bằng quyền Service Role hoặc Anon Key
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -13,6 +13,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const {
+      id,
       quizId,
       quizTitle,
       studentId,
@@ -25,7 +26,8 @@ export async function POST(req: Request) {
       timeSpent,
       durationSeconds,
       isHomework,
-      answers
+      answers,
+      createdAt
     } = body;
 
     if (!quizId || score === undefined) {
@@ -35,7 +37,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const nowIso = new Date().toISOString();
+    const nowIso = createdAt || new Date().toISOString();
     const finalScore = Number(score) || 0;
     const finalStudentId = String(studentId || username || "student").trim();
     const finalStudentName = String(studentName || username || "Học sinh").trim();
@@ -44,7 +46,7 @@ export async function POST(req: Request) {
       (durationSeconds
         ? `${Math.floor(durationSeconds / 60)} phút ${durationSeconds % 60} giây`
         : "15 phút");
-    const uniqueId = `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const uniqueId = id || `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     // 1. Payload chuẩn snake_case dành cho exam_attempts
     const examAttemptsSnake = {
@@ -111,17 +113,16 @@ export async function POST(req: Request) {
     let savedSuccessfully = false;
     const executionResults: Record<string, any> = {};
 
-    // Ghi an toàn vào bảng 1: exam_attempts
+    // Ghi an toàn vào bảng 1: exam_attempts (sử dụng upsert để bỏ qua nếu id đã tồn tại)
     try {
       let { error: err1 } = await supabaseServer
         .from("exam_attempts")
-        .insert([examAttemptsSnake]);
+        .upsert([examAttemptsSnake], { onConflict: "id", ignoreDuplicates: true });
 
       if (err1) {
-        // Retry bằng camelCase nếu Postgres báo lỗi cột
         const { error: retryErr } = await supabaseServer
           .from("exam_attempts")
-          .insert([examAttemptsCamel]);
+          .upsert([examAttemptsCamel], { onConflict: "id", ignoreDuplicates: true });
 
         if (!retryErr) {
           executionResults["exam_attempts"] = "success_camel";
@@ -141,7 +142,7 @@ export async function POST(req: Request) {
     try {
       const { error: err2 } = await supabaseServer
         .from("quiz_results")
-        .insert([quizResultsPayload]);
+        .upsert([quizResultsPayload], { onConflict: "id", ignoreDuplicates: true });
 
       if (!err2) {
         executionResults["quiz_results"] = "success";
