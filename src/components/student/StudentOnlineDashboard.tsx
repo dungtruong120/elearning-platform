@@ -1136,8 +1136,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               onClick={() => setSelectedPracticeCategory(cat)}
                               className={"px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer " + (
                                 selectedPracticeCategory === cat 
-                                  ? "bg-blue-600 text-white shadow-2xs" 
-                                  : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
+                                ? "bg-blue-600 text-white shadow-2xs" 
+                                : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
                               )}
                             >
                               {cat}
@@ -1560,5 +1560,3 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     </div>
   );
 }
-
-export default StudentOnlineDashboard;
