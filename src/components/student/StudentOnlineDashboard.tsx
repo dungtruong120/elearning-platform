@@ -57,6 +57,7 @@ function normalizeStr(str: any): string {
   return String(str)
     .normalize("NFC")
     .toLowerCase()
+    .replace(/[−–—]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -66,7 +67,7 @@ interface StudentOnlineDashboardProps {
   onLogout?: () => void;
 }
 
-export default function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashboardProps) {
+function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashboardProps) {
   const [profile, setProfile] = useState<Profile | null>(() => {
     if (initialProfile) return { ...initialProfile, learning_mode: "online", study_mode: "online" };
     if (typeof window !== "undefined") {
@@ -87,7 +88,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     }
   }, [initialProfile]);
 
-  // 1. ĐỒNG BỘ TAB TỪ URL HASH & HIỆU ỨNG LOADING MƯỢT MÀ KHI CHUYỂN TAB
+  // 1. ĐỒNG BỘ TAB TỪ URL HASH & HIỆU ỨNG LOADING CHUYỂN TAB
   const [activeTab, setActiveTabState] = useState<string>(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "").trim();
@@ -107,13 +108,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     }
     setTimeout(() => {
       setIsTabChanging(false);
-    }, 300);
+    }, 280);
   }, [activeTab]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH GIẬT TRANG
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -144,6 +145,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return [];
   });
 
+  const [isLoadingExams, setIsLoadingExams] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("edunexus_practice_exams");
+      return !saved;
+    }
+    return true;
+  });
+
   const [sysNotifications, setSysNotifications] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -158,7 +167,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   const [practiceSubTab, setPracticeSubTab] = useState<"list" | "history">("list");
   const [historyModalExamId, setHistoryModalExamId] = useState<string | null>(null);
 
-  // Accordion lưu trạng thái đóng mở của các Chương (mặc định mở tất cả)
   const [collapsedChapters, setCollapsedChapters] = useState<Record<string, boolean>>({});
   const toggleChapterCollapse = (chapId: string) => {
     setCollapsedChapters(prev => ({ ...prev, [chapId]: !prev[chapId] }));
@@ -207,6 +215,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     } catch (e) {}
 
     try {
+      setIsLoadingExams(true);
       const { data: dbExams } = await supabase
         .from("practice_exams")
         .select("*")
@@ -218,7 +227,9 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
           localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
         }
       }
-    } catch (e) {}
+    } catch (e) {} finally {
+      setIsLoadingExams(false);
+    }
 
     try {
       const { data: dbNotifs } = await supabase
@@ -314,22 +325,24 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return () => window.removeEventListener("readNotifsUpdated", syncReadNotifs);
   }, [syncReadNotifs]);
 
-  // 4. LỌC TOÀN BỘ BÀI NỘP CỦA CHÍNH HỌC SINH NÀY (ĐA TẦNG: UUID + USERNAME + FULL_NAME)
+  // 4. LỌC TOÀN BỘ BÀI NỘP CỦA HỌC SINH HIỆN TẠI (CHẤP NHẬN UUID, USERNAME, EMAIL PREFIX, TÊN HIỂN THỊ)
   const myAttempts = useMemo(() => {
     if (!profile) return [];
     const pId = String(profile.id || "").trim().toLowerCase();
     const pUser = String(profile.username || "").trim().toLowerCase();
-    const pName = String(profile.full_name || "").trim().toLowerCase();
+    const pName = normalizeStr(profile.full_name || "");
+    const pEmailPrefix = profile.email ? String(profile.email).split("@")[0].trim().toLowerCase() : "";
 
     return (allAttempts || []).filter(a => {
       if (!a) return false;
       const attStuId = String(a.studentId || a.student_id || a.user_id || "").trim().toLowerCase();
-      const attName = String(a.studentName || a.student_name || a.full_name || a.username || "").trim().toLowerCase();
+      const attName = normalizeStr(a.studentName || a.student_name || a.full_name || a.username || "");
+      const attUser = String(a.username || "").trim().toLowerCase();
 
-      if (pId && attStuId === pId) return true;
-      if (pUser && (attStuId === pUser || attName === pUser)) return true;
-      if (pName && attName === pName) return true;
-      if (pUser && attStuId.includes(pUser)) return true;
+      if (pId && (attStuId === pId || attStuId.includes(pId))) return true;
+      if (pUser && (attStuId === pUser || attUser === pUser || attName.includes(pUser))) return true;
+      if (pEmailPrefix && (attStuId.includes(pEmailPrefix) || attUser.includes(pEmailPrefix))) return true;
+      if (pName && attName && (attName === pName || attName.includes(pName) || pName.includes(attName))) return true;
       return false;
     });
   }, [allAttempts, profile]);
@@ -344,8 +357,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         title: "Điểm kiểm tra mới", 
         desc: 'Bài "' + (att.quizTitle || att.examTitle || "Đề thi") + '" đạt kết quả: ' + att.score + '/10 điểm.', 
         type: "success", 
-        timestamp: new Date(att.createdAt || att.submittedAt || Date.now()).getTime(), 
-        dateStr: new Date(att.createdAt || att.submittedAt || Date.now()).toLocaleString("vi-VN"), 
+        timestamp: new Date(att.createdAt || att.created_at || att.submittedAt || Date.now()).getTime(), 
+        dateStr: new Date(att.createdAt || att.created_at || att.submittedAt || Date.now()).toLocaleString("vi-VN"), 
         actionType: isPractice ? "practice_score" : "course_score", 
         quizId: att.quizId || att.quiz_id
       });
@@ -408,10 +421,11 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   };
 
   const practiceHistoryGrouped = useMemo(() => {
-    const myPracticeAttempts = myAttempts.filter(a => a.type === "practice" || !a.is_homework);
+    const myPracticeAttempts = myAttempts.filter(a => a.type === "practice" || (!a.is_homework && !a.isHomework));
     const grouped: Record<string, any> = {};
     myPracticeAttempts.forEach(att => {
-      const qKey = att.quizId || att.quiz_id;
+      const qKey = att.quizId || att.quiz_id || att.exam_id;
+      if (!qKey) return;
       if (!grouped[qKey]) {
         grouped[qKey] = {
           quizId: qKey,
@@ -423,14 +437,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         };
       }
       grouped[qKey].attempts.push(att);
-      grouped[qKey].maxScore = Math.max(grouped[qKey].maxScore, Number(att.score || 0));
-      const attTime = new Date(att.createdAt || att.submittedAt || Date.now()).getTime();
+      grouped[qKey].maxScore = Math.max(grouped[qKey].maxScore, Number(att.score ?? att.points ?? 0));
+      const attTime = new Date(att.createdAt || att.created_at || att.submittedAt || Date.now()).getTime();
       if (attTime > grouped[qKey].lastDate) {
         grouped[qKey].lastDate = attTime;
       }
     });
     Object.values(grouped).forEach(group => {
-      group.attempts.sort((a: any, b: any) => new Date(a.createdAt || a.submittedAt).getTime() - new Date(b.createdAt || b.submittedAt).getTime());
+      group.attempts.sort((a: any, b: any) => new Date(a.createdAt || a.created_at || a.submittedAt).getTime() - new Date(b.createdAt || b.created_at || b.submittedAt).getTime());
     });
     return Object.values(grouped).sort((a, b) => b.lastDate - a.lastDate);
   }, [myAttempts]);
@@ -633,14 +647,17 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
   // KIỂM TRA TRẠNG THÁI HOÀN THÀNH CỦA BÀI HỌC DỰA TRÊN LƯỢT LÀM BÀI
   const getLessonCompletionStatus = useCallback((lesson: any) => {
-    const hwIds = (lesson.homework_files || []).map((h: any) => h.id);
-    const testIds = (lesson.test_quizzes || []).map((t: any) => t.id);
+    const hwIds = (lesson.homework_files || []).map((h: any) => String(h.id || "").trim().toLowerCase()).filter(Boolean);
+    const testIds = (lesson.test_quizzes || []).map((t: any) => String(t.id || "").trim().toLowerCase()).filter(Boolean);
     const targetIds = [...hwIds, ...testIds];
 
     if (targetIds.length === 0) return "in_progress";
 
     const doneCount = targetIds.filter(id => 
-      myAttempts.some(a => a.quizId === id || a.quiz_id === id)
+      myAttempts.some(a => {
+        const aId = String(a.quizId || a.quiz_id || "").trim().toLowerCase();
+        return aId === id;
+      })
     ).length;
 
     if (doneCount === targetIds.length) return "completed";
@@ -648,29 +665,41 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return "not_started";
   }, [myAttempts]);
 
-  // HÀM TRA CỨU BÀI LÀM ĐA TẦNG CHO BTVN VÀ BÀI KIỂM TRA (SO KHỚP CHUẨN XÁC MYATTEMPTS)
+  // HÀM TRA CỨU BÀI LÀM ĐA TẦNG CHO BTVN VÀ BÀI KIỂM TRA (GIẢI QUYẾT TRIỆT ĐỂ LỖI TIẾN TRÌNH)
   const findAttemptForLesson = useCallback((quiz: any, lessonTitle: string, isHomeworkCheck: boolean) => {
     const qId = quiz?.id ? String(quiz.id).trim().toLowerCase() : "";
     const qTitle = quiz?.title ? normalizeStr(quiz.title) : "";
     const lesTitle = normalizeStr(lessonTitle);
 
+    // Lấy số thứ tự bài học từ lessonTitle (ví dụ: "bài 8", "bai 8", "bài 4")
+    const matchLessonNum = lesTitle.match(/b[aà]i\s*(\d+)/i);
+    const lessonNumKey = matchLessonNum ? `bài ${matchLessonNum[1]}` : "";
+
     return (myAttempts || []).find(a => {
-      const aQuizId = String(a.quizId || a.quiz_id || "").trim().toLowerCase();
-      const aTitle = normalizeStr(a.quizTitle || a.examTitle || a.title);
+      const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "").trim().toLowerCase();
+      const aTitle = normalizeStr(a.quizTitle || a.examTitle || a.title || "");
       const isHw = Boolean(a.isHomework || a.is_homework || a.type === "homework");
 
-      // So khớp BTVN hay Bài kiểm tra
+      // Khớp đúng phân loại BTVN hoặc Bài kiểm tra
       if (isHomeworkCheck && !isHw) return false;
       if (!isHomeworkCheck && isHw) return false;
 
       // 1. So khớp ID trực tiếp
       if (qId && aQuizId && aQuizId === qId) return true;
 
-      // 2. So khớp theo tiêu đề bài tập / đề kiểm tra
+      // 2. So khớp ID không phân biệt tiền tố (exam-, prac-)
+      const cleanQId = qId.replace(/^(exam-|prac-)/, "");
+      const cleanAId = aQuizId.replace(/^(exam-|prac-)/, "");
+      if (cleanQId && cleanAId && cleanQId === cleanAId) return true;
+
+      // 3. So khớp theo tiêu đề bài tập
       if (qTitle && aTitle && (aTitle === qTitle || aTitle.includes(qTitle) || qTitle.includes(aTitle))) return true;
 
-      // 3. So khớp theo tiêu đề bài học (cho phép tìm bài nộp liên kết theo Bài)
+      // 4. So khớp theo tiêu đề bài học đầy đủ
       if (lesTitle && aTitle && (aTitle.includes(lesTitle) || lesTitle.includes(aTitle))) return true;
+
+      // 5. So khớp theo số hiệu bài (ví dụ: đề nộp có chứa "bài 8" và bài học là "Đại-Bài 8: Đồ thị hàm số")
+      if (lessonNumKey && aTitle.includes(lessonNumKey)) return true;
 
       return false;
     }) || null;
@@ -752,14 +781,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   }
 
   return (
-    <div 
-      style={{ fontFamily: "'Be Vietnam Pro', sans-serif" }}
-      className="h-screen w-full bg-[#F8FAFC] antialiased text-slate-800 tracking-normal leading-relaxed flex overflow-hidden relative selection:bg-blue-500/20"
-    >
-      <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap');
-      `}</style>
-
+    <div className="h-screen w-full bg-[#F8FAFC] antialiased text-slate-800 tracking-normal leading-relaxed flex overflow-hidden relative selection:bg-blue-500/20">
       <AnimatePresence>
         {onlineToast && (
           <motion.div 
@@ -912,7 +934,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             </span>
                           </div>
 
-                          {/* CỘT DỌC CÁC BÀI HỌC */}
                           <div className="flex flex-col space-y-2 pt-1">
                             {(chap.lessons || []).map((les: any) => (
                               <div 
@@ -939,7 +960,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 {/* TAB 2: BÀI HỌC (#COURSES) */}
                 {activeTab === "courses" && (
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
-                    {/* SLIM WELCOME BAR & DANH NGÔN */}
                     <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                         <div className="flex items-center gap-2.5">
@@ -951,7 +971,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           </span>
                         </div>
 
-                        {/* MỤC TIÊU CÁ NHÂN GỌN GÀNG */}
                         <div className="flex items-center gap-2">
                           {isEditingGoal ? (
                             <div className="flex items-center gap-1.5">
@@ -983,14 +1002,12 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         </div>
                       </div>
 
-                      {/* DÒNG DANH NGÔN NHỎ THANH LỊCH */}
                       <p className="text-xs text-slate-500 italic border-t border-slate-100 pt-2 flex items-center gap-1.5">
                         <Quote className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                         <span>"{dailyQuote}"</span>
                       </p>
                     </div>
 
-                    {/* ACCORDION DANH SÁCH BÀI HỌC VỚI NÚT VÀO HỌC ĐẦM TAY */}
                     <div className="space-y-3.5 pt-1">
                       {onlineChapters.map((chap, idx) => {
                         const isCollapsed = Boolean(collapsedChapters[chap.id]);
@@ -998,7 +1015,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
                         return (
                           <div key={chap.id || idx} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
-                            {/* HEADER CHƯƠNG */}
                             <button
                               type="button"
                               onClick={() => toggleChapterCollapse(chap.id)}
@@ -1025,7 +1041,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               </div>
                             </button>
 
-                            {/* DANH SÁCH CÁC BÀI HỌC */}
                             {!isCollapsed && (
                               <div className="divide-y divide-slate-100">
                                 {(chap.lessons || []).map((les: any, lIdx: number) => {
@@ -1043,7 +1058,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                             {les.title}
                                           </h4>
 
-                                          {/* HUY HIỆU TRẠNG THÁI TIẾN TRÌNH */}
                                           {status === "completed" ? (
                                             <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
                                               <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
@@ -1092,7 +1106,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                   </div>
                 )}
 
-                {/* TAB 3: LUYỆN ĐỀ (#PRACTICE) */}
+                {/* TAB 3: LUYỆN ĐỀ (#PRACTICE) - TÍCH HỢP SKELETON UI */}
                 {activeTab === "practice" && (
                   <div className="max-w-6xl mx-auto space-y-4 text-left">
                     <div className="bg-white py-3.5 px-4.5 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1105,7 +1119,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             Luyện đề
                           </h2>
                           <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                            {practiceExams.length} đề thi sẵn sàng
+                            {isLoadingExams ? "Đang tải đề thi..." : `${practiceExams.length} đề thi sẵn sàng`}
                           </span>
                         </div>
                       </div>
@@ -1128,7 +1142,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
                     {practiceSubTab === "list" && (
                       <div className="space-y-3.5">
-                        {/* BỘ LỌC DANH MỤC ĐỀ THI */}
                         <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
                           {["Tất cả đề", "ĐGNL HSA (ĐHQGHN)", "ĐGTD TSA (ĐHBK)", "Tốt Nghiệp THPT", "Giữa Kì 1", "Học Kì 1", "Giữa Kì 2", "Học Kì 2"].map(cat => (
                             <button 
@@ -1136,8 +1149,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               onClick={() => setSelectedPracticeCategory(cat)}
                               className={"px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer " + (
                                 selectedPracticeCategory === cat 
-                                ? "bg-blue-600 text-white shadow-2xs" 
-                                : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
+                                  ? "bg-blue-600 text-white shadow-2xs" 
+                                  : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
                               )}
                             >
                               {cat}
@@ -1145,72 +1158,91 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           ))}
                         </div>
 
-                        {/* LƯỚI CARD ĐỀ THI 3 CỘT COMPACT */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                          {(practiceExams || [])
-                            .filter((e: any) => {
-                              const tMode = (e.target_mode || "all").toLowerCase();
-                              return tMode === "online" || tMode === "all";
-                            })
-                            .filter(e => selectedPracticeCategory === "Tất cả đề" || e.category === selectedPracticeCategory)
-                            .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
-                            .map(exam => {
-                              const canViewFile = exam.allowViewFile !== false;
-                              const qCount = exam.data?.reduce((acc: number, sec: any) => acc + (sec.questions?.length || 0), 0) || 0;
-
-                              return (
-                                <div key={exam.id} className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs hover:border-blue-300 transition flex flex-col justify-between group">
-                                  <div>
-                                    <div className="flex justify-between items-center mb-2.5">
-                                      <span className="text-[10px] font-semibold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">
-                                        {exam.category}
-                                      </span>
-                                      <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
-                                        <Clock className="w-3.5 h-3.5"/> {exam.duration_minutes}p
-                                      </span>
-                                    </div>
-                                    <h3 className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
-                                      {exam.title}
-                                    </h3>
-                                    <p className="text-xs text-slate-400 font-normal mb-3.5">
-                                      Số câu: {qCount} câu
-                                    </p>
-                                  </div>
-                                  
-                                  <div className="pt-2.5 border-t border-slate-100 flex items-center gap-2">
-                                    {canViewFile && (
-                                      <button 
-                                        onClick={() => {
-                                          if (exam.driveUrl && exam.driveUrl.trim() !== "") window.open(exam.driveUrl, "_blank");
-                                          else setPreviewExam(exam);
-                                        }}
-                                        className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold transition"
-                                        title="Xem file đề"
-                                      >
-                                        <FileText className="w-4 h-4"/>
-                                      </button>
-                                    )}
-                                    
-                                    <button
-                                      onClick={() => setWorkspacePracticeExam(exam)}
-                                      className="p-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 text-xs font-semibold transition"
-                                      title="Video chữa bài"
-                                    >
-                                      <Video className="w-4 h-4"/>
-                                    </button>
-
-                                    <button 
-                                      onClick={() => { setExamRoom({ id: exam.id, title: exam.title, duration: exam.duration_minutes, isHomework: false }); }}
-                                      className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition flex items-center justify-center gap-1 cursor-pointer"
-                                    >
-                                      <span>Vào thi</span>
-                                      <ArrowRight className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
+                        {/* HIỂN THỊ SKELETON LOADING KHI ĐANG FETCH ĐỀ */}
+                        {isLoadingExams ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                            {[1, 2, 3, 4, 5, 6].map((i) => (
+                              <div key={i} className="p-4 rounded-xl border border-slate-200/80 bg-white space-y-3 animate-pulse">
+                                <div className="flex justify-between items-center">
+                                  <div className="h-4 w-16 bg-slate-200 rounded-md" />
+                                  <div className="h-3.5 w-12 bg-slate-100 rounded" />
                                 </div>
-                              );
-                          })}
-                        </div>
+                                <div className="h-4 w-3/4 bg-slate-200 rounded" />
+                                <div className="h-3 w-1/3 bg-slate-100 rounded" />
+                                <div className="pt-2 flex gap-2">
+                                  <div className="h-8 w-1/4 bg-slate-100 rounded-lg" />
+                                  <div className="h-8 flex-1 bg-slate-200 rounded-lg" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                            {(practiceExams || [])
+                              .filter((e: any) => {
+                                const tMode = (e.target_mode || "all").toLowerCase();
+                                return tMode === "online" || tMode === "all";
+                              })
+                              .filter(e => selectedPracticeCategory === "Tất cả đề" || e.category === selectedPracticeCategory)
+                              .filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                              .map(exam => {
+                                const canViewFile = exam.allowViewFile !== false;
+                                const qCount = exam.data?.reduce((acc: number, sec: any) => acc + (sec.questions?.length || 0), 0) || 0;
+
+                                return (
+                                  <div key={exam.id} className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs hover:border-blue-300 transition flex flex-col justify-between group">
+                                    <div>
+                                      <div className="flex justify-between items-center mb-2.5">
+                                        <span className="text-[10px] font-semibold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">
+                                          {exam.category}
+                                        </span>
+                                        <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+                                          <Clock className="w-3.5 h-3.5"/> {exam.duration_minutes}p
+                                        </span>
+                                      </div>
+                                      <h3 className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
+                                        {exam.title}
+                                      </h3>
+                                      <p className="text-xs text-slate-400 font-normal mb-3.5">
+                                        Số câu: {qCount} câu
+                                      </p>
+                                    </div>
+                                    
+                                    <div className="pt-2.5 border-t border-slate-100 flex items-center gap-2">
+                                      {canViewFile && (
+                                        <button 
+                                          onClick={() => {
+                                            if (exam.driveUrl && exam.driveUrl.trim() !== "") window.open(exam.driveUrl, "_blank");
+                                            else setPreviewExam(exam);
+                                          }}
+                                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold transition"
+                                          title="Xem file đề"
+                                        >
+                                          <FileText className="w-4 h-4"/>
+                                        </button>
+                                      )}
+                                      
+                                      <button
+                                        onClick={() => setWorkspacePracticeExam(exam)}
+                                        className="p-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 text-xs font-semibold transition"
+                                        title="Video chữa bài"
+                                      >
+                                        <Video className="w-4 h-4"/>
+                                      </button>
+
+                                      <button 
+                                        onClick={() => { setExamRoom({ id: exam.id, title: exam.title, duration: exam.duration_minutes, isHomework: false }); }}
+                                        className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition flex items-center justify-center gap-1 cursor-pointer"
+                                      >
+                                        <span>Vào thi</span>
+                                        <ArrowRight className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1274,10 +1306,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                   </div>
                 )}
 
-                {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - BÁO CÁO TRẠNG THÁI TĨNH ĐỐI SOÁT ĐA TẦNG CHUẨN XÁC */}
+                {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - SO KHỚP CHUẨN XÁC MYATTEMPTS */}
                 {(activeTab === "progress" || activeTab === "assessments") && (
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
-                    {/* KHỐI TỔNG QUAN TIẾN ĐỘ NGANG THANH THOÁT */}
+                    {/* KHỐI TỔNG QUAN TIẾN ĐỘ NGANG */}
                     <div className="bg-white rounded-xl p-4 sm:p-4.5 border border-slate-200/80 shadow-2xs space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
@@ -1333,7 +1365,6 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             </h4>
                           </div>
 
-                          {/* DANH SÁCH CÁC HÀNG BÀI HỌC */}
                           <div className="divide-y divide-slate-100">
                             {(chap.lessons || []).map((les: any, lIdx: number) => {
                               const hwList = les.homework_files || [];
@@ -1366,7 +1397,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                       {hwList.length > 0 ? (
                                         hwAttempt ? (
                                           <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
-                                            <Check className="w-3 h-3 stroke-[3]" /> Đã nộp ({Number(hwAttempt.score).toFixed(1)}đ)
+                                            <Check className="w-3 h-3 stroke-[3]" /> Đã nộp ({Number(hwAttempt.score ?? hwAttempt.points ?? 0).toFixed(1)}đ)
                                           </span>
                                         ) : (
                                           <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
@@ -1383,7 +1414,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                       {testList.length > 0 ? (
                                         testAttempt ? (
                                           <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
-                                            <Check className="w-3 h-3 stroke-[3]" /> Đã thi ({Number(testAttempt.score).toFixed(1)}đ)
+                                            <Check className="w-3 h-3 stroke-[3]" /> Đã thi ({Number(testAttempt.score ?? testAttempt.points ?? 0).toFixed(1)}đ)
                                           </span>
                                         ) : (
                                           <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
@@ -1488,10 +1519,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     return (
                       <tr key={idx} className={"hover:bg-slate-50/50 " + (isMax ? "bg-amber-50/30" : "")}>
                         <td className="py-2.5 px-3.5 text-center font-semibold text-slate-700">{idx + 1}</td>
-                        <td className="py-2.5 px-3.5 text-slate-600">{new Date(att.createdAt || att.submittedAt).toLocaleString("vi-VN")}</td>
+                        <td className="py-2.5 px-3.5 text-slate-600">{new Date(att.createdAt || att.created_at || att.submittedAt).toLocaleString("vi-VN")}</td>
                         <td className="py-2.5 px-3.5 text-center text-slate-500">{formatCompletionTime(Number(att.durationSeconds || att.completionTime) || 0)}</td>
                         <td className="py-2.5 px-3.5 text-center">
-                          <span className={"font-semibold " + (isMax ? "text-amber-600" : "text-blue-700")}>{Number(att.score).toFixed(1)}</span>
+                          <span className={"font-semibold " + (isMax ? "text-amber-600" : "text-blue-700")}>{Number(att.score ?? att.points ?? 0).toFixed(1)}</span>
                         </td>
                       </tr>
                     );
@@ -1560,3 +1591,5 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     </div>
   );
 }
+
+export default StudentOnlineDashboard;
