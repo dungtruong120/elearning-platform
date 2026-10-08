@@ -5,8 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Clock, CheckCircle2, XCircle, AlertCircle,
   HelpCircle, ChevronLeft, ChevronRight, RotateCcw,
-  Eye, Trophy, Home, Send, List, LayoutGrid, Award, Check,
-  Maximize2, Minimize2, X, Grid3X3, BookOpen, PenLine, Loader2
+  Eye, Trophy, Home, Send, Award, Check, X,
+  Grid3X3, BookOpen, PenLine, Loader2, Flag, ZoomIn
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -41,11 +41,13 @@ interface ExamRoomViewProps {
 function MathRenderer({
   content,
   mediaMap = {},
-  inline = false
+  inline = false,
+  onImageClick
 }: {
   content: string;
   mediaMap?: Record<string, string>;
   inline?: boolean;
+  onImageClick?: (url: string) => void;
 }) {
   if (!content) return null;
   let text = content.normalize("NFC");
@@ -62,7 +64,7 @@ function MathRenderer({
   const parts = text.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
 
   return (
-    <span className={inline ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14px] sm:text-[15px] font-normal text-slate-800"}>
+    <span className={inline ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14px] sm:text-[14.5px] font-normal text-slate-800"}>
       {parts.map((part, i) => {
         if (!part) return null;
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
@@ -79,17 +81,23 @@ function MathRenderer({
               key={i}
               src={src}
               alt="Hình ảnh"
+              onClick={() => onImageClick && onImageClick(src)}
               onError={(e) => { e.currentTarget.style.display = "none"; }}
-              className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white"
+              className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white cursor-pointer hover:opacity-90"
             />
           ) : (
             <span key={i} className="my-2.5 block text-center">
-              <img
-                src={src}
-                alt="Hình minh họa"
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
-                className="max-h-60 sm:max-h-72 max-w-full rounded-xl border border-slate-200/90 bg-white shadow-2xs p-1 object-contain inline-block"
-              />
+              <span className="relative inline-block group cursor-pointer" onClick={() => onImageClick && onImageClick(src)}>
+                <img
+                  src={src}
+                  alt="Hình minh họa"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                  className="max-h-[200px] sm:max-h-[220px] max-w-full rounded-xl border border-slate-200/80 bg-slate-50/50 p-2 shadow-2xs object-contain mx-auto transition-transform group-hover:scale-[1.01]"
+                />
+                <span className="absolute bottom-3 right-3 bg-slate-900/70 text-white p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </span>
+              </span>
             </span>
           );
         }
@@ -151,6 +159,11 @@ export function ExamRoomView({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
+
+  // Bộ trạng thái đánh dấu xem lại câu hỏi (Flag)
+  const [flaggedQuestions, setFlaggedQuestions] = useState<Record<string, boolean>>({});
+  // Trạng thái phóng to ảnh (Lightbox)
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>(() => {
     if (typeof window !== "undefined" && isHomework) {
@@ -349,6 +362,13 @@ export function ExamRoomView({
     }));
   };
 
+  const toggleFlagQuestion = (qId: string) => {
+    setFlaggedQuestions(prev => ({
+      ...prev,
+      [qId]: !prev[qId]
+    }));
+  };
+
   const normalizeShortAnswer = (val: string) => {
     if (!val) return "";
     return String(val)
@@ -359,7 +379,7 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   };
 
-  // NỘP BÀI THI: XỬ LÝ AN TOÀN QUA API ROUTE VÀ FALLBACK SUPABASE CLIENT
+  // NỘP BÀI THI: BẢO TOÀN ĐẦY ĐỦ UUID, TÊN THẬT, PHÂN HỆ VÀ GỬI LÊN SERVER
   const handleSubmitExam = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -448,7 +468,7 @@ export function ExamRoomView({
       createdAt: nowIso
     };
 
-    // 1. GỬI QUA API ROUTE SERVER-SIDE (ĐẢM BẢO KHÔNG BỊ RLS CHẶN)
+    // 1. GỬI QUA API ROUTE SERVER-SIDE (ĐỒNG BỘ 100% SUPABASE)
     try {
       const response = await fetch("/api/student/submit-quiz", {
         method: "POST",
@@ -572,6 +592,20 @@ export function ExamRoomView({
     }).length;
   }, [userAnswers]);
 
+  // Tỷ lệ hoàn thành câu hỏi cho Progress Bar
+  const progressPercent = useMemo(() => {
+    if (!questions.length) return 0;
+    return Math.min(100, Math.round((answeredCount / questions.length) * 100));
+  }, [answeredCount, questions.length]);
+
+  // Màu đồng hồ theo thời gian (Thanh lịch & Cảnh báo khi dưới 5 phút)
+  const timerColorStyles = useMemo(() => {
+    if (isHomework) return "bg-blue-50/80 border-blue-200/80 text-[#1D4ED8]";
+    if (secondsRemaining <= 60) return "bg-rose-50 border-rose-300 text-rose-600 animate-pulse";
+    if (secondsRemaining <= 300) return "bg-amber-50 border-amber-300 text-amber-700";
+    return "bg-blue-50/70 border-blue-200/80 text-[#1D4ED8]";
+  }, [secondsRemaining, isHomework]);
+
   const renderQuestionOptions = (q: QuestionItem) => {
     const isTF = isQuestionTrueFalse(q);
     const isShort = isQuestionShortAnswer(q);
@@ -582,40 +616,40 @@ export function ExamRoomView({
       const isCorrect = isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
 
       return (
-        <div className="pt-2 space-y-3">
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 shadow-2xs space-y-2">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-2">
-              <PenLine className="w-4 h-4 text-[#1D4ED8]" />
+        <div className="pt-1.5 space-y-2.5">
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 shadow-2xs space-y-2">
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <PenLine className="w-3.5 h-3.5 text-[#1D4ED8]" />
               <span>Điền đáp án câu trả lời ngắn:</span>
             </label>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
               <input
                 type="text"
                 disabled={isSubmitted && !isReviewMode}
                 value={currentAns}
                 onChange={(e) => handleShortAnswerChange(q.id, e.target.value)}
                 placeholder="Nhập kết quả (số hoặc biểu thức ngắn)..."
-                className={"flex-1 p-3 bg-white border-2 rounded-xl text-sm font-bold outline-none transition " + (
+                className={"flex-1 p-2.5 bg-white border rounded-xl text-sm font-bold outline-none transition " + (
                   isReviewMode
                     ? isCorrect
                       ? "border-emerald-500 bg-emerald-50/50 text-emerald-900"
                       : "border-rose-400 bg-rose-50/50 text-rose-900"
                     : currentAns
-                    ? "border-[#1D4ED8] text-blue-950 focus:ring-2 focus:ring-blue-100"
+                    ? "border-[#1D4ED8] bg-blue-50/20 text-blue-950 focus:ring-2 focus:ring-blue-100"
                     : "border-slate-200 text-slate-800 focus:border-[#1D4ED8]"
                 )}
               />
               {currentAns && !isReviewMode && (
-                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shrink-0 text-center">
+                <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 shrink-0 text-center">
                   Đã ghi nhận ✓
                 </span>
               )}
             </div>
 
             {isReviewMode && (
-              <div className="pt-2 flex flex-wrap items-center gap-3 text-xs font-bold">
+              <div className="pt-1.5 flex flex-wrap items-center gap-2.5 text-xs font-bold">
                 <span className="text-slate-500">Đáp án chuẩn:</span>
-                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-300">
+                <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-300">
                   {q.correctAnswer}
                 </span>
                 {isCorrect ? (
@@ -640,17 +674,17 @@ export function ExamRoomView({
       const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
 
       return (
-        <div className="pt-2">
-          <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-2xs">
+        <div className="pt-1.5">
+          <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-2xs">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="py-2.5 px-3 sm:px-4 text-left font-semibold">Phát biểu</th>
-                  <th className="py-2.5 px-2 sm:px-3 text-center w-16 sm:w-20 font-semibold text-emerald-600">Đúng</th>
-                  <th className="py-2.5 px-2 sm:px-3 text-center w-16 sm:w-20 font-semibold text-rose-600">Sai</th>
+                <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="py-2 px-3 sm:px-4 text-left font-semibold">Phát biểu</th>
+                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-emerald-600">Đúng</th>
+                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-rose-600">Sai</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+              <tbody className="divide-y divide-slate-100 text-xs sm:text-[13.5px]">
                 {q.options.map((opt, optIdx) => {
                   const optKeyLower = opt.key.toLowerCase();
                   const selectedVal = userTF[optKeyLower];
@@ -659,21 +693,21 @@ export function ExamRoomView({
 
                   return (
                     <tr key={opt.key} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3 px-3 sm:px-4 align-middle">
+                      <td className="py-2.5 px-3 sm:px-4 align-middle">
                         <div className="flex items-start gap-2">
                           <span className="font-bold text-[#1D4ED8] shrink-0 mt-0.5">{opt.key})</span>
                           <div className="flex-1">
-                            <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} />
+                            <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} onImageClick={setPreviewImage} />
                           </div>
                         </div>
                       </td>
                       
-                      <td className="py-3 px-2 sm:px-3 text-center align-middle">
+                      <td className="py-2.5 px-2 text-center align-middle">
                         <button
                           type="button"
                           disabled={isSubmitted && !isReviewMode}
                           onClick={() => handleSelectTrueFalseOption(q.id, opt.key, "T")}
-                          className={"w-7 h-7 sm:w-8 sm:h-8 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer " + (
+                          className={"w-7 h-7 rounded-lg border flex items-center justify-center mx-auto transition-all cursor-pointer " + (
                             isReviewMode
                               ? (expectedVal === "T"
                                   ? "bg-emerald-500 border-emerald-600 text-white shadow-xs"
@@ -686,19 +720,19 @@ export function ExamRoomView({
                           )}
                         >
                           {isReviewMode ? (
-                            expectedVal === "T" ? <Check className="w-4 h-4 stroke-[3]" /> : selectedVal === "T" ? <X className="w-4 h-4 stroke-[3]" /> : null
+                            expectedVal === "T" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : selectedVal === "T" ? <X className="w-3.5 h-3.5 stroke-[3]" /> : null
                           ) : (
-                            selectedVal === "T" ? <Check className="w-4 h-4 stroke-[3]" /> : null
+                            selectedVal === "T" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null
                           )}
                         </button>
                       </td>
 
-                      <td className="py-3 px-2 sm:px-3 text-center align-middle">
+                      <td className="py-2.5 px-2 text-center align-middle">
                         <button
                           type="button"
                           disabled={isSubmitted && !isReviewMode}
                           onClick={() => handleSelectTrueFalseOption(q.id, opt.key, "F")}
-                          className={"w-7 h-7 sm:w-8 sm:h-8 rounded-xl border flex items-center justify-center mx-auto transition-all cursor-pointer " + (
+                          className={"w-7 h-7 rounded-lg border flex items-center justify-center mx-auto transition-all cursor-pointer " + (
                             isReviewMode
                               ? (expectedVal === "F"
                                   ? "bg-rose-500 border-rose-600 text-white shadow-xs"
@@ -711,9 +745,9 @@ export function ExamRoomView({
                           )}
                         >
                           {isReviewMode ? (
-                            expectedVal === "F" ? <Check className="w-4 h-4 stroke-[3]" /> : selectedVal === "F" ? <X className="w-4 h-4 stroke-[3]" /> : null
+                            expectedVal === "F" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : selectedVal === "F" ? <X className="w-3.5 h-3.5 stroke-[3]" /> : null
                           ) : (
-                            selectedVal === "F" ? <Check className="w-4 h-4 stroke-[3]" /> : null
+                            selectedVal === "F" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null
                           )}
                         </button>
                       </td>
@@ -727,9 +761,9 @@ export function ExamRoomView({
       );
     }
 
-    // DẠNG TRẮC NGHIỆM ĐƠN A, B, C, D
+    // DẠNG TRẮC NGHIỆM ĐƠN A, B, C, D (THANH THOÁT, VIỀN XANH KHI CHỌN)
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5 pt-1">
         {q.options.map(opt => {
           const isSelected = userAnswers[q.id] === opt.key;
           const isCorrect = isReviewMode && opt.key === q.correctAnswer;
@@ -741,25 +775,25 @@ export function ExamRoomView({
               type="button"
               onClick={() => handleSelectOption(q.id, opt.key)}
               disabled={isSubmitted && !isReviewMode}
-              className={"p-3 sm:p-4 rounded-xl border text-left flex items-center gap-2.5 transition cursor-pointer " + (
+              className={"py-2.5 px-3 sm:px-3.5 rounded-xl border text-left flex items-center gap-2.5 transition-all cursor-pointer " + (
                 isCorrect
-                  ? "bg-emerald-50/90 border-emerald-500 text-emerald-950 font-medium"
+                  ? "bg-emerald-50/90 border-emerald-500 text-emerald-950 font-medium shadow-xs"
                   : isWrongSelected
                   ? "bg-rose-50/90 border-rose-400 text-rose-950 font-medium"
                   : isSelected
-                  ? "bg-blue-50/80 border-[#1D4ED8] text-blue-950 font-medium"
-                  : "bg-white border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50/50"
+                  ? "bg-blue-50/70 border-[#1D4ED8] text-blue-950 shadow-xs ring-1 ring-[#1D4ED8]/20"
+                  : "bg-white border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50/60"
               )}
             >
-              <span className={"w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 border " + (
+              <span className={"w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 border transition-colors " + (
                 isSelected
                   ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
-                  : "bg-slate-50 text-slate-700 border-slate-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200"
               )}>
                 {opt.key}
               </span>
               <div className="flex-1 min-w-0">
-                <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} />
+                <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} onImageClick={setPreviewImage} />
               </div>
             </button>
           );
@@ -770,9 +804,9 @@ export function ExamRoomView({
 
   if (isLoading) {
     return (
-      <div className="fixed inset-0 z-[200] bg-slate-900/60 flex flex-col items-center justify-center text-white">
-        <div className="w-10 h-10 border-4 border-white/20 border-t-blue-500 rounded-full animate-spin mb-4" />
-        <p className="font-bold text-sm tracking-wide">Đang tải câu hỏi & dữ liệu bài thi...</p>
+      <div className="fixed inset-0 z-[200] bg-slate-900/60 flex flex-col items-center justify-center text-white font-sans">
+        <div className="w-10 h-10 border-4 border-white/20 border-t-blue-500 rounded-full animate-spin mb-3" />
+        <p className="font-bold text-xs tracking-wide">Đang tải câu hỏi & dữ liệu bài thi...</p>
       </div>
     );
   }
@@ -786,8 +820,8 @@ export function ExamRoomView({
       }}
       className="fixed inset-0 z-[120] bg-[#F8FAFC] text-slate-800 flex flex-col overflow-hidden"
     >
-      {/* 1. THANH HEADER TRÊN CÙNG */}
-      <header className="h-14 sm:h-16 px-3 sm:px-6 bg-white border-b border-slate-200 shadow-xs flex items-center justify-between shrink-0 z-30">
+      {/* 1. THANH HEADER TRÊN CÙNG TINH TẾ */}
+      <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white border-b border-slate-200 shadow-2xs flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
@@ -807,7 +841,7 @@ export function ExamRoomView({
           </button>
           
           <div className="min-w-0">
-            <h2 className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[130px] sm:max-w-xs md:max-w-md">
+            <h2 className="text-xs sm:text-sm font-extrabold text-slate-900 truncate max-w-[140px] sm:max-w-xs md:max-w-md">
               {quizTitle}
             </h2>
             <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold text-slate-500">
@@ -819,22 +853,22 @@ export function ExamRoomView({
           </div>
         </div>
 
-        {/* ĐỒNG HỒ THỜI GIAN */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-xl shadow-2xs">
-          <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-          <span className="text-xs sm:text-sm font-black tracking-tight font-mono">
+        {/* ĐỒNG HỒ THỜI GIAN TINH TẾ TRÊN HEADER */}
+        <div className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border shadow-2xs font-mono font-bold text-xs sm:text-sm tabular-nums ${timerColorStyles}`}>
+          <Clock className="w-3.5 h-3.5 shrink-0" />
+          <span>
             {isHomework ? formatTimer(timeSpentSeconds) + " (Tự do)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
           </span>
         </div>
 
-        {/* NÚT THAO TÁC */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5">
+        {/* NÚT THAO TÁC NỘP BÀI */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {!isSubmitted ? (
             <button
               type="button"
               disabled={isSubmitting}
               onClick={() => handleSubmitExam()}
-              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm shadow-xs flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-60"
+              className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm shadow-xs flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-60 transition"
             >
               {isSubmitting ? (
                 <>
@@ -852,7 +886,7 @@ export function ExamRoomView({
             <button
               type="button"
               onClick={onBackToDashboard}
-              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-xs flex items-center gap-1 cursor-pointer"
+              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-xs flex items-center gap-1 cursor-pointer transition"
             >
               <Home className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Trang chủ</span>
             </button>
@@ -862,11 +896,11 @@ export function ExamRoomView({
 
       {/* 2. VÙNG LÀM BÀI CHÍNH */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
-        <main className="lg:col-span-9 p-3 sm:p-6 lg:p-8 overflow-y-auto custom-scrollbar flex flex-col justify-between">
-          <div className="max-w-4xl w-full mx-auto space-y-4 sm:space-y-6 pb-20 lg:pb-0">
+        <main className="lg:col-span-9 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar flex flex-col justify-between">
+          <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-20 lg:pb-0">
             
             {isHomework && (
-              <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between">
+              <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-2xs">
                 <span className="flex items-center gap-1.5">
                   <BookOpen className="w-4 h-4 text-emerald-600" />
                   Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu kết quả khi nộp.
@@ -878,43 +912,61 @@ export function ExamRoomView({
             )}
 
             {layoutMode === "single" ? (
-              <div className="bg-white rounded-2xl p-4 sm:p-7 border border-slate-200/90 shadow-2xs space-y-4 text-left">
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs space-y-3 text-left relative">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <span className="text-xs font-bold text-[#1D4ED8]">
-                    {"Câu " + (currentIdx + 1) + " / " + questions.length}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-[#1D4ED8]">
+                      {"Câu " + (currentIdx + 1) + " / " + questions.length}
+                    </span>
                     {isQuestionTrueFalse(currentQ) ? (
-                      <span className="ml-2 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
+                      <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
                         Đúng / Sai
                       </span>
                     ) : isQuestionShortAnswer(currentQ) ? (
-                      <span className="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
+                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
                         Trả lời ngắn
                       </span>
                     ) : null}
-                  </span>
-                  <span className="text-xs font-semibold text-slate-500">
-                    {Boolean(userAnswers[currentQ.id]) ? "Đã trả lời" : "Chưa làm"}
-                  </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI */}
+                    <button
+                      type="button"
+                      onClick={() => toggleFlagQuestion(currentQ.id)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
+                        flaggedQuestions[currentQ.id]
+                          ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
+                          : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
+                      }`}
+                    >
+                      <Flag className="w-3 h-3 fill-current" />
+                      <span>{flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
+                    </button>
+                    <span className="text-xs font-semibold text-slate-500">
+                      {Boolean(userAnswers[currentQ.id]) ? "Đã trả lời" : "Chưa làm"}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="py-1">
-                  <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} />
+                <div className="py-0.5">
+                  <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
                 </div>
 
                 {renderQuestionOptions(currentQ)}
 
                 {isReviewMode && currentQ.explanation && (
-                  <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 space-y-1 text-xs">
+                  <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 space-y-1 text-xs">
                     <p className="font-bold text-[#1D4ED8] flex items-center gap-1.5">
                       <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
                     </p>
                     <div className="text-slate-700 leading-relaxed font-normal">
-                      <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} />
+                      <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
                     </div>
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                <div className="flex items-center justify-between pt-2.5 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))}
@@ -958,33 +1010,51 @@ export function ExamRoomView({
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 {questions.map((q, qIndex) => (
                   <div
                     key={q.id}
                     id={"question-card-" + q.id}
-                    className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-2xs space-y-3 text-left"
+                    className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-2.5 text-left relative"
                   >
                     <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                      <span className="text-xs font-bold text-[#1D4ED8]">
-                        {"Câu " + (qIndex + 1) + " / " + questions.length}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#1D4ED8]">
+                          {"Câu " + (qIndex + 1) + " / " + questions.length}
+                        </span>
                         {isQuestionTrueFalse(q) ? (
-                          <span className="ml-2 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
                             Đúng / Sai
                           </span>
                         ) : isQuestionShortAnswer(q) ? (
-                          <span className="ml-2 px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
+                          <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
                             Trả lời ngắn
                           </span>
                         ) : null}
-                      </span>
-                      <span className="text-xs font-semibold text-slate-500">
-                        {Boolean(userAnswers[q.id]) ? "Đã trả lời" : "Chưa làm"}
-                      </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI TRONG BẢN CUỘN */}
+                        <button
+                          type="button"
+                          onClick={() => toggleFlagQuestion(q.id)}
+                          className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
+                            flaggedQuestions[q.id]
+                              ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
+                              : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
+                          }`}
+                        >
+                          <Flag className="w-3 h-3 fill-current" />
+                          <span>{flaggedQuestions[q.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
+                        </button>
+                        <span className="text-xs font-semibold text-slate-500">
+                          {Boolean(userAnswers[q.id]) ? "Đã trả lời" : "Chưa làm"}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="py-0.5">
-                      <MathRenderer content={q.prompt} mediaMap={mediaMap} />
+                      <MathRenderer content={q.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
                     </div>
 
                     {renderQuestionOptions(q)}
@@ -995,7 +1065,7 @@ export function ExamRoomView({
                           <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
                         </p>
                         <div>
-                          <MathRenderer content={q.explanation} mediaMap={mediaMap} />
+                          <MathRenderer content={q.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
                         </div>
                       </div>
                     )}
@@ -1006,39 +1076,54 @@ export function ExamRoomView({
           </div>
         </main>
 
-        {/* 3. SIDEBAR MA TRẬN & THỜI GIAN TRÊN DESKTOP */}
-        <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200 bg-white p-5 flex-col justify-between overflow-y-auto custom-scrollbar">
-          <div className="space-y-4">
-            <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1.5 text-left">
+        {/* 3. SIDEBAR MA TRẬN & ĐỒNG HỒ THANH LỊCH TRÊN DESKTOP */}
+        <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200 bg-white p-4.5 flex-col justify-between overflow-y-auto custom-scrollbar">
+          <div className="space-y-3.5">
+            {/* THẺ THÍ SINH GỌN GÀNG */}
+            <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200 shadow-2xs space-y-1 text-left">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Thí sinh</span>
-              <p className="text-sm font-bold text-slate-900 truncate">{profile?.full_name}</p>
-              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold pt-1 border-t border-slate-100">
+              <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">{profile?.full_name}</p>
+              <div className="flex items-center justify-between text-xs text-slate-500 font-semibold pt-1 border-t border-slate-200/60">
                 <span className="truncate">{profile?.school || "THPT"}</span>
-                <span className="font-bold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded-md">{profile?.grade || "Lớp 12"}</span>
+                <span className="font-bold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded border border-blue-100 text-[11px]">{profile?.grade || "Lớp 12"}</span>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-slate-900 text-white shadow-xs space-y-0.5 text-left">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">
+            {/* KHỐI ĐỒNG HỒ ĐẾM NGƯỢC THANH LỊCH (ĐÃ LOẠI BỎ MÀU ĐEN SÌ) */}
+            <div className={`p-3 rounded-xl border shadow-2xs space-y-0.5 text-left transition-colors ${timerColorStyles}`}>
+              <span className="text-[10px] font-black uppercase tracking-wider opacity-75 block">
                 {isHomework ? "THỜI GIAN LÀM BÀI" : "THỜI GIAN CÒN LẠI"}
               </span>
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-400" />
-                <span className="text-xl font-black tracking-tight font-mono">
+              <div className="flex items-center gap-2 pt-0.5">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span className="text-lg sm:text-xl font-extrabold tracking-tight font-mono tabular-nums">
                   {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
             </div>
 
-            <div className="space-y-2 text-left">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 uppercase">Danh sách câu</span>
+            {/* BẢNG MA TRẬN CÂU HỎI KÈM PROGRESS BAR & CHẤM VÀNG FLAG */}
+            <div className="space-y-2 text-left pt-1">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                <span className="uppercase text-[11px]">Danh sách câu</span>
                 <span className="text-[11px] font-bold text-slate-400">{answeredCount}/{questions.length} câu</span>
               </div>
-              <div className="grid grid-cols-5 gap-1.5">
+
+              {/* THANH TIẾN ĐỘ PROGRESS BAR TINH TẾ */}
+              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
+                <div
+                  className="h-full bg-[#1D4ED8] rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+
+              {/* LƯỚI 5 CỘT MA TRẬN */}
+              <div className="grid grid-cols-5 gap-1.5 pt-1">
                 {questions.map((q, idx) => {
                   const isCurrent = currentIdx === idx && layoutMode === "single";
                   const isAns = Boolean(userAnswers[q.id]);
+                  const isFlagged = Boolean(flaggedQuestions[q.id]);
+
                   return (
                     <button
                       type="button"
@@ -1050,15 +1135,20 @@ export function ExamRoomView({
                           if (el) el.scrollIntoView({ behavior: "smooth" });
                         }
                       }}
-                      className={"h-8 rounded-lg font-bold text-xs transition cursor-pointer border " + (
+                      className={"h-8 rounded-lg font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " + (
                         isCurrent
-                          ? "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-xs"
+                          ? "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-xs scale-105"
                           : isAns
                           ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
                           : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                       )}
                     >
-                      {idx + 1}
+                      <span>{idx + 1}</span>
+
+                      {/* CHẤM VÀNG FLAG ĐÁNH DẤU */}
+                      {isFlagged && (
+                        <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-white" />
+                      )}
                     </button>
                   );
                 })}
@@ -1152,6 +1242,8 @@ export function ExamRoomView({
                   {questions.map((q, idx) => {
                     const isCurrent = currentIdx === idx && layoutMode === "single";
                     const isAns = Boolean(userAnswers[q.id]);
+                    const isFlagged = Boolean(flaggedQuestions[q.id]);
+
                     return (
                       <button
                         type="button"
@@ -1164,7 +1256,7 @@ export function ExamRoomView({
                             if (el) el.scrollIntoView({ behavior: "smooth" });
                           }
                         }}
-                        className={"h-10 rounded-xl font-bold text-xs transition cursor-pointer border " + (
+                        className={"h-10 rounded-xl font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " + (
                           isCurrent
                             ? "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-xs"
                             : isAns
@@ -1172,7 +1264,10 @@ export function ExamRoomView({
                             : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                         )}
                       >
-                        {idx + 1}
+                        <span>{idx + 1}</span>
+                        {isFlagged && (
+                          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400" />
+                        )}
                       </button>
                     );
                   })}
@@ -1330,6 +1425,31 @@ export function ExamRoomView({
                   Bấm ra ngoài vùng hộp thoại để đóng bảng kết quả.
                 </p>
               </div>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 7. MODAL LIGHTBOX PHÓNG TO HÌNH ẢNH TOÁN HỌC */}
+      <AnimatePresence>
+        {previewImage && (
+          <div
+            onClick={() => setPreviewImage(null)}
+            className="fixed inset-0 z-[600] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
+          >
+            <div className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl p-2 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="absolute top-3 right-3 p-1.5 bg-slate-900/60 hover:bg-slate-900 text-white rounded-full transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <img
+                src={previewImage}
+                alt="Phóng to hình vẽ"
+                className="max-h-[82vh] w-auto object-contain rounded-xl mx-auto"
+              />
             </div>
           </div>
         )}
