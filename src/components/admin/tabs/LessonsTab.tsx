@@ -84,7 +84,7 @@ export default function LessonsTab({
 }: LessonsTabProps) {
   return (
     <div className="space-y-6 animate-in fade-in duration-300 text-left">
-      {/* THANH ĐIỀU HƯỚNG BỘ LỌC VÀ NÚT TẠO MỚI */}
+      {/* 1. THANH CÔNG CỤ BỘ LỌC VÀ NÚT TẠO MỚI */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
         <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
           <button
@@ -131,14 +131,18 @@ export default function LessonsTab({
         <div className="flex items-center gap-3">
           <button 
             type="button"
-            onClick={() => setCreateModal({ type: "chapter" })} 
+            onClick={(e) => {
+              e.stopPropagation();
+              setCreateModal({ type: "chapter" });
+            }} 
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer"
           >
             <FolderPlus className="w-4 h-4 text-[#1D4ED8]" /> Thêm Chương
           </button>
           <button 
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               if (!chapters || chapters.length === 0) return alert("Vui lòng thêm Chương trước!");
               setCreateModal({ type: "lesson", chapterId: chapters[0].id });
             }} 
@@ -149,7 +153,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* BẢNG QUẢN LÝ MATRIX NỘI DUNG */}
+      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC VỚI CÁC Ô CELL CLICK KÍCH HOẠT MODAL */}
       <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full min-w-[1100px] text-left border-collapse">
@@ -268,7 +272,8 @@ export default function LessonsTab({
                       <div className="flex items-center justify-center gap-2">
                         <button 
                           type="button"
-                          onClick={() => { 
+                          onClick={(e) => { 
+                            e.stopPropagation();
                             setEditLessonModal({ chapterId: les.chapterId, lesson: les }); 
                             setEditLessonForm({ 
                               title: les.title, 
@@ -285,7 +290,10 @@ export default function LessonsTab({
                         </button>
                         <button 
                           type="button"
-                          onClick={() => handleDeleteLesson(les.chapterId, les.id)} 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteLesson(les.chapterId, les.id);
+                          }} 
                           className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer" 
                           title="Xóa bài học"
                         >
