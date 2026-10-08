@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Khởi tạo Supabase Client phía Server
+// Khởi tạo Supabase Client phía Server (Ưu tiên dùng Service Role Key để vượt qua RLS nếu có)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseServiceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  "";
 const supabaseServer = createClient(supabaseUrl, supabaseServiceKey);
 
 export async function POST(req: Request) {
@@ -26,18 +29,26 @@ export async function POST(req: Request) {
     } = body;
 
     if (!quizId || score === undefined) {
-      return NextResponse.json({ error: "Thiếu thông tin bắt buộc của bài thi" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Thiếu thông tin bắt buộc của bài thi (quizId hoặc score)" },
+        { status: 400 }
+      );
     }
 
     const nowIso = new Date().toISOString();
     const finalScore = Number(score) || 0;
     const finalStudentId = String(studentId || username || "student").trim();
     const finalStudentName = String(studentName || username || "Học sinh").trim();
-    const cleanDuration = timeSpent || (durationSeconds ? `${Math.floor(durationSeconds / 60)} phút ${durationSeconds % 60} giây` : "15 phút");
+    const cleanDuration =
+      timeSpent ||
+      (durationSeconds
+        ? `${Math.floor(durationSeconds / 60)} phút ${durationSeconds % 60} giây`
+        : "15 phút");
+    const uniqueId = `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    // 1. Chuẩn bị payload chuẩn snake_case
-    const snakePayload = {
-      id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    // 1. Payload chuẩn snake_case dành cho exam_attempts
+    const examAttemptsSnake = {
+      id: uniqueId,
       quiz_id: String(quizId),
       exam_id: String(quizId),
       quiz_title: String(quizTitle || ""),
@@ -60,9 +71,9 @@ export async function POST(req: Request) {
       created_at: nowIso
     };
 
-    // 2. Chuẩn bị payload camelCase dự phòng
-    const camelPayload = {
-      id: snakePayload.id,
+    // 2. Payload camelCase dự phòng cho exam_attempts
+    const examAttemptsCamel = {
+      id: uniqueId,
       quizId: String(quizId),
       examId: String(quizId),
       quizTitle: String(quizTitle || ""),
@@ -85,43 +96,73 @@ export async function POST(req: Request) {
       createdAt: nowIso
     };
 
-    // 3. Tiến hành ghi an toàn vào các bảng điểm hiện có trên Supabase
-    const tables = ["exam_attempts", "attempts", "quiz_attempts"];
+    // 3. Payload chuẩn cấu trúc cho bảng quiz_results
+    const quizResultsPayload = {
+      id: uniqueId,
+      quiz_id: String(quizId),
+      student_id: finalStudentId,
+      score: finalScore,
+      correct_count: Number(correctCount) || 0,
+      total_questions: Number(totalQuestions) || 0,
+      answers: answers || {},
+      created_at: nowIso
+    };
+
     let savedSuccessfully = false;
-    const results: Record<string, any> = {};
+    const executionResults: Record<string, any> = {};
 
-    for (const table of tables) {
-      try {
-        // Thử insert snake_case trước
-        let { data, error } = await supabaseServer.from(table).insert([snakePayload]).select();
-        
-        // Nếu lỗi do tên cột không khớp, thử insert bản camelCase
-        if (error) {
-          const retry = await supabaseServer.from(table).insert([camelPayload]).select();
-          if (!retry.error) {
-            results[table] = "success_camel";
-            savedSuccessfully = true;
-            continue;
-          }
-        } else {
-          results[table] = "success_snake";
+    // Ghi an toàn vào bảng 1: exam_attempts
+    try {
+      let { error: err1 } = await supabaseServer
+        .from("exam_attempts")
+        .insert([examAttemptsSnake]);
+
+      if (err1) {
+        // Retry bằng camelCase nếu Postgres báo lỗi cột
+        const { error: retryErr } = await supabaseServer
+          .from("exam_attempts")
+          .insert([examAttemptsCamel]);
+
+        if (!retryErr) {
+          executionResults["exam_attempts"] = "success_camel";
           savedSuccessfully = true;
-          continue;
+        } else {
+          executionResults["exam_attempts"] = retryErr.message;
         }
-
-        results[table] = error?.message;
-      } catch (tableErr: any) {
-        results[table] = tableErr?.message;
+      } else {
+        executionResults["exam_attempts"] = "success_snake";
+        savedSuccessfully = true;
       }
+    } catch (e: any) {
+      executionResults["exam_attempts"] = e.message;
+    }
+
+    // Ghi an toàn vào bảng 2: quiz_results
+    try {
+      const { error: err2 } = await supabaseServer
+        .from("quiz_results")
+        .insert([quizResultsPayload]);
+
+      if (!err2) {
+        executionResults["quiz_results"] = "success";
+        savedSuccessfully = true;
+      } else {
+        executionResults["quiz_results"] = err2.message;
+      }
+    } catch (e: any) {
+      executionResults["quiz_results"] = e.message;
     }
 
     return NextResponse.json({
       success: savedSuccessfully,
-      results,
-      savedRecord: snakePayload
+      results: executionResults,
+      record: examAttemptsSnake
     });
   } catch (error: any) {
     console.error("Lỗi API nộp bài submit-quiz:", error);
-    return NextResponse.json({ error: error.message || "Lỗi server nội bộ" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Lỗi xử lý server nội bộ" },
+      { status: 500 }
+    );
   }
 }
