@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/student/Sidebar";
 import { Header } from "@/components/student/Header";
-import { ProgressTrackingView } from "@/components/student/ProgressTrackingView";
 import { StudentLeaderboardView } from "@/components/student/StudentLeaderboardView";
 import ScheduleView from "@/components/student/ScheduleView";
 import { ExamRoomView } from "@/components/student/ExamRoomView";
@@ -98,7 +97,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ 1-2 GIÂY KHI VÀO TRANG
+  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -614,6 +613,37 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
     return "not_started";
   }, [allAttempts, profile?.id]);
 
+  // DỮ LIỆU TÍNH TOÁN TIẾN ĐỘ HỌC TẬP TAB #PROGRESS
+  const progressStats = useMemo(() => {
+    let totalHw = 0;
+    let submittedHw = 0;
+    let totalTest = 0;
+    let completedTest = 0;
+
+    onlineChapters.forEach((chap: any) => {
+      (chap.lessons || []).forEach((les: any) => {
+        (les.homework_files || []).forEach((hw: any) => {
+          totalHw++;
+          if (allAttempts.some(a => a.studentId === profile?.id && (a.quizId === hw.id || a.quiz_id === hw.id))) {
+            submittedHw++;
+          }
+        });
+        (les.test_quizzes || []).forEach((tq: any) => {
+          totalTest++;
+          if (allAttempts.some(a => a.studentId === profile?.id && (a.quizId === tq.id || a.quiz_id === tq.id))) {
+            completedTest++;
+          }
+        });
+      });
+    });
+
+    const totalTasks = totalHw + totalTest;
+    const completedTasks = submittedHw + completedTest;
+    const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    return { totalHw, submittedHw, totalTest, completedTest, totalTasks, completedTasks, percent };
+  }, [onlineChapters, allAttempts, profile?.id]);
+
   if (examRoom) {
     return (
       <ExamRoomView 
@@ -668,7 +698,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
             initial={{ opacity: 0, y: -20 }} 
             animate={{ opacity: 1, y: 0 }} 
             exit={{ opacity: 0, y: -20 }} 
-            className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 font-bold text-xs sm:text-sm border border-emerald-400"
+            className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 font-semibold text-xs sm:text-sm border border-emerald-400"
           >
             <CheckCircle2 className="w-4 h-4 text-white" /> {onlineToast}
           </motion.div>
@@ -725,11 +755,11 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           <Video className="w-4 h-4" />
                         </div>
                         <div className="min-w-0 text-left">
-                          <p className="text-[10px] font-extrabold uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
                             <span>{isOnlineLiveNow ? "BUỔI HỌC ĐANG DIỄN RA" : "SẮP BẮT ĐẦU BUỔI HỌC (TRƯỚC 15 PHÚT)"}</span>
-                            <span className="px-1.5 py-0.2 rounded bg-emerald-500 text-white text-[9px] font-black">LIVE</span>
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-500 text-white text-[9px] font-semibold">LIVE</span>
                           </p>
-                          <p className="text-xs sm:text-sm font-bold text-white truncate">
+                          <p className="text-xs sm:text-sm font-semibold text-white truncate">
                             {(liveOnlineSession.title || liveOnlineSession.subject) + " (" + liveOnlineSession.timeSlot + ")"}
                           </p>
                         </div>
@@ -737,14 +767,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                       <div className="shrink-0 flex items-center gap-2">
                         {isAttendedTodayOnline ? (
                           <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-100 font-bold text-xs border border-emerald-400/30">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-100 font-semibold text-xs border border-emerald-400/30">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
                               <span>Đã điểm danh ✓</span>
                             </span>
                             <button
                               type="button"
                               onClick={handleOnlineJoinMeeting}
-                              className="px-3 py-1 bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                              className="px-3 py-1 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
                             >
                               <Video className="w-3 h-3" />
                               <span>Vào học</span>
@@ -754,7 +784,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           <button
                             type="button"
                             onClick={handleOnlineJoinMeeting}
-                            className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                            className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                           >
                             <Play className="w-3 h-3 fill-blue-700" />
                             <span>Vào học & Điểm danh</span>
@@ -767,7 +797,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                   {/* THANH CHÀO MỪNG SLIM WELCOME BAR TINH GỌN */}
                   <div className="bg-white rounded-xl p-3 sm:px-4 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-slate-800">
+                      <span className="text-xs font-semibold text-slate-800">
                         Chào <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>!
                       </span>
                       <span className="text-slate-300">•</span>
@@ -777,10 +807,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     </div>
 
                     <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                      <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold border border-blue-100">
+                      <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-100">
                         {onlineChapters.length} Chương
                       </span>
-                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold border border-emerald-100 flex items-center gap-1 font-mono tabular-nums">
+                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex items-center gap-1 font-mono tabular-nums">
                         <Clock className="w-3 h-3" /> {formattedStudyTimeToday}
                       </span>
                     </div>
@@ -791,8 +821,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     {onlineChapters.map((chap, idx) => (
                       <div key={chap.id || idx} className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                          <h3 className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
-                            <span className="text-blue-700 font-extrabold uppercase text-[10px] tracking-wider bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                          <h3 className="font-semibold text-slate-900 text-xs sm:text-sm flex items-center gap-2">
+                            <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
                               Chương {idx + 1}
                             </span>
                             <span>{chap.title}</span>
@@ -833,10 +863,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                   <div className="bg-white rounded-xl p-3 sm:px-4 border border-slate-200/80 shadow-2xs space-y-2">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-extrabold uppercase tracking-wider border border-blue-100">
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-semibold uppercase tracking-wider border border-blue-100">
                           Lớp Online TCT
                         </span>
-                        <span className="text-xs font-bold text-slate-800">
+                        <span className="text-xs font-semibold text-slate-800">
                           Học viên: <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>
                         </span>
                       </div>
@@ -849,11 +879,11 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               type="text" 
                               value={tempGoal} 
                               onChange={e => setTempGoal(e.target.value)} 
-                              className="px-2 py-1 border border-blue-300 rounded text-xs font-bold text-slate-800 focus:outline-none" 
+                              className="px-2 py-1 border border-blue-300 rounded text-xs font-semibold text-slate-800 focus:outline-none" 
                             />
                             <button 
                               onClick={handleSaveGoal} 
-                              className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-bold cursor-pointer"
+                              className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-semibold cursor-pointer"
                             >
                               Lưu
                             </button>
@@ -895,10 +925,10 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                             className="w-full px-4 py-3 bg-slate-50/70 hover:bg-slate-50 border-b border-slate-100 flex items-center justify-between text-left transition cursor-pointer"
                           >
                             <div className="flex items-center gap-2.5">
-                              <span className="text-blue-700 font-extrabold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                              <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
                                 Chương {idx + 1}
                               </span>
-                              <h3 className="font-bold text-slate-900 text-xs sm:text-sm">
+                              <h3 className="font-semibold text-slate-900 text-xs sm:text-sm">
                                 {chap.title}
                               </h3>
                             </div>
@@ -929,21 +959,21 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                   >
                                     <div className="min-w-0 space-y-1">
                                       <div className="flex items-center gap-2">
-                                        <h4 className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                                        <h4 className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
                                           {les.title}
                                         </h4>
 
                                         {/* HUY HIỆU TRẠNG THÁI TIẾN TRÌNH */}
                                         {status === "completed" ? (
-                                          <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 text-[10px] font-extrabold border border-emerald-200 shrink-0 flex items-center gap-1">
+                                          <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
                                             <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
                                           </span>
                                         ) : status === "in_progress" ? (
-                                          <span className="px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 text-[10px] font-extrabold border border-amber-200 shrink-0">
+                                          <span className="px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
                                             Đang học
                                           </span>
                                         ) : (
-                                          <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 text-[10px] font-bold shrink-0">
+                                          <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
                                             Chưa học
                                           </span>
                                         )}
@@ -964,7 +994,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                       <button
                                         type="button"
                                         onClick={() => setSelectedLesson(les)}
-                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer"
                                       >
                                         <span>Vào học</span>
                                         <ArrowRight className="w-3.5 h-3.5" />
@@ -992,7 +1022,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                       </div>
                       <div>
                         {/* TIÊU ĐỀ RÚT GỌN CHUẨN XÁC: "Luyện đề" */}
-                        <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
+                        <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight">
                           Luyện đề
                         </h2>
                         <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 font-mono tabular-nums">
@@ -1004,13 +1034,13 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
                       <button 
                         onClick={() => setPracticeSubTab("list")}
-                        className={"px-3 py-1 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
+                        className={"px-3 py-1 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "list" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
                       >
                         <Library className="w-3.5 h-3.5"/> Danh sách đề
                       </button>
                       <button 
                         onClick={() => setPracticeSubTab("history")}
-                        className={"px-3 py-1 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
+                        className={"px-3 py-1 rounded-md text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer " + (practiceSubTab === "history" ? "bg-white text-blue-700 shadow-2xs" : "text-slate-500 hover:text-slate-800")}
                       >
                         <BarChart3 className="w-3.5 h-3.5"/> Lịch sử làm bài
                       </button>
@@ -1025,7 +1055,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                           <button 
                             key={cat}
                             onClick={() => setSelectedPracticeCategory(cat)}
-                            className={"px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer " + (
+                            className={"px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer " + (
                               selectedPracticeCategory === cat 
                                 ? "bg-blue-600 text-white shadow-2xs" 
                                 : "bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50"
@@ -1053,14 +1083,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               <div key={exam.id} className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-2xs hover:border-blue-300 transition flex flex-col justify-between group">
                                 <div>
                                   <div className="flex justify-between items-center mb-2">
-                                    <span className="text-[9px] font-black uppercase bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100">
+                                    <span className="text-[9px] font-semibold uppercase bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100">
                                       {exam.category}
                                     </span>
                                     <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1 font-mono tabular-nums">
                                       <Clock className="w-3 h-3"/> {exam.duration_minutes}p
                                     </span>
                                   </div>
-                                  <h3 className="text-xs sm:text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
+                                  <h3 className="text-xs sm:text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-700 transition">
                                     {exam.title}
                                   </h3>
                                   <p className="text-[11px] text-slate-400 font-medium mb-3 font-mono tabular-nums">
@@ -1068,7 +1098,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                   </p>
                                 </div>
                                 
-                                {/* CỤM NÚT THAO TÁC GỌN GÀNG (GIẢM CHIỀU CAO 35%) */}
+                                {/* CỤM NÚT THAO TÁC GỌN GÀNG */}
                                 <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5">
                                   {canViewFile && (
                                     <button 
@@ -1093,7 +1123,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
 
                                   <button 
                                     onClick={() => { setExamRoom({ id: exam.id, title: exam.title, duration: exam.duration_minutes, isHomework: false }); }}
-                                    className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs transition flex items-center justify-center gap-1 cursor-pointer"
+                                    className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition flex items-center justify-center gap-1 cursor-pointer"
                                   >
                                     <span>Vào thi</span>
                                     <ArrowRight className="w-3 h-3" />
@@ -1112,11 +1142,11 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                         <table className="w-full text-left text-xs">
                           <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
                             <tr>
-                              <th className="py-2.5 px-4 font-bold">Tên đề thi</th>
-                              <th className="py-2.5 px-3 font-bold text-center">Lượt làm</th>
-                              <th className="py-2.5 px-3 font-bold text-center">Điểm cao nhất</th>
-                              <th className="py-2.5 px-3 font-bold text-center">Lần cuối</th>
-                              <th className="py-2.5 px-3 font-bold text-right">Chi tiết</th>
+                              <th className="py-2.5 px-4 font-semibold">Tên đề thi</th>
+                              <th className="py-2.5 px-3 font-semibold text-center">Lượt làm</th>
+                              <th className="py-2.5 px-3 font-semibold text-center">Điểm cao nhất</th>
+                              <th className="py-2.5 px-3 font-semibold text-center">Lần cuối</th>
+                              <th className="py-2.5 px-3 font-semibold text-right">Chi tiết</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 font-mono tabular-nums">
@@ -1126,14 +1156,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                               practiceHistoryGrouped.map((grp: any) => (
                                 <tr key={grp.quizId} className="hover:bg-slate-50/50 transition font-sans">
                                   <td className="py-2.5 px-4">
-                                    <span className="font-bold text-slate-800 block truncate max-w-xs">{grp.title}</span>
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase">{grp.category}</span>
+                                    <span className="font-semibold text-slate-800 block truncate max-w-xs">{grp.title}</span>
+                                    <span className="text-[9px] font-semibold text-slate-400 uppercase">{grp.category}</span>
                                   </td>
                                   <td className="py-2.5 px-3 text-center font-mono tabular-nums">
-                                    <span className="bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded text-[11px]">{grp.attempts.length} lần</span>
+                                    <span className="bg-slate-100 text-slate-600 font-semibold px-1.5 py-0.5 rounded text-[11px]">{grp.attempts.length} lần</span>
                                   </td>
                                   <td className="py-2.5 px-3 text-center font-mono tabular-nums">
-                                    <span className="font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-100">
+                                    <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-100">
                                       {grp.maxScore.toFixed(1)}
                                     </span>
                                   </td>
@@ -1143,7 +1173,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                   <td className="py-2.5 px-3 text-right">
                                     <button 
                                       onClick={() => setHistoryModalExamId(grp.quizId)}
-                                      className="px-2.5 py-1 text-blue-700 hover:bg-blue-50 rounded text-xs font-bold transition cursor-pointer"
+                                      className="px-2.5 py-1 text-blue-700 hover:bg-blue-50 rounded text-xs font-semibold transition cursor-pointer"
                                     >
                                       Xem
                                     </button>
@@ -1166,16 +1196,147 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                 </div>
               )}
 
-              {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - HOÀN THIỆN GỌN GÀNG */}
+              {/* TAB 5: TIẾN TRÌNH (#PROGRESS) - THIẾT KẾ COMPACT SAAS TINH GỌN (THAY THẾ VÒNG TRÒN 67% CŨ) */}
               {(activeTab === "progress" || activeTab === "assessments") && (
-                <div className="max-w-5xl mx-auto text-left">
-                  <ProgressTrackingView 
-                    chapters={chapters} 
-                    pastAttempts={allAttempts.filter(a => a.studentId === profile?.id)} 
-                    onStartExam={(qId, qTitle, isHomework, durationMinutes) => { 
-                      setExamRoom({ id: qId, title: qTitle, duration: durationMinutes || 45, isHomework }); 
-                    }} 
-                  />
+                <div className="max-w-5xl mx-auto space-y-3.5 text-left">
+                  {/* KHỐI TỔNG QUAN TIẾN ĐỘ NGANG (THAY THẾ VÒNG TRÒN 67% CŨ) */}
+                  <div className="bg-white rounded-xl p-3.5 sm:p-4 border border-slate-200/80 shadow-2xs space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div>
+                        <h3 className="text-xs sm:text-sm font-semibold text-slate-900 tracking-tight">
+                          Tiến độ nhiệm vụ học tập
+                        </h3>
+                        <p className="text-[11px] text-slate-500 font-medium">
+                          Bạn đã hoàn thành <span className="font-semibold text-blue-700 font-mono tabular-nums">{progressStats.completedTasks}/{progressStats.totalTasks}</span> nhiệm vụ.
+                        </p>
+                      </div>
+
+                      {/* 2 MINI STAT CARDS NẰM NGANG */}
+                      <div className="flex items-center gap-2 sm:gap-3 text-xs">
+                        <div className="px-2.5 py-1 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
+                          <span className="text-[10px] uppercase font-semibold text-slate-400">BTVN:</span>
+                          <span className="font-semibold text-slate-800 font-mono tabular-nums">
+                            {progressStats.submittedHw}/{progressStats.totalHw} đã nộp
+                          </span>
+                        </div>
+
+                        <div className="px-2.5 py-1 bg-slate-50 border border-slate-200/70 rounded-lg flex items-center gap-1.5">
+                          <span className="text-[10px] uppercase font-semibold text-slate-400">Kiểm tra:</span>
+                          <span className="font-semibold text-slate-800 font-mono tabular-nums">
+                            {progressStats.completedTest}/{progressStats.totalTest} hoàn thành
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* THANH PROGRESS BAR MẢNH 6PX */}
+                    <div className="space-y-1">
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
+                        <div 
+                          className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                          style={{ width: `${progressStats.percent}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono tabular-nums">
+                        <span>Bắt đầu</span>
+                        <span className="font-semibold text-blue-700 font-sans">{progressStats.percent}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* DANH SÁCH NHIỆM VỤ THEO TỪNG BÀI - COMPACT BADGE ROW (KHÔNG CHIA Ô THÔ) */}
+                  <div className="space-y-3">
+                    {onlineChapters.map((chap, cIdx) => (
+                      <div key={chap.id || cIdx} className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
+                        <div className="px-4 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center gap-2">
+                          <Layers className="w-3.5 h-3.5 text-blue-700" />
+                          <h4 className="font-semibold text-slate-800 text-xs">
+                            {chap.title}
+                          </h4>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {(chap.lessons || []).map((les: any, lIdx: number) => {
+                            const hwList = les.homework_files || [];
+                            const testList = les.test_quizzes || [];
+
+                            return (
+                              <div key={les.id || lIdx} className="p-3 sm:px-4 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <BookOpen className="w-3.5 h-3.5 text-slate-400" />
+                                  <h5 className="text-xs sm:text-[13px] font-semibold text-slate-800 truncate">
+                                    {les.title}
+                                  </h5>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-0.5">
+                                  {/* CỘT NHIỆM VỤ BTVN */}
+                                  <div className="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center justify-between gap-2">
+                                    <span className="text-[10px] uppercase font-semibold text-slate-400 shrink-0">BTVN:</span>
+                                    {hwList.length === 0 ? (
+                                      <span className="text-slate-400 text-[11px] italic">Không có BTVN</span>
+                                    ) : (
+                                      hwList.map((hw: any) => {
+                                        const myAtt = allAttempts.find(a => a.studentId === profile?.id && (a.quizId === hw.id || a.quiz_id === hw.id));
+                                        return (
+                                          <div key={hw.id} className="flex items-center gap-1.5 min-w-0">
+                                            <span className="truncate text-slate-700 font-medium text-[11px] max-w-[120px]">{hw.title}</span>
+                                            {myAtt ? (
+                                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold font-mono tabular-nums shrink-0">
+                                                Đã nộp ({Number(myAtt.score).toFixed(1)}đ)
+                                              </span>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => setExamRoom({ id: hw.id, title: hw.title, duration: hw.duration_minutes || 0, isHomework: true })}
+                                                className="px-2.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-semibold shrink-0 cursor-pointer transition shadow-2xs"
+                                              >
+                                                Làm bài
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+
+                                  {/* CỘT KIỂM TRA ĐỊNH KỲ */}
+                                  <div className="p-2 rounded-lg bg-slate-50/60 border border-slate-100 flex items-center justify-between gap-2">
+                                    <span className="text-[10px] uppercase font-semibold text-slate-400 shrink-0">Kiểm tra:</span>
+                                    {testList.length === 0 ? (
+                                      <span className="text-slate-400 text-[11px] italic">Không có bài KT</span>
+                                    ) : (
+                                      testList.map((tq: any) => {
+                                        const myAtt = allAttempts.find(a => a.studentId === profile?.id && (a.quizId === tq.id || a.quiz_id === tq.id));
+                                        return (
+                                          <div key={tq.id} className="flex items-center gap-1.5 min-w-0">
+                                            <span className="truncate text-slate-700 font-medium text-[11px] max-w-[120px]">{tq.title}</span>
+                                            {myAtt ? (
+                                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold font-mono tabular-nums shrink-0">
+                                                Hoàn thành ({Number(myAtt.score).toFixed(1)}đ)
+                                              </span>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => setExamRoom({ id: tq.id, title: tq.title, duration: tq.duration_minutes || 45, isHomework: false })}
+                                                className="px-2.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-semibold shrink-0 cursor-pointer transition shadow-2xs"
+                                              >
+                                                Vào làm
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1190,8 +1351,8 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
               {activeTab === "notifications" && (
                 <div className="w-full max-w-5xl mx-auto space-y-3.5 text-left">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
-                    <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">Trung tâm thông báo</h2>
-                    <button onClick={handleMarkAllAsRead} className="px-3 py-1 bg-blue-50 text-blue-700 font-bold text-xs rounded-lg hover:bg-blue-100 transition cursor-pointer">
+                    <h2 className="text-sm sm:text-base font-semibold text-slate-900 tracking-tight">Trung tâm thông báo</h2>
+                    <button onClick={handleMarkAllAsRead} className="px-3 py-1 bg-blue-50 text-blue-700 font-semibold text-xs rounded-lg hover:bg-blue-100 transition cursor-pointer">
                       Đã đọc tất cả
                     </button>
                   </div>
@@ -1212,7 +1373,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                                 <Clock className="w-4 h-4" />
                               </div>
                               <div className="min-w-0">
-                                <h4 className={"text-xs truncate " + (isUnread ? "font-bold text-blue-800" : "font-semibold text-slate-800")}>{item.title}</h4>
+                                <h4 className={"text-xs truncate " + (isUnread ? "font-semibold text-blue-800" : "font-semibold text-slate-800")}>{item.title}</h4>
                                 <p className="text-[11px] text-slate-500 truncate">{item.desc}</p>
                               </div>
                             </div>
@@ -1237,7 +1398,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         >
           <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden cursor-default animate-in zoom-in-95 duration-150">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="font-bold text-slate-900 text-xs sm:text-sm flex items-center gap-1.5">
+              <h3 className="font-semibold text-slate-900 text-xs sm:text-sm flex items-center gap-1.5">
                 <ListOrdered className="w-4 h-4 text-blue-700" /> Lịch sử làm bài
               </h3>
               <button onClick={() => setHistoryModalExamId(null)} className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -1260,11 +1421,11 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
                     const isMax = att.score === practiceHistoryGrouped.find((g: any) => g.quizId === historyModalExamId)?.maxScore;
                     return (
                       <tr key={idx} className={"hover:bg-slate-50/50 " + (isMax ? "bg-amber-50/30" : "")}>
-                        <td className="py-2 px-3 text-center font-bold text-slate-700">{idx + 1}</td>
+                        <td className="py-2 px-3 text-center font-semibold text-slate-700">{idx + 1}</td>
                         <td className="py-2 px-3 text-slate-600">{new Date(att.createdAt || att.submittedAt).toLocaleString("vi-VN")}</td>
                         <td className="py-2 px-3 text-center text-slate-500">{formatCompletionTime(Number(att.durationSeconds || att.completionTime) || 0)}</td>
                         <td className="py-2 px-3 text-center">
-                          <span className={"font-bold " + (isMax ? "text-amber-600" : "text-blue-700")}>{Number(att.score).toFixed(1)}</span>
+                          <span className={"font-semibold " + (isMax ? "text-amber-600" : "text-blue-700")}>{Number(att.score).toFixed(1)}</span>
                         </td>
                       </tr>
                     );
@@ -1283,11 +1444,11 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
           className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
         >
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 p-5 cursor-default">
-            <h4 className="text-sm font-bold text-slate-900 mb-2">{selectedSysNotif.title}</h4>
+            <h4 className="text-sm font-semibold text-slate-900 mb-2">{selectedSysNotif.title}</h4>
             <div className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl mb-4 border border-slate-100">
               {selectedSysNotif.desc}
             </div>
-            <button onClick={() => setSelectedSysNotif(null)} className="w-full py-2 bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer">
+            <button onClick={() => setSelectedSysNotif(null)} className="w-full py-2 bg-slate-800 text-white rounded-xl text-xs font-semibold cursor-pointer">
               Đóng
             </button>
           </div>
@@ -1302,7 +1463,7 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
         >
           <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[80vh] overflow-hidden cursor-default">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="font-bold text-slate-900 text-xs sm:text-sm">Xem trước: {previewExam.title}</h3>
+              <h3 className="font-semibold text-slate-900 text-xs sm:text-sm">Xem trước: {previewExam.title}</h3>
               <button onClick={() => setPreviewExam(null)} className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
@@ -1310,14 +1471,14 @@ export default function StudentOnlineDashboard({ initialProfile, onLogout }: Stu
             <div className="p-4 overflow-y-auto custom-scrollbar space-y-3">
               {previewExam.data?.map((sec: any, sIdx: number) => (
                 <div key={sIdx} className="space-y-2">
-                  <h4 className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded inline-block">{sec.section_title || "Phần câu hỏi"}</h4>
+                  <h4 className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded inline-block">{sec.section_title || "Phần câu hỏi"}</h4>
                   {(sec.questions || []).map((q: any, qIdx: number) => (
                     <div key={qIdx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
-                      <div className="font-semibold" dangerouslySetInnerHTML={{ __html: q.prompt_html || q.prompt }} />
+                      <div className="font-medium" dangerouslySetInnerHTML={{ __html: q.prompt_html || q.prompt }} />
                       <div className="grid grid-cols-2 gap-1.5 pt-1">
                         {(q.options || []).map((opt: any, oIdx: number) => (
                           <div key={oIdx} className="p-1.5 bg-white rounded border border-slate-200 text-slate-700">
-                            <span className="font-bold text-blue-700 mr-1">{opt.key}.</span>
+                            <span className="font-semibold text-blue-700 mr-1">{opt.key}.</span>
                             <span dangerouslySetInnerHTML={{ __html: opt.text_html || opt.text }} />
                           </div>
                         ))}
