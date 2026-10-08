@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { STANDARD_SHIFTS } from "@/types";
 import { AdminTab, INITIAL_CHAPTERS } from "@/types/admin";
@@ -98,7 +98,9 @@ function AdminDashboardContent() {
     "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09"
   ]);
 
-  const [successToast, setSuccessToast] = useState("");
+  const [toastNotification, setToastNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [isCreatingItem, setIsCreatingItem] = useState(false);
+
   const [uploadMode, setUploadMode] = useState<"course" | "practice">("course");
   const [practiceCategoryFilter, setPracticeCategoryFilter] = useState("Tất cả danh mục");
   const [rankingScope, setRankingScope] = useState<"lesson" | "chapter" | "course">("course");
@@ -193,10 +195,10 @@ function AdminDashboardContent() {
     attempts: []
   });
 
-  const showToast = (msg: string) => { 
-    setSuccessToast(msg); 
-    setTimeout(() => setSuccessToast(""), 3000); 
-  };
+  const showToast = useCallback((msg: string, type: "success" | "error" = "success") => { 
+    setToastNotification({ message: msg, type }); 
+    setTimeout(() => setToastNotification(null), 3500); 
+  }, []);
 
   const handleSwitchTab = useCallback((newTab: AdminTab) => {
     setActiveTab(newTab);
@@ -328,7 +330,7 @@ function AdminDashboardContent() {
     }
     setIsAddStudentModalOpen(false);
     setQuickStudentForm({ lastName: "", firstName: "", status: "approved" });
-    showToast("Đã thêm học sinh " + full_name + " thành công!");
+    showToast("Đã thêm học sinh " + full_name + " thành công!", "success");
   };
 
   const loadStorageData = useCallback(async () => {
@@ -424,28 +426,44 @@ function AdminDashboardContent() {
     };
   }, [loadStorageData, fetchSupabaseStudents, fetchSupabaseAttempts]);
 
-  const saveToStorage = async (newChapters: any[]) => {
-    setChapters(newChapters);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
-    }
-
+  // NÂNG CẤP XỬ LÝ LƯU SUPABASE CHẶT CHẼ CÓ BÁO LỖI VÀ CHỜ PHẢN HỒI
+  const saveToStorage = async (newChapters: any[]): Promise<boolean> => {
     try {
-      const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+      const { data: existingRows, error: checkError } = await supabase.from("courses").select("id").limit(1);
+      if (checkError) {
+        throw new Error(checkError.message);
+      }
+
       if (existingRows && existingRows.length > 0) {
-        await supabase
+        const { error: updateError } = await supabase
           .from("courses")
           .update({ chapters: newChapters, updated_at: new Date().toISOString() })
           .eq("id", existingRows[0].id);
+
+        if (updateError) throw new Error(updateError.message);
       } else {
-        await supabase
+        const { error: insertError } = await supabase
           .from("courses")
           .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
+
+        if (insertError) throw new Error(insertError.message);
       }
-    } catch (err: any) {}
+
+      // Chỉ cập nhật state và LocalStorage khi Supabase đã ghi nhận thành công
+      setChapters(newChapters);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
+          window.dispatchEvent(new Event("storage"));
+        } catch (e) {}
+      }
+
+      return true;
+    } catch (err: any) {
+      console.error("Lỗi đồng bộ Supabase courses:", err);
+      showToast("Lỗi lưu dữ liệu lên Supabase: " + (err?.message || "Không xác định"), "error");
+      return false;
+    }
   };
 
   const savePracticeExams = async (newExams: any[]) => {
@@ -463,7 +481,7 @@ function AdminDashboardContent() {
     await savePracticeExams(updated);
     try {
       await supabase.from("practice_exams").update({ category: newCategory }).eq("id", examId);
-      showToast("Đã chuyển đề sang danh mục: " + newCategory);
+      showToast("Đã chuyển đề sang danh mục: " + newCategory, "success");
     } catch (e: any) {}
   };
 
@@ -514,30 +532,58 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_attempts", JSON.stringify(updatedList));
     }
-    showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi của học sinh!");
+    showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi của học sinh!", "success");
   };
 
+  // NÂNG CẤP TIẾN TRÌNH THÊM CHƯƠNG / BÀI HỌC VỚI LOADING STATE VÀ BẮT LỖI
   const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
+    
+    setIsCreatingItem(true);
     let newChapters = [...(chapters || [])];
+
     if (createModal.type === "chapter") {
-      newChapters.push({ id: "chap-" + Date.now(), title: newItemTitle, target_mode: newItemTargetMode, lessons: [] });
+      newChapters.push({ 
+        id: "chap-" + Date.now(), 
+        title: newItemTitle.trim(), 
+        target_mode: newItemTargetMode, 
+        lessons: [] 
+      });
     } else if (createModal.type === "lesson" && createModal.chapterId) {
       newChapters = newChapters.map(chap => chap?.id === createModal.chapterId ? {
-        ...chap, lessons: [...(chap.lessons || []), {
-          id: "les-" + Date.now(), title: newItemTitle, description: newItemDescription, duration: 45, format: "Zoom", target_mode: newItemTargetMode,
-          lecture_files: [], homework_files: [], handwritten_notes: [], video_list: [], test_quizzes: [], extra_resources: []
+        ...chap, 
+        lessons: [...(chap.lessons || []), {
+          id: "les-" + Date.now(), 
+          title: newItemTitle.trim(), 
+          description: newItemDescription.trim(), 
+          duration: 45, 
+          format: newItemFormat || "Zoom", 
+          target_mode: newItemTargetMode,
+          lecture_files: [], 
+          homework_files: [], 
+          handwritten_notes: [], 
+          video_list: [], 
+          test_quizzes: [], 
+          extra_resources: []
         }]
       } : chap);
     }
-    await saveToStorage(newChapters); 
-    setCreateModal(null); 
-    setNewItemTitle(""); 
-    setNewItemDescription(""); 
-    setNewItemFormat("Zoom");
-    setNewItemTargetMode("all");
-    showToast("Đã thêm " + (createModal.type === "chapter" ? "chương" : "bài học") + " thành công!");
+
+    const isSuccess = await saveToStorage(newChapters);
+    setIsCreatingItem(false);
+
+    if (isSuccess) {
+      const itemLabel = createModal.type === "chapter" ? "chương" : "bài học";
+      setCreateModal(null); 
+      setNewItemTitle(""); 
+      setNewItemDescription(""); 
+      setNewItemFormat("Zoom");
+      setNewItemTargetMode("all");
+      showToast("Đã thêm " + itemLabel + " mới thành công!", "success");
+      // Refetch lại dữ liệu từ Supabase ngay để đảm bảo trạng thái đồng bộ 100%
+      await loadStorageData();
+    }
   };
 
   const handleEditLessonSubmit = async (e: React.FormEvent) => {
@@ -546,9 +592,12 @@ function AdminDashboardContent() {
     const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
       ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
     } : chap);
-    await saveToStorage(newChapters); 
-    setEditLessonModal(null); 
-    showToast("Đã cập nhật thông tin bài học!");
+    const isSuccess = await saveToStorage(newChapters); 
+    if (isSuccess) {
+      setEditLessonModal(null); 
+      showToast("Đã cập nhật thông tin bài học!", "success");
+      await loadStorageData();
+    }
   };
 
   const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
@@ -559,8 +608,11 @@ function AdminDashboardContent() {
       }
       return chap;
     });
-    await saveToStorage(newChapters); 
-    showToast("Đã xóa bài học!");
+    const isSuccess = await saveToStorage(newChapters); 
+    if (isSuccess) {
+      showToast("Đã xóa bài học!", "success");
+      await loadStorageData();
+    }
   };
 
   const handleAddResource = async (e: React.FormEvent) => {
@@ -581,12 +633,15 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    await saveToStorage(newChapters); 
-    setResTitle(""); 
-    setResUrl(""); 
-    setVidType("lecture");
-    setResourceModal(null); 
-    showToast("Đã thêm tài nguyên thành công!");
+    const isSuccess = await saveToStorage(newChapters); 
+    if (isSuccess) {
+      setResTitle(""); 
+      setResUrl(""); 
+      setVidType("lecture");
+      setResourceModal(null); 
+      showToast("Đã thêm tài nguyên thành công!", "success");
+      await loadStorageData();
+    }
   };
 
   const handleAddBoost = async (e: React.FormEvent) => {
@@ -602,10 +657,13 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    await saveToStorage(newChapters); 
-    setBoostModal(null); 
-    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
-    showToast("Đã thêm tài liệu tăng cường!");
+    const isSuccess = await saveToStorage(newChapters); 
+    if (isSuccess) {
+      setBoostModal(null); 
+      setBoostForm({ title: "", type: "video", url: "", note: "" }); 
+      showToast("Đã thêm tài liệu tăng cường!", "success");
+      await loadStorageData();
+    }
   };
 
   const handleAddDriveFile = async (e: React.FormEvent) => {
@@ -621,10 +679,13 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    await saveToStorage(newChapters); 
-    setDriveLinkModal(null); 
-    setDriveLinkForm({ title: "", url: "" }); 
-    showToast("Đã đính kèm file Drive!");
+    const isSuccess = await saveToStorage(newChapters); 
+    if (isSuccess) {
+      setDriveLinkModal(null); 
+      setDriveLinkForm({ title: "", url: "" }); 
+      showToast("Đã đính kèm file Drive!", "success");
+      await loadStorageData();
+    }
   };
 
   const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
@@ -633,9 +694,13 @@ function AdminDashboardContent() {
       ...chap, 
       lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
     }));
-    await saveToStorage(newChapters);
-    if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
-      setViewResourcesModal((prev: any) => prev ? { ...prev, items: (prev.items || []).filter((i: any) => i?.id !== resId) } : null);
+    const isSuccess = await saveToStorage(newChapters);
+    if (isSuccess) {
+      if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
+        setViewResourcesModal((prev: any) => prev ? { ...prev, items: (prev.items || []).filter((i: any) => i?.id !== resId) } : null);
+      }
+      showToast("Đã xóa tài nguyên!", "success");
+      await loadStorageData();
     }
   };
 
@@ -658,9 +723,12 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    await saveToStorage(newChapters);
-    setEditResourceModal(null); 
-    showToast("Đã cập nhật thông tin tài liệu!");
+    const isSuccess = await saveToStorage(newChapters);
+    if (isSuccess) {
+      setEditResourceModal(null); 
+      showToast("Đã cập nhật thông tin tài liệu!", "success");
+      await loadStorageData();
+    }
   };
 
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
@@ -672,7 +740,7 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
     }
-    showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!");
+    showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!", "success");
   };
 
   const handleDeleteStudent = async (studentId: string) => {
@@ -685,7 +753,7 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
     }
-    showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.");
+    showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.", "success");
   };
 
   const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
@@ -704,7 +772,7 @@ function AdminDashboardContent() {
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
     }
-    showToast("Đã xóa ca học \"" + sessionTitle + "\" thành công!");
+    showToast("Đã xóa ca học \"" + sessionTitle + "\" thành công!", "success");
   };
 
   const handleDeleteAttendanceDate = async (dateToDelete: string) => {
@@ -730,7 +798,7 @@ function AdminDashboardContent() {
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
     }
-    showToast("Đã xóa ngày học " + dateToDelete + " thành công!");
+    showToast("Đã xóa ngày học " + dateToDelete + " thành công!", "success");
   };
 
   const handleAddNewAttendanceDate = async (e: React.FormEvent) => {
@@ -787,7 +855,7 @@ function AdminDashboardContent() {
     }
     setIsAddDateModalOpen(false);
     setNewDateTitle("");
-    showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!");
+    showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!", "success");
   };
 
   const handleCreateOnlineSession = async (e: React.FormEvent) => {
@@ -847,7 +915,7 @@ function AdminDashboardContent() {
       guideImagesText: "", 
       audience: "all" 
     });
-    showToast("Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!");
+    showToast("Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!", "success");
   };
 
   const handleToggleAttendance = (studentId: string, studentName: string, sessionDate: string) => {
@@ -855,7 +923,7 @@ function AdminDashboardContent() {
     let updated: any[];
     if (existing && existing.status === "present") {
       updated = attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate));
-      showToast("Đã hủy điểm danh của " + studentName + " ngày " + sessionDate);
+      showToast("Đã hủy điểm danh của " + studentName + " ngày " + sessionDate, "success");
     } else {
       const newRec = {
         id: "att-" + Date.now(),
@@ -866,7 +934,7 @@ function AdminDashboardContent() {
         attendedAt: new Date().toISOString()
       };
       updated = [...attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate)), newRec];
-      showToast("Đã tích có mặt cho " + studentName + " ngày " + sessionDate + "!");
+      showToast("Đã tích có mặt cho " + studentName + " ngày " + sessionDate + "!", "success");
     }
     setAttendanceRecords(updated);
     if (typeof window !== "undefined") {
@@ -889,7 +957,7 @@ function AdminDashboardContent() {
     } catch {}
     setVideoModalExam(null);
     setSolutionVideoInput("");
-    showToast("Đã lưu Video chữa bài thành công!");
+    showToast("Đã lưu Video chữa bài thành công!", "success");
   };
 
   const handleSendNotification = async (e: React.FormEvent) => {
@@ -911,7 +979,7 @@ function AdminDashboardContent() {
     }
     setNotifTitle(""); 
     setNotifContent(""); 
-    showToast("Đã phát thông báo thành công!");
+    showToast("Đã phát thông báo thành công!", "success");
   };
 
   const handleDeleteNotification = async (id: string) => {
@@ -1140,9 +1208,9 @@ function AdminDashboardContent() {
 
       if (editingExamData) {
         await handleRecalculateExamScores(examId, examData.sections);
-        showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!");
+        showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!", "success");
       } else {
-        showToast("Đã thêm vào kho Luyện đề: " + examData.category);
+        showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
       }
     } else {
       if (!azotaTarget) return;
@@ -1166,8 +1234,11 @@ function AdminDashboardContent() {
         }) 
       }));
 
-      await saveToStorage(newChapters); 
-      showToast("Đã tải đề thi trắc nghiệm vào bài học!");
+      const isSuccess = await saveToStorage(newChapters); 
+      if (isSuccess) {
+        showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
+        await loadStorageData();
+      }
     }
     setTestFile(null); 
     setEditingExamData(null);
@@ -1199,9 +1270,17 @@ function AdminDashboardContent() {
   return (
     <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20">
       <AnimatePresence>
-        {successToast && (
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed top-5 right-5 z-[500] bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-sm">
-            <CheckCircle2 className="w-5 h-5" /> {successToast}
+        {toastNotification && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            exit={{ opacity: 0, y: -20 }} 
+            className={"fixed top-5 right-5 z-[500] px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-sm text-white " + (
+              toastNotification.type === "success" ? "bg-emerald-600" : "bg-rose-600"
+            )}
+          >
+            {toastNotification.type === "success" ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            {toastNotification.message}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1217,7 +1296,7 @@ function AdminDashboardContent() {
           activeTab={activeTab}
           onSyncData={async () => {
             await Promise.all([loadStorageData(), fetchSupabaseStudents()]);
-            showToast("Đã đồng bộ toàn bộ dữ liệu tức thì!");
+            showToast("Đã đồng bộ toàn bộ dữ liệu tức thì!", "success");
           }}
         />
 
@@ -1253,7 +1332,7 @@ function AdminDashboardContent() {
               handleChangeExamCategory={handleChangeExamCategory}
               savePracticeExams={savePracticeExams}
               supabase={supabase}
-              showToast={showToast}
+              showToast={(msg) => showToast(msg, "success")}
               setVideoModalExam={setVideoModalExam}
               setSolutionVideoInput={setSolutionVideoInput}
               setAzotaScoreViewModal={setAzotaScoreViewModal}
@@ -1382,6 +1461,7 @@ function AdminDashboardContent() {
         newItemDescription={newItemDescription}
         setNewItemDescription={setNewItemDescription}
         handleCreateNewItem={handleCreateNewItem}
+        isCreatingItem={isCreatingItem}
         testFile={testFile}
         editingExamData={editingExamData}
         uploadMode={uploadMode}
