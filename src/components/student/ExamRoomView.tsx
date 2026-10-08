@@ -600,7 +600,7 @@ export function ExamRoomView({
     return Math.min(100, Math.round((answeredCount / questions.length) * 100));
   }, [answeredCount, questions.length]);
 
-  // Màu đồng hồ theo thời gian (Thanh lịch & Cảnh báo khi dưới 5 phút)
+  // Màu đồng hồ theo thời gian
   const timerHeaderStyles = useMemo(() => {
     if (isHomework) return "bg-blue-50/70 border-blue-200/70 text-blue-700";
     if (secondsRemaining <= 60) return "bg-rose-50 border-rose-300 text-rose-600 animate-pulse";
@@ -864,7 +864,7 @@ export function ExamRoomView({
 
         {/* CỤM ĐIỀU KHIỂN GIỮA: NÚT TOGGLE CHẾ ĐỘ XEM & ĐỒNG HỒ THỜI GIAN */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* SEGMENTED CONTROL: BẬT TẮT CHẾ ĐỘ CUỘN / TỪNG CÂU (ĐÃ SỬA NHÃN GỌN ĐẸP) */}
+          {/* SEGMENTED CONTROL: BẬT TẮT CHẾ ĐỘ CUỘN / TỪNG CÂU */}
           <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
             <button
               type="button"
@@ -892,8 +892,8 @@ export function ExamRoomView({
             </button>
           </div>
 
-          {/* ĐỒNG HỒ THỜI GIAN TRÊN HEADER (TYPOGRAPHY NHỎ GỌN, CHUẨN XÁC) */}
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border shadow-2xs font-mono font-semibold text-xs tabular-nums tracking-tight ${timerHeaderStyles}`}>
+          {/* ĐỒNG HỒ THỜI GIAN TRÊN HEADER (TIMES NEW ROMAN THANH LỊCH) */}
+          <div className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl border shadow-2xs text-xs font-semibold tabular-nums font-['Times_New_Roman',serif] tracking-wider ${timerHeaderStyles}`}>
             <Clock className="w-3.5 h-3.5 shrink-0" />
             <span>
               {isHomework ? formatTimer(timeSpentSeconds) + " (Tự do)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
@@ -936,189 +936,198 @@ export function ExamRoomView({
 
       {/* 2. VÙNG LÀM BÀI CHÍNH */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
-        <main className="lg:col-span-9 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar flex flex-col justify-between">
-          <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-20 lg:pb-0">
-            
-            {isHomework && (
-              <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-2xs">
-                <span className="flex items-center gap-1.5">
-                  <BookOpen className="w-4 h-4 text-emerald-600" />
-                  Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu kết quả khi nộp.
-                </span>
-                <span className="text-[11px] font-bold bg-white px-2 py-0.5 rounded border border-emerald-300">
-                  Đã làm {answeredCount}/{questions.length} câu ✓
-                </span>
-              </div>
-            )}
-
-            {/* CHẾ ĐỘ 1: TỪNG CÂU CHUẨN TSA/HSA */}
-            {layoutMode === "single" ? (
-              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs space-y-3 text-left relative">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-[#1D4ED8]">
-                      {"Câu " + (currentIdx + 1) + " / " + questions.length}
-                    </span>
-                    {isQuestionTrueFalse(currentQ) ? (
-                      <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
-                        Đúng / Sai
-                      </span>
-                    ) : isQuestionShortAnswer(currentQ) ? (
-                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
-                        Trả lời ngắn
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI */}
-                    <button
-                      type="button"
-                      onClick={() => toggleFlagQuestion(currentQ.id)}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
-                        flaggedQuestions[currentQ.id]
-                          ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
-                          : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
-                      }`}
-                    >
-                      <Flag className="w-3 h-3 fill-current" />
-                      <span>{flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
-                    </button>
-                    <span className="text-xs font-semibold text-slate-500">
-                      {Boolean(userAnswers[currentQ.id]) ? "Đã trả lời" : "Chưa làm"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="py-0.5">
-                  <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
-                </div>
-
-                {renderQuestionOptions(currentQ)}
-
-                {isReviewMode && currentQ.explanation && (
-                  <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 space-y-1 text-xs">
-                    <p className="font-bold text-[#1D4ED8] flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
-                    </p>
-                    <div className="text-slate-700 leading-relaxed font-normal">
-                      <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
-                    </div>
-                  </div>
-                )}
-
-                {/* CỤM NÚT ĐIỀU HƯỚNG GỌN GÀNG CÂN ĐỐI (COMPACT CONTROL BAR) */}
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))}
-                    disabled={currentIdx === 0}
-                    className="px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-xs font-semibold text-slate-700 transition flex items-center gap-1 cursor-pointer shadow-2xs"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Câu trước
-                  </button>
-
-                  <span className="text-xs font-medium text-slate-500 px-2 select-none">
-                    Câu {currentIdx + 1} / {questions.length}
+        <main className="lg:col-span-9 flex flex-col justify-between overflow-hidden relative bg-[#F8FAFC]">
+          
+          {/* NỘI DUNG CUỘN CÂU HỎI */}
+          <div className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar">
+            <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-6">
+              
+              {isHomework && (
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-2xs">
+                  <span className="flex items-center gap-1.5">
+                    <BookOpen className="w-4 h-4 text-emerald-600" />
+                    Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu kết quả khi nộp.
                   </span>
+                  <span className="text-[11px] font-bold bg-white px-2 py-0.5 rounded border border-emerald-300">
+                    Đã làm {answeredCount}/{questions.length} câu ✓
+                  </span>
+                </div>
+              )}
 
-                  {currentIdx < questions.length - 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => setCurrentIdx(prev => Math.min(questions.length - 1, prev + 1))}
-                      className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer"
-                    >
-                      Câu tiếp theo <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  ) : (
-                    !isSubmitted && (
+              {/* CHẾ ĐỘ 1: TỪNG CÂU CHUẨN TSA/HSA */}
+              {layoutMode === "single" ? (
+                <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs space-y-3 text-left relative">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-[#1D4ED8]">
+                        {"Câu " + (currentIdx + 1) + " / " + questions.length}
+                      </span>
+                      {isQuestionTrueFalse(currentQ) ? (
+                        <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
+                          Đúng / Sai
+                        </span>
+                      ) : isQuestionShortAnswer(currentQ) ? (
+                        <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
+                          Trả lời ngắn
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI */}
                       <button
                         type="button"
-                        disabled={isSubmitting}
-                        onClick={() => handleSubmitExam()}
-                        className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                        onClick={() => toggleFlagQuestion(currentQ.id)}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
+                          flaggedQuestions[currentQ.id]
+                            ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
+                            : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
+                        }`}
                       >
-                        {isSubmitting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Đang nộp...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-3.5 h-3.5" /> Nộp bài thi
-                          </>
-                        )}
+                        <Flag className="w-3 h-3 fill-current" />
+                        <span>{flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
                       </button>
-                    )
+                      <span className="text-xs font-semibold text-slate-500">
+                        {Boolean(userAnswers[currentQ.id]) ? "Đã trả lời" : "Chưa làm"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="py-0.5">
+                    <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                  </div>
+
+                  {renderQuestionOptions(currentQ)}
+
+                  {isReviewMode && currentQ.explanation && (
+                    <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 space-y-1 text-xs">
+                      <p className="font-bold text-[#1D4ED8] flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
+                      </p>
+                      <div className="text-slate-700 leading-relaxed font-normal">
+                        <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
-            ) : (
-              /* CHẾ ĐỘ 2: CUỘN DANH SÁCH TẤT CẢ CÂU HỎI */
-              <div className="space-y-3.5">
-                {questions.map((q, qIndex) => (
-                  <div
-                    key={q.id}
-                    id={"question-card-" + q.id}
-                    className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-2.5 text-left relative"
-                  >
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-[#1D4ED8]">
-                          {"Câu " + (qIndex + 1) + " / " + questions.length}
-                        </span>
-                        {isQuestionTrueFalse(q) ? (
-                          <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
-                            Đúng / Sai
+              ) : (
+                /* CHẾ ĐỘ 2: CUỘN DANH SÁCH TẤT CẢ CÂU HỎI */
+                <div className="space-y-3.5 pb-16">
+                  {questions.map((q, qIndex) => (
+                    <div
+                      key={q.id}
+                      id={"question-card-" + q.id}
+                      className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-2.5 text-left relative"
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-[#1D4ED8]">
+                            {"Câu " + (qIndex + 1) + " / " + questions.length}
                           </span>
-                        ) : isQuestionShortAnswer(q) ? (
-                          <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
-                            Trả lời ngắn
+                          {isQuestionTrueFalse(q) ? (
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">
+                              Đúng / Sai
+                            </span>
+                          ) : isQuestionShortAnswer(q) ? (
+                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200">
+                              Trả lời ngắn
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI TRONG BẢN CUỘN */}
+                          <button
+                            type="button"
+                            onClick={() => toggleFlagQuestion(q.id)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
+                              flaggedQuestions[q.id]
+                                ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
+                                : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
+                            }`}
+                          >
+                            <Flag className="w-3 h-3 fill-current" />
+                            <span>{flaggedQuestions[q.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
+                          </button>
+                          <span className="text-xs font-semibold text-slate-500">
+                            {Boolean(userAnswers[q.id]) ? "Đã trả lời" : "Chưa làm"}
                           </span>
-                        ) : null}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI TRONG BẢN CUỘN */}
-                        <button
-                          type="button"
-                          onClick={() => toggleFlagQuestion(q.id)}
-                          className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
-                            flaggedQuestions[q.id]
-                              ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
-                              : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
-                          }`}
-                        >
-                          <Flag className="w-3 h-3 fill-current" />
-                          <span>{flaggedQuestions[q.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
-                        </button>
-                        <span className="text-xs font-semibold text-slate-500">
-                          {Boolean(userAnswers[q.id]) ? "Đã trả lời" : "Chưa làm"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="py-0.5">
-                      <MathRenderer content={q.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
-                    </div>
-
-                    {renderQuestionOptions(q)}
-
-                    {isReviewMode && q.explanation && (
-                      <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-slate-800 space-y-1">
-                        <p className="font-bold flex items-center gap-1 text-[#1D4ED8]">
-                          <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
-                        </p>
-                        <div>
-                          <MathRenderer content={q.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
                         </div>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+
+                      <div className="py-0.5">
+                        <MathRenderer content={q.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                      </div>
+
+                      {renderQuestionOptions(q)}
+
+                      {isReviewMode && q.explanation && (
+                        <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-slate-800 space-y-1">
+                          <p className="font-bold flex items-center gap-1 text-[#1D4ED8]">
+                            <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
+                          </p>
+                          <div>
+                            <MathRenderer content={q.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* THANH ĐIỀU HƯỚNG CỐ ĐỊNH Ở ĐÁY (STICKY/FIXED BOTTOM BAR) DÀNH RIÊNG CHO CHẾ ĐỘ "TỪNG CÂU" */}
+          {layoutMode === "single" && (
+            <div className="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200/80 py-2.5 px-4 flex items-center justify-center gap-3 sm:gap-4 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))}
+                disabled={currentIdx === 0}
+                className="px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-35 text-xs font-semibold text-slate-700 transition flex items-center gap-1 cursor-pointer shadow-2xs disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Câu trước
+              </button>
+
+              <span className="text-xs font-semibold text-slate-600 px-2 select-none tracking-tight">
+                Câu {currentIdx + 1} / {questions.length}
+                {Boolean(userAnswers[currentQ?.id]) && (
+                  <span className="ml-1.5 text-emerald-600 text-[11px] font-bold">✓</span>
+                )}
+              </span>
+
+              {currentIdx < questions.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setCurrentIdx(prev => Math.min(questions.length - 1, prev + 1))}
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                >
+                  Câu tiếp theo <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                !isSubmitted && (
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => handleSubmitExam()}
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Đang nộp...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" /> Nộp bài thi
+                      </>
+                    )}
+                  </button>
+                )
+              )}
+            </div>
+          )}
         </main>
 
         {/* 3. SIDEBAR MA TRẬN & ĐỒNG HỒ THANH LỊCH TRÊN DESKTOP */}
@@ -1134,14 +1143,14 @@ export function ExamRoomView({
               </div>
             </div>
 
-            {/* KHỐI ĐỒNG HỒ ĐẾM NGƯỢC THANH LỊCH (TYPOGRAPHY CHUẨN XÁC, KHÔNG BỊ THÔ) */}
+            {/* KHỐI ĐỒNG HỒ ĐẾM NGƯỢC (TIMES NEW ROMAN SẮC NÉT, MỀM MẠI) */}
             <div className={`p-3 rounded-xl border shadow-2xs space-y-0.5 text-left transition-colors ${timerSidebarStyles}`}>
               <span className="text-[10px] font-black uppercase tracking-wider opacity-75 block">
                 {isHomework ? "THỜI GIAN LÀM BÀI" : "THỜI GIAN CÒN LẠI"}
               </span>
               <div className="flex items-center gap-2 pt-0.5">
                 <Clock className="w-4 h-4 shrink-0" />
-                <span className="text-lg font-bold tracking-tight font-mono tabular-nums">
+                <span className="text-lg font-semibold tracking-wider font-['Times_New_Roman',serif] tabular-nums">
                   {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
@@ -1305,7 +1314,7 @@ export function ExamRoomView({
 
               <div className="py-2.5 flex items-center justify-between text-xs font-bold text-slate-600 bg-slate-50 px-3 rounded-xl my-1">
                 <span>Thời gian:</span>
-                <span className="text-blue-700 font-semibold font-mono tabular-nums">
+                <span className="text-blue-700 font-semibold font-['Times_New_Roman',serif] text-sm tabular-nums tracking-wider">
                   {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
                 </span>
               </div>
