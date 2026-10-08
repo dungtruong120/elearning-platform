@@ -11,8 +11,8 @@ export function useAutoSyncAttempts(profile: Profile | null) {
     if (!profile?.id || hasTriggeredRef.current) return;
     if (typeof window === "undefined") return;
 
-    // Nâng cấp version cờ lên v2 để ép hệ thống thực hiện quét vét toàn diện các bài cũ
-    const migrationKey = `edunexus_migrated_v2_full_${profile.id}`;
+    // Cờ đánh dấu version 3 tự động hoàn toàn
+    const migrationKey = `edunexus_auto_synced_v3_${profile.id}`;
     const alreadyMigrated = localStorage.getItem(migrationKey);
     if (alreadyMigrated === "true") {
       return;
@@ -20,7 +20,7 @@ export function useAutoSyncAttempts(profile: Profile | null) {
 
     hasTriggeredRef.current = true;
 
-    // Trì hoãn 1.5 giây để nhường tài nguyên cho giao diện học sinh render mượt mà
+    // Trì hoãn 1.2 giây để nhường toàn bộ luồng xử lý cho UI học sinh hiển thị mượt mà
     const timer = setTimeout(async () => {
       try {
         const rawLocal = localStorage.getItem("edunexus_attempts");
@@ -29,83 +29,50 @@ export function useAutoSyncAttempts(profile: Profile | null) {
           return;
         }
 
-        const localList: any[] = JSON.parse(rawLocal);
-        if (!Array.isArray(localList) || localList.length === 0) {
+        let allList: any[] = [];
+        try {
+          allList = JSON.parse(rawLocal);
+        } catch {
           localStorage.setItem(migrationKey, "true");
           return;
         }
 
-        const curId = String(profile.id).trim().toLowerCase();
-        const curName = String(profile.full_name || "").trim().toLowerCase();
-        const curUsername = String(profile.username || "").trim().toLowerCase();
-
-        // 1. Nhận diện học sinh thông minh qua UUID, Username, Full Name hoặc Student Code
-        const myLocalAttempts = localList.filter((item: any) => {
-          if (!item) return false;
-          const stuId = String(item.student_id || item.studentId || item.user_id || "").trim().toLowerCase();
-          const stuName = String(item.student_name || item.studentName || item.full_name || item.user_name || "").trim().toLowerCase();
-          const username = String(item.username || "").trim().toLowerCase();
-
-          return (
-            stuId === curId ||
-            stuName === curName ||
-            (curUsername && (stuId === curUsername || username === curUsername)) ||
-            stuName === "dung123" ||
-            stuId === "f0296403-acce-43e9-919a-e4316d051766"
-          );
-        });
-
-        if (myLocalAttempts.length === 0) {
+        if (!Array.isArray(allList) || allList.length === 0) {
           localStorage.setItem(migrationKey, "true");
           return;
         }
 
-        // 2. Lấy danh sách ID các bài đã có trên Supabase để chống insert trùng lặp
-        const { data: serverAttempts } = await supabase
-          .from("exam_attempts")
-          .select("id, created_at")
-          .eq("student_id", profile.id)
-          .limit(1000);
+        const studentId = profile.id;
+        const studentName = profile.full_name || profile.username || "Học sinh";
+        const curUsername = profile.username || profile.id;
 
-        const existingIds = new Set<string>();
-        (serverAttempts || []).forEach((row: any) => {
-          if (row.id) existingIds.add(String(row.id));
-          if (row.created_at) existingIds.add(String(row.created_at));
-        });
+        // Quét toàn bộ các bài làm trong localStorage của thiết bị này
+        for (let i = 0; i < allList.length; i++) {
+          const att = allList[i];
+          if (!att) continue;
 
-        // 3. Lọc ra những bài chưa có trên Supabase theo ID hoặc CreatedAt (Không so sánh theo điểm số)
-        const unsyncedAttempts = myLocalAttempts.filter((att: any) => {
-          const attId = String(att.id || "");
-          const attCreatedAt = String(att.created_at || att.createdAt || att.submittedAt || "");
-
-          if (attId && existingIds.has(attId)) return false;
-          if (attCreatedAt && existingIds.has(attCreatedAt)) return false;
-          return true;
-        });
-
-        // 4. Đẩy toàn bộ các bài còn thiếu lên API Server để lưu vào exam_attempts và quiz_results
-        for (const att of unsyncedAttempts) {
-          const qId = att.quiz_id || att.quizId || att.exam_id || "prac-default";
-          const qTitle = att.quiz_title || att.quizTitle || att.exam_title || att.examTitle || att.title || "Bài luyện tập";
-          const sc = Number(att.score ?? att.points ?? 0);
-          const attCreatedAt = att.created_at || att.createdAt || att.submittedAt || new Date().toISOString();
+          const qId = String(att.quizId || att.quiz_id || att.exam_id || "prac-default").trim();
+          const qTitle = String(att.quizTitle || att.quiz_title || att.examTitle || att.title || "Bài luyện tập").trim();
+          const scoreVal = Number(att.score ?? att.points ?? 0);
+          const createdAtVal = att.created_at || att.createdAt || att.submittedAt || new Date().toISOString();
+          const uniqueId = att.id || `att-auto-${i + 1}-${new Date(createdAtVal).getTime()}`;
 
           const payload = {
-            id: att.id || `att-${new Date(attCreatedAt).getTime()}-${Math.random().toString(36).substring(2, 6)}`,
+            id: uniqueId,
             quizId: qId,
             quizTitle: qTitle,
-            studentId: profile.id,
-            studentName: profile.full_name,
-            username: profile.username || profile.id,
+            studentId: studentId,
+            studentName: studentName,
+            username: curUsername,
             school: profile.school || "THPT",
-            score: sc,
-            totalQuestions: Number(att.total_questions || att.totalQuestions || 20),
-            correctCount: Number(att.correct_count || att.correctCount || 0),
-            timeSpent: att.time_spent || att.timeSpent || "15 phút",
-            durationSeconds: Number(att.duration_seconds || att.durationSeconds || 0),
-            isHomework: Boolean(att.is_homework || att.isHomework || att.type === "homework"),
+            score: scoreVal,
+            totalQuestions: Number(att.totalQuestions || att.total_questions || 20),
+            correctCount: Number(att.correctCount || att.correct_count || 1),
+            timeSpent: att.timeSpent || att.time_spent || "0 phút 15 giây",
+            durationSeconds: Number(att.duration_seconds || att.durationSeconds || 15),
+            isHomework: Boolean(att.isHomework || att.is_homework || att.type === "homework"),
             answers: att.answers || att.userAnswers || {},
-            createdAt: attCreatedAt
+            createdAt: createdAtVal
           };
 
           try {
@@ -114,30 +81,30 @@ export function useAutoSyncAttempts(profile: Profile | null) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload)
             });
-          } catch (e) {
-            console.warn("Lỗi đồng bộ bài cũ lẻ:", e);
+          } catch {
+            // Không làm gián đoạn nếu một bài nộp lẻ gặp trục trặc mạng
           }
         }
 
-        // 5. Phát tín hiệu Realtime cho Admin cập nhật số liệu lập tức
+        // Bắn tín hiệu Realtime cho màn hình Admin cập nhật tức thì
         try {
           const channel = supabase.channel("admin-realtime-global-sync");
           channel.send({
             type: "broadcast",
             event: "new_attempt",
             payload: {
-              studentName: profile.full_name,
-              message: "Đồng bộ hoàn tất toàn bộ lượt làm bài cũ"
+              studentName: studentName,
+              message: "Tự động đồng bộ toàn bộ lịch sử thi hoàn tất"
             }
           });
-        } catch (e) {}
+        } catch {}
 
-        // Gắn cờ hoàn tất di trú v2
+        // Gắn cờ hoàn tất di trú ngầm
         localStorage.setItem(migrationKey, "true");
       } catch (err) {
-        console.error("Lỗi đồng bộ ngầm lịch sử học sinh:", err);
+        console.error("Lỗi đồng bộ ngầm học sinh:", err);
       }
-    }, 1500);
+    }, 1200);
 
     return () => clearTimeout(timer);
   }, [profile]);
