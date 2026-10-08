@@ -4,7 +4,7 @@ import React from "react";
 import { 
   Target, UploadCloud, ChevronDown, ToggleRight, ToggleLeft, 
   Link as LinkIcon, Video, BarChart2, FileSignature, Play, 
-  Trash2, Filter, Eye 
+  Trash2, Filter, Eye, Loader2 
 } from "lucide-react";
 import { EXAM_CATEGORIES } from "@/types/admin";
 
@@ -13,17 +13,20 @@ interface PracticeTabProps {
   setPracticeSubTab: (tab: "manage" | "scores") => void;
   practiceExams: any[];
   allAttempts: any[];
+  isLoadingExams?: boolean;
+  uploadProgressText?: string | null;
   setTestFile: (file: File | null) => void;
   setUploadMode: (mode: "course" | "practice") => void;
   setEditingExamData: (data: any) => void;
   handleChangeExamCategory: (examId: string, newCategory: string) => Promise<void>;
   savePracticeExams: (newExams: any[]) => Promise<void>;
   supabase: any;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, type?: "success" | "error") => void;
   setVideoModalExam: (exam: any) => void;
   setSolutionVideoInput: (input: string) => void;
   setAzotaScoreViewModal: (modal: any) => void;
-  setTestExamRoom: (room: any) => void;
+  onOpenExamEditor: (exam: any) => Promise<void>;
+  onTestExam: (exam: any) => Promise<void>;
   practiceCategoryFilter: string;
   setPracticeCategoryFilter: (cat: string) => void;
   examsWithScoresData: any[];
@@ -34,6 +37,8 @@ export default function PracticeTab({
   setPracticeSubTab,
   practiceExams,
   allAttempts,
+  isLoadingExams = false,
+  uploadProgressText = null,
   setTestFile,
   setUploadMode,
   setEditingExamData,
@@ -44,13 +49,24 @@ export default function PracticeTab({
   setVideoModalExam,
   setSolutionVideoInput,
   setAzotaScoreViewModal,
-  setTestExamRoom,
+  onOpenExamEditor,
+  onTestExam,
   practiceCategoryFilter,
   setPracticeCategoryFilter,
   examsWithScoresData
 }: PracticeTabProps) {
   return (
     <div className="space-y-6 animate-in fade-in duration-300 max-w-6xl mx-auto">
+      {/* THANH TIẾN TRÌNH KHI BÓC TÁCH / UPLOAD FILE */}
+      {uploadProgressText && (
+        <div className="bg-blue-50 border-2 border-[#1D4ED8] p-4 rounded-2xl flex items-center gap-3 shadow-md">
+          <Loader2 className="w-5 h-5 text-[#1D4ED8] animate-spin shrink-0" />
+          <div className="text-xs font-bold text-[#1D4ED8]">
+            {uploadProgressText}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm w-fit">
         <button 
           type="button"
@@ -83,7 +99,14 @@ export default function PracticeTab({
               </div>
               <div>
                 <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Tổng số đề</p>
-                <p className="text-2xl font-black text-slate-900">{practiceExams.length}</p>
+                {isLoadingExams ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Loader2 className="w-5 h-5 text-[#1D4ED8] animate-spin" />
+                    <span className="text-xs text-slate-400 font-semibold">Đang tải...</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-black text-slate-900">{practiceExams.length}</p>
+                )}
               </div>
             </div>
             <label className="flex items-center gap-2 px-6 py-3.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[13px] font-bold rounded-2xl shadow-md transition-all cursor-pointer">
@@ -109,6 +132,7 @@ export default function PracticeTab({
               <h3 className="font-extrabold text-slate-900 text-[15px]">Danh sách Kho Đề Thực Chiến</h3>
               <span className="text-xs text-slate-500 font-bold">* Click vào thẻ Phân Loại để chuyển đổi nhanh giữa các kỳ thi</span>
             </div>
+            
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px]">
                 <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
@@ -124,201 +148,210 @@ export default function PracticeTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100/50">
-                  {practiceExams.map((ex, exIdx) => (
-                    <tr key={ex?.id || exIdx} className="hover:bg-slate-50/50 transition-colors bg-white">
-                      <td className="py-4 px-5 font-bold text-slate-800 truncate max-w-[220px]" title={ex?.title}>
-                        {ex?.title || "Đề thi"}
-                      </td>
-                      <td className="py-4 px-3 text-center">
-                        <div className="relative inline-block">
-                          <select
-                            value={ex?.category || "Luyện đề"}
-                            onChange={(e) => handleChangeExamCategory(ex.id, e.target.value)}
-                            className="appearance-none px-3 py-1.5 pr-6 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-black text-[11px] uppercase rounded-xl tracking-wider cursor-pointer outline-none transition"
-                          >
-                            {EXAM_CATEGORIES.map(cat => (
-                              <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                          </select>
-                          <ChevronDown className="w-3 h-3 text-indigo-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        </div>
-                      </td>
-                      <td className="py-4 px-3 text-center">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const nextMode = ex.target_mode === "all" ? "online" : ex.target_mode === "online" ? "offline" : "all";
-                            const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, target_mode: nextMode } : e);
-                            await savePracticeExams(newExams);
-                            try {
-                              await supabase.from("practice_exams").update({ target_mode: nextMode }).eq("id", ex.id);
-                            } catch {}
-                            showToast("Đã chuyển đề sang: " + (nextMode === "online" ? "Lớp Online" : nextMode === "offline" ? "Lớp Offline" : "Cả hai lớp"));
-                          }}
-                          title="Click để chuyển phân hệ: Online -> Offline -> Cả hai"
-                          className="cursor-pointer"
-                        >
-                          <span className={
-                            "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border " +
-                            (ex.target_mode === "online"
-                              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                              : ex.target_mode === "offline"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : "bg-blue-50 text-[#1D4ED8] border-blue-200")
-                          }>
-                            {ex.target_mode === "online" ? "Online" : ex.target_mode === "offline" ? "Offline" : "Cả 2"}
-                          </span>
-                        </button>
-                      </td>
-                      <td className="py-4 px-3 text-center">
-                        <button 
-                          type="button"
-                          onClick={async () => {
-                            const newAllow = !(ex?.allowRetake ?? true);
-                            const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowRetake: newAllow } : e);
-                            await savePracticeExams(newExams);
-                            try {
-                              await supabase.from("practice_exams").update({ allowRetake: newAllow }).eq("id", ex.id);
-                            } catch {}
-                            showToast("Đã thay đổi quyền làm lại.");
-                          }} 
-                          className="cursor-pointer"
-                        >
-                          {(ex?.allowRetake ?? true) 
-                            ? <ToggleRight className="w-8 h-8 text-emerald-500 mx-auto" /> 
-                            : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
-                        </button>
-                      </td>
-                      <td className="py-4 px-4 text-center">
-                        <button 
-                          type="button"
-                          onClick={async () => {
-                            const newAllow = !(ex?.allowViewFile ?? true);
-                            const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowViewFile: newAllow } : e);
-                            await savePracticeExams(newExams);
-                            try {
-                              await supabase.from("practice_exams").update({ allowViewFile: newAllow }).eq("id", ex.id);
-                            } catch {}
-                            showToast("Đã cập nhật quyền xem file.");
-                          }} 
-                          className="cursor-pointer"
-                        >
-                          {(ex?.allowViewFile ?? true) 
-                            ? <ToggleRight className="w-8 h-8 text-[#1D4ED8] mx-auto" /> 
-                            : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
-                        </button>
-                      </td>
-                      <td className="py-4 px-4 text-center">
-                        <button 
-                          type="button"
-                          onClick={async () => {
-                            const url = prompt("Nhập link Google Drive mới:", ex?.driveUrl || "");
-                            if (url !== null) {
-                              const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, driveUrl: url } : e);
-                              await savePracticeExams(newExams);
-                              try {
-                                await supabase.from("practice_exams").update({ driveUrl: url }).eq("id", ex.id);
-                              } catch {}
-                              showToast("Đã cập nhật link Drive.");
-                            }
-                          }} 
-                          className="text-[#1D4ED8] hover:underline flex items-center justify-center gap-1.5 font-semibold text-xs mx-auto cursor-pointer"
-                        >
-                          <LinkIcon className="w-3.5 h-3.5" /> {ex?.driveUrl ? "Sửa link" : "Thêm link"}
-                        </button>
-                      </td>
-                      <td className="py-4 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setVideoModalExam(ex);
-                            setSolutionVideoInput(ex?.solutionVideoUrl || ex?.videoUrl || "");
-                          }}
-                          className={
-                            "px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto cursor-pointer " + 
-                            ((ex?.solutionVideoUrl || ex?.videoUrl)
-                              ? "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100" 
-                              : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-                          }
-                        >
-                          <Video className="w-3.5 h-3.5 text-amber-600" />
-                          <span>{(ex?.solutionVideoUrl || ex?.videoUrl) ? "Đã có video" : "+ Gắn video"}</span>
-                        </button>
-                      </td>
-                      <td className="py-4 px-5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
-                              const attemptsForExam = (allAttempts || []).filter(a => {
-                                if (!a) return false;
-                                const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
-                                const aTitle = String(a.examTitle || a.quizTitle || a.title || "").trim().toLowerCase();
-                                const matchTitle = cleanExTitle && aTitle && (aTitle === cleanExTitle || cleanExTitle.includes(aTitle) || aTitle.includes(cleanExTitle));
-                                return matchId || matchTitle;
-                              });
-
-                              setAzotaScoreViewModal({
-                                isOpen: true,
-                                examTitle: ex.title,
-                                attempts: attemptsForExam
-                              });
-                            }}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
-                            title="Xem bảng điểm học sinh làm đề này kiểu Azota"
-                          >
-                            <BarChart2 className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingExamData(ex);
-                              setUploadMode("practice");
-                              setTestFile(new File(["dummy"], String(ex?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
-                            }}
-                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition cursor-pointer"
-                            title="Sửa cấu trúc câu hỏi, lời giải & đáp án"
-                          >
-                            <FileSignature className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setTestExamRoom({
-                                id: ex.id,
-                                title: "[TEST ADMIN] " + ex.title,
-                                duration: ex.duration_minutes || 45,
-                                isHomework: false
-                              });
-                            }}
-                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                            title="Làm thử để kiểm tra đề & KaTeX"
-                          >
-                            <Play className="w-3 h-3 fill-indigo-600" /> Test
-                          </button>
-
-                          <button 
-                            type="button"
-                            onClick={async () => { 
-                              if (confirm("Xóa đề này khỏi kho?")) {
-                                const updated = practiceExams.filter(e => e?.id !== ex?.id);
-                                await savePracticeExams(updated);
-                                try {
-                                  await supabase.from("practice_exams").delete().eq("id", ex.id);
-                                } catch {}
-                              } 
-                            }} 
-                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4"/>
-                          </button>
+                  {isLoadingExams ? (
+                    <tr>
+                      <td colSpan={8} className="py-16 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <Loader2 className="w-8 h-8 text-[#1D4ED8] animate-spin" />
+                          <p className="text-xs font-bold text-slate-500">
+                            Đang nạp nhanh danh mục kho đề thực chiến từ Supabase...
+                          </p>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  ) : practiceExams.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-16 text-center text-slate-400 font-semibold">
+                        Chưa có đề thi nào trong kho. Vui lòng bấm nút "+ Tải lên Đề thi mới" ở trên.
+                      </td>
+                    </tr>
+                  ) : (
+                    practiceExams.map((ex, exIdx) => (
+                      <tr key={ex?.id || exIdx} className="hover:bg-slate-50/50 transition-colors bg-white">
+                        <td className="py-4 px-5 font-bold text-slate-800 truncate max-w-[220px]" title={ex?.title}>
+                          {ex?.title || "Đề thi"}
+                        </td>
+                        <td className="py-4 px-3 text-center">
+                          <div className="relative inline-block">
+                            <select
+                              value={ex?.category || "Luyện đề"}
+                              onChange={(e) => handleChangeExamCategory(ex.id, e.target.value)}
+                              className="appearance-none px-3 py-1.5 pr-6 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-black text-[11px] uppercase rounded-xl tracking-wider cursor-pointer outline-none transition"
+                            >
+                              {EXAM_CATEGORIES.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                            <ChevronDown className="w-3 h-3 text-indigo-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          </div>
+                        </td>
+                        <td className="py-4 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const nextMode = ex.target_mode === "all" ? "online" : ex.target_mode === "online" ? "offline" : "all";
+                              const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, target_mode: nextMode } : e);
+                              await savePracticeExams(newExams);
+                              try {
+                                await supabase.from("practice_exams").update({ target_mode: nextMode }).eq("id", ex.id);
+                              } catch {}
+                              showToast("Đã chuyển đề sang: " + (nextMode === "online" ? "Lớp Online" : nextMode === "offline" ? "Lớp Offline" : "Cả hai lớp"), "success");
+                            }}
+                            title="Click để chuyển phân hệ: Online -> Offline -> Cả hai"
+                            className="cursor-pointer"
+                          >
+                            <span className={
+                              "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border " +
+                              (ex.target_mode === "online"
+                                ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                : ex.target_mode === "offline"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-blue-50 text-[#1D4ED8] border-blue-200")
+                            }>
+                              {ex.target_mode === "online" ? "Online" : ex.target_mode === "offline" ? "Offline" : "Cả 2"}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="py-4 px-3 text-center">
+                          <button 
+                            type="button"
+                            onClick={async () => {
+                              const newAllow = !(ex?.allowRetake ?? true);
+                              const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowRetake: newAllow } : e);
+                              await savePracticeExams(newExams);
+                              try {
+                                await supabase.from("practice_exams").update({ allowRetake: newAllow }).eq("id", ex.id);
+                              } catch {}
+                              showToast("Đã thay đổi quyền làm lại.", "success");
+                            }} 
+                            className="cursor-pointer"
+                          >
+                            {(ex?.allowRetake ?? true) 
+                              ? <ToggleRight className="w-8 h-8 text-emerald-500 mx-auto" /> 
+                              : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
+                          </button>
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          <button 
+                            type="button"
+                            onClick={async () => {
+                              const newAllow = !(ex?.allowViewFile ?? true);
+                              const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, allowViewFile: newAllow } : e);
+                              await savePracticeExams(newExams);
+                              try {
+                                await supabase.from("practice_exams").update({ allowViewFile: newAllow }).eq("id", ex.id);
+                              } catch {}
+                              showToast("Đã cập nhật quyền xem file.", "success");
+                            }} 
+                            className="cursor-pointer"
+                          >
+                            {(ex?.allowViewFile ?? true) 
+                              ? <ToggleRight className="w-8 h-8 text-[#1D4ED8] mx-auto" /> 
+                              : <ToggleLeft className="w-8 h-8 text-slate-300 mx-auto" />}
+                          </button>
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          <button 
+                            type="button"
+                            onClick={async () => {
+                              const url = prompt("Nhập link Google Drive mới:", ex?.driveUrl || "");
+                              if (url !== null) {
+                                const newExams = practiceExams.map(e => e?.id === ex?.id ? { ...e, driveUrl: url } : e);
+                                await savePracticeExams(newExams);
+                                try {
+                                  await supabase.from("practice_exams").update({ driveUrl: url }).eq("id", ex.id);
+                                } catch {}
+                                showToast("Đã cập nhật link Drive.", "success");
+                              }
+                            }} 
+                            className="text-[#1D4ED8] hover:underline flex items-center justify-center gap-1.5 font-semibold text-xs mx-auto cursor-pointer"
+                          >
+                            <LinkIcon className="w-3.5 h-3.5" /> {ex?.driveUrl ? "Sửa link" : "Thêm link"}
+                          </button>
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVideoModalExam(ex);
+                              setSolutionVideoInput(ex?.solutionVideoUrl || ex?.videoUrl || "");
+                            }}
+                            className={
+                              "px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto cursor-pointer " + 
+                              ((ex?.solutionVideoUrl || ex?.videoUrl)
+                                ? "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100" 
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                            }
+                          >
+                            <Video className="w-3.5 h-3.5 text-amber-600" />
+                            <span>{(ex?.solutionVideoUrl || ex?.videoUrl) ? "Đã có video" : "+ Gắn video"}</span>
+                          </button>
+                        </td>
+                        <td className="py-4 px-5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const cleanExTitle = String(ex?.title || "").trim().toLowerCase();
+                                const attemptsForExam = (allAttempts || []).filter(a => {
+                                  if (!a) return false;
+                                  const matchId = (a.quizId === ex.id) || (a.exam_id === ex.id);
+                                  const aTitle = String(a.examTitle || a.quizTitle || a.title || "").trim().toLowerCase();
+                                  const matchTitle = cleanExTitle && aTitle && (aTitle === cleanExTitle || cleanExTitle.includes(aTitle) || aTitle.includes(cleanExTitle));
+                                  return matchId || matchTitle;
+                                });
+
+                                setAzotaScoreViewModal({
+                                  isOpen: true,
+                                  examTitle: ex.title,
+                                  attempts: attemptsForExam
+                                });
+                              }}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
+                              title="Xem bảng điểm học sinh làm đề này kiểu Azota"
+                            >
+                              <BarChart2 className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onOpenExamEditor(ex)}
+                              className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition cursor-pointer"
+                              title="Sửa cấu trúc câu hỏi, lời giải & đáp án (Tải on-demand)"
+                            >
+                              <FileSignature className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onTestExam(ex)}
+                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                              title="Làm thử để kiểm tra đề & KaTeX"
+                            >
+                              <Play className="w-3 h-3 fill-indigo-600" /> Test
+                            </button>
+
+                            <button 
+                              type="button"
+                              onClick={async () => { 
+                                if (confirm("Xóa đề này khỏi kho?")) {
+                                  const updated = practiceExams.filter(e => e?.id !== ex?.id);
+                                  await savePracticeExams(updated);
+                                  try {
+                                    await supabase.from("practice_exams").delete().eq("id", ex.id);
+                                    showToast("Đã xóa đề thi khỏi kho.", "success");
+                                  } catch {}
+                                } 
+                              }} 
+                              className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4"/>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
