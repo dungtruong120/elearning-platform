@@ -1,698 +1,698 @@
-'use client';
+"use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from "react";
 import { 
-  Plus, 
-  Trash2, 
-  Edit3, 
-  Upload, 
-  FileText, 
-  CheckCircle2, 
-  ChevronRight, 
-  ChevronDown, 
+  Layers, 
   BookOpen, 
-  HelpCircle, 
-  FolderPlus,
-  Video,
-  X,
-  Layers,
-  Save,
-  Clock,
+  Video, 
+  FolderPlus, 
+  Plus, 
+  Edit3, 
+  Trash2, 
+  FileText, 
+  FileUp, 
+  Link as LinkIcon, 
+  X, 
+  CheckSquare, 
+  Award,
   Sparkles,
-  ExternalLink
-} from 'lucide-react';
-import dynamic from 'next/dynamic';
+  CheckCircle2
+} from "lucide-react";
+import dynamic from "next/dynamic";
+import { supabase } from "@/lib/supabaseClient";
 
-// Dynamic import AzotaExamConfigModal để tránh SSR issues
+// Dynamic import AzotaExamConfigModal chuẩn Next.js (SSR: false)
 const AzotaExamConfigModal = dynamic(
-  () => import('@/app/admin/AzotaExamConfigModal'),
+  () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
 );
 
-export interface LessonAssignment {
-  id: string;
-  title: string;
-  type?: 'btvn' | 'test' | 'exam';
-  duration?: number;
-  totalQuestions?: number;
-  data?: any;
-  questions?: any[];
-  config?: any;
-  createdAt?: string;
-}
+export const MatrixCell = ({
+  items,
+  onAdd,
+  onView,
+  label
+}: {
+  items: any[];
+  onAdd: () => void;
+  onView: () => void;
+  label: string;
+}) => {
+  const count = items && Array.isArray(items) ? items.length : 0;
 
-export interface Lesson {
-  id: string;
-  title: string;
-  videoUrl?: string;
-  duration?: string;
-  notes?: string;
-  assignments?: LessonAssignment[];
-  homework?: any[]; // Dự phòng cho cấu trúc cũ
-}
+  if (count > 0) {
+    return (
+      <button 
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onView();
+        }} 
+        title={`Xem danh sách ${label} (${count})`} 
+        className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-[#1D4ED8] text-[#1D4ED8] bg-blue-50 font-black text-xs hover:bg-[#1D4ED8] hover:text-white transition-all mx-auto cursor-pointer shadow-sm select-none"
+      >
+        {count}
+      </button>
+    );
+  }
 
-export interface Chapter {
-  id: string;
-  title: string;
-  lessons: Lesson[];
-}
+  return (
+    <button 
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onAdd();
+      }} 
+      title={`Thêm ${label}`} 
+      className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-[#1D4ED8] hover:text-[#1D4ED8] hover:bg-blue-50 transition-all mx-auto cursor-pointer select-none"
+    >
+      <Plus className="w-3.5 h-3.5" />
+    </button>
+  );
+};
 
-export interface LessonsTabProps {
-  chapters: Chapter[];
-  setChapters?: React.Dispatch<React.SetStateAction<Chapter[]>> | ((newChapters: Chapter[]) => void);
-  onUpdateChapters?: (newChapters: Chapter[]) => void;
-  selectedCourseId?: string;
-  supabase?: any;
-  showNotification?: (message: string, type?: 'success' | 'error' | 'info') => void;
+interface LessonsTabProps {
+  chapters: any[];
+  setChapters?: React.Dispatch<React.SetStateAction<any[]>> | ((newChapters: any[]) => void);
+  onUpdateChapters?: (newChapters: any[]) => void;
+  lessonModeTab: "all" | "offline" | "online";
+  setLessonModeTab: (tab: "all" | "offline" | "online") => void;
+  offlineLessonCount: number;
+  onlineLessonCount: number;
+  flattenedLessons: any[];
+  setCreateModal: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
+  setResourceModal: (modal: any) => void;
+  setViewResourcesModal: (modal: any) => void;
+  setUploadMethodModal?: (modal: { lessonId: string; type: "homework_files" | "test_quizzes" } | null) => void;
+  setBoostModal: (lessonId: string | null) => void;
+  setEditLessonModal: (modal: { chapterId: string; lesson: any } | null) => void;
+  setEditLessonForm: (form: any) => void;
+  handleDeleteLesson: (chapterId: string, lessonId: string) => Promise<void>;
+  saveToStorage?: (newChapters: any[]) => Promise<void>;
 }
 
 export default function LessonsTab({
-  chapters = [],
+  chapters,
   setChapters,
   onUpdateChapters,
-  selectedCourseId,
-  supabase,
-  showNotification
+  lessonModeTab,
+  setLessonModeTab,
+  offlineLessonCount,
+  onlineLessonCount,
+  flattenedLessons,
+  setCreateModal,
+  setResourceModal,
+  setViewResourcesModal,
+  setUploadMethodModal,
+  setBoostModal,
+  setEditLessonModal,
+  setEditLessonForm,
+  handleDeleteLesson,
+  saveToStorage
 }: LessonsTabProps) {
-  // State quản lý việc mở/đóng chương
-  const [expandedChapters, setExpandedChapters] = useState<Record<string, boolean>>({
-    [chapters[0]?.id || '']: true
-  });
+  // State quản lý việc upload và mở AzotaExamConfigModal cho BTVN & Đề KT
+  const [internalUploadModal, setInternalUploadModal] = useState<{
+    lessonId: string;
+    lessonTitle: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
 
-  // State Modal chỉnh sửa bài học / thêm bài học
-  const [isLessonModalOpen, setIsLessonModalOpen] = useState(false);
-  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
-  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
-  const [lessonTitle, setLessonTitle] = useState('');
-  const [lessonVideoUrl, setLessonVideoUrl] = useState('');
-  const [lessonDuration, setLessonDuration] = useState('');
-
-  // State Modal Azota
-  const [isAzotaModalOpen, setIsAzotaModalOpen] = useState(false);
-  const [activeTargetLesson, setActiveTargetLesson] = useState<{ chapterId: string; lessonId: string } | null>(null);
-  const [activeTargetType, setActiveTargetType] = useState<'btvn' | 'test'>('btvn');
   const [activeTestFile, setActiveTestFile] = useState<File | null>(null);
+  const [activeUploadTarget, setActiveUploadTarget] = useState<{
+    lessonId: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
 
-  // Hidden File Input để nạp file đề trước khi mở Azota Modal
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Modal dán link Google Drive thủ công cho BTVN / Đề kiểm tra
+  const [driveModal, setDriveModal] = useState<{
+    lessonId: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
+  const [driveTitle, setDriveTitle] = useState("");
+  const [driveUrl, setDriveUrl] = useState("");
 
-  // Thông báo tiện ích nội bộ nếu cha không truyền hàm notification
-  const notify = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
-    if (typeof showNotification === 'function') {
-      showNotification(msg, type);
-    } else {
-      if (type === 'error') {
-        console.error(msg);
-        alert(`❌ ${msg}`);
-      } else {
-        console.log(msg);
-        alert(`✅ ${msg}`);
-      }
-    }
-  };
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
+  const docxInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Toggle thu gọn/mở rộng chương
-  const toggleChapter = (chapterId: string) => {
-    setExpandedChapters(prev => ({
-      ...prev,
-      [chapterId]: !prev[chapterId]
-    }));
-  };
-
-  // Cập nhật State Cha và Lưu vào LocalStorage/Supabase
-  const syncChapters = async (updatedChapters: Chapter[]) => {
-    console.log('[LessonsTab] Đang đồng bộ chapters:', updatedChapters);
-
-    // 1. Cập nhật state cha tức thì
-    if (typeof setChapters === 'function') {
+  // HÀM LƯU TỔNG VÀO STATE CHA, SUPABASE VÀ LOCALSTORAGE
+  const persistChaptersData = async (updatedChapters: any[]) => {
+    // 1. Cập nhật state cha React tức thì để cell nhảy số tự động
+    if (typeof setChapters === "function") {
       try {
         (setChapters as any)(updatedChapters);
       } catch (err) {
-        console.error('[LessonsTab] Lỗi khi gọi setChapters:', err);
+        console.error("Lỗi khi gọi setChapters:", err);
       }
     }
 
-    if (typeof onUpdateChapters === 'function') {
+    if (typeof onUpdateChapters === "function") {
       try {
         onUpdateChapters(updatedChapters);
       } catch (err) {
-        console.error('[LessonsTab] Lỗi khi gọi onUpdateChapters:', err);
+        console.error("Lỗi khi gọi onUpdateChapters:", err);
       }
     }
 
-    // 2. Lưu vào LocalStorage
-    try {
-      if (selectedCourseId) {
-        localStorage.setItem(`course_chapters_${selectedCourseId}`, JSON.stringify(updatedChapters));
-      }
-      localStorage.setItem('admin_latest_chapters', JSON.stringify(updatedChapters));
-    } catch (e) {
-      console.warn('[LessonsTab] Không thể ghi vào localStorage:', e);
+    // 2. Gọi hàm lưu storage từ cha nếu có
+    if (saveToStorage) {
+      await saveToStorage(updatedChapters);
+      return;
     }
 
-    // 3. Đồng bộ Supabase nếu có
-    if (supabase && selectedCourseId) {
+    // 3. Đồng bộ xuống LocalStorage của trình duyệt
+    if (typeof window !== "undefined") {
       try {
-        const { error } = await supabase
-          .from('courses')
+        localStorage.setItem("edunexus_course_data", JSON.stringify(updatedChapters));
+        window.dispatchEvent(new Event("storage"));
+      } catch (e) {}
+    }
+
+    // 4. Lưu trực tiếp vào database Supabase bảng courses
+    try {
+      const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+      if (existingRows && existingRows.length > 0) {
+        await supabase
+          .from("courses")
           .update({ chapters: updatedChapters, updated_at: new Date().toISOString() })
-          .eq('id', selectedCourseId);
-
-        if (error) {
-          console.error('[LessonsTab] Supabase update error:', error);
-        } else {
-          console.log('[LessonsTab] Đã đồng bộ lên Supabase thành công');
-        }
-      } catch (dbErr) {
-        console.error('[LessonsTab] Lỗi ngoại lệ khi đẩy Supabase:', dbErr);
-      }
-    }
-  };
-
-  // Thêm chương mới
-  const handleAddChapter = () => {
-    const newChapterTitle = prompt('Nhập tên chương mới:');
-    if (!newChapterTitle?.trim()) return;
-
-    const newChapter: Chapter = {
-      id: `chapter_${Date.now()}`,
-      title: newChapterTitle.trim(),
-      lessons: []
-    };
-
-    const nextChapters = [...chapters, newChapter];
-    setExpandedChapters(prev => ({ ...prev, [newChapter.id]: true }));
-    syncChapters(nextChapters);
-    notify(`Đã tạo chương: "${newChapter.title}"`);
-  };
-
-  // Đổi tên chương
-  const handleEditChapter = (chapter: Chapter) => {
-    const updatedTitle = prompt('Đổi tên chương:', chapter.title);
-    if (!updatedTitle?.trim() || updatedTitle.trim() === chapter.title) return;
-
-    const nextChapters = chapters.map(c => 
-      c.id === chapter.id ? { ...c, title: updatedTitle.trim() } : c
-    );
-    syncChapters(nextChapters);
-  };
-
-  // Xóa chương
-  const handleDeleteChapter = (chapterId: string) => {
-    if (!confirm('Bạn có chắc muốn xóa toàn bộ chương này và tất cả bài học bên trong?')) return;
-    const nextChapters = chapters.filter(c => c.id !== chapterId);
-    syncChapters(nextChapters);
-    notify('Đã xóa chương thành công');
-  };
-
-  // Mở modal tạo/sửa bài học
-  const handleOpenLessonModal = (chapterId: string, lesson?: Lesson) => {
-    setActiveChapterId(chapterId);
-    if (lesson) {
-      setEditingLesson(lesson);
-      setLessonTitle(lesson.title);
-      setLessonVideoUrl(lesson.videoUrl || '');
-      setLessonDuration(lesson.duration || '');
-    } else {
-      setEditingLesson(null);
-      setLessonTitle('');
-      setLessonVideoUrl('');
-      setLessonDuration('');
-    }
-    setIsLessonModalOpen(true);
-  };
-
-  // Lưu bài học từ Modal chi tiết
-  const handleSaveLesson = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeChapterId || !lessonTitle.trim()) {
-      notify('Vui lòng nhập tên bài học!', 'error');
-      return;
-    }
-
-    const nextChapters = chapters.map(chap => {
-      if (chap.id !== activeChapterId) return chap;
-
-      if (editingLesson) {
-        // Chế độ sửa
-        return {
-          ...chap,
-          lessons: chap.lessons.map(l => 
-            l.id === editingLesson.id 
-              ? { ...l, title: lessonTitle.trim(), videoUrl: lessonVideoUrl.trim(), duration: lessonDuration.trim() }
-              : l
-          )
-        };
+          .eq("id", existingRows[0].id);
       } else {
-        // Chế độ thêm mới
-        const newLesson: Lesson = {
-          id: `lesson_${Date.now()}`,
-          title: lessonTitle.trim(),
-          videoUrl: lessonVideoUrl.trim(),
-          duration: lessonDuration.trim(),
-          assignments: []
-        };
-        return {
-          ...chap,
-          lessons: [...chap.lessons, newLesson]
-        };
+        await supabase
+          .from("courses")
+          .insert([{ title: "Toán 12 TCT", chapters: updatedChapters, updated_at: new Date().toISOString() }]);
       }
-    });
-
-    syncChapters(nextChapters);
-    setIsLessonModalOpen(false);
-    notify(editingLesson ? 'Đã cập nhật bài học' : 'Đã thêm bài học mới');
-  };
-
-  // Xóa bài học
-  const handleDeleteLesson = (chapterId: string, lessonId: string) => {
-    if (!confirm('Bạn có chắc chắn muốn xóa bài học này?')) return;
-
-    const nextChapters = chapters.map(chap => {
-      if (chap.id !== chapterId) return chap;
-      return {
-        ...chap,
-        lessons: chap.lessons.filter(l => l.id !== lessonId)
-      };
-    });
-
-    syncChapters(nextChapters);
-    notify('Đã xóa bài học');
-  };
-
-  // Kích hoạt nạp đề từ ô bài tập (BTVN hoặc Thi thử)
-  const handleTriggerUploadExam = (chapterId: string, lessonId: string, type: 'btvn' | 'test') => {
-    setActiveTargetLesson({ chapterId, lessonId });
-    setActiveTargetType(type);
-    
-    // Kích hoạt input file
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-      fileInputRef.current.click();
+    } catch (err) {
+      console.error("Lỗi khi lưu Supabase từ LessonsTab:", err);
     }
   };
 
-  // Bắt file đề sau khi chọn xong
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // MỞ MENU CHỌN NẠP ĐỀ (WORD / PDF / DRIVE)
+  const handleOpenUploadPicker = (lesson: any, type: "homework_files" | "test_quizzes") => {
+    setInternalUploadModal({
+      lessonId: lesson.id,
+      lessonTitle: lesson.title || "Bài học",
+      type: type
+    });
+  };
 
-    // Kiểm tra định dạng
-    const validExtensions = ['.docx', '.pdf', '.txt'];
-    const hasValidExt = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
-    if (!hasValidExt) {
-      notify('Hệ thống chỉ hỗ trợ định dạng .docx, .pdf hoặc .txt', 'error');
-      return;
-    }
-
+  // XỬ LÝ CHỌN FILE TỪ MÁY TÍNH
+  const handleSelectFile = (file: File) => {
+    if (!internalUploadModal) return;
+    setActiveUploadTarget({
+      lessonId: internalUploadModal.lessonId,
+      type: internalUploadModal.type
+    });
     setActiveTestFile(file);
-    setIsAzotaModalOpen(true);
+    setInternalUploadModal(null);
   };
 
-  /**
-   * XỬ LÝ LƯU ĐỀ THI TỪ AZOTA MODAL VÀO BÀI HỌC
-   * Nhận callback đa hình từ AzotaExamConfigModal và cập nhật tức thời
-   */
-  const handleSaveExamFromAzota = (payload: any) => {
-    console.log('[LessonsTab] 👉 Nhận callback từ AzotaExamConfigModal:', payload);
+  // CALLBACK KHI AZOTA EXAM CONFIG MODAL BÓC TÁCH XONG VÀ BẤM LƯU & XUẤT BẢN
+  const handleSaveExamFromAzota = async (payload: any) => {
+    console.log("[LessonsTab] Nhận payload từ AzotaExamConfigModal:", payload);
 
-    if (!activeTargetLesson) {
-      console.error('[LessonsTab] Không tìm thấy thông tin bài học mục tiêu');
-      setIsAzotaModalOpen(false);
+    if (!activeUploadTarget) {
+      console.error("[LessonsTab] Thiếu thông tin bài học mục tiêu.");
+      setActiveTestFile(null);
       return;
     }
 
-    const { chapterId, lessonId } = activeTargetLesson;
+    const { lessonId, type } = activeUploadTarget;
+    const isHw = type === "homework_files";
 
-    // Chuẩn hóa dữ liệu đề thi từ payload
     const examData = payload?.examData || payload?.data || payload;
-    const questions = payload?.questions || examData?.questions || [];
-    const config = payload?.config || examData?.config || {};
-    const title = payload?.title || examData?.title || activeTestFile?.name?.replace(/\.[^/.]+$/, '') || 'Đề thi trắc nghiệm';
-    const totalQuestions = questions.length || examData?.totalQuestions || 0;
-    const duration = config?.duration || examData?.duration || 45;
+    const sections = payload?.sections || examData?.sections || payload?.data || [];
+    const mediaMap = payload?.mediaMap || payload?.media_map || examData?.mediaMap || examData?.media_map || {};
+    const title = payload?.title || examData?.title || activeTestFile?.name?.replace(/\.[^/.]+$/, "") || (isHw ? "Bài tập về nhà" : "Đề kiểm tra định kỳ");
+    const duration = payload?.duration_minutes || examData?.duration_minutes || (isHw ? 0 : 45);
 
-    const newAssignment: LessonAssignment = {
-      id: `exam_${Date.now()}`,
+    const newQuizItem = {
+      id: payload?.id || examData?.id || ("quiz-" + Date.now()),
       title: title,
-      type: activeTargetType,
-      duration: Number(duration),
-      totalQuestions: totalQuestions,
-      questions: questions,
-      config: config,
-      data: examData,
-      createdAt: new Date().toISOString()
+      duration_minutes: duration,
+      is_quiz: true,
+      isHomework: isHw,
+      data: sections,
+      media_map: mediaMap,
+      created_at: new Date().toISOString()
     };
 
-    console.log('[LessonsTab] Chuẩn bị chèn Assignment vào bài học:', newAssignment);
+    const updatedChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap.lessons || []).map((les: any) => {
+        if (les.id !== lessonId) return les;
+        return {
+          ...les,
+          [type]: [...(les[type] || []), newQuizItem]
+        };
+      })
+    }));
 
-    // Tính toán chapters mới
-    const updatedChapters = chapters.map(chap => {
-      if (chap.id !== chapterId) return chap;
+    await persistChaptersData(updatedChapters);
 
-      return {
-        ...chap,
-        lessons: chap.lessons.map(lesson => {
-          if (lesson.id !== lessonId) return lesson;
-
-          const currentAssignments = Array.isArray(lesson.assignments) ? lesson.assignments : [];
-          
-          // Thêm assignment mới vào danh sách
-          const nextAssignments = [...currentAssignments, newAssignment];
-
-          return {
-            ...lesson,
-            assignments: nextAssignments,
-            homework: nextAssignments // Giữ tương thích ngược
-          };
-        })
-      };
-    });
-
-    // 1. Thực hiện đồng bộ lập tức lên state cha & storage
-    syncChapters(updatedChapters);
-
-    // 2. Đóng Modal và giải phóng file
-    setIsAzotaModalOpen(false);
+    // Giải phóng state modal
     setActiveTestFile(null);
-    setActiveTargetLesson(null);
+    setActiveUploadTarget(null);
 
-    // 3. Thông báo trực quan
-    const typeLabel = activeTargetType === 'btvn' ? 'Bài tập về nhà (BTVN)' : 'Đề kiểm tra/Thi thử';
-    notify(`Đã xuất bản & gắn ${typeLabel} (${totalQuestions} câu) vào bài học thành công!`);
+    alert(`✅ Đã nạp thành công "${title}" vào bài học! Ô số đếm đã được cập nhật.`);
   };
 
-  // Đếm số lượng bài tập theo phân loại
-  const getAssignmentCount = (lesson: Lesson, type: 'btvn' | 'test') => {
-    const list = lesson.assignments || lesson.homework || [];
-    return list.filter((item: any) => (item.type || 'btvn') === type).length;
+  // LƯU LINK DRIVE THỦ CÔNG
+  const handleSaveDriveLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driveModal || !driveTitle.trim() || !driveUrl.trim()) return;
+
+    const { lessonId, type } = driveModal;
+    const newItem = {
+      id: "drive-" + Date.now(),
+      title: driveTitle.trim(),
+      url: driveUrl.trim(),
+      is_quiz: false,
+      is_drive_file: true
+    };
+
+    const updatedChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap.lessons || []).map((les: any) => {
+        if (les.id !== lessonId) return les;
+        return {
+          ...les,
+          [type]: [...(les[type] || []), newItem]
+        };
+      })
+    }));
+
+    await persistChaptersData(updatedChapters);
+    setDriveModal(null);
+    setDriveTitle("");
+    setDriveUrl("");
+
+    alert(`✅ Đã đính kèm file Drive "${newItem.title}" thành công!`);
   };
 
   return (
-    <div className="space-y-6">
-      {/* Input File Ẩn để chọn đề thi */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        accept=".docx,.pdf,.txt"
-        className="hidden"
+    <div className="space-y-6 animate-in fade-in duration-300 text-left">
+      {/* INPUT FILE ẨN PHỤC VỤ UPLOAD WORD & PDF */}
+      <input 
+        type="file" 
+        ref={pdfInputRef} 
+        accept=".pdf" 
+        className="hidden" 
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleSelectFile(f);
+          e.target.value = "";
+        }}
+      />
+      <input 
+        type="file" 
+        ref={docxInputRef} 
+        accept=".docx" 
+        className="hidden" 
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleSelectFile(f);
+          e.target.value = "";
+        }}
       />
 
-      {/* Header Hành Động */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-        <div>
-          <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <Layers className="w-5 h-5 text-indigo-600" />
-            Khung Chương Trình & Bài Học
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Quản lý các chương, danh sách video bài giảng, gắn BTVN và đề thi trắc nghiệm.
-          </p>
-        </div>
-
-        <button
-          onClick={handleAddChapter}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm"
-        >
-          <FolderPlus className="w-4 h-4" />
-          Thêm Chương Mới
-        </button>
-      </div>
-
-      {/* Danh sách chương và bài học */}
-      {chapters.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl border border-dashed border-gray-300">
-          <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">Chưa có chương học nào trong khóa này.</p>
+      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC PHÂN LUỒNG & NÚT TẠO MỚI */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
+        <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
           <button
-            onClick={handleAddChapter}
-            className="mt-4 text-sm font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mx-auto"
+            type="button"
+            onClick={() => setLessonModeTab("all")}
+            className={
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs transition-all cursor-pointer " +
+              (lessonModeTab === "all"
+                ? "bg-white text-[#1D4ED8] shadow-sm border border-slate-200/60"
+                : "text-slate-600 hover:text-slate-900")
+            }
           >
-            <Plus className="w-4 h-4" /> Bấm vào đây để tạo chương đầu tiên
+            <Layers className="w-4 h-4 text-blue-600" />
+            <span>Tất cả bài học</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setLessonModeTab("offline")}
+            className={
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs transition-all cursor-pointer " +
+              (lessonModeTab === "offline"
+                ? "bg-white text-emerald-700 shadow-sm border border-slate-200/60"
+                : "text-slate-600 hover:text-slate-900")
+            }
+          >
+            <BookOpen className="w-4 h-4 text-emerald-600" />
+            <span>Bài học Offline ({offlineLessonCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setLessonModeTab("online")}
+            className={
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs transition-all cursor-pointer " +
+              (lessonModeTab === "online"
+                ? "bg-white text-indigo-700 shadow-sm border border-slate-200/60"
+                : "text-slate-600 hover:text-slate-900")
+            }
+          >
+            <Video className="w-4 h-4 text-indigo-600" />
+            <span>Bài học Online ({onlineLessonCount})</span>
           </button>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {chapters.map((chapter, chapterIndex) => {
-            const isExpanded = !!expandedChapters[chapter.id];
 
-            return (
-              <div 
-                key={chapter.id} 
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm transition hover:border-gray-300"
-              >
-                {/* Header của Chương */}
-                <div className="flex items-center justify-between px-4 py-3 bg-gray-50/80 border-b border-gray-100">
-                  <div 
-                    onClick={() => toggleChapter(chapter.id)}
-                    className="flex items-center gap-3 cursor-pointer flex-1 select-none"
-                  >
-                    <span className="text-gray-400 hover:text-gray-600">
-                      {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                    </span>
-                    <span className="font-semibold text-gray-800 text-sm md:text-base flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">
-                        {chapterIndex + 1}
+        <div className="flex items-center gap-3">
+          <button 
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCreateModal({ type: "chapter" });
+            }} 
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer"
+          >
+            <FolderPlus className="w-4 h-4 text-[#1D4ED8]" /> Thêm Chương
+          </button>
+          <button 
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!chapters || chapters.length === 0) return alert("Vui lòng thêm Chương trước!");
+              setCreateModal({ type: "lesson", chapterId: chapters[0].id });
+            }} 
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Thêm Bài học mới
+          </button>
+        </div>
+      </div>
+
+      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (ĐẦY ĐỦ 12 CỘT) */}
+      <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full min-w-[1100px] text-left border-collapse">
+            <thead className="bg-[#1D4ED8] text-white text-[11px] font-black uppercase tracking-wider">
+              <tr>
+                <th className="py-4 px-4 text-center w-12 border-r border-blue-400/30">STT</th>
+                <th className="py-4 px-5 border-r border-blue-400/30 min-w-[250px]">Nội dung bài học</th>
+                <th className="py-4 px-4 border-r border-blue-400/30 text-center">Chương</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Phân luồng</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Hình thức</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Video</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Bài giảng</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Viết tay</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">BTVN</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Đề KT</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Tăng cường</th>
+                <th className="py-4 px-4 text-center w-24">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100/80">
+              {flattenedLessons.map((les: any, idx: number) => {
+                const lesTitle = les?.title || "Bài học";
+                const isReview = lesTitle.toLowerCase().includes("ôn tập") || lesTitle.toLowerCase().includes("bài tập");
+                return (
+                  <tr key={les?.id || idx} className="hover:bg-slate-50/50 transition-colors bg-white">
+                    <td className="py-4 px-4 text-center text-slate-500 font-bold text-xs border-r border-slate-100">{idx + 1}</td>
+                    <td className="py-4 px-5 border-r border-slate-100">
+                      {isReview && (
+                        <span className="inline-block px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold uppercase rounded border border-amber-200 mb-1">
+                          Ôn tập
+                        </span>
+                      )}
+                      <h4 className="font-bold text-[#1D4ED8] text-[13px] uppercase leading-snug">{lesTitle}</h4>
+                    </td>
+                    <td className="py-4 px-4 text-center border-r border-slate-100 text-[11px] text-slate-500 font-semibold uppercase">
+                      {les.chapterTitle}
+                    </td>
+                    <td className="py-4 px-3 text-center border-r border-slate-100">
+                      <span className={
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider " +
+                        (les.target_mode === "online"
+                          ? "bg-indigo-100 text-indigo-800 border border-indigo-200"
+                          : les.target_mode === "offline"
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                          : "bg-blue-100 text-[#1D4ED8] border border-blue-200")
+                      }>
+                        {les.target_mode === "online" ? "Online" : les.target_mode === "offline" ? "Offline" : "Cả 2"}
                       </span>
-                      {chapter.title}
-                    </span>
-                    <span className="text-xs bg-gray-200/80 text-gray-600 px-2 py-0.5 rounded-full font-medium ml-2">
-                      {chapter.lessons?.length || 0} bài học
-                    </span>
-                  </div>
+                    </td>
+                    <td className="py-4 px-3 text-center border-r border-slate-100 text-xs font-bold text-slate-600">
+                      {les.format || "Zoom"}
+                    </td>
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenLessonModal(chapter.id)}
-                      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-md transition text-xs flex items-center gap-1 font-medium mr-2"
-                      title="Thêm bài học vào chương này"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span className="hidden sm:inline">Thêm bài</span>
-                    </button>
-                    <button
-                      onClick={() => handleEditChapter(chapter)}
-                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded-md transition"
-                      title="Đổi tên chương"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteChapter(chapter.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md transition"
-                      title="Xóa chương"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+                    {/* CỘT VIDEO */}
+                    <td className="py-4 px-3 border-r border-slate-100">
+                      <MatrixCell 
+                        items={les.video_list} 
+                        label="Video" 
+                        onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "video_list" })} 
+                        onView={() => setViewResourcesModal({ lessonId: les.id, type: "video_list", title: "Video", items: les.video_list })} 
+                      />
+                    </td>
 
-                {/* Nội dung danh sách bài học */}
-                {isExpanded && (
-                  <div className="divide-y divide-gray-100">
-                    {chapter.lessons?.length === 0 ? (
-                      <div className="py-8 text-center text-gray-400 text-sm">
-                        Chưa có bài học trong chương này.
-                        <button
-                          onClick={() => handleOpenLessonModal(chapter.id)}
-                          className="text-indigo-600 font-semibold ml-2 hover:underline"
+                    {/* CỘT BÀI GIẢNG */}
+                    <td className="py-4 px-3 border-r border-slate-100">
+                      <MatrixCell 
+                        items={les.lecture_files} 
+                        label="Bài giảng" 
+                        onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "lecture_files" })} 
+                        onView={() => setViewResourcesModal({ lessonId: les.id, type: "lecture_files", title: "Bài giảng", items: les.lecture_files })} 
+                      />
+                    </td>
+
+                    {/* CỘT VIẾT TAY */}
+                    <td className="py-4 px-3 border-r border-slate-100">
+                      <MatrixCell 
+                        items={les.handwritten_notes} 
+                        label="Viết tay" 
+                        onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "handwritten_notes" })} 
+                        onView={() => setViewResourcesModal({ lessonId: les.id, type: "handwritten_notes", title: "Viết tay", items: les.handwritten_notes })} 
+                      />
+                    </td>
+
+                    {/* CỘT BTVN - BẬT MENU NẠP ĐỀ NỘI BỘ VÀ TỰ ĐỘNG TĂNG SỐ */}
+                    <td className="py-4 px-3 border-r border-slate-100">
+                      <MatrixCell 
+                        items={les.homework_files} 
+                        label="BTVN" 
+                        onAdd={() => handleOpenUploadPicker(les, "homework_files")} 
+                        onView={() => setViewResourcesModal({ lessonId: les.id, type: "homework_files", title: "BTVN", items: les.homework_files })} 
+                      />
+                    </td>
+
+                    {/* CỘT ĐỀ KT - BẬT MENU NẠP ĐỀ NỘI BỘ VÀ TỰ ĐỘNG TĂNG SỐ */}
+                    <td className="py-4 px-3 border-r border-slate-100">
+                      <MatrixCell 
+                        items={les.test_quizzes} 
+                        label="Đề KT" 
+                        onAdd={() => handleOpenUploadPicker(les, "test_quizzes")} 
+                        onView={() => setViewResourcesModal({ lessonId: les.id, type: "test_quizzes", title: "Đề kiểm tra", items: les.test_quizzes })} 
+                      />
+                    </td>
+
+                    {/* CỘT TĂNG CƯỜNG */}
+                    <td className="py-4 px-3 border-r border-slate-100">
+                      <MatrixCell 
+                        items={les.extra_resources} 
+                        label="Tăng cường" 
+                        onAdd={() => setBoostModal(les.id)} 
+                        onView={() => setViewResourcesModal({ lessonId: les.id, type: "extra_resources", title: "Tăng cường", items: les.extra_resources })} 
+                      />
+                    </td>
+
+                    {/* THAO TÁC */}
+                    <td className="py-4 px-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <button 
+                          type="button"
+                          onClick={(e) => { 
+                            e.stopPropagation();
+                            setEditLessonModal({ chapterId: les.chapterId, lesson: les }); 
+                            setEditLessonForm({ 
+                              title: les.title, 
+                              description: les.description || "", 
+                              duration: les.duration || 45, 
+                              format: les.format || "Zoom", 
+                              target_mode: les.target_mode || "all" 
+                            }); 
+                          }} 
+                          className="p-1.5 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer" 
+                          title="Sửa bài học"
                         >
-                          + Thêm ngay
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteLesson(les.chapterId, les.id);
+                          }} 
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer" 
+                          title="Xóa bài học"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                    ) : (
-                      chapter.lessons.map((lesson, lessonIndex) => {
-                        const btvnCount = getAssignmentCount(lesson, 'btvn');
-                        const testCount = getAssignmentCount(lesson, 'test');
-
-                        return (
-                          <div
-                            key={lesson.id}
-                            className="flex flex-col md:flex-row md:items-center justify-between p-3.5 hover:bg-slate-50/70 transition gap-3"
-                          >
-                            {/* Thông tin bài học */}
-                            <div className="flex items-start gap-3 min-w-0">
-                              <span className="text-xs font-mono text-gray-400 mt-1 min-w-[24px]">
-                                {chapterIndex + 1}.{lessonIndex + 1}
-                              </span>
-                              <div className="min-w-0">
-                                <h4 className="text-sm font-semibold text-gray-800 truncate flex items-center gap-2">
-                                  {lesson.title}
-                                  {lesson.videoUrl && (
-                                    <span className="text-emerald-600 bg-emerald-50 text-[10px] px-1.5 py-0.5 rounded font-normal flex items-center gap-1 border border-emerald-200">
-                                      <Video className="w-3 h-3" /> Video
-                                    </span>
-                                  )}
-                                </h4>
-                                {lesson.duration && (
-                                  <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                                    <Clock className="w-3 h-3" /> {lesson.duration}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Các ô Quản lý BTVN và Đề Kiểm Tra (Các ô Cell chuyển số) */}
-                            <div className="flex items-center gap-2 flex-wrap self-end md:self-center">
-                              {/* Ô Nạp BTVN */}
-                              <button
-                                onClick={() => handleTriggerUploadExam(chapter.id, lesson.id, 'btvn')}
-                                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition ${
-                                  btvnCount > 0
-                                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm'
-                                    : 'bg-white text-gray-500 border-dashed border-gray-300 hover:border-blue-400 hover:text-blue-600'
-                                }`}
-                                title="Bấm để tải file đề làm Bài tập về nhà"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                                <span>BTVN:</span>
-                                <span className={`font-bold px-1.5 py-0.2 rounded-full text-[11px] ${
-                                  btvnCount > 0 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                                }`}>
-                                  {btvnCount > 0 ? btvnCount : '+'}
-                                </span>
-                              </button>
-
-                              {/* Ô Nạp Đề Thi Thử */}
-                              <button
-                                onClick={() => handleTriggerUploadExam(chapter.id, lesson.id, 'test')}
-                                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition ${
-                                  testCount > 0
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 shadow-sm'
-                                    : 'bg-white text-gray-500 border-dashed border-gray-300 hover:border-amber-400 hover:text-amber-600'
-                                }`}
-                                title="Bấm để tải file đề làm Đề thi thử"
-                              >
-                                <HelpCircle className="w-3.5 h-3.5" />
-                                <span>Đề thi:</span>
-                                <span className={`font-bold px-1.5 py-0.2 rounded-full text-[11px] ${
-                                  testCount > 0 ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-600'
-                                }`}>
-                                  {testCount > 0 ? testCount : '+'}
-                                </span>
-                              </button>
-
-                              {/* Chỉnh sửa & Xóa bài học */}
-                              <div className="flex items-center gap-1 border-l pl-2 border-gray-200 ml-1">
-                                <button
-                                  onClick={() => handleOpenLessonModal(chapter.id, lesson)}
-                                  className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded"
-                                  title="Chỉnh sửa chi tiết bài học"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteLesson(chapter.id, lesson.id)}
-                                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded"
-                                  title="Xóa bài học"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
 
-      {/* MODAL THÊM / SỬA BÀI HỌC */}
-      {isLessonModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
-            <button
-              onClick={() => setIsLessonModalOpen(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-1"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <BookOpen className="w-5 h-5 text-indigo-600" />
-              {editingLesson ? 'Chỉnh Sửa Bài Học' : 'Thêm Bài Học Mới'}
-            </h3>
-
-            <form onSubmit={handleSaveLesson} className="space-y-4">
+      {/* 3. MODAL CHỌN PHƯƠNG THỨC NẠP ĐỀ THI (PDF / DOCX / DRIVE LINK) */}
+      {internalUploadModal && (
+        <div 
+          onClick={() => setInternalUploadModal(null)} 
+          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-[28px] p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-150 cursor-default text-left"
+          >
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Tên bài học <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ví dụ: Bài 01: Sự đồng biến, nghịch biến của hàm số"
-                  value={lessonTitle}
-                  onChange={e => setLessonTitle(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  {internalUploadModal.type === 'homework_files' ? <CheckSquare className="w-5 h-5 text-blue-600" /> : <Award className="w-5 h-5 text-emerald-600" />}
+                  <span>Thêm {internalUploadModal.type === 'homework_files' ? 'Bài tập về nhà (BTVN)' : 'Đề Kiểm Tra'}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Bài học: <strong className="text-blue-700">{internalUploadModal.lessonTitle}</strong>
+                </p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setInternalUploadModal(null)} 
+                className="text-slate-400 hover:text-rose-500 cursor-pointer p-1"
+              >
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+            
+            <div className="flex flex-col gap-3 mt-4">
+              {/* TẢI LÊN FILE PDF */}
+              <div 
+                onClick={() => pdfInputRef.current?.click()}
+                className="p-4 border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl hover:bg-indigo-100/60 transition cursor-pointer flex items-start gap-4 group shadow-2xs"
+              >
+                <div className="p-3 bg-white text-indigo-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-indigo-950 text-[14px]">Tải lên file PDF (.pdf)</span>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
+                  </div>
+                  <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
+                    AI Gemini Vision sẽ quét trang PDF, khôi phục 100% MathType, phân số, căn thức và toạ độ Oxyz mà không bị trượt byte.
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  URL Video bài giảng (YouTube, Vimeo, Cloudinary...)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  value={lessonVideoUrl}
-                  onChange={e => setLessonVideoUrl(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
+              {/* TẢI LÊN FILE WORD (.DOCX) */}
+              <div 
+                onClick={() => docxInputRef.current?.click()}
+                className="p-4 border border-blue-200 bg-blue-50/40 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group shadow-2xs"
+              >
+                <div className="p-3 bg-white text-blue-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                  <FileUp className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-extrabold text-blue-950 text-[14px]">Tải lên file Word (.docx)</div>
+                  <div className="text-xs text-blue-800/80 mt-1 leading-relaxed">
+                    Trích xuất trực tiếp câu hỏi, bảng đáp án, lời giải và thẻ ảnh đồ thị từ file Word gốc.
+                  </div>
+                </div>
               </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Thời lượng bài học
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: 45 phút"
-                  value={lessonDuration}
-                  onChange={e => setLessonDuration(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsLessonModalOpen(false)}
-                  className="px-4 py-2 border rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 shadow"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  {editingLesson ? 'Cập nhật bài học' : 'Tạo bài học'}
-                </button>
-              </div>
-            </form>
+              
+              {/* ĐÍNH KÈM LINK GOOGLE DRIVE */}
+              <button 
+                type="button"
+                onClick={() => { 
+                  setDriveModal({ lessonId: internalUploadModal.lessonId, type: internalUploadModal.type }); 
+                  setInternalUploadModal(null); 
+                }} 
+                className="p-4 border border-emerald-200 bg-emerald-50/40 rounded-2xl hover:bg-emerald-100/50 transition cursor-pointer flex items-start gap-4 text-left group shadow-2xs"
+              >
+                <div className="p-3 bg-white text-emerald-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                  <LinkIcon className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-extrabold text-emerald-950 text-[14px]">Đính kèm Link Google Drive</div>
+                  <div className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
+                    Dán link file PDF/Word để học sinh tải về hoặc tự làm thủ công (không chấm tự động).
+                  </div>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* AZOTA EXAM CONFIG MODAL (Đã bảo đảm bắt mọi alias callback: onSave, onSaveExam, onSuccess, onComplete) */}
-      {isAzotaModalOpen && activeTestFile && (
-        <AzotaExamConfigModal
-          isOpen={isAzotaModalOpen}
+      {/* 4. MODAL NHẬP LINK DRIVE THỦ CÔNG */}
+      {driveModal && (
+        <div 
+          onClick={() => setDriveModal(null)} 
+          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <form 
+            onClick={(e) => e.stopPropagation()} 
+            onSubmit={handleSaveDriveLink} 
+            className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-150 cursor-default text-left"
+          >
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-emerald-700 text-[15px] flex items-center gap-2">
+                <LinkIcon className="w-5 h-5" /> Đính kèm Link Google Drive
+              </h3>
+              <button type="button" onClick={() => setDriveModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer">
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề hiển thị *</label>
+                <input 
+                  required 
+                  type="text" 
+                  value={driveTitle} 
+                  onChange={e => setDriveTitle(e.target.value)} 
+                  placeholder="VD: Phiếu bài tập tự luyện số 1..."
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-xs font-semibold focus:border-emerald-500 outline-none" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Link Google Drive (Chia sẻ công khai) *</label>
+                <input 
+                  required 
+                  type="url" 
+                  placeholder="https://drive.google.com/..." 
+                  value={driveUrl} 
+                  onChange={e => setDriveUrl(e.target.value)} 
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-xs font-medium focus:border-emerald-500 outline-none" 
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
+              <button type="button" onClick={() => setDriveModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">
+                Hủy
+              </button>
+              <button type="submit" className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">
+                Lưu file Drive
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 5. GỌI TRỰC TIẾP AZOTA EXAM CONFIG MODAL & NẠP SỐ LIỆU TỨC THÌ */}
+      {activeTestFile && (
+        <AzotaExamConfigModal 
+          isOpen={true} 
           file={activeTestFile}
-          mode="course"
-          targetType={activeTargetType}
+          mode="course" 
           onClose={() => {
-            setIsAzotaModalOpen(false);
             setActiveTestFile(null);
-            setActiveTargetLesson(null);
-          }}
+            setActiveUploadTarget(null);
+          }} 
           onSave={handleSaveExamFromAzota}
           onSaveExam={handleSaveExamFromAzota}
           onSuccess={handleSaveExamFromAzota}
