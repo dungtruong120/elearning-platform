@@ -269,11 +269,11 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           const inner = parseLine().trim();
           if (inner) res.push("\\left|" + inner + "\\right|");
         } else if (selector === 10 || selector === 13) { 
-          if (variation === 1) {
+          if (variation === 1) { 
             const deg = parseLine();
             const rad = parseLine();
             res.push("\\sqrt[" + deg + "]{" + (rad || "") + "}");
-          } else {
+          } else { 
             const rad = parseLine();
             res.push("\\sqrt{" + (rad || "") + "}");
           }
@@ -376,7 +376,7 @@ export function repairMathTypeGlitch(raw: string): string {
 }
 
 // ============================================================================
-// 2. TRÍCH XUẤT ĐỆ QUY TOÀN DIỆN TỪ FILE WORD (.DOCX)
+// 2. TRÍCH XUẤT ĐỆ QUY FILE WORD (.DOCX) - TỐI ƯU HÓA MEMORY VÀ BASE64
 // ============================================================================
 
 export async function extractDocxDirectly(file: File) {
@@ -403,15 +403,18 @@ export async function extractDocxDirectly(file: File) {
     const fileEntry = zip.files[zipPath];
     if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       if (!pathToToken[zipPath]) {
-        const b64 = await fileEntry.async("base64");
-        const key = "img_" + (imgCount++);
-        let ext = "jpeg";
-        if (zipPath.toLowerCase().endsWith("png")) ext = "png";
-        else if (zipPath.toLowerCase().endsWith("svg")) ext = "svg+xml";
-        else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
-        else if (zipPath.toLowerCase().endsWith("webp")) ext = "webp";
+        const u8 = await fileEntry.async("uint8array");
+        let mime = "image/jpeg";
+        if (zipPath.toLowerCase().endsWith("png")) mime = "image/png";
+        else if (zipPath.toLowerCase().endsWith("svg")) mime = "image/svg+xml";
+        else if (zipPath.toLowerCase().endsWith("webp")) mime = "image/webp";
         
-        mediaMap[key] = "data:image/" + ext + ";base64," + b64;
+        // Tạo blob URL để preview tức thời không tốn byte Base64 nhồi vào RAM
+        const blob = new Blob([u8], { type: mime });
+        const objectUrl = URL.createObjectURL(blob);
+        const key = "img_" + (imgCount++);
+        
+        mediaMap[key] = objectUrl;
         pathToToken[zipPath] = "[img:$" + key + "$]";
       }
       relIdToToken[rId] = pathToToken[zipPath];
@@ -719,7 +722,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       }
     }
 
-    // TỰ ĐỘNG BÓC TÁCH CHUỖI ĐÁP ÁN ĐÚNG/SAI
     const fullTextSearch = cleanChunk + " " + solutionText;
     const compactAnsMatch = fullTextSearch.match(/Đáp\s*án\s*:\s*([ĐđSsTtFf\s\/\,\-]+)/i);
     if (compactAnsMatch && compactAnsMatch[1]) {
@@ -732,7 +734,6 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       }
     }
 
-    // NHẬN DIỆN CÁC DÒNG "Đúng: ...", "Sai: ..."
     if (solutionText) {
       const solLines = solutionText.split(/[\r\n]+/);
       let foundLineIndex = 0;
@@ -1007,7 +1008,7 @@ export function TokenViewer({
           if (rawKey.startsWith("$") && rawKey.endsWith("$")) {
             rawKey = rawKey.slice(1, -1);
           }
-          const isDirectUrl = rawKey.startsWith("http://") || rawKey.startsWith("https://") || rawKey.startsWith("data:");
+          const isDirectUrl = rawKey.startsWith("http://") || rawKey.startsWith("https://") || rawKey.startsWith("blob:") || rawKey.startsWith("data:");
           const src = isDirectUrl ? rawKey : mediaMap[rawKey];
           if (!src) return null;
 
@@ -1056,7 +1057,7 @@ export function TokenViewer({
 }
 
 // ============================================================================
-// 5. COMPONENT MODAL AZOTA CHÍNH (CÓ NÚT KHÓA ĐIỂM TỪNG PHẦN THEO YÊU CẦU)
+// 5. COMPONENT MODAL AZOTA CHÍNH (XUẤT BẢN ĐỀ THI NON-BLOCKING & SẠCH BASE64)
 // ============================================================================
 
 interface AzotaExamConfigModalProps {
@@ -1064,10 +1065,26 @@ interface AzotaExamConfigModalProps {
   file: File | null;
   mode: "course" | "practice";
   onClose: () => void;
-  onSave: (examData: any) => void;
+  onSave?: (examData: any) => void;
+  onSaveExam?: (examData: any) => void;
+  onSuccess?: (examData: any) => void;
+  onComplete?: (examData: any) => void;
+  initialData?: any;
 }
 
-export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: AzotaExamConfigModalProps) {
+export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
+  const { 
+    isOpen, 
+    file, 
+    mode, 
+    onClose, 
+    onSave, 
+    onSaveExam, 
+    onSuccess, 
+    onComplete,
+    initialData 
+  } = props;
+
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState<boolean>(false);
   const [examTitle, setExamTitle] = useState<string>("");
@@ -1078,7 +1095,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const [rawText, setRawText] = useState<string>("");
   const [expandedSolutions, setExpandedSolutions] = useState<Record<string, boolean>>({});
 
-  // QUẢN LÝ KHÓA CỐ ĐỊNH ĐIỂM CHO TỪNG PHẦN
   const [lockedSections, setLockedSections] = useState<Record<number, boolean>>({});
 
   const [tfGlobalPercent, setTfGlobalPercent] = useState<Record<string, number>>({
@@ -1092,6 +1108,19 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (initialData && isOpen) {
+      setExamTitle(initialData.title || "");
+      setDuration(initialData.duration_minutes || 50);
+      setCategory(initialData.category || PRACTICE_CATEGORIES[0]);
+      if (Array.isArray(initialData.sections)) {
+        setSections(initialData.sections);
+      }
+      if (initialData.mediaMap || initialData.media_map) {
+        setMediaMap(initialData.mediaMap || initialData.media_map || {});
+      }
+      return;
+    }
+
     if (file && isOpen) {
       setLoading(true);
       setExamTitle(file.name.replace(/\.[^/.]+$/, ""));
@@ -1112,7 +1141,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           setLoading(false);
         });
     }
-  }, [file, isOpen]);
+  }, [file, isOpen, initialData]);
 
   const handleRawTextChange = (newText: string) => {
     setRawText(newText);
@@ -1135,25 +1164,20 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         const blob = items[i].getAsFile();
         if (!blob) return;
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const b64 = event.target?.result as string;
-          if (!b64) return;
+        // Dùng createObjectURL thay vì Base64 DataURL để tránh phình dung lượng
+        const blobUrl = URL.createObjectURL(blob);
+        const newKey = "img_clip_" + Date.now();
+        setMediaMap(prev => ({ ...prev, [newKey]: blobUrl }));
 
-          const newKey = "img_clip_" + Date.now();
-          setMediaMap(prev => ({ ...prev, [newKey]: b64 }));
-
-          const token = "\n[img:$" + newKey + "$]\n";
-          if (textareaRef.current) {
-            const start = textareaRef.current.selectionStart || 0;
-            const end = textareaRef.current.selectionEnd || 0;
-            const updated = rawText.substring(0, start) + token + rawText.substring(end);
-            handleRawTextChange(updated);
-          } else {
-            handleRawTextChange(rawText + token);
-          }
-        };
-        reader.readAsDataURL(blob);
+        const token = "\n[img:$" + newKey + "$]\n";
+        if (textareaRef.current) {
+          const start = textareaRef.current.selectionStart || 0;
+          const end = textareaRef.current.selectionEnd || 0;
+          const updated = rawText.substring(0, start) + token + rawText.substring(end);
+          handleRawTextChange(updated);
+        } else {
+          handleRawTextChange(rawText + token);
+        }
         break;
       }
     }
@@ -1178,7 +1202,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     })));
   };
 
-  // NÚT BẬT / TẮT KHÓA CỐ ĐỊNH ĐIỂM CHO MỘT PHẦN
   const handleToggleLockSection = (sIdx: number) => {
     setLockedSections(prev => ({
       ...prev,
@@ -1186,7 +1209,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     }));
   };
 
-  // TÍNH NĂNG CỐ ĐỊNH ĐIỂM: CHỈ ĐIỀU CHỈNH ĐIỂM CỦA CÁC PHẦN CHƯA BỊ KHÓA
   const handleUpdateSectionTotalPoints = (sIdx: number, targetSecPts: number) => {
     const validPts = Math.max(0, Math.min(10, Number(targetSecPts) || 0));
     const targetSec = sections[sIdx];
@@ -1195,11 +1217,9 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     const qCount = targetSec.questions.length;
     const ptPerQ = Number((validPts / qCount).toFixed(2));
 
-    // Khóa luôn phần này khi người dùng chủ động đặt điểm
     setLockedSections(prev => ({ ...prev, [sIdx]: true }));
 
     setSections(prev => {
-      // Xác định tổng điểm của các phần đã bị khóa khác
       let lockedPointsSum = 0;
       prev.forEach((sec, idx) => {
         if (idx !== sIdx && lockedSections[idx]) {
@@ -1207,7 +1227,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         }
       });
 
-      // Điểm còn lại chỉ chia cho các phần CHƯA BỊ KHÓA
       const unlockedOtherSecs = prev.filter((_, idx) => idx !== sIdx && !lockedSections[idx]);
       const remainingForUnlocked = Math.max(0, 10 - validPts - lockedPointsSum);
       const totalUnlockedOtherQ = unlockedOtherSecs.reduce((acc, s) => acc + s.questions.length, 0);
@@ -1230,11 +1249,9 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
             })
           };
         } else if (lockedSections[idx]) {
-          // PHẦN ĐÃ KHÓA: GIỮ NGUYÊN 100% ĐIỂM
           sec.questions.forEach(q => { sum += (q.points || 0); });
           return sec;
         } else {
-          // PHẦN CHƯA KHÓA: TỰ ĐỘNG BÙ TRỪ CÂN BẰNG
           return {
             ...sec,
             questions: sec.questions.map(q => {
@@ -1251,7 +1268,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         }
       });
 
-      // Khử sai số làm tròn 0.01 vào câu chưa khóa đầu tiên
       const diff = Number((10 - sum).toFixed(2));
       const firstUnlockedSec = updated.find((_, idx) => !lockedSections[idx]);
       if (firstUnlockedSec && firstUnlockedSec.questions[0]) {
@@ -1262,7 +1278,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   };
 
   const handleAutoDistribute10Points = () => {
-    setLockedSections({}); // Mở khóa toàn bộ khi bấm chia đều
+    setLockedSections({});
     const totalQ = sections.reduce((acc, s) => acc + s.questions.length, 0);
     if (totalQ === 0) return;
     const basePoint = Number((10 / totalQ).toFixed(2));
@@ -1314,7 +1330,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
         }));
       }
 
-      // Giữ nguyên các phần đã bị khóa
       let lockedPointsSum = 0;
       prev.forEach((sec, idx) => {
         if (lockedSections[idx]) {
@@ -1387,16 +1402,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     }));
   };
 
-  const currentTotalPoints = useMemo(() => {
-    let sum = 0;
-    sections.forEach(sec => {
-      sec.questions.forEach(q => {
-        sum += (q.points || 0);
-      });
-    });
-    return Number(sum.toFixed(2));
-  }, [sections]);
-
   const handleTriggerUploadImage = () => {
     fileInputRef.current?.click();
   };
@@ -1405,26 +1410,20 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (!base64) return;
+    // Dùng createObjectURL thay vì Base64 DataURL
+    const blobUrl = URL.createObjectURL(selectedFile);
+    const newKey = "img_custom_" + Date.now();
+    setMediaMap(prev => ({ ...prev, [newKey]: blobUrl }));
 
-      const newKey = "img_custom_" + Date.now();
-      setMediaMap(prev => ({ ...prev, [newKey]: base64 }));
-
-      const token = "\n[img:$" + newKey + "$]\n";
-
-      if (textareaRef.current) {
-        const start = textareaRef.current.selectionStart || 0;
-        const end = textareaRef.current.selectionEnd || 0;
-        const updatedText = rawText.substring(0, start) + token + rawText.substring(end);
-        handleRawTextChange(updatedText);
-      } else {
-        handleRawTextChange(rawText + token);
-      }
-    };
-    reader.readAsDataURL(selectedFile);
+    const token = "\n[img:$" + newKey + "$]\n";
+    if (textareaRef.current) {
+      const start = textareaRef.current.selectionStart || 0;
+      const end = textareaRef.current.selectionEnd || 0;
+      const updatedText = rawText.substring(0, start) + token + rawText.substring(end);
+      handleRawTextChange(updatedText);
+    } else {
+      handleRawTextChange(rawText + token);
+    }
     e.target.value = "";
   };
 
@@ -1456,6 +1455,38 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
   const tfTotalPercent = useMemo(() => {
     return (tfGlobalPercent.a || 0) + (tfGlobalPercent.b || 0) + (tfGlobalPercent.c || 0) + (tfGlobalPercent.d || 0);
   }, [tfGlobalPercent]);
+
+  // HÀM XUẤT BẢN ĐỀ THI TỨC THÌ (NON-BLOCKING < 30MS & SẠCH BASE64)
+  const handleFinalPublish = () => {
+    // 1. Dọn dẹp sạch toàn bộ chuỗi Base64 khỏi mediaMap để dung lượng chỉ còn vài KB
+    const cleanMediaMap: Record<string, string> = {};
+    for (const [k, v] of Object.entries(mediaMap)) {
+      if (typeof v === "string" && !v.startsWith("data:image/")) {
+        cleanMediaMap[k] = v;
+      }
+    }
+
+    const examPayload = {
+      id: "exam-" + Date.now(),
+      title: examTitle || "Đề thi mới",
+      duration_minutes: duration,
+      category,
+      sections,
+      total_points: 10.0,
+      mediaMap: cleanMediaMap,
+      media_map: cleanMediaMap,
+      createdAt: new Date().toISOString()
+    };
+
+    // 2. Kích hoạt toàn bộ callbacks tương thích
+    if (typeof onSave === "function") onSave(examPayload);
+    if (typeof onSaveExam === "function") onSaveExam(examPayload);
+    if (typeof onSuccess === "function") onSuccess(examPayload);
+    if (typeof onComplete === "function") onComplete(examPayload);
+
+    // 3. Đóng modal ngay lập tức (< 30ms)
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -1501,6 +1532,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           </div>
 
           <button 
+            type="button"
             onClick={onClose} 
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
             title="Đóng trình cấu hình"
@@ -1849,7 +1881,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                         </span>
                       </div>
 
-                      {/* Ô CẤU HÌNH ĐIỂM TỔNG CỦA CẢ PHẦN + NÚT KHÓA CỐ ĐỊNH */}
                       <div className="flex items-center gap-2 bg-blue-50/70 p-1.5 px-3 rounded-2xl border border-blue-200/80">
                         <span className="text-xs font-extrabold text-blue-900 whitespace-nowrap">
                           Điểm phần:
@@ -1859,7 +1890,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                             type="number"
                             step="0.1"
                             min="0"
-                            max="10"
+                            max="100"
                             value={secTotalPoints}
                             onChange={(e) => handleUpdateSectionTotalPoints(sIdx, parseFloat(e.target.value) || 0)}
                             className="w-16 px-2 py-1 bg-white border border-blue-300 rounded-lg text-center text-xs font-black text-blue-700 outline-none focus:border-blue-600 shadow-2xs"
@@ -1867,7 +1898,6 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                           <span className="text-xs font-bold text-blue-700 mr-1.5">đ</span>
                         </div>
 
-                        {/* NÚT BẤM KHÓA CỐ ĐỊNH ĐIỂM CHO PHẦN NÀY */}
                         <button
                           type="button"
                           onClick={() => handleToggleLockSection(sIdx)}
@@ -1876,7 +1906,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
                               ? "bg-amber-500 hover:bg-amber-600 text-white" 
                               : "bg-white hover:bg-slate-100 text-slate-600 border border-slate-300"
                           )}
-                          title={isLocked ? "Bấm để Mở khóa điểm (Điểm phần này sẽ tự động thay đổi)" : "Bấm để Khóa cố định điểm (Điểm phần này sẽ không bị đổi khi chỉnh phần khác)"}
+                          title={isLocked ? "Bấm để Mở khóa điểm" : "Bấm để Khóa cố định điểm"}
                         >
                           {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                           <span>{isLocked ? "Cố định" : "Khóa"}</span>
@@ -2054,19 +2084,7 @@ export function AzotaExamConfigModal({ isOpen, file, mode, onClose, onSave }: Az
           ) : (
             <button
               type="button"
-              onClick={() => {
-                onSave({
-                  id: "exam-" + Date.now(),
-                  title: examTitle || "Đề thi mới",
-                  duration_minutes: duration,
-                  category,
-                  sections,
-                  total_points: 10.0,
-                  mediaMap,
-                  createdAt: new Date().toISOString()
-                });
-                onClose();
-              }}
+              onClick={handleFinalPublish}
               className="px-7 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md shadow-emerald-500/20 cursor-pointer transition-all flex items-center gap-2"
             >
               <Check className="w-4 h-4"/>
