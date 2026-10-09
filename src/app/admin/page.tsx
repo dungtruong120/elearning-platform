@@ -259,7 +259,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // 4. KHAI BÁO BIẾN AN TOÀN TRỰC TIẾP TRONG SCOPE CỦA PAGE.TSX
+  // 4. TÍNH TOÁN AN TOÀN TRỰC TIẾP TRONG SCOPE CỦA PAGE.TSX CHỐNG CRASH TUYỆT ĐỐI
   const offlineLessonCount = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return 0;
     return chapters.reduce((acc: number, chap: any) => {
@@ -275,6 +275,23 @@ function AdminDashboardContent() {
       return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
     }, 0);
   }, [chapters]);
+
+  const flattenedLessons = useMemo(() => {
+    if (!chapters || !Array.isArray(chapters)) return [];
+    let index = 1;
+    return chapters
+      .filter(chap => lessonModeTab === "all" || !chap?.target_mode || chap?.target_mode === lessonModeTab || chap?.target_mode === "all")
+      .flatMap(chap => 
+        (chap?.lessons || [])
+          .filter((les: any) => lessonModeTab === "all" || !les?.target_mode || les?.target_mode === lessonModeTab || les?.target_mode === "all")
+          .map((les: any) => ({
+            ...les,
+            chapterId: chap?.id || "chap-default",
+            chapterTitle: (chap?.title || "").split(":")[0] || chap?.title || "Chương",
+            index: index++
+          }))
+      );
+  }, [chapters, lessonModeTab]);
 
   // 5. HÀM CẬP NHẬT TỨC THÌ (OPTIMISTIC UPDATE PIPELINE KÈM QUEUE DEBOUNCE VÀ RETRY)
   const handleOptimisticUpdateChapters = useCallback((newChapters: any[]): Promise<boolean> => {
@@ -1272,6 +1289,7 @@ function AdminDashboardContent() {
         />
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
+          {/* LỜI GỌI LESSONSTAB ĐÃ ĐƯỢC LÀM SẠCH HOÀN TOÀN, KHÔNG TRUYỀN BIẾN THỪA GÂY CRASH */}
           {activeTab === "lessons" && (
             <LessonsTab
               chapters={chapters}
@@ -1280,7 +1298,6 @@ function AdminDashboardContent() {
               saveToStorage={saveToStorage}
               lessonModeTab={lessonModeTab}
               setLessonModeTab={setLessonModeTab}
-              flattenedLessons={flattenedLessons}
               setCreateModal={setCreateModal}
               setResourceModal={setResourceModal}
               setViewResourcesModal={setViewResourcesModal}
