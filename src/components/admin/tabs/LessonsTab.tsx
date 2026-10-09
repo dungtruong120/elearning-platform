@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import { 
   Layers, 
   BookOpen, 
@@ -34,11 +34,9 @@ function cleanExamPayloadMedia(rawSections: any[], rawMediaMap: Record<string, s
   if (rawMediaMap && typeof rawMediaMap === "object") {
     for (const [k, v] of Object.entries(rawMediaMap)) {
       if (typeof v === "string") {
-        // Nếu là URL mạng hoặc file đường dẫn thì giữ nguyên
         if (v.startsWith("http://") || v.startsWith("https://") || v.startsWith("/")) {
           cleanMap[k] = v;
         } else if (v.startsWith("data:image/")) {
-          // Nếu lọt chuỗi Base64 DataURL, cắt bỏ để tránh phình to database JSON
           cleanMap[k] = ""; 
         } else {
           cleanMap[k] = v;
@@ -47,7 +45,6 @@ function cleanExamPayloadMedia(rawSections: any[], rawMediaMap: Record<string, s
     }
   }
 
-  // Làm sạch các chuỗi Base64 nhúng inline nếu có trong câu hỏi
   const cleanSections = (rawSections || []).map((sec: any) => {
     try {
       let secStr = JSON.stringify(sec);
@@ -113,8 +110,8 @@ interface LessonsTabProps {
   saveToStorage?: (newChapters: any[]) => Promise<any> | void;
   lessonModeTab: "all" | "offline" | "online";
   setLessonModeTab: (tab: "all" | "offline" | "online") => void;
-  offlineLessonCount: number;
-  onlineLessonCount: number;
+  offlineLessonCount?: number;
+  onlineLessonCount?: number;
   flattenedLessons: any[];
   setCreateModal: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
   setResourceModal: (modal: any) => void;
@@ -144,6 +141,23 @@ export default function LessonsTab({
   setEditLessonForm,
   handleDeleteLesson
 }: LessonsTabProps) {
+  // 1. TỰ ĐỘNG TÍNH TOÁN AN TOÀN NỘI BỘ SỐ LƯỢNG BÀI HỌC ONLINE / OFFLINE CHỐNG CRASH
+  const computedOfflineCount = useMemo(() => {
+    if (typeof offlineLessonCount === "number") return offlineLessonCount;
+    return (chapters || []).reduce((acc: number, chap: any) => {
+      if (chap?.target_mode === "online") return acc;
+      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "offline" || l?.target_mode === "all" || !l?.target_mode).length;
+    }, 0);
+  }, [chapters, offlineLessonCount]);
+
+  const computedOnlineCount = useMemo(() => {
+    if (typeof onlineLessonCount === "number") return onlineLessonCount;
+    return (chapters || []).reduce((acc: number, chap: any) => {
+      if (chap?.target_mode === "offline") return acc;
+      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
+    }, 0);
+  }, [chapters, onlineLessonCount]);
+
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE)
   const [internalUploadModal, setInternalUploadModal] = useState<{
     lessonId: string;
@@ -336,7 +350,7 @@ export default function LessonsTab({
             }
           >
             <BookOpen className="w-4 h-4 text-emerald-600" />
-            <span>Bài học Offline ({offlineLessonCount})</span>
+            <span>Bài học Offline ({computedOfflineCount})</span>
           </button>
           <button
             type="button"
@@ -349,7 +363,7 @@ export default function LessonsTab({
             }
           >
             <Video className="w-4 h-4 text-indigo-600" />
-            <span>Bài học Online ({onlineLessonCount})</span>
+            <span>Bài học Online ({computedOnlineCount})</span>
           </button>
         </div>
 
