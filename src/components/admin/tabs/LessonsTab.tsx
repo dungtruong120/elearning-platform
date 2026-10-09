@@ -139,32 +139,24 @@ export default function LessonsTab({
   setEditLessonForm,
   handleDeleteLesson
 }: LessonsTabProps) {
-  // 1. TỰ ĐỘNG TÍNH TOÁN AN TOÀN NỘI BỘ (KHÔNG PHỤ THUỘC VÀO PROPS CỦA CHA, CHỐNG CRASH 100%)
-  const computedOfflineCount = useMemo(() => {
+  // 1. TÍNH TOÁN AN TOÀN NỘI BỘ 100% KHÔNG PHỤ THUỘC PROPS BÊN NGOÀI
+  const safeOfflineCount = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return 0;
-    let count = 0;
-    chapters.forEach((chap: any) => {
-      (chap?.lessons || []).forEach((les: any) => {
-        if (les?.target_mode === "offline" || les?.target_mode === "all" || !les?.target_mode) {
-          count++;
-        }
-      });
-    });
-    return count;
+    return chapters.reduce((total: number, chap: any) => {
+      return total + (chap?.lessons || []).filter((l: any) => l?.target_mode === "offline" || l?.target_mode === "all" || !l?.target_mode).length;
+    }, 0);
   }, [chapters]);
 
-  const computedOnlineCount = useMemo(() => {
+  const safeOnlineCount = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return 0;
-    let count = 0;
-    chapters.forEach((chap: any) => {
-      (chap?.lessons || []).forEach((les: any) => {
-        if (les?.target_mode === "online" || les?.target_mode === "all" || (!les?.target_mode && les?.format === "Zoom")) {
-          count++;
-        }
-      });
-    });
-    return count;
+    return chapters.reduce((total: number, chap: any) => {
+      return total + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
+    }, 0);
   }, [chapters]);
+
+  // 2. KHAI BÁO ALIAS ĐỂ KHÔNG BAO GIỜ BỊ ReferenceError: offlineLessonCount is not defined
+  const offlineLessonCount = safeOfflineCount;
+  const onlineLessonCount = safeOnlineCount;
 
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE)
   const [internalUploadModal, setInternalUploadModal] = useState<{
@@ -358,7 +350,7 @@ export default function LessonsTab({
             }
           >
             <BookOpen className="w-4 h-4 text-emerald-600" />
-            <span>Bài học Offline ({computedOfflineCount})</span>
+            <span>Bài học Offline ({safeOfflineCount})</span>
           </button>
           <button
             type="button"
@@ -371,7 +363,7 @@ export default function LessonsTab({
             }
           >
             <Video className="w-4 h-4 text-indigo-600" />
-            <span>Bài học Online ({computedOnlineCount})</span>
+            <span>Bài học Online ({safeOnlineCount})</span>
           </button>
         </div>
 
@@ -400,7 +392,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (ĐẦY ĐỦ 12 CỘT BẢO TOÀN 100%) */}
+      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (ĐẦY ĐỦ 12 CỘT) */}
       <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full min-w-[1100px] text-left border-collapse">
