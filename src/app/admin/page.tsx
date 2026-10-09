@@ -259,7 +259,24 @@ function AdminDashboardContent() {
     }
   };
 
-  // 4. HÀM CẬP NHẬT TỨC THÌ (OPTIMISTIC UPDATE PIPELINE KÈM QUEUE DEBOUNCE VÀ RETRY)
+  // 4. KHAI BÁO BIẾN AN TOÀN TRỰC TIẾP TRONG SCOPE CỦA PAGE.TSX
+  const offlineLessonCount = useMemo(() => {
+    if (!chapters || !Array.isArray(chapters)) return 0;
+    return chapters.reduce((acc: number, chap: any) => {
+      if (chap?.target_mode === "online") return acc;
+      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "offline" || l?.target_mode === "all" || !l?.target_mode).length;
+    }, 0);
+  }, [chapters]);
+
+  const onlineLessonCount = useMemo(() => {
+    if (!chapters || !Array.isArray(chapters)) return 0;
+    return chapters.reduce((acc: number, chap: any) => {
+      if (chap?.target_mode === "offline") return acc;
+      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
+    }, 0);
+  }, [chapters]);
+
+  // 5. HÀM CẬP NHẬT TỨC THÌ (OPTIMISTIC UPDATE PIPELINE KÈM QUEUE DEBOUNCE VÀ RETRY)
   const handleOptimisticUpdateChapters = useCallback((newChapters: any[]): Promise<boolean> => {
     latestChaptersRef.current = newChapters;
 
@@ -1263,8 +1280,6 @@ function AdminDashboardContent() {
               saveToStorage={saveToStorage}
               lessonModeTab={lessonModeTab}
               setLessonModeTab={setLessonModeTab}
-              offlineLessonCount={offlineLessonCount}
-              onlineLessonCount={onlineLessonCount}
               flattenedLessons={flattenedLessons}
               setCreateModal={setCreateModal}
               setResourceModal={setResourceModal}
