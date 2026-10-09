@@ -112,7 +112,7 @@ interface LessonsTabProps {
   setLessonModeTab: (tab: "all" | "offline" | "online") => void;
   offlineLessonCount?: number;
   onlineLessonCount?: number;
-  flattenedLessons: any[];
+  flattenedLessons?: any[];
   setCreateModal: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
   setResourceModal: (modal: any) => void;
   setViewResourcesModal: (modal: any) => void;
@@ -130,16 +130,16 @@ export default function LessonsTab({
   saveToStorage,
   lessonModeTab,
   setLessonModeTab,
-  flattenedLessons,
   setCreateModal,
   setResourceModal,
   setViewResourcesModal,
   setBoostModal,
   setEditLessonModal,
   setEditLessonForm,
-  handleDeleteLesson
+  handleDeleteLesson,
+  ...restProps
 }: LessonsTabProps) {
-  // 1. TÍNH TOÁN AN TOÀN NỘI BỘ 100% KHÔNG PHỤ THUỘC PROPS BÊN NGOÀI
+  // 1. TỰ ĐỘNG TÍNH TOÁN AN TOÀN NỘI BỘ SỐ LƯỢNG BÀI HỌC ONLINE / OFFLINE
   const safeOfflineCount = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return 0;
     return chapters.reduce((total: number, chap: any) => {
@@ -154,9 +154,35 @@ export default function LessonsTab({
     }, 0);
   }, [chapters]);
 
-  // 2. KHAI BÁO ALIAS ĐỂ KHÔNG BAO GIỜ BỊ ReferenceError: offlineLessonCount is not defined
+  // ALIAS TRÁNH LỖI REFERENCEERROR CHO CÁC BIẾN COUNT
   const offlineLessonCount = safeOfflineCount;
   const onlineLessonCount = safeOnlineCount;
+
+  // 2. TỰ ĐỘNG TÍNH TOÁN DANH SÁCH BÀI HỌC PHẲNG (FLATTENED LESSONS) NỘI BỘ
+  const computedFlattenedLessons = useMemo(() => {
+    if (!chapters || !Array.isArray(chapters)) return [];
+    const list: any[] = [];
+    chapters.forEach((chap: any) => {
+      (chap?.lessons || []).forEach((les: any) => {
+        if (lessonModeTab === "offline" && les?.target_mode !== "offline" && les?.target_mode !== "all") {
+          return;
+        }
+        if (lessonModeTab === "online" && les?.target_mode !== "online" && les?.target_mode !== "all") {
+          return;
+        }
+        list.push({
+          ...les,
+          chapterId: chap?.id || "chap-default",
+          chapterTitle: (chap?.title || "").split(":")[0] || chap?.title || "Chương"
+        });
+      });
+    });
+    return list;
+  }, [chapters, lessonModeTab]);
+
+  // GÁN ALIAS AN TOÀN TUYỆT ĐỐI CHO flattenedLessons ĐỂ CHỐNG ReferenceError 100%
+  const lessonsToRender = (restProps as any)?.flattenedLessons || computedFlattenedLessons;
+  const flattenedLessons = lessonsToRender;
 
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE)
   const [internalUploadModal, setInternalUploadModal] = useState<{
