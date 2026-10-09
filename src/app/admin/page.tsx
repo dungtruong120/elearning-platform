@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useTransition, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2, RefreshCw, Cloud, Check } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { STANDARD_SHIFTS } from "@/types";
 import { AdminTab, INITIAL_CHAPTERS } from "@/types/admin";
@@ -84,7 +84,7 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO STATE TỪ LOCALSTORAGE TRÁNH MẤT TRẮNG DỮ LIỆU
+  // 2. KHỞI TẠO STATE AN TOÀN VỚI FALLBACK DEFAULT ĐẦY ĐỦ
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -92,7 +92,7 @@ function AdminDashboardContent() {
         if (saved) return JSON.parse(saved);
       } catch (e) {}
     }
-    return INITIAL_CHAPTERS;
+    return INITIAL_CHAPTERS || [];
   });
 
   const [practiceExams, setPracticeExams] = useState<any[]>(() => {
@@ -135,7 +135,7 @@ function AdminDashboardContent() {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
-  // 3. STATE QUẢN LÝ TIẾN TRÌNH % ĐỒNG BỘ NỔI
+  // 3. STATE QUẢN LÝ TIẾN TRÌNH ĐỒNG BỘ
   const [syncStatus, setSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
@@ -150,7 +150,6 @@ function AdminDashboardContent() {
 
   const [isPending, startTransition] = useTransition();
 
-  // REFS QUẢN LÝ DEBOUNCE QUEUE VÀ SNAPSHOT DỮ LIỆU MỚI NHẤT
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const latestChaptersRef = useRef<any[]>(chapters);
   latestChaptersRef.current = chapters;
@@ -300,11 +299,11 @@ function AdminDashboardContent() {
     }
   };
 
-  // 4. KÊNH ĐIỀU PHỐI TRUNG TÂM DUY NHẤT: NOTIFY AND SYNC (< 30MS)
-  const notifyAndSync = useCallback((newChapters: any[], taskName: string = "dữ liệu"): Promise<boolean> => {
+  // 4. TRẠM ĐỒNG BỘ TRUNG TÂM (NOTIFY & SYNC - KHÔNG CHẶN GIAO DIỆN)
+  const notifyAndSync = useCallback((newChapters: any[], taskName: string = "bài học"): Promise<boolean> => {
     latestChaptersRef.current = newChapters;
 
-    // BƯỚC 1: Phản hồi UI tức thì trong 1 frame (< 30ms)
+    // A. Cập nhật state UI lập tức trong 0ms
     startTransition(() => {
       setChapters(newChapters);
     });
@@ -316,15 +315,14 @@ function AdminDashboardContent() {
       console.warn("Lỗi ghi LocalStorage:", e);
     }
 
-    // BƯỚC 2: Kích hoạt thanh % tiến trình nổi trên DOM ngay lập tức
+    // B. Kích hoạt thanh tiến trình bài học sang trạng thái Đang tải
     setSyncStatus({
       isSyncing: true,
-      progress: 25,
-      message: `Đang lưu ${taskName}... [25%]`,
+      progress: 30,
+      message: `Đang lưu và nén ${taskName}... [30%]`,
       type: "loading"
     });
 
-    // BƯỚC 3: Debounce Queue ~300ms ghi ngầm vào Supabase
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
     }
@@ -334,8 +332,8 @@ function AdminDashboardContent() {
 
       setSyncStatus(prev => ({
         ...prev,
-        progress: 70,
-        message: `Đang đồng bộ ${taskName} lên đám mây... [70%]`
+        progress: 75,
+        message: `Đang đẩy ${taskName} lên đám mây... [75%]`
       }));
 
       try {
@@ -357,27 +355,27 @@ function AdminDashboardContent() {
           if (insertError) throw new Error(insertError.message);
         }
 
-        // ĐỒNG BỘ THÀNH CÔNG 100%
+        // C. Hoàn tất 100%
         setSyncStatus({
           isSyncing: true,
           progress: 100,
-          message: "✓ Đã đồng bộ thành công! (100%)",
+          message: `✓ Đã lưu thành công! (100%)`,
           type: "success"
         });
 
         setTimeout(() => {
-          setSyncStatus(prev => ({ ...prev, isSyncing: false, type: "idle" }));
-        }, 1200);
+          setSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
+        }, 1500);
 
       } catch (err: any) {
         console.error("Lỗi sync Supabase courses:", err);
         setSyncStatus({
           isSyncing: true,
           progress: 100,
-          message: "✕ Lỗi kết nối đám mây, đang thử lại...",
+          message: "✕ Lỗi kết nối đám mây, đang lưu cục bộ.",
           type: "error"
         });
-        showToast("Lỗi lưu Supabase: " + (err?.message || "Mất kết nối mạng"), "error");
+        showToast("Lỗi đồng bộ Supabase: " + (err?.message || "Mất kết nối mạng"), "error");
       }
     }, 300);
 
@@ -1108,7 +1106,247 @@ function AdminDashboardContent() {
     } catch {}
   };
 
-  // 5. HÀM NẠP ĐỀ AZOTA / WORD PHẢN HỒI TỨC THÌ (LOẠI BỎ TOÀN BỘ 4 LỆNH AWAIT GÂY ĐƠ)
+  // 5. TÍNH TOÁN AN TOÀN CHO TAB ĐIỂM SỐ & XẾP HẠNG (#analytics)
+  const analyticsData = useMemo(() => {
+    const profileMap = new Map<string, any>();
+    (registeredStudents || []).forEach(s => {
+      if (!s) return;
+      if (s.id) profileMap.set(String(s.id).trim().toLowerCase(), s);
+      if (s.full_name) profileMap.set(String(s.full_name).trim().toLowerCase(), s);
+      if (s.username) profileMap.set(String(s.username).trim().toLowerCase(), s);
+      if (s.email) {
+        profileMap.set(String(s.email).trim().toLowerCase(), s);
+        const prefix = String(s.email).split("@")[0].trim().toLowerCase();
+        if (prefix) profileMap.set(prefix, s);
+      }
+    });
+
+    const validHwIds = new Set<string>();
+    const validTestIds = new Set<string>();
+    const validTitles = new Set<string>();
+
+    if (rankingScope === "chapter" && selectedChapterId !== "all") {
+      const targetChap = (chapters || []).find((c: any) => c.id === selectedChapterId);
+      if (targetChap) {
+        (targetChap.lessons || []).forEach((les: any) => {
+          (les.homework_files || []).forEach((hw: any) => {
+            if (hw.id) validHwIds.add(String(hw.id).trim().toLowerCase());
+            if (hw.title) validTitles.add(normalizeText(hw.title));
+          });
+          (les.test_quizzes || []).forEach((tq: any) => {
+            if (tq.id) validTestIds.add(String(tq.id).trim().toLowerCase());
+            if (tq.title) validTitles.add(normalizeText(tq.title));
+          });
+        });
+      }
+    } else if (rankingScope === "lesson" && selectedLessonId !== "all") {
+      let targetLesson: any = null;
+      for (const chap of chapters || []) {
+        const found = (chap.lessons || []).find((l: any) => l.id === selectedLessonId);
+        if (found) {
+          targetLesson = found;
+          break;
+        }
+      }
+      if (targetLesson) {
+        (targetLesson.homework_files || []).forEach((hw: any) => {
+          if (hw.id) validHwIds.add(String(hw.id).trim().toLowerCase());
+          if (hw.title) validTitles.add(normalizeText(hw.title));
+        });
+        (targetLesson.test_quizzes || []).forEach((tq: any) => {
+          if (tq.id) validTestIds.add(String(tq.id).trim().toLowerCase());
+          if (tq.title) validTitles.add(normalizeText(tq.title));
+        });
+      }
+    }
+
+    const stats: Record<string, any> = {};
+    (registeredStudents || []).forEach(s => {
+      stats[s.id] = {
+        id: s.id,
+        name: s.full_name || s.username || "Học sinh",
+        username: s.username || (s.email ? s.email.split("@")[0] : ""),
+        school: s.school || "THPT",
+        mode: s.learning_mode || s.study_mode || "online",
+        totalAttempts: 0,
+        hwMax: 0,
+        testMax: 0,
+        hwScores: [] as number[],
+        testScores: [] as number[]
+      };
+    });
+
+    (allAttempts || []).forEach(att => {
+      if (!att) return;
+
+      const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
+      const attTitle = normalizeText(att.examTitle || att.quizTitle || att.title || "");
+
+      let isScopeMatched = true;
+      let matchedAsHw = false;
+      let matchedAsTest = false;
+
+      if (rankingScope !== "course") {
+        const matchHw = (attQuizId && validHwIds.has(attQuizId)) || (attTitle && validTitles.has(attTitle));
+        const matchTest = (attQuizId && validTestIds.has(attQuizId)) || (attTitle && validTitles.has(attTitle));
+
+        if (!matchHw && !matchTest) {
+          isScopeMatched = false;
+        } else {
+          matchedAsHw = matchHw;
+          matchedAsTest = matchTest;
+        }
+      }
+
+      if (!isScopeMatched) return;
+
+      const attStuId = String(att.studentId || att.student_id || att.user_id || "").trim().toLowerCase();
+      const rawAttName = String(att.studentName || att.student_name || att.full_name || "").trim();
+
+      const matchedProfile =
+        profileMap.get(attStuId) ||
+        (rawAttName ? profileMap.get(rawAttName.toLowerCase()) : null);
+
+      let targetId = matchedProfile ? matchedProfile.id : attStuId;
+      if (!targetId || !stats[targetId]) return;
+
+      const st = stats[targetId];
+      const sc = Number(att.score ?? att.points ?? 0);
+      st.totalAttempts++;
+
+      const isHomeworkType =
+        matchedAsHw ||
+        (!matchedAsTest && (att.type === "homework" || att.is_homework || att.isHomework));
+
+      if (isHomeworkType) {
+        st.hwScores.push(sc);
+        st.hwMax = Math.max(st.hwMax, sc);
+      } else {
+        st.testScores.push(sc);
+        st.testMax = Math.max(st.testMax, sc);
+      }
+    });
+
+    return Object.values(stats)
+      .filter((st: any) => {
+        if (analyticsModeFilter === "all") return true;
+        return st.mode === analyticsModeFilter;
+      })
+      .map((st: any) => {
+        let overallAvg = 0;
+        const allScores = [...st.hwScores, ...st.testScores];
+
+        if (rankingScope === "lesson") {
+          if (st.hwScores.length > 0 && st.testScores.length > 0) {
+            overallAvg = (st.hwMax + st.testMax) / 2;
+          } else if (st.hwScores.length > 0) {
+            overallAvg = st.hwMax;
+          } else if (st.testScores.length > 0) {
+            overallAvg = st.testMax;
+          }
+        } else {
+          if (st.hwScores.length > 0 && st.testScores.length > 0) {
+            const hwAvg = st.hwScores.reduce((a: number, b: number) => a + b, 0) / st.hwScores.length;
+            const testAvg = st.testScores.reduce((a: number, b: number) => a + b, 0) / st.testScores.length;
+            overallAvg = (hwAvg + testAvg) / 2;
+          } else if (allScores.length > 0) {
+            overallAvg = allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length;
+          }
+        }
+
+        return {
+          ...st,
+          hwMax: Number(st.hwMax.toFixed(1)),
+          testMax: Number(st.testMax.toFixed(1)),
+          overallAvg: Number(overallAvg.toFixed(1))
+        };
+      })
+      .sort((a: any, b: any) => b.overallAvg - a.overallAvg || b.totalAttempts - a.totalAttempts);
+  }, [
+    allAttempts,
+    registeredStudents,
+    analyticsModeFilter,
+    rankingScope,
+    selectedChapterId,
+    selectedLessonId,
+    chapters
+  ]);
+
+  // 6. TÍNH TOÁN AN TOÀN CHO BẢNG ĐIỂM DANH (#online_schedule)
+  const getVietnameseLastName = (fullName: string): string => {
+    if (!fullName) return "";
+    const parts = fullName.trim().split(/\s+/);
+    return parts[parts.length - 1] || "";
+  };
+
+  const sortedAndFilteredStudents = useMemo(() => {
+    let list = Array.isArray(registeredStudents) ? [...registeredStudents] : [];
+
+    if (attendanceSearchText.trim()) {
+      const q = attendanceSearchText.toLowerCase();
+      list = list.filter(s => (s.full_name || "").toLowerCase().includes(q) || (s.email || "").toLowerCase().includes(q));
+    }
+
+    if (attendanceFilterMode !== "all") {
+      list = list.filter(s => s.learning_mode === attendanceFilterMode || s.study_mode === attendanceFilterMode);
+    }
+
+    if (attendanceSortAZ) {
+      list.sort((a, b) => {
+        const lastA = getVietnameseLastName(a.full_name);
+        const lastB = getVietnameseLastName(b.full_name);
+        const cmp = lastA.localeCompare(lastB, "vi", { sensitivity: "base" });
+        if (cmp !== 0) return cmp;
+        return (a.full_name || "").localeCompare(b.full_name || "", "vi", { sensitivity: "base" });
+      });
+    }
+
+    return list;
+  }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
+
+  // 7. TÍNH TOÁN DANH SÁCH ĐỀ THI
+  const examsWithScoresData = useMemo(() => {
+    let list = Array.isArray(practiceExams) ? [...practiceExams] : [];
+    if (practiceCategoryFilter !== "Tất cả danh mục") {
+      list = list.filter(ex => ex?.category === practiceCategoryFilter);
+    }
+
+    return list.map(ex => {
+      const exId = String(ex?.id || "").trim();
+      const exTitleNorm = normalizeText(ex?.title);
+
+      const attempts = (allAttempts || []).filter(a => {
+        if (!a) return false;
+        const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "").trim();
+        const aTitleNorm = normalizeText(a.examTitle || a.exam_title || a.title);
+        return (aQuizId && exId && aQuizId === exId) || (exTitleNorm && aTitleNorm && exTitleNorm === aTitleNorm);
+      });
+
+      const studentMap = new Map();
+      attempts.forEach(att => {
+        const key = att.studentId || att.student_id || att.studentName;
+        const prev = studentMap.get(key);
+        if (!prev || Number(att.score || 0) > Number(prev.score || 0)) {
+          studentMap.set(key, att);
+        }
+      });
+
+      const scores = attempts.map(a => Number(a.score || 0));
+      const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+      const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+
+      return {
+        ...ex,
+        totalSubmissions: attempts.length,
+        uniqueStudentCount: studentMap.size,
+        avgScore: avgScore.toFixed(2),
+        maxScore: maxScore.toFixed(2),
+        attempts
+      };
+    });
+  }, [practiceExams, practiceCategoryFilter, allAttempts]);
+
+  // HÀM LƯU TỪ MODAL AZOTA / WORD PHẢN HỒI TỨC THÌ
   const handleSaveAzotaExam = (examData: any) => {
     if (uploadMode === "practice") {
       const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
@@ -1133,13 +1371,11 @@ function AdminDashboardContent() {
         updatedExams = [newExam, ...(practiceExams || [])];
       }
 
-      // Cập nhật state Luyện đề tức thì
       setPracticeExams(updatedExams);
       try {
         localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedExams));
       } catch (e) {}
 
-      // Đẩy ngầm không await
       (async () => {
         try {
           await supabase.from("practice_exams").upsert(newExam);
@@ -1173,12 +1409,10 @@ function AdminDashboardContent() {
         }) 
       }));
 
-      // KÍCH HOẠT ĐỒNG BỘ TỨC THÌ (0MS) VÀ HIỆN THANH % NỔI
       notifyAndSync(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
-      showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
+      showToast("Đã nạp đề vào bài học thành công!", "success");
     }
 
-    // Đóng modal tức thì (< 30ms)
     setTestFile(null); 
     setEditingExamData(null);
     setAzotaTarget(null);
@@ -1240,32 +1474,91 @@ function AdminDashboardContent() {
         />
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
-          {/* LỜI GỌI LESSONSTAB ĐƯỢC NỐI THẲNG PROPS ĐỒNG BỘ VÀ SETCHAPTERS */}
           {activeTab === "lessons" && (
-            <LessonsTab
-              chapters={chapters}
-              setChapters={setChapters}
-              onUpdateChapters={notifyAndSync}
-              saveToStorage={notifyAndSync}
-              lessonModeTab={lessonModeTab}
-              setLessonModeTab={setLessonModeTab}
-              setCreateModal={setCreateModal}
-              setResourceModal={setResourceModal}
-              setViewResourcesModal={setViewResourcesModal}
-              setUploadMethodModal={setUploadMethodModal}
-              setBoostModal={setBoostModal}
-              setEditLessonModal={setEditLessonModal}
-              setEditLessonForm={setEditLessonForm}
-              handleDeleteLesson={handleDeleteLesson}
-            />
+            <div className="space-y-4">
+              {/* THANH TRẠNG THÁI TIẾN TRÌNH TẢI LÊN CỐ ĐỊNH NGAY TRONG GIAO DIỆN BÀI HỌC */}
+              {!syncStatus.isSyncing && syncStatus.type === "idle" && (
+                <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between text-xs text-slate-500 shadow-2xs">
+                  <div className="flex items-center gap-2 font-medium">
+                    <Cloud className="w-4 h-4 text-slate-400" />
+                    <span>Hệ thống sẵn sàng: Chưa có tệp nào đang tải lên</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 font-bold text-emerald-600 text-[11px]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Máy chủ hoạt động</span>
+                  </div>
+                </div>
+              )}
+
+              {syncStatus.isSyncing && syncStatus.type === "loading" && (
+                <div className="bg-blue-50/90 border-2 border-blue-400 p-3.5 rounded-2xl shadow-sm flex flex-col gap-2 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                      <span>{syncStatus.message || `Đang xử lý & đăng tải dữ liệu: [ ${syncStatus.progress}% ]`}</span>
+                    </div>
+                    <span className="font-mono text-blue-700">{syncStatus.progress}%</span>
+                  </div>
+                  <div className="w-full bg-blue-200/60 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full transition-all duration-300 rounded-full" 
+                      style={{ width: `${syncStatus.progress}%` }} 
+                    />
+                  </div>
+                </div>
+              )}
+
+              {syncStatus.type === "success" && (
+                <div className="bg-emerald-50 border-2 border-emerald-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 animate-in fade-in duration-200 shadow-xs">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>{syncStatus.message || "✓ Đã đăng tải và đồng bộ thành công! (100%)"}</span>
+                  </div>
+                  <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-lg border border-emerald-300">Hoàn tất</span>
+                </div>
+              )}
+
+              {syncStatus.type === "error" && (
+                <div className="bg-rose-50 border-2 border-rose-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-rose-900 shadow-xs">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                    <span>{syncStatus.message || "✕ Lỗi kết nối đám mây khi lưu bài học!"}</span>
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={handleRetrySync} 
+                    className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold hover:bg-rose-700 cursor-pointer flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Thử lại
+                  </button>
+                </div>
+              )}
+
+              <LessonsTab
+                chapters={chapters}
+                setChapters={setChapters}
+                onUpdateChapters={notifyAndSync}
+                saveToStorage={notifyAndSync}
+                lessonModeTab={lessonModeTab}
+                setLessonModeTab={setLessonModeTab}
+                setCreateModal={setCreateModal}
+                setResourceModal={setResourceModal}
+                setViewResourcesModal={setViewResourcesModal}
+                setUploadMethodModal={setUploadMethodModal}
+                setBoostModal={setBoostModal}
+                setEditLessonModal={setEditLessonModal}
+                setEditLessonForm={setEditLessonForm}
+                handleDeleteLesson={handleDeleteLesson}
+              />
+            </div>
           )}
 
           {activeTab === "practice" && (
             <PracticeTab
               practiceSubTab={practiceSubTab}
               setPracticeSubTab={setPracticeSubTab}
-              practiceExams={practiceExams}
-              allAttempts={allAttempts}
+              practiceExams={practiceExams || []}
+              allAttempts={allAttempts || []}
               isLoadingExams={isLoadingExams}
               uploadProgressText={uploadProgressText}
               setTestFile={setTestFile}
@@ -1282,18 +1575,22 @@ function AdminDashboardContent() {
               onTestExam={handleTestExam}
               practiceCategoryFilter={practiceCategoryFilter}
               setPracticeCategoryFilter={setPracticeCategoryFilter}
+              examsWithScoresData={examsWithScoresData || []}
             />
           )}
 
           {activeTab === "analytics" && (
             <AnalyticsTab
+              analyticsData={analyticsData || []}
+              analyticsModeFilter={analyticsModeFilter}
+              setAnalyticsModeFilter={setAnalyticsModeFilter}
               rankingScope={rankingScope}
               setRankingScope={setRankingScope}
               selectedChapterId={selectedChapterId}
               setSelectedChapterId={setSelectedChapterId}
               selectedLessonId={selectedLessonId}
               setSelectedLessonId={setSelectedLessonId}
-              chapters={chapters}
+              chapters={chapters || []}
               isLoadingAnalytics={isLoadingAnalytics}
             />
           )}
@@ -1306,7 +1603,7 @@ function AdminDashboardContent() {
               setNotifContent={setNotifContent}
               notifType={notifType}
               setNotifType={setNotifType}
-              sysNotifications={sysNotifications}
+              sysNotifications={sysNotifications || []}
               handleSendNotification={handleSendNotification}
               handleDeleteNotification={handleDeleteNotification}
             />
@@ -1314,7 +1611,7 @@ function AdminDashboardContent() {
 
           {activeTab === "students" && (
             <StudentsTab
-              registeredStudents={registeredStudents}
+              registeredStudents={registeredStudents || []}
               studentFilter={studentFilter}
               setStudentFilter={setStudentFilter}
               studentSearch={studentSearch}
@@ -1329,7 +1626,7 @@ function AdminDashboardContent() {
               newSessionForm={newSessionForm}
               setNewSessionForm={setNewSessionForm}
               handleCreateOnlineSession={handleCreateOnlineSession}
-              onlineSessions={onlineSessions}
+              onlineSessions={onlineSessions || []}
               handleDeleteSession={handleDeleteSession}
               setIsAddDateModalOpen={setIsAddDateModalOpen}
               setIsAddStudentModalOpen={setIsAddStudentModalOpen}
@@ -1337,12 +1634,13 @@ function AdminDashboardContent() {
               setAttendanceSearchText={setAttendanceSearchText}
               attendanceFilterMode={attendanceFilterMode}
               setAttendanceFilterMode={setAttendanceFilterMode}
-              registeredStudents={registeredStudents}
+              registeredStudents={registeredStudents || []}
               attendanceSortAZ={attendanceSortAZ}
               setAttendanceSortAZ={setAttendanceSortAZ}
-              sessionDates={sessionDates}
+              sessionDates={sessionDates || []}
               handleDeleteAttendanceDate={handleDeleteAttendanceDate}
-              attendanceRecords={attendanceRecords}
+              sortedAndFilteredStudents={sortedAndFilteredStudents || []}
+              attendanceRecords={attendanceRecords || []}
               handleToggleAttendance={handleToggleAttendance}
             />
           )}
@@ -1356,11 +1654,11 @@ function AdminDashboardContent() {
               transition={{ duration: 0.25, ease: "easeInOut" }}
             >
               <AdminStudentReportPanel 
-                registeredStudents={registeredStudents}
-                allAttempts={allAttempts}
-                chapters={chapters}
-                practiceExams={practiceExams}
-                attendanceRecords={attendanceRecords}
+                registeredStudents={registeredStudents || []}
+                allAttempts={allAttempts || []}
+                chapters={chapters || []}
+                practiceExams={practiceExams || []}
+                attendanceRecords={attendanceRecords || []}
               />
             </motion.div>
           )}
@@ -1370,7 +1668,7 @@ function AdminDashboardContent() {
       <AdminModals
         azotaScoreViewModal={azotaScoreViewModal}
         setAzotaScoreViewModal={setAzotaScoreViewModal}
-        registeredStudents={registeredStudents}
+        registeredStudents={registeredStudents || []}
         supabase={supabase}
         showToast={showToast}
         isAddStudentModalOpen={isAddStudentModalOpen}
@@ -1391,7 +1689,7 @@ function AdminDashboardContent() {
         handleEditResourceSubmit={handleEditResourceSubmit}
         createModal={createModal}
         setCreateModal={setCreateModal}
-        chapters={chapters}
+        chapters={chapters || []}
         setChapters={setChapters}
         onUpdateChapters={notifyAndSync}
         saveToStorage={notifyAndSync}
@@ -1457,40 +1755,6 @@ function AdminDashboardContent() {
         testExamRoom={testExamRoom}
         setTestExamRoom={setTestExamRoom}
       />
-
-      {/* FLOATING SYNC PROGRESS BAR (ĐẶT Ở NGOÀI CÙNG DOM ROOT VỚI Z-[9999]) */}
-      {syncStatus.isSyncing && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none transition-all duration-300">
-          <div className="bg-white/95 backdrop-blur-md px-5 py-2.5 rounded-full shadow-2xl border border-blue-300 flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
-            {syncStatus.type === "loading" && (
-              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
-            )}
-            {syncStatus.type === "success" && (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            )}
-            {syncStatus.type === "error" && (
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            )}
-
-            <div className="w-32 bg-slate-200 h-2 rounded-full overflow-hidden">
-              <div 
-                className={`h-full transition-all duration-300 rounded-full ${
-                  syncStatus.type === "error"
-                    ? "bg-rose-500"
-                    : syncStatus.type === "success"
-                    ? "bg-emerald-500"
-                    : "bg-blue-600"
-                }`}
-                style={{ width: `${syncStatus.progress}%` }} 
-              />
-            </div>
-
-            <span className="text-xs font-black text-blue-900 tracking-wide whitespace-nowrap">
-              {syncStatus.message || `Đang đồng bộ... [${syncStatus.progress}%]`}
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
