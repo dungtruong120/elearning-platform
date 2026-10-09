@@ -130,8 +130,6 @@ export default function LessonsTab({
   saveToStorage,
   lessonModeTab,
   setLessonModeTab,
-  offlineLessonCount,
-  onlineLessonCount,
   flattenedLessons,
   setCreateModal,
   setResourceModal,
@@ -141,22 +139,32 @@ export default function LessonsTab({
   setEditLessonForm,
   handleDeleteLesson
 }: LessonsTabProps) {
-  // 1. TỰ ĐỘNG TÍNH TOÁN AN TOÀN NỘI BỘ SỐ LƯỢNG BÀI HỌC ONLINE / OFFLINE CHỐNG CRASH
+  // 1. TỰ ĐỘNG TÍNH TOÁN AN TOÀN NỘI BỘ (KHÔNG PHỤ THUỘC VÀO PROPS CỦA CHA, CHỐNG CRASH 100%)
   const computedOfflineCount = useMemo(() => {
-    if (typeof offlineLessonCount === "number") return offlineLessonCount;
-    return (chapters || []).reduce((acc: number, chap: any) => {
-      if (chap?.target_mode === "online") return acc;
-      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "offline" || l?.target_mode === "all" || !l?.target_mode).length;
-    }, 0);
-  }, [chapters, offlineLessonCount]);
+    if (!chapters || !Array.isArray(chapters)) return 0;
+    let count = 0;
+    chapters.forEach((chap: any) => {
+      (chap?.lessons || []).forEach((les: any) => {
+        if (les?.target_mode === "offline" || les?.target_mode === "all" || !les?.target_mode) {
+          count++;
+        }
+      });
+    });
+    return count;
+  }, [chapters]);
 
   const computedOnlineCount = useMemo(() => {
-    if (typeof onlineLessonCount === "number") return onlineLessonCount;
-    return (chapters || []).reduce((acc: number, chap: any) => {
-      if (chap?.target_mode === "offline") return acc;
-      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
-    }, 0);
-  }, [chapters, onlineLessonCount]);
+    if (!chapters || !Array.isArray(chapters)) return 0;
+    let count = 0;
+    chapters.forEach((chap: any) => {
+      (chap?.lessons || []).forEach((les: any) => {
+        if (les?.target_mode === "online" || les?.target_mode === "all" || (!les?.target_mode && les?.format === "Zoom")) {
+          count++;
+        }
+      });
+    });
+    return count;
+  }, [chapters]);
 
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE)
   const [internalUploadModal, setInternalUploadModal] = useState<{
@@ -298,7 +306,7 @@ export default function LessonsTab({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 text-left relative">
+    <div className="space-y-6 animate-in fade-in duration-300 text-left relative font-sans">
       {/* INPUT FILE ẨN PHỤC VỤ UPLOAD WORD & PDF */}
       <input 
         type="file" 
