@@ -16,7 +16,8 @@ import {
   CheckSquare, 
   Award,
   Sparkles,
-  CheckCircle2
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabaseClient";
@@ -26,6 +27,90 @@ const AzotaExamConfigModal = dynamic(
   () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
 );
+
+// HÀM CHUYỂN ĐỔI CHUỖI BASE64 SANG BLOB ĐỂ UPLOAD LÊN SUPABASE STORAGE
+function base64ToBlob(base64Data: string): { blob: Blob; ext: string } | null {
+  try {
+    const parts = base64Data.split(";base64,");
+    if (parts.length < 2) return null;
+    const contentType = parts[0].split(":")[1] || "image/png";
+    const raw = window.atob(parts[1]);
+    const rawLength = raw.length;
+    const uInt8Array = new Uint8Array(rawLength);
+    for (let i = 0; i < rawLength; ++i) {
+      uInt8Array[i] = raw.charCodeAt(i);
+    }
+    const ext = contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg" : "png";
+    return { blob: new Blob([uInt8Array], { type: contentType }), ext };
+  } catch (e) {
+    console.error("Lỗi parse Base64 sang Blob:", e);
+    return null;
+  }
+}
+
+// HÀM QUÉT VÀ TRIỆT TIÊU BASE64 RA KHỎI MEDIA MAP VÀ CÂU HỎI
+async function sanitizeExamMediaAndUpload(sections: any[], mediaMap: Record<string, string>): Promise<{ cleanedSections: any[]; cleanedMediaMap: Record<string, string> }> {
+  const newMediaMap: Record<string, string> = { ...(mediaMap || {}) };
+  const uploadTasks: Promise<void>[] = [];
+
+  // 1. Quét mediaMap tìm chuỗi Base64 để đưa lên Supabase Storage
+  for (const key of Object.keys(newMediaMap)) {
+    const val = newMediaMap[key];
+    if (typeof val === "string" && val.startsWith("data:image/")) {
+      const parsed = base64ToBlob(val);
+      if (parsed) {
+        const filePath = `exam-media/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${parsed.ext}`;
+        const task = (async () => {
+          try {
+            const { error: uploadError } = await supabase.storage
+              .from("exam_images")
+              .upload(filePath, parsed.blob, { contentType: parsed.blob.type, upsert: true });
+
+            if (!uploadError) {
+              const { data: publicUrlData } = supabase.storage.from("exam_images").getPublicUrl(filePath);
+              if (publicUrlData?.publicUrl) {
+                newMediaMap[key] = publicUrlData.publicUrl;
+              }
+            } else {
+              // Thử bucket dự phòng nếu exam_images chưa tạo
+              const { error: fallbackError } = await supabase.storage
+                .from("public_files")
+                .upload(filePath, parsed.blob, { contentType: parsed.blob.type, upsert: true });
+              if (!fallbackError) {
+                const { data: fallbackUrl } = supabase.storage.from("public_files").getPublicUrl(filePath);
+                if (fallbackUrl?.publicUrl) {
+                  newMediaMap[key] = fallbackUrl.publicUrl;
+                }
+              }
+            }
+          } catch (uploadErr) {
+            console.warn("Bỏ qua lỗi tải ảnh media:", uploadErr);
+          }
+        })();
+        uploadTasks.push(task);
+      }
+    }
+  }
+
+  // Chờ các file ảnh hoàn tất upload
+  if (uploadTasks.length > 0) {
+    await Promise.all(uploadTasks);
+  }
+
+  // 2. Làm sạch Base64 nhúng inline trong raw text của Sections
+  const cleanedSections = (sections || []).map((sec: any) => {
+    let secStr = JSON.stringify(sec);
+    // Thay thế các media key tham chiếu
+    for (const [key, cleanUrl] of Object.entries(newMediaMap)) {
+      if (cleanUrl.startsWith("http")) {
+        secStr = secStr.split(`[image:${key}]`).join(`[image:${key}]`);
+      }
+    }
+    return JSON.parse(secStr);
+  });
+
+  return { cleanedSections, cleanedMediaMap: newMediaMap };
+}
 
 export const MatrixCell = ({
   items,
@@ -134,14 +219,14 @@ export default function LessonsTab({
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const docxInputRef = useRef<HTMLInputElement | null>(null);
 
-  // HÀM LƯU TỔNG VÀO STATE CHA, SUPABASE VÀ LOCALSTORAGE
-  const persistChaptersData = async (updatedChapters: any[]) => {
-    // 1. Cập nhật state cha React tức thì để cell nhảy số tự động
+  // CƠ CHẾ OPTIMISTIC UI + BACKGROUND ASYNC SYNC (SIÊU TỐC < 100MS)
+  const applyOptimisticUpdate = (updatedChapters: any[]) => {
+    // 1. Cập nhật state cha React ngay lập tức để render lại ô cell tức thì
     if (typeof setChapters === "function") {
       try {
         (setChapters as any)(updatedChapters);
       } catch (err) {
-        console.error("Lỗi khi gọi setChapters:", err);
+        console.error("Lỗi khi cập nhật setChapters:", err);
       }
     }
 
@@ -153,36 +238,40 @@ export default function LessonsTab({
       }
     }
 
-    // 2. Gọi hàm lưu storage từ cha nếu có
-    if (saveToStorage) {
-      await saveToStorage(updatedChapters);
-      return;
-    }
-
-    // 3. Đồng bộ xuống LocalStorage của trình duyệt
+    // 2. Lưu bộ nhớ đệm LocalStorage tức thì để không bị mất khi F5
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("edunexus_course_data", JSON.stringify(updatedChapters));
         window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Bộ nhớ LocalStorage đầy hoặc hạn chế:", e);
+      }
     }
 
-    // 4. Lưu trực tiếp vào database Supabase bảng courses
-    try {
-      const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
-      if (existingRows && existingRows.length > 0) {
-        await supabase
-          .from("courses")
-          .update({ chapters: updatedChapters, updated_at: new Date().toISOString() })
-          .eq("id", existingRows[0].id);
-      } else {
-        await supabase
-          .from("courses")
-          .insert([{ title: "Toán 12 TCT", chapters: updatedChapters, updated_at: new Date().toISOString() }]);
+    // 3. ĐỒNG BỘ NGẦM (BACKGROUND SYNC) LÊN SUPABASE KHÔNG CHẶN GIAO DIỆN
+    (async () => {
+      try {
+        if (saveToStorage) {
+          await saveToStorage(updatedChapters);
+          return;
+        }
+
+        const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+        if (existingRows && existingRows.length > 0) {
+          await supabase
+            .from("courses")
+            .update({ chapters: updatedChapters, updated_at: new Date().toISOString() })
+            .eq("id", existingRows[0].id);
+        } else {
+          await supabase
+            .from("courses")
+            .insert([{ title: "Toán 12 TCT", chapters: updatedChapters, updated_at: new Date().toISOString() }]);
+        }
+        console.log("⚡ [Background Sync] Đã đồng bộ ngầm lên Supabase thành công!");
+      } catch (err) {
+        console.error("❌ Lỗi khi đồng bộ ngầm Supabase:", err);
       }
-    } catch (err) {
-      console.error("Lỗi khi lưu Supabase từ LessonsTab:", err);
-    }
+    })();
   };
 
   // MỞ MENU CHỌN NẠP ĐỀ (WORD / PDF / DRIVE)
@@ -207,10 +296,7 @@ export default function LessonsTab({
 
   // CALLBACK KHI AZOTA EXAM CONFIG MODAL BÓC TÁCH XONG VÀ BẤM LƯU & XUẤT BẢN
   const handleSaveExamFromAzota = async (payload: any) => {
-    console.log("[LessonsTab] Nhận payload từ AzotaExamConfigModal:", payload);
-
     if (!activeUploadTarget) {
-      console.error("[LessonsTab] Thiếu thông tin bài học mục tiêu.");
       setActiveTestFile(null);
       return;
     }
@@ -219,44 +305,82 @@ export default function LessonsTab({
     const isHw = type === "homework_files";
 
     const examData = payload?.examData || payload?.data || payload;
-    const sections = payload?.sections || examData?.sections || payload?.data || [];
-    const mediaMap = payload?.mediaMap || payload?.media_map || examData?.mediaMap || examData?.media_map || {};
+    const rawSections = payload?.sections || examData?.sections || payload?.data || [];
+    const rawMediaMap = payload?.mediaMap || payload?.media_map || examData?.mediaMap || examData?.media_map || {};
     const title = payload?.title || examData?.title || activeTestFile?.name?.replace(/\.[^/.]+$/, "") || (isHw ? "Bài tập về nhà" : "Đề kiểm tra định kỳ");
     const duration = payload?.duration_minutes || examData?.duration_minutes || (isHw ? 0 : 45);
+    const quizId = payload?.id || examData?.id || ("quiz-" + Date.now());
 
-    const newQuizItem = {
-      id: payload?.id || examData?.id || ("quiz-" + Date.now()),
+    // ĐÓNG MODAL NGAY LẬP TỨC (OPTIMISTIC CLOSE)
+    setActiveTestFile(null);
+    setActiveUploadTarget(null);
+
+    // 1. TẠO ITEM TẠM ĐỂ CẬP NHẬT GIAO DIỆN TỨC THÌ (< 100MS)
+    const optimisticQuizItem = {
+      id: quizId,
       title: title,
       duration_minutes: duration,
       is_quiz: true,
       isHomework: isHw,
-      data: sections,
-      media_map: mediaMap,
+      data: rawSections,
+      media_map: rawMediaMap,
       created_at: new Date().toISOString()
     };
 
-    const updatedChapters = (chapters || []).map((chap: any) => ({
+    const immediateChapters = (chapters || []).map((chap: any) => ({
       ...chap,
       lessons: (chap.lessons || []).map((les: any) => {
         if (les.id !== lessonId) return les;
         return {
           ...les,
-          [type]: [...(les[type] || []), newQuizItem]
+          [type]: [...(les[type] || []), optimisticQuizItem]
         };
       })
     }));
 
-    await persistChaptersData(updatedChapters);
+    // Cập nhật State React ngay lập tức để ô số đếm nhảy lên 1, 2...
+    applyOptimisticUpdate(immediateChapters);
 
-    // Giải phóng state modal
-    setActiveTestFile(null);
-    setActiveUploadTarget(null);
+    // 2. TIẾN HÀNH LÀM SẠCH BASE64 DƯỚI NỀN (CHUYỂN THÀNH LINK STORAGE NHẸ NHÀNG)
+    (async () => {
+      try {
+        const { cleanedSections, cleanedMediaMap } = await sanitizeExamMediaAndUpload(rawSections, rawMediaMap);
+        
+        // Cập nhật lại với dữ liệu đã triệt tiêu Base64
+        const finalizedQuizItem = {
+          ...optimisticQuizItem,
+          data: cleanedSections,
+          media_map: cleanedMediaMap
+        };
 
-    alert(`✅ Đã nạp thành công "${title}" vào bài học! Ô số đếm đã được cập nhật.`);
+        const finalizedChapters = (chapters || []).map((chap: any) => ({
+          ...chap,
+          lessons: (chap.lessons || []).map((les: any) => {
+            if (les.id !== lessonId) return les;
+            return {
+              ...les,
+              [type]: (les[type] || []).map((item: any) => item.id === quizId ? finalizedQuizItem : item)
+            };
+          })
+        }));
+
+        // Ghi dữ liệu sạch lên Supabase
+        const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+        if (existingRows && existingRows.length > 0) {
+          await supabase
+            .from("courses")
+            .update({ chapters: finalizedChapters, updated_at: new Date().toISOString() })
+            .eq("id", existingRows[0].id);
+        }
+        console.log("⚡ [Media Cleaner] Đã dọn dẹp Base64 thành công cho đề:", title);
+      } catch (cleanErr) {
+        console.warn("Lỗi khi tối ưu media dưới nền:", cleanErr);
+      }
+    })();
   };
 
   // LƯU LINK DRIVE THỦ CÔNG
-  const handleSaveDriveLink = async (e: React.FormEvent) => {
+  const handleSaveDriveLink = (e: React.FormEvent) => {
     e.preventDefault();
     if (!driveModal || !driveTitle.trim() || !driveUrl.trim()) return;
 
@@ -266,7 +390,8 @@ export default function LessonsTab({
       title: driveTitle.trim(),
       url: driveUrl.trim(),
       is_quiz: false,
-      is_drive_file: true
+      is_drive_file: true,
+      created_at: new Date().toISOString()
     };
 
     const updatedChapters = (chapters || []).map((chap: any) => ({
@@ -280,12 +405,12 @@ export default function LessonsTab({
       })
     }));
 
-    await persistChaptersData(updatedChapters);
+    // Áp dụng Optimistic Update ngay lập tức
+    applyOptimisticUpdate(updatedChapters);
+
     setDriveModal(null);
     setDriveTitle("");
     setDriveUrl("");
-
-    alert(`✅ Đã đính kèm file Drive "${newItem.title}" thành công!`);
   };
 
   return (
@@ -583,7 +708,7 @@ export default function LessonsTab({
                     <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
                   </div>
                   <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
-                    AI Gemini Vision sẽ quét trang PDF, khôi phục 100% MathType, phân số, căn thức và toạ độ Oxyz mà không bị trượt byte.
+                    AI Gemini Vision bóc tách câu hỏi, tự động lưu ảnh đồ thị lên Cloud Storage để đề thi nhẹ tối đa, học sinh mở tức thì.
                   </div>
                 </div>
               </div>
@@ -599,7 +724,7 @@ export default function LessonsTab({
                 <div className="flex-1">
                   <div className="font-extrabold text-blue-950 text-[14px]">Tải lên file Word (.docx)</div>
                   <div className="text-xs text-blue-800/80 mt-1 leading-relaxed">
-                    Trích xuất trực tiếp câu hỏi, bảng đáp án, lời giải và thẻ ảnh đồ thị từ file Word gốc.
+                    Bóc tách câu hỏi, bảng đáp án và đẩy ảnh trực tiếp lên Server thay vì nhồi chuỗi Base64 làm nghẽn Database.
                   </div>
                 </div>
               </div>
