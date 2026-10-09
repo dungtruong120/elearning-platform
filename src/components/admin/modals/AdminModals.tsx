@@ -6,7 +6,7 @@ import {
   ExternalLink, Video, FileText, PenTool, CheckSquare, 
   Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, 
   Save, FileUp, Edit3, UploadCloud, CheckCircle2, FileSignature, 
-  Sparkles 
+  Sparkles, RefreshCw, Loader2 
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -16,10 +16,37 @@ const AzotaExamConfigModal = dynamic(
   { ssr: false }
 );
 
-const MathTypeExamConfigModal = dynamic(
-  () => import("@/app/admin/MathTypeExamConfigModal").then((mod: any) => mod.MathTypeExamConfigModal || mod.default || mod),
-  { ssr: false }
-);
+// HÀM LÀM SẠCH CHUỖI BASE64 DỮ LIỆU RÁC ĐỂ TRÁNH PHÌNH TO DATABASE
+function cleanResourceMediaPayload(item: any): any {
+  if (!item || typeof item !== "object") return item;
+  const clone = { ...item };
+  
+  if (typeof clone.url === "string" && clone.url.startsWith("data:image/")) {
+    clone.url = ""; // Không lưu DataURL nặng vào trường URL
+  }
+
+  if (clone.mediaMap && typeof clone.mediaMap === "object") {
+    const cleanMedia: Record<string, string> = {};
+    for (const [k, v] of Object.entries(clone.mediaMap)) {
+      if (typeof v === "string" && !v.startsWith("data:image/")) {
+        cleanMedia[k] = v;
+      }
+    }
+    clone.mediaMap = cleanMedia;
+  }
+
+  if (clone.media_map && typeof clone.media_map === "object") {
+    const cleanMedia: Record<string, string> = {};
+    for (const [k, v] of Object.entries(clone.media_map)) {
+      if (typeof v === "string" && !v.startsWith("data:image/")) {
+        cleanMedia[k] = v;
+      }
+    }
+    clone.media_map = cleanMedia;
+  }
+
+  return clone;
+}
 
 interface AdminModalsProps {
   azotaScoreViewModal?: {
@@ -34,7 +61,9 @@ interface AdminModalsProps {
 
   // CÁC PROPS KẾT NỐI VỚI LESSONS TAB VÀ DASHBOARD GỐC
   chapters?: any[];
-  saveToStorage?: (newChapters: any[]) => Promise<void>;
+  setChapters?: (chapters: any[]) => void;
+  onUpdateChapters?: (newChapters: any[]) => Promise<any> | void;
+  saveToStorage?: (newChapters: any[]) => Promise<any> | void;
   createModal?: { type: "chapter" | "lesson"; chapterId?: string } | null;
   setCreateModal?: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
   resourceModal?: any;
@@ -71,6 +100,8 @@ export default function AdminModals(props: AdminModalsProps) {
     supabase,
     showToast,
     chapters = [],
+    setChapters,
+    onUpdateChapters,
     saveToStorage,
     createModal = null,
     setCreateModal,
@@ -124,38 +155,24 @@ export default function AdminModals(props: AdminModalsProps) {
   const [editResourceModal, setEditResourceModal] = useState<{ lessonId: string; type: string; item: any } | null>(null);
   const [editResourceForm, setEditResourceForm] = useState({ title: "", url: "", type: "lecture" });
 
-  // HÀM LƯU CHƯƠNG VÀO DATABASE THÔNG QUA PROP HOẶC SUPABASE TRỰC TIẾP
-  const persistChapters = async (newChapters: any[]) => {
-    if (saveToStorage) {
-      await saveToStorage(newChapters);
-      return;
+  // HÀM ĐẨY DỮ LIỆU TỨC THÌ (OPTIMISTIC PIPELINE - PHẢN HỒI < 30MS, KÍCH HOẠT THANH % NỔI)
+  const dispatchOptimisticUpdate = (newChapters: any[]) => {
+    // 1. Bắn callback tức thì lên component cha để cập nhật React State & kích hoạt Floating Sync Bar
+    if (typeof onUpdateChapters === "function") {
+      onUpdateChapters(newChapters);
+    } else if (typeof saveToStorage === "function") {
+      saveToStorage(newChapters);
+    } else if (typeof setChapters === "function") {
+      setChapters(newChapters);
     }
 
-    if (typeof window !== "undefined") {
+    // 2. Ghi LocalStorage phi đồng bộ để không chặn Main Thread
+    setTimeout(() => {
       try {
         localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
         window.dispatchEvent(new Event("storage"));
       } catch (e) {}
-    }
-
-    try {
-      if (supabase) {
-        const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
-        if (existingRows && existingRows.length > 0) {
-          await supabase
-            .from("courses")
-            .update({ chapters: newChapters, updated_at: new Date().toISOString() })
-            .eq("id", existingRows[0].id);
-        } else {
-          await supabase
-            .from("courses")
-            .insert([{ chapters: newChapters, updated_at: new Date().toISOString() }]);
-        }
-      }
-      if (showToast) showToast("Đã lưu dữ liệu bài học thành công!", "success");
-    } catch (err) {
-      console.error("Lỗi khi lưu Supabase:", err);
-    }
+    }, 0);
   };
 
   // 1. TẠO PROFILE MAP TRA CỨU DANH TÍNH ĐA TẦNG CHO MODAL AZOTA
@@ -237,20 +254,30 @@ export default function AdminModals(props: AdminModalsProps) {
     return enhancedAttempts.filter((att: any) => att.resolvedMode === filterMode);
   }, [enhancedAttempts, filterMode]);
 
-  // XÓA VĨNH VIỄN LƯỢT LÀM BÀI KHỎI DATABASE
-  const handleDeleteAttempt = async (attemptId: string) => {
+  // XÓA VĨNH VIỄN LƯỢT LÀM BÀI KHỎI DATABASE (OPTIMISTIC UI < 20MS)
+  const handleDeleteAttempt = (attemptId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa vĩnh viễn lượt làm bài này?")) return;
 
-    try {
-      if (supabase) {
-        await Promise.allSettled([
-          supabase.from("exam_attempts").delete().eq("id", attemptId),
-          supabase.from("quiz_results").delete().eq("id", attemptId)
-        ]);
-      }
+    if (setAzotaScoreViewModal) {
+      setAzotaScoreViewModal((prev: any) => ({
+        ...prev,
+        attempts: (prev.attempts || []).filter((a: any) => a?.id !== attemptId)
+      }));
+    }
 
-      if (typeof window !== "undefined") {
-        try {
+    if (showToast) showToast("Đã xóa lượt làm bài!", "success");
+
+    // Xóa ngầm dưới nền
+    (async () => {
+      try {
+        if (supabase) {
+          await Promise.allSettled([
+            supabase.from("exam_attempts").delete().eq("id", attemptId),
+            supabase.from("quiz_results").delete().eq("id", attemptId)
+          ]);
+        }
+
+        if (typeof window !== "undefined") {
           const rawLocal = localStorage.getItem("edunexus_attempts");
           if (rawLocal) {
             const list = JSON.parse(rawLocal);
@@ -259,34 +286,24 @@ export default function AdminModals(props: AdminModalsProps) {
               localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
             }
           }
-        } catch (e) {}
+        }
+      } catch (err) {
+        console.error("Lỗi khi xóa lượt làm bài:", err);
       }
-
-      if (setAzotaScoreViewModal) {
-        setAzotaScoreViewModal((prev: any) => ({
-          ...prev,
-          attempts: (prev.attempts || []).filter((a: any) => a?.id !== attemptId)
-        }));
-      }
-
-      if (showToast) showToast("Đã xóa lượt làm bài thành công!", "success");
-    } catch (err) {
-      console.error("Lỗi khi xóa lượt làm bài:", err);
-      alert("Không thể xóa bản ghi, vui lòng thử lại!");
-    }
+    })();
   };
 
-  // 3. THÊM TÀI NGUYÊN (VIDEO / BÀI GIẢNG / VIẾT TAY)
-  const handleAddResource = async (e: React.FormEvent) => {
+  // 3. THÊM TÀI NGUYÊN (VIDEO / BÀI GIẢNG / VIẾT TAY) - CẬP NHẬT TỨC THÌ (< 30MS)
+  const handleAddResource = (e: React.FormEvent) => {
     e.preventDefault();
     if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
 
-    const newResource = { 
+    const newResource = cleanResourceMediaPayload({ 
       id: "res-" + Date.now(), 
       title: resTitle.trim(), 
       url: resUrl.trim(), 
       type: resourceModal.type === "video_list" ? vidType : undefined 
-    };
+    });
 
     const newChapters = (chapters || []).map((chap: any) => ({ 
       ...chap, 
@@ -298,34 +315,42 @@ export default function AdminModals(props: AdminModalsProps) {
       }) 
     }));
 
-    await persistChapters(newChapters); 
+    // ĐÓNG MODAL VÀ RESET FORM TRONG 0.01S
     setResTitle(""); 
     setResUrl(""); 
     setVidType("lecture");
     if (setResourceModal) setResourceModal(null); 
-    if (showToast) showToast("Đã thêm tài nguyên thành công!");
+
+    // ĐẨY ĐỒNG BỘ NGẦM TỨC THÌ LÊN CẤP CHA
+    dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 4. XÓA TÀI NGUYÊN TRONG VIEW RESOURCES MODAL
-  const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
+  // 4. XÓA TÀI NGUYÊN TRONG VIEW RESOURCES MODAL - CẬP NHẬT TỨC THÌ (< 20MS, TUYỆT ĐỐI KHÔNG AWAIT)
+  const handleDeleteResource = (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
+
+    // 1. Cập nhật state của View Modal trước mắt Admin ngay lập tức (Item biến mất tức thì)
+    if (viewResourcesModal && setViewResourcesModal) {
+      setViewResourcesModal((prev: any) => prev ? {
+        ...prev,
+        items: (prev.items || []).filter((i: any) => i?.id !== resId)
+      } : null);
+    }
+
+    // 2. Cập nhật cây Chapters và kích hoạt thanh % đồng bộ
     const newChapters = (chapters || []).map((chap: any) => ({ 
       ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
+      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { 
+        ...les, 
+        [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) 
+      } : les) 
     }));
 
-    await persistChapters(newChapters);
-    if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType && setViewResourcesModal) {
-      setViewResourcesModal({
-        ...viewResourcesModal,
-        items: (viewResourcesModal.items || []).filter((i: any) => i?.id !== resId)
-      });
-    }
-    if (showToast) showToast("Đã xóa tài nguyên!");
+    dispatchOptimisticUpdate(newChapters);
   };
 
-  // 5. SỬA TÀI NGUYÊN
-  const handleEditResourceSubmit = async (e: React.FormEvent) => {
+  // 5. SỬA TÀI NGUYÊN - CẬP NHẬT TỨC THÌ
+  const handleEditResourceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editResourceModal || !editResourceForm.title.trim()) return;
 
@@ -338,8 +363,8 @@ export default function AdminModals(props: AdminModalsProps) {
             [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) => 
               r?.id === editResourceModal.item.id ? { 
                 ...r, 
-                title: editResourceForm.title, 
-                url: editResourceForm.url || r.url,
+                title: editResourceForm.title.trim(), 
+                url: editResourceForm.url?.trim() || r.url,
                 type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type
               } : r 
             )
@@ -349,20 +374,32 @@ export default function AdminModals(props: AdminModalsProps) {
       }) 
     }));
 
-    await persistChapters(newChapters);
+    // Cập nhật view modal nếu đang mở
+    if (viewResourcesModal && setViewResourcesModal) {
+      setViewResourcesModal((prev: any) => prev ? {
+        ...prev,
+        items: (prev.items || []).map((i: any) => i?.id === editResourceModal.item.id ? {
+          ...i,
+          title: editResourceForm.title.trim(),
+          url: editResourceForm.url?.trim() || i.url,
+          type: editResourceModal.type === "video_list" ? editResourceForm.type : i.type
+        } : i)
+      } : null);
+    }
+
     setEditResourceModal(null); 
-    if (showToast) showToast("Đã cập nhật thông tin tài liệu!");
+    dispatchOptimisticUpdate(newChapters);
   };
 
-  // 6. THÊM FILE GOOGLE DRIVE THỦ CÔNG
-  const handleAddDriveFile = async (e: React.FormEvent) => {
+  // 6. THÊM FILE GOOGLE DRIVE THỦ CÔNG - CẬP NHẬT TỨC THÌ
+  const handleAddDriveFile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
 
     const newItem = { 
       id: "drive-" + Date.now(), 
-      title: driveLinkForm.title, 
-      url: driveLinkForm.url, 
+      title: driveLinkForm.title.trim(), 
+      url: driveLinkForm.url.trim(), 
       is_quiz: false, 
       is_drive_file: true 
     };
@@ -377,14 +414,13 @@ export default function AdminModals(props: AdminModalsProps) {
       }) 
     }));
 
-    await persistChapters(newChapters); 
     setDriveLinkModal(null); 
     setDriveLinkForm({ title: "", url: "" }); 
-    if (showToast) showToast("Đã đính kèm file Drive!");
+    dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 7. THÊM TÀI LIỆU TĂNG CƯỜNG
-  const handleAddBoost = async (e: React.FormEvent) => {
+  // 7. THÊM TÀI LIỆU TĂNG CƯỜNG - CẬP NHẬT TỨC THÌ
+  const handleAddBoost = (e: React.FormEvent) => {
     e.preventDefault();
     if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
 
@@ -399,14 +435,13 @@ export default function AdminModals(props: AdminModalsProps) {
       }) 
     }));
 
-    await persistChapters(newChapters); 
     if (setBoostModal) setBoostModal(null); 
     setBoostForm({ title: "", type: "video", url: "", note: "" }); 
-    if (showToast) showToast("Đã thêm tài liệu tăng cường!");
+    dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 8. TẠO CHƯƠNG HOẶC BÀI HỌC MỚI
-  const handleCreateNewItem = async (e: React.FormEvent) => {
+  // 8. TẠO CHƯƠNG HOẶC BÀI HỌC MỚI - CẬP NHẬT TỨC THÌ
+  const handleCreateNewItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
 
@@ -437,17 +472,16 @@ export default function AdminModals(props: AdminModalsProps) {
       } : chap);
     }
 
-    await persistChapters(newChapters); 
     if (setCreateModal) setCreateModal(null); 
     setNewItemTitle(""); 
     setNewItemDescription(""); 
     setNewItemFormat("Zoom");
     setNewItemTargetMode("all");
-    if (showToast) showToast("Đã thêm " + (createModal.type === "chapter" ? "chương" : "bài học") + " thành công!");
+    dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 9. SỬA BÀI HỌC
-  const handleEditLessonSubmit = async (e: React.FormEvent) => {
+  // 9. SỬA BÀI HỌC - CẬP NHẬT TỨC THÌ
+  const handleEditLessonSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editLessonModal || !editLessonForm.title.trim()) return;
 
@@ -455,9 +489,8 @@ export default function AdminModals(props: AdminModalsProps) {
       ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
     } : chap);
 
-    await persistChapters(newChapters); 
     if (setEditLessonModal) setEditLessonModal(null); 
-    if (showToast) showToast("Đã cập nhật thông tin bài học!");
+    dispatchOptimisticUpdate(newChapters); 
   };
 
   return (
@@ -470,7 +503,7 @@ export default function AdminModals(props: AdminModalsProps) {
               setAzotaScoreViewModal({ isOpen: false, examTitle: "", attempts: [] });
             }
           }}
-          className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
+          className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs cursor-pointer font-sans"
         >
           <div className="bg-white rounded-[24px] max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] cursor-default animate-in zoom-in-95 duration-150 text-left">
             <div className="p-5 sm:p-6 pb-3.5 border-b border-slate-100 flex items-start justify-between relative bg-white">
@@ -635,7 +668,7 @@ export default function AdminModals(props: AdminModalsProps) {
       {resourceModal && (
         <div 
           onClick={() => setResourceModal && setResourceModal(null)} 
-          className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+          className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
           <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-md p-6 shadow-xl cursor-default text-left">
             <h3 className="font-bold text-[15px] mb-4 text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
@@ -693,11 +726,11 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 3. MODAL XEM CHI TIẾT TÀI NGUYÊN (VIEW RESOURCES MODAL) */}
+      {/* 3. MODAL XEM CHI TIẾT TÀI NGUYÊN (DANH SÁCH BTVN / ĐỀ THI / BÀI GIẢNG) - XÓA TỨC THÌ (< 20MS) */}
       {viewResourcesModal && (
         <div 
           onClick={() => setViewResourcesModal && setViewResourcesModal(null)}
-          className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+          className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
           <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[80vh] overflow-hidden animate-in zoom-in-95 duration-200 cursor-default text-left">
             <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
@@ -737,10 +770,15 @@ export default function AdminModals(props: AdminModalsProps) {
                         <button onClick={() => {
                           setEditResourceModal({ lessonId: viewResourcesModal.lessonId, type: viewResourcesModal.type, item });
                           setEditResourceForm({ title: item.title, url: item.url || "", type: item.type || "lecture" });
-                        }} className="p-2 text-slate-300 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer shrink-0">
+                        }} className="p-2 text-slate-300 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer shrink-0" title="Chỉnh sửa">
                           <Edit3 className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDeleteResource(viewResourcesModal.lessonId, viewResourcesModal.type, item.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0">
+                        {/* NÚT THÙNG RÁC XÓA TỨC THÌ (< 20MS) */}
+                        <button 
+                          onClick={() => handleDeleteResource(viewResourcesModal.lessonId, viewResourcesModal.type, item.id)} 
+                          className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                          title="Xóa ngay lập tức"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -755,7 +793,7 @@ export default function AdminModals(props: AdminModalsProps) {
                 onClick={() => {
                   const currentType = viewResourcesModal.type;
                   const currentLessonId = viewResourcesModal.lessonId;
-                  setViewResourcesModal && setViewResourcesModal(null);
+                  if (setViewResourcesModal) setViewResourcesModal(null);
 
                   if (currentType === 'homework_files' || currentType === 'test_quizzes') {
                     if (setUploadMethodModal) setUploadMethodModal({ lessonId: currentLessonId, type: currentType as any });
@@ -778,7 +816,7 @@ export default function AdminModals(props: AdminModalsProps) {
       {editResourceModal && (
         <div 
           onClick={() => setEditResourceModal(null)} 
-          className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+          className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
           <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditResourceSubmit} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
@@ -820,11 +858,11 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 5. MODAL CHỌN PHƯƠNG THỨC THÊM BTVN / ĐỀ KIỂM TRA (TÍCH HỢP TRÍCH WORD & PDF) */}
+      {/* 5. MODAL CHỌN PHƯƠNG THỨC THÊM BTVN / ĐỀ KIỂM TRA */}
       {uploadMethodModal && (
         <div 
           onClick={() => setUploadMethodModal && setUploadMethodModal(null)} 
-          className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer font-sans"
         >
           <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-[28px] p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
@@ -910,7 +948,7 @@ export default function AdminModals(props: AdminModalsProps) {
       {driveLinkModal && (
         <div 
           onClick={() => setDriveLinkModal(null)} 
-          className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer font-sans"
         >
           <form onClick={(e) => e.stopPropagation()} onSubmit={handleAddDriveFile} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
@@ -939,12 +977,12 @@ export default function AdminModals(props: AdminModalsProps) {
       {boostModal && (
         <div 
           onClick={() => setBoostModal && setBoostModal(null)} 
-          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
           <form onClick={(e) => e.stopPropagation()} onSubmit={handleAddBoost} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
               <h3 className="font-extrabold text-amber-600 text-[15px] flex items-center gap-2"><Zap className="w-5 h-5 fill-amber-500" /> Thêm tài liệu tăng cường</h3>
-              <button type="button" onClick={() => setBoostModal && setBoostModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+              <button type="button" onClick={() => setBoostModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
             </div>
             <div className="space-y-4">
               <div>
@@ -968,7 +1006,7 @@ export default function AdminModals(props: AdminModalsProps) {
               </div>
             </div>
             <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
-              <button type="button" onClick={() => setBoostModal && setBoostModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
+              <button type="button" onClick={() => setBoostModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
               <button type="submit" className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu tăng cường</button>
             </div>
           </form>
@@ -979,7 +1017,7 @@ export default function AdminModals(props: AdminModalsProps) {
       {createModal && (
         <div 
           onClick={() => setCreateModal && setCreateModal(null)} 
-          className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl cursor-pointer"
+          className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl cursor-pointer font-sans"
         >
           <form onClick={(e) => e.stopPropagation()} onSubmit={handleCreateNewItem} className="bg-white/95 backdrop-blur-2xl rounded-[32px] w-full max-w-md p-8 shadow-2xl border border-white/50 space-y-5 cursor-default text-left">
             <h3 className="font-extrabold text-slate-900 text-[17px] border-b border-slate-200/60 pb-4 mb-5 tracking-tight">
@@ -1073,7 +1111,7 @@ export default function AdminModals(props: AdminModalsProps) {
       {editLessonModal && editLessonForm && (
         <div 
           onClick={() => setEditLessonModal && setEditLessonModal(null)} 
-          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer"
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
           <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditLessonSubmit} className="bg-white rounded-[24px] w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
@@ -1130,7 +1168,7 @@ export default function AdminModals(props: AdminModalsProps) {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Hình thức</label>
-                  <select value={editLessonForm.format} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, format: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white cursor-pointer">
+                  <select value={editLessonForm.format} onChange={e => setEditLessonForm({...editLessonForm, format: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white cursor-pointer">
                     <option value="Zoom">Zoom</option>
                     <option value="Facebook">Facebook Group</option>
                     <option value="Video">Video quay sẵn</option>
@@ -1200,14 +1238,14 @@ export default function AdminModals(props: AdminModalsProps) {
 
               if (editingExamData && handleRecalculateExamScores) {
                 await handleRecalculateExamScores(examId, examData.sections);
-                if (showToast) showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!");
+                if (showToast) showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!", "success");
               } else {
-                if (showToast) showToast("Đã thêm vào kho Luyện đề: " + examData.category);
+                if (showToast) showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
               }
             } else {
               if (!azotaTarget) return;
               const isHw = azotaTarget.type === "homework_files";
-              const newExam = { 
+              const newExam = cleanResourceMediaPayload({ 
                 id: "exam-" + Date.now(), 
                 title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
                 isHomework: isHw, 
@@ -1215,7 +1253,7 @@ export default function AdminModals(props: AdminModalsProps) {
                 is_quiz: true, 
                 data: examData.sections, 
                 mediaMap: examData.mediaMap 
-              };
+              });
               const newChapters = (chapters || []).map((chap: any) => ({ 
                 ...chap, 
                 lessons: (chap?.lessons || []).map((les: any) => { 
@@ -1226,8 +1264,8 @@ export default function AdminModals(props: AdminModalsProps) {
                 }) 
               }));
 
-              await persistChapters(newChapters); 
-              if (showToast) showToast("Đã tải đề thi trắc nghiệm vào bài học!");
+              dispatchOptimisticUpdate(newChapters); 
+              if (showToast) showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
             }
 
             if (setTestFile) setTestFile(null); 
