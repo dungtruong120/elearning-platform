@@ -146,7 +146,7 @@ export default function LessonsTab({
   setEditLessonModal,
   setEditLessonForm,
   handleDeleteLesson,
-  syncStatus: propSyncStatus,
+  syncStatus,
   ...restProps
 }: LessonsTabProps) {
   // 1. TỰ ĐỘNG TÍNH TOÁN AN TOÀN NỘI BỘ SỐ LƯỢNG BÀI HỌC ONLINE / OFFLINE
@@ -164,7 +164,6 @@ export default function LessonsTab({
     }, 0);
   }, [chapters]);
 
-  // ALIAS AN TOÀN TRÁNH REFERENCEERROR
   const offlineLessonCount = safeOfflineCount;
   const onlineLessonCount = safeOnlineCount;
 
@@ -190,24 +189,8 @@ export default function LessonsTab({
     return list;
   }, [chapters, lessonModeTab]);
 
-  // GÁN ALIAS AN TOÀN TUYỆT ĐỐI CHO flattenedLessons
   const lessonsToRender = (restProps as any)?.flattenedLessons || computedFlattenedLessons;
   const flattenedLessons = lessonsToRender;
-
-  // 3. STATE QUẢN LÝ TIẾN TRÌNH ĐỒNG BỘ CỤC BỘ DỰ PHÒNG NẾU CHA CHƯA TRUYỀN XUỐNG
-  const [localSyncStatus, setLocalSyncStatus] = useState<{
-    isSyncing: boolean;
-    progress: number;
-    message: string;
-    type: "idle" | "loading" | "success" | "error";
-  }>({
-    isSyncing: false,
-    progress: 0,
-    message: "",
-    type: "idle"
-  });
-
-  const activeSync = propSyncStatus || localSyncStatus;
 
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE)
   const [internalUploadModal, setInternalUploadModal] = useState<{
@@ -217,6 +200,13 @@ export default function LessonsTab({
   } | null>(null);
 
   const [activeTestFile, setActiveTestFile] = useState<File | null>(null);
+  
+  // DÙNG REF ĐỂ LƯU TARGET NẠP TRÁNH BỊ MẤT KHI MODAL UNMOUNT
+  const uploadTargetRef = useRef<{
+    lessonId: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
+
   const [activeUploadTarget, setActiveUploadTarget] = useState<{
     lessonId: string;
     type: "homework_files" | "test_quizzes";
@@ -235,37 +225,6 @@ export default function LessonsTab({
 
   // HÀM ĐẨY THAY ĐỔI LÊN CẤP CHA TỨC THÌ (OPTIMISTIC DISPATCH - 0MS, KHÔNG BLOCK THREAD)
   const dispatchOptimisticUpdate = (newChapters: any[], taskLabel: string = "bài tập") => {
-    // Kích hoạt state cục bộ dự phòng nếu cần
-    if (!propSyncStatus) {
-      setLocalSyncStatus({
-        isSyncing: true,
-        progress: 35,
-        message: `Đang xử lý & lưu ${taskLabel}... [ 35% ]`,
-        type: "loading"
-      });
-
-      setTimeout(() => {
-        setLocalSyncStatus({
-          isSyncing: true,
-          progress: 80,
-          message: `Đang nén & lưu dữ liệu... [ 80% ]`,
-          type: "loading"
-        });
-      }, 250);
-
-      setTimeout(() => {
-        setLocalSyncStatus({
-          isSyncing: true,
-          progress: 100,
-          message: `✓ Đã đăng tải và đồng bộ thành công! (100%)`,
-          type: "success"
-        });
-        setTimeout(() => {
-          setLocalSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
-        }, 1500);
-      }, 700);
-    }
-
     if (typeof onUpdateChapters === "function") {
       onUpdateChapters(newChapters, taskLabel);
     } else if (typeof saveToStorage === "function") {
@@ -277,48 +236,60 @@ export default function LessonsTab({
 
   // MỞ MENU CHỌN NẠP ĐỀ
   const handleOpenUploadPicker = (lesson: any, type: "homework_files" | "test_quizzes") => {
-    setInternalUploadModal({
+    const targetObj = {
       lessonId: lesson.id,
       lessonTitle: lesson.title || "Bài học",
       type: type
-    });
+    };
+    uploadTargetRef.current = { lessonId: lesson.id, type };
+    setInternalUploadModal(targetObj);
   };
 
   // CHỌN FILE VÀ MỞ AZOTA MODAL NGAY
   const handleSelectFile = (file: File) => {
     if (!internalUploadModal) return;
-    setActiveUploadTarget({
+    const targetObj = {
       lessonId: internalUploadModal.lessonId,
       type: internalUploadModal.type
-    });
+    };
+    uploadTargetRef.current = targetObj;
+    setActiveUploadTarget(targetObj);
     setActiveTestFile(file);
     setInternalUploadModal(null);
   };
 
   // CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN ĐỀ (NON-BLOCKING - 0MS)
   const handleSaveExamFromAzota = (payload: any) => {
-    if (!activeUploadTarget) {
+    const currentTarget = activeUploadTarget || uploadTargetRef.current;
+    if (!currentTarget) {
       setActiveTestFile(null);
       return;
     }
 
-    const { lessonId, type } = activeUploadTarget;
+    const { lessonId, type } = currentTarget;
     const isHw = type === "homework_files";
 
     const examData = payload?.examData || payload?.data || payload;
     const rawSections = payload?.sections || examData?.sections || payload?.data || [];
     const rawMediaMap = payload?.mediaMap || payload?.media_map || examData?.mediaMap || examData?.media_map || {};
-    const title = payload?.title || examData?.title || activeTestFile?.name?.replace(/\.[^/.]+$/, "") || (isHw ? "Bài tập về nhà" : "Đề kiểm tra định kỳ");
-    const duration = payload?.duration_minutes || examData?.duration_minutes || (isHw ? 0 : 45);
+    
+    // Tự động gán tiêu đề chuẩn xác cho BTVN nếu chưa có
+    const defaultTitle = isHw ? "Bài tập về nhà (BTVN)" : "Đề kiểm tra định kỳ";
+    const title = payload?.title || examData?.title || activeTestFile?.name?.replace(/\.[^/.]+$/, "") || defaultTitle;
+    
+    // BTVN: duration_minutes = 0 (không giới hạn thời gian làm bài)
+    const duration = isHw ? 0 : (payload?.duration_minutes || examData?.duration_minutes || 45);
     const quizId = payload?.id || examData?.id || ("quiz-" + Date.now());
 
     // 1. ĐÓNG MODAL NGAY LẬP TỨC (< 30MS)
     setActiveTestFile(null);
     setActiveUploadTarget(null);
+    uploadTargetRef.current = null;
 
     // 2. LÀM SẠCH BASE64 KHỎI PAYLOAD ĐỂ DỮ LIỆU SIÊU NHẸ
     const { sections, mediaMap } = cleanExamPayloadMedia(rawSections, rawMediaMap);
 
+    // CẤU TRÚC ĐỐI TƯỢNG BÀI THI/BTVN ĐẦY ĐỦ ĐỂ MODAL XEM CHI TIẾT HIỂN THỊ CHUẨN 100%
     const newQuizItem = {
       id: quizId,
       title: title,
@@ -326,18 +297,21 @@ export default function LessonsTab({
       is_quiz: true,
       isHomework: isHw,
       data: sections,
+      sections: sections,
       media_map: mediaMap,
+      mediaMap: mediaMap,
       created_at: new Date().toISOString()
     };
 
-    // 3. TẠO CẤU TRÚC MỚI VÀ ĐẨY LẬP TỨC LÊN CẤP CHA (CELL NHẢY SỐ NGAY TRƯỚC MẮT ADMIN)
+    // 3. TẠO CẤU TRÚC MỚI VÀ ĐẨY LẬP TỨC LÊN CẤP CHA (CELL NHẢY SỐ TỨC THÌ TỪ [+] LÊN 1, 2)
     const updatedChapters = (chapters || []).map((chap: any) => ({
       ...chap,
-      lessons: (chap.lessons || []).map((les: any) => {
+      lessons: (chap?.lessons || []).map((les: any) => {
         if (les.id !== lessonId) return les;
+        const currentList = Array.isArray(les[type]) ? les[type] : [];
         return {
           ...les,
-          [type]: [...(les[type] || []), newQuizItem]
+          [type]: [...currentList, newQuizItem]
         };
       })
     }));
@@ -357,6 +331,7 @@ export default function LessonsTab({
       title: driveTitle.trim(),
       url: driveUrl.trim(),
       is_quiz: false,
+      isHomework: isHw,
       is_drive_file: true,
       created_at: new Date().toISOString()
     };
@@ -368,11 +343,12 @@ export default function LessonsTab({
 
     const updatedChapters = (chapters || []).map((chap: any) => ({
       ...chap,
-      lessons: (chap.lessons || []).map((les: any) => {
+      lessons: (chap?.lessons || []).map((les: any) => {
         if (les.id !== lessonId) return les;
+        const currentList = Array.isArray(les[type]) ? les[type] : [];
         return {
           ...les,
-          [type]: [...(les[type] || []), newItem]
+          [type]: [...currentList, newItem]
         };
       })
     }));
@@ -406,59 +382,7 @@ export default function LessonsTab({
         }}
       />
 
-      {/* 1. THANH TRẠNG THÁI TIẾN TRÌNH CỐ ĐỊNH NGAY TRÊN ĐẦU GIAO DIỆN BÀI HỌC */}
-      {!activeSync.isSyncing && activeSync.type !== "loading" && activeSync.type !== "success" && (
-        <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between text-xs text-slate-500 shadow-2xs">
-          <div className="flex items-center gap-2 font-medium">
-            <Cloud className="w-4 h-4 text-slate-400" />
-            <span>Hệ thống sẵn sàng: Chưa có tệp nào đang tải lên</span>
-          </div>
-          <div className="flex items-center gap-1.5 font-bold text-emerald-600 text-[11px]">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>● Máy chủ hoạt động</span>
-          </div>
-        </div>
-      )}
-
-      {activeSync.isSyncing && (activeSync.type === "loading" || activeSync.type === "idle") && (
-        <div className="bg-blue-50/90 border-2 border-blue-400 p-3.5 rounded-2xl shadow-sm flex flex-col gap-2 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between text-xs font-bold text-blue-900">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-              <span>{activeSync.message || `Đang xử lý & đăng tải dữ liệu: [ ${activeSync.progress}% ]`}</span>
-            </div>
-            <span className="font-mono text-blue-700">{activeSync.progress}%</span>
-          </div>
-          <div className="w-full bg-blue-200/60 h-2 rounded-full overflow-hidden">
-            <div 
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full transition-all duration-300 rounded-full" 
-              style={{ width: `${activeSync.progress}%` }} 
-            />
-          </div>
-        </div>
-      )}
-
-      {activeSync.type === "success" && (
-        <div className="bg-emerald-50 border-2 border-emerald-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 animate-in fade-in duration-200 shadow-xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>{activeSync.message || "✓ Đã đăng tải và đồng bộ thành công! (100%)"}</span>
-          </div>
-          <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-lg border border-emerald-300">Hoàn tất</span>
-        </div>
-      )}
-
-      {activeSync.type === "error" && (
-        <div className="bg-rose-50 border-2 border-rose-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-rose-900 shadow-xs">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600" />
-            <span>{activeSync.message || "✕ Lỗi kết nối đám mây khi lưu bài học!"}</span>
-          </div>
-          <span className="text-[11px] text-rose-700 bg-rose-100 px-2.5 py-0.5 rounded-lg border border-rose-300">Lưu offline</span>
-        </div>
-      )}
-
-      {/* 2. THANH ĐIỀU HƯỚNG BỘ LỌC PHÂN LUỒNG & NÚT TẠO MỚI */}
+      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC PHÂN LUỒNG & NÚT TẠO MỚI (ĐÃ BỎ BADGE TRÙNG VỚI PAGE.TSX) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
         <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
           <button
@@ -527,7 +451,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 3. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (ĐẦY ĐỦ 12 CỘT BẢO TOÀN 100%) */}
+      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (12 CỘT HOÀN CHỈNH) */}
       <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full min-w-[1100px] text-left border-collapse">
@@ -611,7 +535,7 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT BTVN - NẠP ĐỀ TỨC THÌ, KHÔNG CHỜ MẠNG */}
+                    {/* CỘT BTVN - NẠP ĐỀ TỨC THÌ (< 30MS) */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.homework_files} 
@@ -621,7 +545,7 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT ĐỀ KT - NẠP ĐỀ TỨC THÌ, KHÔNG CHỜ MẠNG */}
+                    {/* CỘT ĐỀ KT - NẠP ĐỀ TỨC THÌ (< 30MS) */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.test_quizzes} 
@@ -683,7 +607,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 4. MODAL CHỌN PHƯƠNG THỨC NẠP ĐỀ THI (PDF / DOCX / DRIVE LINK) */}
+      {/* 3. MODAL CHỌN PHƯƠNG THỨC NẠP ĐỀ THI / BTVN (PDF / DOCX / DRIVE LINK) */}
       {internalUploadModal && (
         <div 
           onClick={() => setInternalUploadModal(null)} 
@@ -727,7 +651,7 @@ export default function LessonsTab({
                     <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
                   </div>
                   <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
-                    AI Gemini Vision quét câu hỏi và bảng đáp án cực chuẩn, phân đoạn trực quan.
+                    AI Gemini quét câu hỏi và bảng đáp án chuẩn, phân đoạn trực quan.
                   </div>
                 </div>
               </div>
@@ -772,7 +696,7 @@ export default function LessonsTab({
         </div>
       )}
 
-      {/* 5. MODAL NHẬP LINK DRIVE THỦ CÔNG */}
+      {/* 4. MODAL NHẬP LINK DRIVE THỦ CÔNG */}
       {driveModal && (
         <div 
           onClick={() => setDriveModal(null)} 
@@ -827,7 +751,7 @@ export default function LessonsTab({
         </div>
       )}
 
-      {/* 6. GỌI TRỰC TIẾP AZOTA EXAM CONFIG MODAL (ĐÃ NỐI CALLBACK NON-BLOCKING) */}
+      {/* 5. GỌI TRỰC TIẾP AZOTA EXAM CONFIG MODAL (NON-BLOCKING CALLBACK) */}
       {activeTestFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
@@ -838,6 +762,9 @@ export default function LessonsTab({
             setActiveUploadTarget(null);
           }} 
           onSave={handleSaveExamFromAzota}
+          onSaveExam={handleSaveExamFromAzota}
+          onSuccess={handleSaveExamFromAzota}
+          onComplete={handleSaveExamFromAzota}
         />
       )}
     </div>
