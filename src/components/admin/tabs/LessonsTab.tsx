@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useTransition } from "react";
+import React, { useState, useRef } from "react";
 import { 
   Layers, 
   BookOpen, 
@@ -14,94 +14,15 @@ import {
   Link as LinkIcon, 
   X, 
   CheckSquare, 
-  Award,
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  ExternalLink,
-  Check
+  Award 
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { supabase } from "@/lib/supabaseClient";
 
 // Dynamic import AzotaExamConfigModal chuẩn Next.js (SSR: false)
 const AzotaExamConfigModal = dynamic(
   () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
 );
-
-// HÀM CHUYỂN ĐỔI CHUỖI BASE64 SANG BLOB ĐỂ TẢI LÊN STORAGE
-function base64ToBlob(base64Data: string): { blob: Blob; ext: string } | null {
-  try {
-    const parts = base64Data.split(";base64,");
-    if (parts.length < 2) return null;
-    const contentType = parts[0].split(":")[1] || "image/png";
-    const raw = window.atob(parts[1]);
-    const rawLength = raw.length;
-    const uInt8Array = new Uint8Array(rawLength);
-    for (let i = 0; i < rawLength; ++i) {
-      uInt8Array[i] = raw.charCodeAt(i);
-    }
-    const ext = contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg" : "png";
-    return { blob: new Blob([uInt8Array], { type: contentType }), ext };
-  } catch (e) {
-    console.error("Lỗi parse Base64 sang Blob:", e);
-    return null;
-  }
-}
-
-// HÀM LÀM SẠCH PAYLOAD VÀ LOẠI BỎ CHUỖI BASE64 NẶNG
-async function sanitizeChaptersPayload(chaptersData: any[]): Promise<any[]> {
-  const jsonStr = JSON.stringify(chaptersData);
-  // Nếu không chứa Base64 ảnh, trả về nguyên bản lập tức
-  if (!jsonStr.includes("data:image/")) {
-    return chaptersData;
-  }
-
-  // Quét và upload độc lập ảnh Base64
-  const cloned = JSON.parse(jsonStr);
-  const uploadTasks: Promise<void>[] = [];
-
-  for (const chap of cloned) {
-    for (const les of (chap.lessons || [])) {
-      const processItems = (items: any[]) => {
-        for (const item of (items || [])) {
-          if (item.media_map && typeof item.media_map === "object") {
-            for (const key of Object.keys(item.media_map)) {
-              const val = item.media_map[key];
-              if (typeof val === "string" && val.startsWith("data:image/")) {
-                const parsed = base64ToBlob(val);
-                if (parsed) {
-                  const filePath = `exam-media/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${parsed.ext}`;
-                  const task = (async () => {
-                    try {
-                      const { error } = await supabase.storage.from("exam_images").upload(filePath, parsed.blob, { contentType: parsed.blob.type, upsert: true });
-                      if (!error) {
-                        const { data } = supabase.storage.from("exam_images").getPublicUrl(filePath);
-                        if (data?.publicUrl) item.media_map[key] = data.publicUrl;
-                      }
-                    } catch {}
-                  })();
-                  uploadTasks.push(task);
-                }
-              }
-            }
-          }
-        }
-      };
-
-      processItems(les.homework_files);
-      processItems(les.test_quizzes);
-    }
-  }
-
-  if (uploadTasks.length > 0) {
-    await Promise.allSettled(uploadTasks);
-  }
-
-  return cloned;
-}
 
 export const MatrixCell = ({
   items,
@@ -179,14 +100,13 @@ export default function LessonsTab({
   setCreateModal,
   setResourceModal,
   setViewResourcesModal,
-  setUploadMethodModal,
   setBoostModal,
   setEditLessonModal,
   setEditLessonForm,
   handleDeleteLesson,
   saveToStorage
 }: LessonsTabProps) {
-  // State quản lý việc upload và mở AzotaExamConfigModal cho BTVN & Đề KT
+  // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE)
   const [internalUploadModal, setInternalUploadModal] = useState<{
     lessonId: string;
     lessonTitle: string;
@@ -199,7 +119,7 @@ export default function LessonsTab({
     type: "homework_files" | "test_quizzes";
   } | null>(null);
 
-  // Modal dán link Google Drive thủ công cho BTVN / Đề kiểm tra
+  // Modal dán link Google Drive
   const [driveModal, setDriveModal] = useState<{
     lessonId: string;
     type: "homework_files" | "test_quizzes";
@@ -207,121 +127,22 @@ export default function LessonsTab({
   const [driveTitle, setDriveTitle] = useState("");
   const [driveUrl, setDriveUrl] = useState("");
 
-  // STATE QUẢN LÝ THANH WIDGET TIẾN TRÌNH % ĐỒNG BỘ NỔI (FLOATING SYNC STATUS BAR)
-  const [syncStatus, setSyncStatus] = useState<{
-    visible: boolean;
-    progress: number;
-    state: "syncing" | "success" | "error";
-    message: string;
-  }>({
-    visible: false,
-    progress: 0,
-    state: "syncing",
-    message: ""
-  });
-
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const docxInputRef = useRef<HTMLInputElement | null>(null);
-  const [isPending, startTransition] = useTransition();
 
-  // HÀM OPTIMISTIC UPDATE ĐỈNH CAO: CẬP NHẬT UI TỨC THÌ (< 50MS) + CHẠY % ĐỒNG BỘ NGẦM
-  const executeOptimisticUpdate = (updatedChapters: any[], actionDesc: string) => {
-    // 1. CẬP NHẬT GIAO DIỆN REACT NGAY LẬP TỨC (OPTIMISTIC RENDER)
-    startTransition(() => {
-      if (typeof setChapters === "function") {
-        try {
-          (setChapters as any)(updatedChapters);
-        } catch (err) {
-          console.error("Lỗi khi setChapters:", err);
-        }
-      }
-
-      if (typeof onUpdateChapters === "function") {
-        try {
-          onUpdateChapters(updatedChapters);
-        } catch (err) {
-          console.error("Lỗi khi onUpdateChapters:", err);
-        }
-      }
-    });
-
-    // 2. GHI BỘ NHỚ LOCALSTORAGE TỨC THÌ
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_course_data", JSON.stringify(updatedChapters));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {
-        console.warn("Lỗi lưu LocalStorage:", e);
+  // HÀM ĐẨY THAY ĐỔI LÊN CẤP CHA TỨC THÌ (OPTIMISTIC DISPATCH)
+  const dispatchUpdate = (newChapters: any[]) => {
+    if (typeof onUpdateChapters === "function") {
+      onUpdateChapters(newChapters);
+    } else if (typeof setChapters === "function") {
+      (setChapters as any)(newChapters);
+      if (typeof saveToStorage === "function") {
+        saveToStorage(newChapters);
       }
     }
-
-    // 3. HIỂN THỊ FLOATING STATUS BAR & ĐẨY DỮ LIỆU NGẦM LÊN SUPABASE
-    setSyncStatus({
-      visible: true,
-      progress: 20,
-      state: "syncing",
-      message: `Đang lưu ${actionDesc}... [20%]`
-    });
-
-    (async () => {
-      try {
-        // Tăng thanh tiến trình mô phỏng
-        setTimeout(() => {
-          setSyncStatus(prev => ({ ...prev, progress: 55, message: `Đang đồng bộ dữ liệu lên máy chủ... [55%]` }));
-        }, 150);
-
-        // Lọc sạch Base64 nếu có
-        const cleanPayload = await sanitizeChaptersPayload(updatedChapters);
-
-        setTimeout(() => {
-          setSyncStatus(prev => ({ ...prev, progress: 85, message: `Đang hoàn tất lưu trữ... [85%]` }));
-        }, 300);
-
-        if (saveToStorage) {
-          await saveToStorage(cleanPayload);
-        } else {
-          const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
-          if (existingRows && existingRows.length > 0) {
-            await supabase
-              .from("courses")
-              .update({ chapters: cleanPayload, updated_at: new Date().toISOString() })
-              .eq("id", existingRows[0].id);
-          } else {
-            await supabase
-              .from("courses")
-              .insert([{ title: "Toán 12 TCT", chapters: cleanPayload, updated_at: new Date().toISOString() }]);
-          }
-        }
-
-        // Hoàn thành 100%
-        setSyncStatus({
-          visible: true,
-          progress: 100,
-          state: "success",
-          message: "✓ Đã lưu thành công! (100%)"
-        });
-
-        // Tự động mờ dần biến mất sau 1.5 giây
-        setTimeout(() => {
-          setSyncStatus(prev => ({ ...prev, visible: false }));
-        }, 1500);
-
-      } catch (syncErr) {
-        console.error("Lỗi đồng bộ Supabase:", syncErr);
-        setSyncStatus({
-          visible: true,
-          progress: 100,
-          state: "error",
-          message: "✕ Đồng bộ thất bại, vui lòng kiểm tra kết nối mạng!"
-        });
-        setTimeout(() => {
-          setSyncStatus(prev => ({ ...prev, visible: false }));
-        }, 3500);
-      }
-    })();
   };
 
-  // MỞ MENU CHỌN NẠP ĐỀ (WORD / PDF / DRIVE)
+  // MỞ MENU CHỌN NẠP ĐỀ
   const handleOpenUploadPicker = (lesson: any, type: "homework_files" | "test_quizzes") => {
     setInternalUploadModal({
       lessonId: lesson.id,
@@ -330,7 +151,7 @@ export default function LessonsTab({
     });
   };
 
-  // XỬ LÝ CHỌN FILE TỪ MÁY TÍNH
+  // CHỌN FILE VÀ MỞ AZOTA MODAL
   const handleSelectFile = (file: File) => {
     if (!internalUploadModal) return;
     setActiveUploadTarget({
@@ -341,7 +162,7 @@ export default function LessonsTab({
     setInternalUploadModal(null);
   };
 
-  // CALLBACK KHI AZOTA EXAM CONFIG MODAL BÓC TÁCH XONG VÀ BẤM LƯU & XUẤT BẢN
+  // CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN
   const handleSaveExamFromAzota = (payload: any) => {
     if (!activeUploadTarget) {
       setActiveTestFile(null);
@@ -358,7 +179,7 @@ export default function LessonsTab({
     const duration = payload?.duration_minutes || examData?.duration_minutes || (isHw ? 0 : 45);
     const quizId = payload?.id || examData?.id || ("quiz-" + Date.now());
 
-    // ĐÓNG MODAL NGAY LẬP TỨC (DƯỚI 50MS)
+    // 1. ĐÓNG MODAL NGAY LẬP TỨC (< 50MS)
     setActiveTestFile(null);
     setActiveUploadTarget(null);
 
@@ -373,7 +194,8 @@ export default function LessonsTab({
       created_at: new Date().toISOString()
     };
 
-    const immediateChapters = (chapters || []).map((chap: any) => ({
+    // 2. TẠO CẤU TRÚC MỚI VÀ ĐẨY LÊN CẤP CHA TỨC THÌ
+    const updatedChapters = (chapters || []).map((chap: any) => ({
       ...chap,
       lessons: (chap.lessons || []).map((les: any) => {
         if (les.id !== lessonId) return les;
@@ -384,8 +206,7 @@ export default function LessonsTab({
       })
     }));
 
-    // Kích hoạt Optimistic Update
-    executeOptimisticUpdate(immediateChapters, `đề thi "${title}"`);
+    dispatchUpdate(updatedChapters);
   };
 
   // LƯU LINK DRIVE THỦ CÔNG
@@ -403,6 +224,11 @@ export default function LessonsTab({
       created_at: new Date().toISOString()
     };
 
+    // Đóng modal tức thì
+    setDriveModal(null);
+    setDriveTitle("");
+    setDriveUrl("");
+
     const updatedChapters = (chapters || []).map((chap: any) => ({
       ...chap,
       lessons: (chap.lessons || []).map((les: any) => {
@@ -414,48 +240,11 @@ export default function LessonsTab({
       })
     }));
 
-    // Đóng modal & thực hiện Optimistic Update ngay lập tức
-    const currentTitle = driveTitle.trim();
-    setDriveModal(null);
-    setDriveTitle("");
-    setDriveUrl("");
-
-    executeOptimisticUpdate(updatedChapters, `file Drive "${currentTitle}"`);
+    dispatchUpdate(updatedChapters);
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 text-left relative">
-      {/* THANH WIDGET TIẾN TRÌNH % ĐỒNG BỘ NỔI (FLOATING SYNC STATUS BAR) */}
-      {syncStatus.visible && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-none">
-          <div className="bg-white/95 backdrop-blur-md px-4 py-2 rounded-full border border-blue-200/90 shadow-xl flex items-center gap-3 min-w-[280px]">
-            {syncStatus.state === "syncing" && (
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
-            )}
-            {syncStatus.state === "success" && (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            )}
-            {syncStatus.state === "error" && (
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            )}
-
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-center text-[11px] font-bold text-slate-700 mb-1">
-                <span className="truncate">{syncStatus.message}</span>
-              </div>
-              <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-300 rounded-full ${
-                    syncStatus.state === "error" ? "bg-rose-500" : syncStatus.state === "success" ? "bg-emerald-500" : "bg-blue-600"
-                  }`}
-                  style={{ width: `${syncStatus.progress}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* INPUT FILE ẨN PHỤC VỤ UPLOAD WORD & PDF */}
       <input 
         type="file" 
@@ -633,7 +422,7 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT BTVN - BẬT MENU NẠP ĐỀ VÀ NHẢY SỐ TỨC THÌ */}
+                    {/* CỘT BTVN */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.homework_files} 
@@ -643,7 +432,7 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT ĐỀ KT - BẬT MENU NẠP ĐỀ VÀ NHẢY SỐ TỨC THÌ */}
+                    {/* CỘT ĐỀ KT */}
                     <td className="py-4 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.test_quizzes} 
@@ -749,7 +538,7 @@ export default function LessonsTab({
                     <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
                   </div>
                   <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
-                    AI Gemini Vision sẽ quét trang PDF, tự động lưu ảnh đồ thị lên Cloud Storage để học sinh mở đề siêu tốc.
+                    AI Gemini Vision quét câu hỏi và bảng đáp án cực chuẩn, phân đoạn trực quan.
                   </div>
                 </div>
               </div>
@@ -765,7 +554,7 @@ export default function LessonsTab({
                 <div className="flex-1">
                   <div className="font-extrabold text-blue-950 text-[14px]">Tải lên file Word (.docx)</div>
                   <div className="text-xs text-blue-800/80 mt-1 leading-relaxed">
-                    Bóc tách câu hỏi, bảng đáp án và giải phóng Base64 thành URL CDN để tối ưu hóa hiệu năng.
+                    Bóc tách tự động các câu hỏi trắc nghiệm, đúng sai và điền đáp số.
                   </div>
                 </div>
               </div>
@@ -785,7 +574,7 @@ export default function LessonsTab({
                 <div className="flex-1">
                   <div className="font-extrabold text-emerald-950 text-[14px]">Đính kèm Link Google Drive</div>
                   <div className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
-                    Dán link file PDF/Word để học sinh tải về hoặc tự làm thủ công (không chấm tự động).
+                    Dán link chia sẻ file tài liệu để học sinh tự tải về học tập.
                   </div>
                 </div>
               </button>
@@ -849,7 +638,7 @@ export default function LessonsTab({
         </div>
       )}
 
-      {/* 5. GỌI TRỰC TIẾP AZOTA EXAM CONFIG MODAL & NẠP SỐ LIỆU TỨC THÌ */}
+      {/* 5. GỌI TRỰC TIẾP AZOTA EXAM CONFIG MODAL */}
       {activeTestFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
