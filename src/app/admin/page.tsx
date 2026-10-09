@@ -94,7 +94,7 @@ function AdminDashboardContent() {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
-  // 3. STATE TIẾN TRÌNH TRUNG TÂM (FLOATING SYNC STATUS BAR)
+  // 3. STATE QUẢN LÝ TIẾN TRÌNH % ĐỒNG BỘ NỔI (FLOATING SYNC STATUS BAR)
   const [syncStatus, setSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
@@ -259,68 +259,30 @@ function AdminDashboardContent() {
     }
   };
 
-  // 4. TÍNH TOÁN AN TOÀN TRỰC TIẾP TRONG SCOPE CỦA PAGE.TSX CHỐNG CRASH TUYỆT ĐỐI
-  const offlineLessonCount = useMemo(() => {
-    if (!chapters || !Array.isArray(chapters)) return 0;
-    return chapters.reduce((acc: number, chap: any) => {
-      if (chap?.target_mode === "online") return acc;
-      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "offline" || l?.target_mode === "all" || !l?.target_mode).length;
-    }, 0);
-  }, [chapters]);
-
-  const onlineLessonCount = useMemo(() => {
-    if (!chapters || !Array.isArray(chapters)) return 0;
-    return chapters.reduce((acc: number, chap: any) => {
-      if (chap?.target_mode === "offline") return acc;
-      return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
-    }, 0);
-  }, [chapters]);
-
-  const flattenedLessons = useMemo(() => {
-    if (!chapters || !Array.isArray(chapters)) return [];
-    let index = 1;
-    return chapters
-      .filter(chap => lessonModeTab === "all" || !chap?.target_mode || chap?.target_mode === lessonModeTab || chap?.target_mode === "all")
-      .flatMap(chap => 
-        (chap?.lessons || [])
-          .filter((les: any) => lessonModeTab === "all" || !les?.target_mode || les?.target_mode === lessonModeTab || les?.target_mode === "all")
-          .map((les: any) => ({
-            ...les,
-            chapterId: chap?.id || "chap-default",
-            chapterTitle: (chap?.title || "").split(":")[0] || chap?.title || "Chương",
-            index: index++
-          }))
-      );
-  }, [chapters, lessonModeTab]);
-
-  // 5. HÀM CẬP NHẬT TỨC THÌ (OPTIMISTIC UPDATE PIPELINE KÈM QUEUE DEBOUNCE VÀ RETRY)
-  const handleOptimisticUpdateChapters = useCallback((newChapters: any[]): Promise<boolean> => {
+  // 4. HÀM ĐỒNG BỘ TRUNG TÂM (OPTIMISTIC UPDATE PIPELINE KÈM QUEUE DEBOUNCE VÀ RETRY)
+  const handleOptimisticUpdateChapters = useCallback(async (newChapters: any[]): Promise<boolean> => {
     latestChaptersRef.current = newChapters;
 
-    // Bước 1: Phản hồi UI tức thì (< 30ms) cho React Virtual DOM
+    // 1. Cập nhật state cha ngay lập tức để bảng và ô cell nhảy số ngay (0ms)
     startTransition(() => {
       setChapters(newChapters);
     });
 
-    // Bước 2: Tách lưu localStorage qua setTimeout 0 để không chặn Main Thread
-    setTimeout(() => {
-      try {
-        localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
-        window.dispatchEvent(new Event("storage"));
-      } catch (e) {
-        console.warn("Lỗi ghi LocalStorage:", e);
-      }
-    }, 0);
+    try {
+      localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
+      window.dispatchEvent(new Event("storage"));
+    } catch (e) {
+      console.warn("Lỗi ghi LocalStorage:", e);
+    }
 
-    // Bước 3: Kích hoạt thanh % tiến trình nổi trên đỉnh màn hình
+    // 2. Kích hoạt thanh % tiến trình nổi
     setSyncStatus({
       isSyncing: true,
       progress: 25,
-      message: "Đang lưu dữ liệu lên máy chủ... [25%]",
+      message: "Đang lưu bài học... [25%]",
       type: "loading"
     });
 
-    // Bước 4: Hủy timer cũ, debounce ~300ms tránh race condition ghi đè
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
     }
@@ -330,11 +292,12 @@ function AdminDashboardContent() {
 
       setSyncStatus(prev => ({
         ...prev,
-        progress: 65,
-        message: "Đang đẩy dữ liệu lên máy chủ... [65%]"
+        progress: 70,
+        message: "Đang đẩy lên máy chủ... [70%]"
       }));
 
       try {
+        // 3. Ghi ngầm vào Supabase
         const { data: existingRows, error: checkError } = await supabase.from("courses").select("id").limit(1);
         if (checkError) throw new Error(checkError.message);
 
@@ -353,7 +316,6 @@ function AdminDashboardContent() {
           if (insertError) throw new Error(insertError.message);
         }
 
-        // ĐỒNG BỘ THÀNH CÔNG 100%
         setSyncStatus({
           isSyncing: true,
           progress: 100,
@@ -366,8 +328,7 @@ function AdminDashboardContent() {
         }, 1200);
 
       } catch (err: any) {
-        console.error("Lỗi đồng bộ Supabase courses:", err);
-        // KÍCH HOẠT CHẾ ĐỘ ERROR RETRY
+        console.error("Lỗi sync:", err);
         setSyncStatus({
           isSyncing: true,
           progress: 100,
@@ -378,12 +339,11 @@ function AdminDashboardContent() {
       }
     }, 300);
 
-    return Promise.resolve(true);
+    return true;
   }, [showToast]);
 
   const saveToStorage = handleOptimisticUpdateChapters;
 
-  // HÀM BẤM THỬ LẠI KHI BỊ LỖI MẠNG
   const handleRetrySync = () => {
     if (latestChaptersRef.current) {
       handleOptimisticUpdateChapters(latestChaptersRef.current);
@@ -750,7 +710,7 @@ function AdminDashboardContent() {
       } : chap);
     }
 
-    handleOptimisticUpdateChapters(newChapters);
+    await handleOptimisticUpdateChapters(newChapters);
     setIsCreatingItem(false);
 
     const itemLabel = createModal.type === "chapter" ? "chương" : "bài học";
@@ -768,9 +728,11 @@ function AdminDashboardContent() {
     const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
       ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
     } : chap);
-    handleOptimisticUpdateChapters(newChapters); 
-    setEditLessonModal(null); 
-    showToast("Đã cập nhật thông tin bài học!", "success");
+    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
+    if (isSuccess) {
+      setEditLessonModal(null); 
+      showToast("Đã cập nhật thông tin bài học!", "success");
+    }
   };
 
   const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
@@ -781,8 +743,10 @@ function AdminDashboardContent() {
       }
       return chap;
     });
-    handleOptimisticUpdateChapters(newChapters); 
-    showToast("Đã xóa bài học!", "success");
+    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
+    if (isSuccess) {
+      showToast("Đã xóa bài học!", "success");
+    }
   };
 
   const handleAddResource = async (e: React.FormEvent) => {
@@ -803,12 +767,14 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    handleOptimisticUpdateChapters(newChapters); 
-    setResTitle(""); 
-    setResUrl(""); 
-    setVidType("lecture");
-    setResourceModal(null); 
-    showToast("Đã thêm tài nguyên thành công!", "success");
+    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
+    if (isSuccess) {
+      setResTitle(""); 
+      setResUrl(""); 
+      setVidType("lecture");
+      setResourceModal(null); 
+      showToast("Đã thêm tài nguyên thành công!", "success");
+    }
   };
 
   const handleAddBoost = async (e: React.FormEvent) => {
@@ -824,10 +790,12 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    handleOptimisticUpdateChapters(newChapters); 
-    setBoostModal(null); 
-    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
-    showToast("Đã thêm tài liệu tăng cường!", "success");
+    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
+    if (isSuccess) {
+      setBoostModal(null); 
+      setBoostForm({ title: "", type: "video", url: "", note: "" }); 
+      showToast("Đã thêm tài liệu tăng cường!", "success");
+    }
   };
 
   const handleAddDriveFile = async (e: React.FormEvent) => {
@@ -843,10 +811,12 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    handleOptimisticUpdateChapters(newChapters); 
-    setDriveLinkModal(null); 
-    setDriveLinkForm({ title: "", url: "" }); 
-    showToast("Đã đính kèm file Drive!", "success");
+    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
+    if (isSuccess) {
+      setDriveLinkModal(null); 
+      setDriveLinkForm({ title: "", url: "" }); 
+      showToast("Đã đính kèm file Drive!", "success");
+    }
   };
 
   const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
@@ -862,7 +832,7 @@ function AdminDashboardContent() {
       lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
     }));
     
-    handleOptimisticUpdateChapters(newChapters);
+    await handleOptimisticUpdateChapters(newChapters);
     showToast("Đã xóa tài nguyên!", "success");
   };
 
@@ -885,9 +855,11 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    handleOptimisticUpdateChapters(newChapters);
-    setEditResourceModal(null); 
-    showToast("Đã cập nhật thông tin tài liệu!", "success");
+    const isSuccess = await handleOptimisticUpdateChapters(newChapters);
+    if (isSuccess) {
+      setEditResourceModal(null); 
+      showToast("Đã cập nhật thông tin tài liệu!", "success");
+    }
   };
 
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
@@ -1167,7 +1139,7 @@ function AdminDashboardContent() {
           }) 
         }));
 
-        handleOptimisticUpdateChapters(newChapters);
+        await handleOptimisticUpdateChapters(newChapters);
         showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
       }
     } catch (err: any) {
@@ -1205,58 +1177,6 @@ function AdminDashboardContent() {
 
   return (
     <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20">
-      {/* 5. WIDGET THANH TIẾN TRÌNH % ĐỒNG BỘ NỔI TRÊN ĐỈNH TRANG ADMIN (FLOATING SYNC STATUS BAR Ở TẦNG CAO NHẤT Z-[9999]) */}
-      {syncStatus.isSyncing && (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-300 ${
-          syncStatus.type === "error" ? "pointer-events-auto" : "pointer-events-none"
-        }`}>
-          <div className={`px-5 py-2.5 rounded-full shadow-2xl border flex items-center gap-3.5 min-w-[340px] max-w-lg backdrop-blur-md animate-in fade-in slide-in-from-top-3 duration-200 ${
-            syncStatus.type === "error" 
-              ? "bg-rose-50/95 border-rose-300 text-rose-900" 
-              : syncStatus.type === "success"
-              ? "bg-emerald-50/95 border-emerald-300 text-emerald-900"
-              : "bg-white/95 border-blue-200/90 text-slate-700"
-          }`}>
-            {syncStatus.type === "loading" && (
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
-            )}
-            {syncStatus.type === "success" && (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            )}
-            {syncStatus.type === "error" && (
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            )}
-
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-center text-[11px] font-black mb-1">
-                <span className="truncate">{syncStatus.message}</span>
-                {syncStatus.type === "error" && (
-                  <button 
-                    type="button"
-                    onClick={handleRetrySync}
-                    className="ml-2 px-2.5 py-0.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] uppercase cursor-pointer flex items-center gap-1 shadow-xs"
-                  >
-                    <RefreshCw className="w-2.5 h-2.5" /> Thử lại
-                  </button>
-                )}
-              </div>
-              <div className="w-full h-1.5 bg-slate-200/60 rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-300 rounded-full ${
-                    syncStatus.type === "error"
-                      ? "bg-rose-500"
-                      : syncStatus.type === "success"
-                      ? "bg-emerald-500"
-                      : "bg-gradient-to-r from-blue-500 to-indigo-600"
-                  }`}
-                  style={{ width: `${syncStatus.progress}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <AnimatePresence>
         {toastNotification && (
           <motion.div 
@@ -1289,7 +1209,6 @@ function AdminDashboardContent() {
         />
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
-          {/* LỜI GỌI LESSONSTAB ĐÃ ĐƯỢC LÀM SẠCH HOÀN TOÀN, KHÔNG TRUYỀN BIẾN THỪA GÂY CRASH */}
           {activeTab === "lessons" && (
             <LessonsTab
               chapters={chapters}
@@ -1508,6 +1427,40 @@ function AdminDashboardContent() {
         testExamRoom={testExamRoom}
         setTestExamRoom={setTestExamRoom}
       />
+
+      {/* FLOATING SYNC PROGRESS BAR (ĐẶT Ở NGOÀI CÙNG DOM ROOT VỚI Z-[9999]) */}
+      {syncStatus.isSyncing && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none transition-all duration-300">
+          <div className="bg-white/95 backdrop-blur-md px-5 py-2.5 rounded-full shadow-2xl border border-blue-300 flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
+            {syncStatus.type === "loading" && (
+              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
+            )}
+            {syncStatus.type === "success" && (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            )}
+            {syncStatus.type === "error" && (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+
+            <div className="w-32 bg-slate-200 h-2 rounded-full overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-300 rounded-full ${
+                  syncStatus.type === "error"
+                    ? "bg-rose-500"
+                    : syncStatus.type === "success"
+                    ? "bg-emerald-500"
+                    : "bg-blue-600"
+                }`}
+                style={{ width: `${syncStatus.progress}%` }} 
+              />
+            </div>
+
+            <span className="text-xs font-black text-blue-900 tracking-wide whitespace-nowrap">
+              {syncStatus.message || `Đang đồng bộ... [${syncStatus.progress}%]`}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
