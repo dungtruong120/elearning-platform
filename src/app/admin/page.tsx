@@ -94,7 +94,7 @@ function AdminDashboardContent() {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
-  // 3. STATE QUẢN LÝ TIẾN TRÌNH % ĐỒNG BỘ NỔI (FLOATING SYNC STATUS BAR)
+  // 3. STATE TIẾN TRÌNH TRUNG TÂM (FLOATING SYNC STATUS BAR)
   const [syncStatus, setSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
@@ -259,16 +259,16 @@ function AdminDashboardContent() {
     }
   };
 
-  // 4. HÀM CẬP NHẬT TỨC THÌ (OPTIMISTIC UPDATE PIPELINE CÓ DEBOUNCE QUEUE VÀ RETRY)
-  const handleOptimisticUpdateChapters = useCallback((newChapters: any[]) => {
+  // 4. HÀM CẬP NHẬT TỨC THÌ (OPTIMISTIC UPDATE PIPELINE KÈM QUEUE DEBOUNCE VÀ RETRY)
+  const handleOptimisticUpdateChapters = useCallback((newChapters: any[]): Promise<boolean> => {
     latestChaptersRef.current = newChapters;
 
-    // BƯỚC 1: CẬP NHẬT GIAO DIỆN REACT NGAY LẬP TỨC (< 25MS)
+    // Bước 1: Phản hồi UI tức thì (< 30ms) cho React Virtual DOM
     startTransition(() => {
       setChapters(newChapters);
     });
 
-    // BƯỚC 2: TÁCH VIỆC GHI LOCALSTORAGE QUA ASYNC TIMEOUT ĐỂ TRÁNH BLOCK MAIN THREAD
+    // Bước 2: Tách lưu localStorage qua setTimeout 0 để không chặn Main Thread
     setTimeout(() => {
       try {
         localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
@@ -278,7 +278,7 @@ function AdminDashboardContent() {
       }
     }, 0);
 
-    // BƯỚC 3: KÍCH HOẠT THANH % TIẾN TRÌNH NỔI MƯỢT MÀ
+    // Bước 3: Kích hoạt thanh % tiến trình nổi trên đỉnh màn hình
     setSyncStatus({
       isSyncing: true,
       progress: 25,
@@ -286,7 +286,7 @@ function AdminDashboardContent() {
       type: "loading"
     });
 
-    // BƯỚC 4: HỦY TIMER CŨ, ÁP DỤNG DEBOUNCE QUEUE ~350MS TRÁNH RACE CONDITION
+    // Bước 4: Hủy timer cũ, debounce ~300ms tránh race condition ghi đè
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
     }
@@ -297,7 +297,7 @@ function AdminDashboardContent() {
       setSyncStatus(prev => ({
         ...prev,
         progress: 65,
-        message: "Đang nén và đồng bộ dữ liệu... [65%]"
+        message: "Đang đẩy dữ liệu lên máy chủ... [65%]"
       }));
 
       try {
@@ -319,11 +319,11 @@ function AdminDashboardContent() {
           if (insertError) throw new Error(insertError.message);
         }
 
-        // ĐỒNG BỘ HOÀN TẤT 100%
+        // ĐỒNG BỘ THÀNH CÔNG 100%
         setSyncStatus({
           isSyncing: true,
           progress: 100,
-          message: "✓ Đã lưu thành công! (100%)",
+          message: "✓ Đã đồng bộ thành công! (100%)",
           type: "success"
         });
 
@@ -337,19 +337,19 @@ function AdminDashboardContent() {
         setSyncStatus({
           isSyncing: true,
           progress: 100,
-          message: "✕ Lỗi kết nối đám mây!",
+          message: "✕ Lỗi kết nối đám mây, đang thử lại...",
           type: "error"
         });
         showToast("Lỗi lưu Supabase: " + (err?.message || "Mất kết nối mạng"), "error");
       }
-    }, 350);
+    }, 300);
 
     return Promise.resolve(true);
   }, [showToast]);
 
   const saveToStorage = handleOptimisticUpdateChapters;
 
-  // HÀM RETRY THỦ CÔNG KHI ADMIN BẤM NÚT [THỬ LẠI] TRÊN FLOATING BAR
+  // HÀM BẤM THỬ LẠI KHI BỊ LỖI MẠNG
   const handleRetrySync = () => {
     if (latestChaptersRef.current) {
       handleOptimisticUpdateChapters(latestChaptersRef.current);
@@ -1072,293 +1072,6 @@ function AdminDashboardContent() {
     } catch {}
   };
 
-  const analyticsData = useMemo(() => {
-    const profileMap = new Map<string, any>();
-    (registeredStudents || []).forEach(s => {
-      if (!s) return;
-      if (s.id) profileMap.set(String(s.id).trim().toLowerCase(), s);
-      if (s.full_name) profileMap.set(String(s.full_name).trim().toLowerCase(), s);
-      if (s.username) profileMap.set(String(s.username).trim().toLowerCase(), s);
-      if (s.email) {
-        profileMap.set(String(s.email).trim().toLowerCase(), s);
-        const prefix = String(s.email).split("@")[0].trim().toLowerCase();
-        if (prefix) profileMap.set(prefix, s);
-      }
-    });
-
-    const validHwIds = new Set<string>();
-    const validTestIds = new Set<string>();
-    const validTitles = new Set<string>();
-
-    if (rankingScope === "chapter" && selectedChapterId !== "all") {
-      const targetChap = (chapters || []).find((c: any) => c.id === selectedChapterId);
-      if (targetChap) {
-        (targetChap.lessons || []).forEach((les: any) => {
-          (les.homework_files || []).forEach((hw: any) => {
-            if (hw.id) validHwIds.add(String(hw.id).trim().toLowerCase());
-            if (hw.title) validTitles.add(normalizeText(hw.title));
-          });
-          (les.test_quizzes || []).forEach((tq: any) => {
-            if (tq.id) validTestIds.add(String(tq.id).trim().toLowerCase());
-            if (tq.title) validTitles.add(normalizeText(tq.title));
-          });
-        });
-      }
-    } else if (rankingScope === "lesson" && selectedLessonId !== "all") {
-      let targetLesson: any = null;
-      for (const chap of chapters || []) {
-        const found = (chap.lessons || []).find((l: any) => l.id === selectedLessonId);
-        if (found) {
-          targetLesson = found;
-          break;
-        }
-      }
-      if (targetLesson) {
-        (targetLesson.homework_files || []).forEach((hw: any) => {
-          if (hw.id) validHwIds.add(String(hw.id).trim().toLowerCase());
-          if (hw.title) validTitles.add(normalizeText(hw.title));
-        });
-        (targetLesson.test_quizzes || []).forEach((tq: any) => {
-          if (tq.id) validTestIds.add(String(tq.id).trim().toLowerCase());
-          if (tq.title) validTitles.add(normalizeText(tq.title));
-        });
-      }
-    }
-
-    const stats: Record<string, any> = {};
-    (registeredStudents || []).forEach(s => {
-      stats[s.id] = {
-        id: s.id,
-        name: s.full_name || s.username || "Học sinh",
-        username: s.username || (s.email ? s.email.split("@")[0] : ""),
-        school: s.school || "THPT",
-        mode: s.learning_mode || s.study_mode || "online",
-        totalAttempts: 0,
-        hwMax: 0,
-        testMax: 0,
-        hwScores: [] as number[],
-        testScores: [] as number[]
-      };
-    });
-
-    (allAttempts || []).forEach(att => {
-      if (!att) return;
-
-      const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
-      const attTitle = normalizeText(att.examTitle || att.quizTitle || att.title || "");
-
-      let isScopeMatched = true;
-      let matchedAsHw = false;
-      let matchedAsTest = false;
-
-      if (rankingScope !== "course") {
-        const matchHw = (attQuizId && validHwIds.has(attQuizId)) || (attTitle && validTitles.has(attTitle));
-        const matchTest = (attQuizId && validTestIds.has(attQuizId)) || (attTitle && validTitles.has(attTitle));
-
-        if (!matchHw && !matchTest) {
-          isScopeMatched = false;
-        } else {
-          matchedAsHw = matchHw;
-          matchedAsTest = matchTest;
-        }
-      }
-
-      if (!isScopeMatched) return;
-
-      const attStuId = String(att.studentId || att.student_id || att.user_id || "").trim().toLowerCase();
-      const rawAttName = String(att.studentName || att.student_name || att.full_name || "").trim();
-
-      const matchedProfile =
-        profileMap.get(attStuId) ||
-        (rawAttName ? profileMap.get(rawAttName.toLowerCase()) : null);
-
-      let targetId = matchedProfile ? matchedProfile.id : attStuId;
-      if (!targetId || !stats[targetId]) {
-        if (attStuId.includes("f0296403") || rawAttName.includes("dung123")) {
-          const p = profileMap.get("dung123");
-          if (p) targetId = p.id;
-        } else if (attStuId.includes("d307dde9") || rawAttName.includes("dung22")) {
-          const p = profileMap.get("dung22");
-          if (p) targetId = p.id;
-        }
-      }
-
-      if (!targetId || !stats[targetId]) return;
-
-      const st = stats[targetId];
-      const sc = Number(att.score ?? att.points ?? 0);
-      st.totalAttempts++;
-
-      const isHomeworkType =
-        matchedAsHw ||
-        (!matchedAsTest && (att.type === "homework" || att.is_homework || att.isHomework));
-
-      if (isHomeworkType) {
-        st.hwScores.push(sc);
-        st.hwMax = Math.max(st.hwMax, sc);
-      } else {
-        st.testScores.push(sc);
-        st.testMax = Math.max(st.testMax, sc);
-      }
-    });
-
-    return Object.values(stats)
-      .filter((st: any) => {
-        if (analyticsModeFilter === "all") return true;
-        return st.mode === analyticsModeFilter;
-      })
-      .map((st: any) => {
-        let overallAvg = 0;
-        const allScores = [...st.hwScores, ...st.testScores];
-
-        if (rankingScope === "lesson") {
-          if (st.hwScores.length > 0 && st.testScores.length > 0) {
-            overallAvg = (st.hwMax + st.testMax) / 2;
-          } else if (st.hwScores.length > 0) {
-            overallAvg = st.hwMax;
-          } else if (st.testScores.length > 0) {
-            overallAvg = st.testMax;
-          }
-        } else {
-          if (st.hwScores.length > 0 && st.testScores.length > 0) {
-            const hwAvg = st.hwScores.reduce((a, b) => a + b, 0) / st.hwScores.length;
-            const testAvg = st.testScores.reduce((a, b) => a + b, 0) / st.testScores.length;
-            overallAvg = (hwAvg + testAvg) / 2;
-          } else if (allScores.length > 0) {
-            overallAvg = allScores.reduce((a, b) => a + b, 0) / allScores.length;
-          }
-        }
-
-        return {
-          ...st,
-          hwMax: Number(st.hwMax.toFixed(1)),
-          testMax: Number(st.testMax.toFixed(1)),
-          overallAvg: Number(overallAvg.toFixed(1))
-        };
-      })
-      .sort((a: any, b: any) => b.overallAvg - a.overallAvg || b.totalAttempts - a.totalAttempts);
-  }, [
-    allAttempts,
-    registeredStudents,
-    analyticsModeFilter,
-    rankingScope,
-    selectedChapterId,
-    selectedLessonId,
-    chapters
-  ]);
-
-  const examsWithScoresData = useMemo(() => {
-    let list = [...practiceExams];
-    if (practiceCategoryFilter !== "Tất cả danh mục") {
-      list = list.filter(ex => ex?.category === practiceCategoryFilter);
-    }
-
-    return list.map(ex => {
-      const exId = String(ex?.id || "").trim();
-      const exTitleNorm = normalizeText(ex?.title);
-      const exNumMatch = exId.match(/\d{10,}/)?.[0] || "";
-
-      const attempts = (allAttempts || []).filter(a => {
-        if (!a) return false;
-        const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || a.examId || "").trim();
-        const aTitleNorm = normalizeText(a.examTitle || a.exam_title || a.quizTitle || a.title);
-        const aNumMatch = aQuizId.match(/\d{10,}/)?.[0] || "";
-
-        if (aQuizId && exId && aQuizId === exId) return true;
-        if (exNumMatch && aNumMatch && exNumMatch === aNumMatch) return true;
-        if (exTitleNorm && aTitleNorm && (exTitleNorm === aTitleNorm || exTitleNorm.includes(aTitleNorm) || aTitleNorm.includes(exTitleNorm))) return true;
-
-        return false;
-      });
-
-      const studentMap = new Map();
-      attempts.forEach(att => {
-        const key = att.studentId || att.student_id || att.user_id || att.studentName;
-        const prev = studentMap.get(key);
-        if (!prev || Number(att.score || 0) > Number(prev.score || 0)) {
-          studentMap.set(key, att);
-        }
-      });
-
-      const uniqueStudentAttempts = Array.from(studentMap.values());
-      const scores = attempts.map(a => Number(a.score || 0));
-      const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-      const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
-
-      return {
-        ...ex,
-        totalSubmissions: attempts.length,
-        uniqueStudentCount: uniqueStudentAttempts.length,
-        avgScore: avgScore.toFixed(2),
-        maxScore: maxScore.toFixed(2),
-        attempts
-      };
-    });
-  }, [practiceExams, practiceCategoryFilter, allAttempts]);
-
-  const offlineLessonCount = useMemo(() => {
-    return (chapters || [])
-      .reduce((acc, chap) => {
-        if (chap?.target_mode === "online") return acc;
-        return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode !== "online").length;
-      }, 0);
-  }, [chapters]);
-
-  const onlineLessonCount = useMemo(() => {
-    return (chapters || [])
-      .reduce((acc, chap) => {
-        if (chap?.target_mode === "offline") return acc;
-        return acc + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
-      }, 0);
-  }, [chapters]);
-
-  const flattenedLessons = useMemo(() => {
-    let index = 1;
-    return (chapters || [])
-      .filter(chap => lessonModeTab === "all" || !chap?.target_mode || chap?.target_mode === lessonModeTab || chap?.target_mode === "all")
-      .flatMap(chap => 
-        (chap?.lessons || [])
-          .filter((les: any) => lessonModeTab === "all" || !les?.target_mode || les?.target_mode === lessonModeTab || les?.target_mode === "all")
-          .map((les: any) => ({
-            ...les,
-            chapterId: chap?.id || "chap-default",
-            chapterTitle: (chap?.title || "").split(":")[0] || chap?.title || "Chương",
-            index: index++
-          }))
-      );
-  }, [chapters, lessonModeTab]);
-
-  const getVietnameseLastName = (fullName: string): string => {
-    if (!fullName) return "";
-    const parts = fullName.trim().split(/\s+/);
-    return parts[parts.length - 1] || "";
-  };
-
-  const sortedAndFilteredStudents = useMemo(() => {
-    let list = [...registeredStudents];
-
-    if (attendanceSearchText.trim()) {
-      const q = attendanceSearchText.toLowerCase();
-      list = list.filter(s => (s.full_name || "").toLowerCase().includes(q) || (s.email || "").toLowerCase().includes(q));
-    }
-
-    if (attendanceFilterMode !== "all") {
-      list = list.filter(s => s.learning_mode === attendanceFilterMode || s.study_mode === attendanceFilterMode);
-    }
-
-    if (attendanceSortAZ) {
-      list.sort((a, b) => {
-        const lastA = getVietnameseLastName(a.full_name);
-        const lastB = getVietnameseLastName(b.full_name);
-        const cmp = lastA.localeCompare(lastB, "vi", { sensitivity: "base" });
-        if (cmp !== 0) return cmp;
-        return (a.full_name || "").localeCompare(b.full_name || "", "vi", { sensitivity: "base" });
-      });
-    }
-
-    return list;
-  }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
-
   const handleSaveAzotaExam = async (examData: any) => {
     try {
       if (uploadMode === "practice") {
@@ -1458,12 +1171,12 @@ function AdminDashboardContent() {
 
   return (
     <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20">
-      {/* 5. WIDGET THANH TIẾN TRÌNH % ĐỒNG BỘ NỔI TRÊN ĐỈNH TRANG ADMIN (FLOATING SYNC STATUS BAR) */}
+      {/* 5. WIDGET THANH TIẾN TRÌNH % ĐỒNG BỘ NỔI TRÊN ĐỈNH TRANG ADMIN (FLOATING SYNC STATUS BAR Ở TẦNG CAO NHẤT Z-[9999]) */}
       {syncStatus.isSyncing && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] transition-all duration-300 ${
           syncStatus.type === "error" ? "pointer-events-auto" : "pointer-events-none"
         }`}>
-          <div className={`px-5 py-2.5 rounded-full shadow-2xl border flex items-center gap-3.5 min-w-[340px] max-w-lg backdrop-blur-md ${
+          <div className={`px-5 py-2.5 rounded-full shadow-2xl border flex items-center gap-3.5 min-w-[340px] max-w-lg backdrop-blur-md animate-in fade-in slide-in-from-top-3 duration-200 ${
             syncStatus.type === "error" 
               ? "bg-rose-50/95 border-rose-300 text-rose-900" 
               : syncStatus.type === "success"
