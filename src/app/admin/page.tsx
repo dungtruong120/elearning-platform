@@ -27,6 +27,47 @@ function normalizeText(str: any): string {
     .trim();
 }
 
+// HÀM LOẠI BỎ BASE64 TRƯỚC KHI LƯU SUPABASE ĐỂ GIẢM TẢI DUNG LƯỢNG
+function sanitizeChaptersPayload(chaptersData: any[]): any[] {
+  if (!Array.isArray(chaptersData)) return [];
+  return chaptersData.map(chap => ({
+    ...chap,
+    lessons: (chap?.lessons || []).map((les: any) => {
+      const cleanLes = { ...les };
+      const stripMediaMap = (items: any[]) => {
+        if (!Array.isArray(items)) return items;
+        return items.map(it => {
+          if (!it || typeof it !== "object") return it;
+          const cleanItem = { ...it };
+          if (cleanItem.mediaMap) {
+            const cleanMap: Record<string, string> = {};
+            for (const [k, v] of Object.entries(cleanItem.mediaMap)) {
+              if (typeof v === "string" && !v.startsWith("data:image/")) {
+                cleanMap[k] = v;
+              }
+            }
+            cleanItem.mediaMap = cleanMap;
+          }
+          if (cleanItem.media_map) {
+            const cleanMap: Record<string, string> = {};
+            for (const [k, v] of Object.entries(cleanItem.media_map)) {
+              if (typeof v === "string" && !v.startsWith("data:image/")) {
+                cleanMap[k] = v;
+              }
+            }
+            cleanItem.media_map = cleanMap;
+          }
+          return cleanItem;
+        });
+      };
+
+      if (cleanLes.homework_files) cleanLes.homework_files = stripMediaMap(cleanLes.homework_files);
+      if (cleanLes.test_quizzes) cleanLes.test_quizzes = stripMediaMap(cleanLes.test_quizzes);
+      return cleanLes;
+    })
+  }));
+}
+
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
@@ -94,7 +135,7 @@ function AdminDashboardContent() {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
-  // 3. STATE QUẢN LÝ TIẾN TRÌNH % ĐỒNG BỘ NỔI (FLOATING SYNC STATUS BAR)
+  // 3. STATE QUẢN LÝ TIẾN TRÌNH % ĐỒNG BỘ NỔI
   const [syncStatus, setSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
@@ -259,11 +300,11 @@ function AdminDashboardContent() {
     }
   };
 
-  // 4. HÀM ĐỒNG BỘ TRUNG TÂM (OPTIMISTIC UPDATE PIPELINE KÈM QUEUE DEBOUNCE VÀ RETRY)
-  const handleOptimisticUpdateChapters = useCallback(async (newChapters: any[]): Promise<boolean> => {
+  // 4. KÊNH ĐIỀU PHỐI TRUNG TÂM DUY NHẤT: NOTIFY AND SYNC (< 30MS)
+  const notifyAndSync = useCallback((newChapters: any[], taskName: string = "dữ liệu"): Promise<boolean> => {
     latestChaptersRef.current = newChapters;
 
-    // 1. Cập nhật state cha ngay lập tức để bảng và ô cell nhảy số ngay (0ms)
+    // BƯỚC 1: Phản hồi UI tức thì trong 1 frame (< 30ms)
     startTransition(() => {
       setChapters(newChapters);
     });
@@ -275,47 +316,48 @@ function AdminDashboardContent() {
       console.warn("Lỗi ghi LocalStorage:", e);
     }
 
-    // 2. Kích hoạt thanh % tiến trình nổi
+    // BƯỚC 2: Kích hoạt thanh % tiến trình nổi trên DOM ngay lập tức
     setSyncStatus({
       isSyncing: true,
       progress: 25,
-      message: "Đang lưu bài học... [25%]",
+      message: `Đang lưu ${taskName}... [25%]`,
       type: "loading"
     });
 
+    // BƯỚC 3: Debounce Queue ~300ms ghi ngầm vào Supabase
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
     }
 
     syncTimeoutRef.current = setTimeout(async () => {
-      const dataToSync = latestChaptersRef.current;
+      const sanitized = sanitizeChaptersPayload(latestChaptersRef.current);
 
       setSyncStatus(prev => ({
         ...prev,
         progress: 70,
-        message: "Đang đẩy lên máy chủ... [70%]"
+        message: `Đang đồng bộ ${taskName} lên đám mây... [70%]`
       }));
 
       try {
-        // 3. Ghi ngầm vào Supabase
         const { data: existingRows, error: checkError } = await supabase.from("courses").select("id").limit(1);
         if (checkError) throw new Error(checkError.message);
 
         if (existingRows && existingRows.length > 0) {
           const { error: updateError } = await supabase
             .from("courses")
-            .update({ chapters: dataToSync, updated_at: new Date().toISOString() })
+            .update({ chapters: sanitized, updated_at: new Date().toISOString() })
             .eq("id", existingRows[0].id);
 
           if (updateError) throw new Error(updateError.message);
         } else {
           const { error: insertError } = await supabase
             .from("courses")
-            .insert([{ title: "Toán 12 TCT", chapters: dataToSync, updated_at: new Date().toISOString() }]);
+            .insert([{ title: "Toán 12 TCT", chapters: sanitized, updated_at: new Date().toISOString() }]);
 
           if (insertError) throw new Error(insertError.message);
         }
 
+        // ĐỒNG BỘ THÀNH CÔNG 100%
         setSyncStatus({
           isSyncing: true,
           progress: 100,
@@ -328,7 +370,7 @@ function AdminDashboardContent() {
         }, 1200);
 
       } catch (err: any) {
-        console.error("Lỗi sync:", err);
+        console.error("Lỗi sync Supabase courses:", err);
         setSyncStatus({
           isSyncing: true,
           progress: 100,
@@ -339,14 +381,15 @@ function AdminDashboardContent() {
       }
     }, 300);
 
-    return true;
+    return Promise.resolve(true);
   }, [showToast]);
 
-  const saveToStorage = handleOptimisticUpdateChapters;
+  const handleOptimisticUpdateChapters = notifyAndSync;
+  const saveToStorage = notifyAndSync;
 
   const handleRetrySync = () => {
     if (latestChaptersRef.current) {
-      handleOptimisticUpdateChapters(latestChaptersRef.current);
+      notifyAndSync(latestChaptersRef.current, "bài học");
     }
   };
 
@@ -710,7 +753,7 @@ function AdminDashboardContent() {
       } : chap);
     }
 
-    await handleOptimisticUpdateChapters(newChapters);
+    notifyAndSync(newChapters, createModal.type === "chapter" ? "chương" : "bài học");
     setIsCreatingItem(false);
 
     const itemLabel = createModal.type === "chapter" ? "chương" : "bài học";
@@ -728,11 +771,9 @@ function AdminDashboardContent() {
     const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
       ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
     } : chap);
-    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
-    if (isSuccess) {
-      setEditLessonModal(null); 
-      showToast("Đã cập nhật thông tin bài học!", "success");
-    }
+    notifyAndSync(newChapters, "bài học"); 
+    setEditLessonModal(null); 
+    showToast("Đã cập nhật thông tin bài học!", "success");
   };
 
   const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
@@ -743,10 +784,8 @@ function AdminDashboardContent() {
       }
       return chap;
     });
-    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
-    if (isSuccess) {
-      showToast("Đã xóa bài học!", "success");
-    }
+    notifyAndSync(newChapters, "bài học"); 
+    showToast("Đã xóa bài học!", "success");
   };
 
   const handleAddResource = async (e: React.FormEvent) => {
@@ -767,14 +806,12 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
-    if (isSuccess) {
-      setResTitle(""); 
-      setResUrl(""); 
-      setVidType("lecture");
-      setResourceModal(null); 
-      showToast("Đã thêm tài nguyên thành công!", "success");
-    }
+    notifyAndSync(newChapters, "tài nguyên"); 
+    setResTitle(""); 
+    setResUrl(""); 
+    setVidType("lecture");
+    setResourceModal(null); 
+    showToast("Đã thêm tài nguyên thành công!", "success");
   };
 
   const handleAddBoost = async (e: React.FormEvent) => {
@@ -790,12 +827,10 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
-    if (isSuccess) {
-      setBoostModal(null); 
-      setBoostForm({ title: "", type: "video", url: "", note: "" }); 
-      showToast("Đã thêm tài liệu tăng cường!", "success");
-    }
+    notifyAndSync(newChapters, "tài liệu tăng cường"); 
+    setBoostModal(null); 
+    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
+    showToast("Đã thêm tài liệu tăng cường!", "success");
   };
 
   const handleAddDriveFile = async (e: React.FormEvent) => {
@@ -811,18 +846,15 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    const isSuccess = await handleOptimisticUpdateChapters(newChapters); 
-    if (isSuccess) {
-      setDriveLinkModal(null); 
-      setDriveLinkForm({ title: "", url: "" }); 
-      showToast("Đã đính kèm file Drive!", "success");
-    }
+    notifyAndSync(newChapters, "file Google Drive"); 
+    setDriveLinkModal(null); 
+    setDriveLinkForm({ title: "", url: "" }); 
+    showToast("Đã đính kèm file Drive!", "success");
   };
 
   const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
     
-    // Cập nhật Optimistic view modal ngay lập tức
     if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
       setViewResourcesModal((prev: any) => prev ? { ...prev, items: (prev.items || []).filter((i: any) => i?.id !== resId) } : null);
     }
@@ -832,7 +864,7 @@ function AdminDashboardContent() {
       lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
     }));
     
-    await handleOptimisticUpdateChapters(newChapters);
+    notifyAndSync(newChapters, "tài nguyên");
     showToast("Đã xóa tài nguyên!", "success");
   };
 
@@ -855,11 +887,9 @@ function AdminDashboardContent() {
         return les; 
       }) 
     }));
-    const isSuccess = await handleOptimisticUpdateChapters(newChapters);
-    if (isSuccess) {
-      setEditResourceModal(null); 
-      showToast("Đã cập nhật thông tin tài liệu!", "success");
-    }
+    notifyAndSync(newChapters, "tài liệu");
+    setEditResourceModal(null); 
+    showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
@@ -1078,79 +1108,80 @@ function AdminDashboardContent() {
     } catch {}
   };
 
-  const handleSaveAzotaExam = async (examData: any) => {
-    try {
-      if (uploadMode === "practice") {
-        setUploadProgressText("Đang bóc tách dữ liệu câu hỏi và lưu vào kho đề...");
-        const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
-        const newExam = { 
-          id: examId, 
-          title: examData.title, 
-          category: examData.category || "Tự do", 
-          duration_minutes: examData.duration_minutes || 45, 
-          allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
-          allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
-          driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
-          solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
-          data: examData.sections, 
-          media_map: examData.mediaMap || {},
-          created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
-        };
+  // 5. HÀM NẠP ĐỀ AZOTA / WORD PHẢN HỒI TỨC THÌ (LOẠI BỎ TOÀN BỘ 4 LỆNH AWAIT GÂY ĐƠ)
+  const handleSaveAzotaExam = (examData: any) => {
+    if (uploadMode === "practice") {
+      const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
+      const newExam = { 
+        id: examId, 
+        title: examData.title, 
+        category: examData.category || "Tự do", 
+        duration_minutes: examData.duration_minutes || 45, 
+        allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
+        allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
+        driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
+        solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
+        data: examData.sections, 
+        media_map: examData.mediaMap || {},
+        created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
+      };
 
-        const { error: upsertErr } = await supabase.from("practice_exams").upsert(newExam);
-        if (upsertErr) throw new Error(upsertErr.message);
-
-        let updatedExams: any[];
-        if (editingExamData) {
-          updatedExams = practiceExams.map(ex => ex.id === examId ? newExam : ex);
-        } else {
-          updatedExams = [newExam, ...(practiceExams || [])];
-        }
-
-        await savePracticeExams(updatedExams);
-
-        if (editingExamData) {
-          setUploadProgressText("Đang tự động chấm lại điểm cho các lượt thi học sinh...");
-          await handleRecalculateExamScores(examId, examData.sections);
-          showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!", "success");
-        } else {
-          showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
-        }
+      let updatedExams: any[];
+      if (editingExamData) {
+        updatedExams = practiceExams.map(ex => ex.id === examId ? newExam : ex);
       } else {
-        if (!azotaTarget) return;
-        setUploadProgressText("Đang nạp đề kiểm tra/BTVN vào bài học...");
-        const isHw = azotaTarget.type === "homework_files";
-        const newExam = { 
-          id: "exam-" + Date.now(), 
-          title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
-          isHomework: isHw, 
-          duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
-          is_quiz: true, 
-          data: examData.sections, 
-          mediaMap: examData.mediaMap 
-        };
-        const newChapters = (chapters || []).map(chap => ({ 
-          ...chap, 
-          lessons: (chap?.lessons || []).map((les: any) => { 
-            if (les?.id === azotaTarget.lessonId) { 
-              return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
-            } 
-            return les; 
-          }) 
-        }));
-
-        await handleOptimisticUpdateChapters(newChapters);
-        showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
+        updatedExams = [newExam, ...(practiceExams || [])];
       }
-    } catch (err: any) {
-      console.error("Lỗi lưu đề thi:", err);
-      showToast("Lỗi lưu đề thi: " + (err?.message || "Không xác định"), "error");
-    } finally {
-      setUploadProgressText(null);
-      setTestFile(null); 
-      setEditingExamData(null);
-      setAzotaTarget(null);
+
+      // Cập nhật state Luyện đề tức thì
+      setPracticeExams(updatedExams);
+      try {
+        localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedExams));
+      } catch (e) {}
+
+      // Đẩy ngầm không await
+      (async () => {
+        try {
+          await supabase.from("practice_exams").upsert(newExam);
+          if (editingExamData) {
+            handleRecalculateExamScores(examId, examData.sections);
+          }
+        } catch (e) {}
+      })();
+
+      showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
+    } else {
+      if (!azotaTarget) return;
+      const isHw = azotaTarget.type === "homework_files";
+      const newExam = { 
+        id: "exam-" + Date.now(), 
+        title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
+        isHomework: isHw, 
+        duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
+        is_quiz: true, 
+        data: examData.sections, 
+        mediaMap: examData.mediaMap || {}
+      };
+
+      const newChapters = (chapters || []).map(chap => ({ 
+        ...chap, 
+        lessons: (chap?.lessons || []).map((les: any) => { 
+          if (les?.id === azotaTarget.lessonId) { 
+            return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
+          } 
+          return les; 
+        }) 
+      }));
+
+      // KÍCH HOẠT ĐỒNG BỘ TỨC THÌ (0MS) VÀ HIỆN THANH % NỔI
+      notifyAndSync(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
+      showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
     }
+
+    // Đóng modal tức thì (< 30ms)
+    setTestFile(null); 
+    setEditingExamData(null);
+    setAzotaTarget(null);
   };
 
   if (!mounted) {
@@ -1209,12 +1240,13 @@ function AdminDashboardContent() {
         />
 
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
+          {/* LỜI GỌI LESSONSTAB ĐƯỢC NỐI THẲNG PROPS ĐỒNG BỘ VÀ SETCHAPTERS */}
           {activeTab === "lessons" && (
             <LessonsTab
               chapters={chapters}
               setChapters={setChapters}
-              onUpdateChapters={handleOptimisticUpdateChapters}
-              saveToStorage={saveToStorage}
+              onUpdateChapters={notifyAndSync}
+              saveToStorage={notifyAndSync}
               lessonModeTab={lessonModeTab}
               setLessonModeTab={setLessonModeTab}
               setCreateModal={setCreateModal}
@@ -1250,15 +1282,11 @@ function AdminDashboardContent() {
               onTestExam={handleTestExam}
               practiceCategoryFilter={practiceCategoryFilter}
               setPracticeCategoryFilter={setPracticeCategoryFilter}
-              examsWithScoresData={examsWithScoresData}
             />
           )}
 
           {activeTab === "analytics" && (
             <AnalyticsTab
-              analyticsData={analyticsData}
-              analyticsModeFilter={analyticsModeFilter}
-              setAnalyticsModeFilter={setAnalyticsModeFilter}
               rankingScope={rankingScope}
               setRankingScope={setRankingScope}
               selectedChapterId={selectedChapterId}
@@ -1314,7 +1342,6 @@ function AdminDashboardContent() {
               setAttendanceSortAZ={setAttendanceSortAZ}
               sessionDates={sessionDates}
               handleDeleteAttendanceDate={handleDeleteAttendanceDate}
-              sortedAndFilteredStudents={sortedAndFilteredStudents}
               attendanceRecords={attendanceRecords}
               handleToggleAttendance={handleToggleAttendance}
             />
@@ -1365,6 +1392,9 @@ function AdminDashboardContent() {
         createModal={createModal}
         setCreateModal={setCreateModal}
         chapters={chapters}
+        setChapters={setChapters}
+        onUpdateChapters={notifyAndSync}
+        saveToStorage={notifyAndSync}
         newItemTitle={newItemTitle}
         setNewItemTitle={setNewItemTitle}
         newItemTargetMode={newItemTargetMode}
