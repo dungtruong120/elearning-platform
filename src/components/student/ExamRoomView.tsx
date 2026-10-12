@@ -40,12 +40,12 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
-// BỘ TRA CỨU ẢNH ĐA TẦNG THÔNG MINH - KHẮC PHỤC TRIỆT ĐỂ LỖI MẤT BẢNG BIẾN THIÊN
+// BỘ TRA CỨU ẢNH TOÀN DIỆN KHÔNG BỊ LỖI DẤU $
 function resolveImageSrc(rawKey: string, mediaMap: Record<string, string> = {}): string {
   if (!rawKey) return "";
   const trimmed = rawKey.trim();
 
-  // 1. Nếu bản thân rawKey đã là link URL trực tiếp (http, https, blob, data:image)
+  // 1. Nếu bản thân rawKey đã là link URL trực tiếp
   if (
     trimmed.startsWith("http://") ||
     trimmed.startsWith("https://") ||
@@ -57,29 +57,27 @@ function resolveImageSrc(rawKey: string, mediaMap: Record<string, string> = {}):
 
   if (!mediaMap || typeof mediaMap !== "object") return "";
 
-  // 2. Tra cứu trực tiếp chính xác
+  const cleanKey = trimmed.replace(/^\$+|\$+$/g, "").trim();
+
+  // 2. Thử tất cả các dạng key phổ biến trong mediaMap
+  if (mediaMap[cleanKey]) return mediaMap[cleanKey];
+  if (mediaMap[`$${cleanKey}$`]) return mediaMap[`$${cleanKey}$`];
   if (mediaMap[trimmed]) return mediaMap[trimmed];
 
-  // 3. Xử lý dấu $ bọc quanh key (VD: "$img_1$" <-> "img_1")
-  const strippedDollar = trimmed.replace(/^\$+|\$+$/g, "").trim();
-  if (mediaMap[strippedDollar]) return mediaMap[strippedDollar];
-  if (mediaMap["$" + strippedDollar + "$"]) return mediaMap["$" + strippedDollar + "$"];
-
-  // 4. Tra cứu không phân biệt hoa thường và tiền tố
-  const cleanId = strippedDollar.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  // 3. Tra cứu không phân biệt chữ hoa, chữ thường
   for (const [k, v] of Object.entries(mediaMap)) {
     if (!v) continue;
-    const cleanK = k.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (cleanK === cleanId) return v;
+    const cleanK = k.replace(/^\$+|\$+$/g, "").trim().toLowerCase();
+    if (cleanK === cleanKey.toLowerCase()) return v;
   }
 
-  // 5. Thử tra cứu các biến thể phổ biến: img_1 -> 1, 1 -> img_1
-  const numberMatch = cleanId.match(/\d+/);
+  // 4. Tra cứu biến thể số (img_1 -> 1, 1 -> img_1)
+  const numberMatch = cleanKey.match(/\d+/);
   if (numberMatch) {
     const num = numberMatch[0];
     for (const [k, v] of Object.entries(mediaMap)) {
       if (!v) continue;
-      const cleanK = k.toLowerCase().replace(/[^a-z0-9_]/g, "");
+      const cleanK = k.replace(/^\$+|\$+$/g, "").trim().toLowerCase();
       if (cleanK === `img_${num}` || cleanK === `image_${num}` || cleanK === num) {
         return v;
       }
@@ -103,6 +101,12 @@ function MathRenderer({
   if (!content) return null;
   let text = content.normalize("NFC");
 
+  // 1. CHUẨN HÓA VÀ LOẠI BỎ TRIỆT ĐỂ DẤU $ BÊN TRONG THẺ ẢNH TRƯỚC TIÊN
+  // Ví dụ: [img:$img_1$] -> [img:img_1], {{img_1}} -> [img:img_1]
+  text = text.replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/gi, "[img:$1]");
+  text = text.replace(/\{\{\s*(?:img:)?\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\}\}/gi, "[img:$1]");
+
+  // 2. CHUẨN HÓA CÔNG THỨC TOÁN
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math + "$");
   text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
@@ -113,26 +117,25 @@ function MathRenderer({
   text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
 
-  // Chuẩn hóa mọi biến thể thẻ ảnh về chuẩn duy nhất: [img:xyz]
-  text = text.replace(/\{\{([a-zA-Z0-9_\-\.\$\/]+)\}\}/g, "[img:$1]");
-  text = text.replace(/\[image:([^\]]+)\]/gi, "[img:$1]");
-
-  const parts = text.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
+  // 3. TÁCH CHUỖI ƯU TIÊN THẺ ẢNH [img:...] TRƯỚC, RỒI MỚI ĐẾN $$ VÀ $
+  const parts = text.split(/(\[img:[a-zA-Z0-9_\-\.\/]+\]|\$\$[\s\S]*?\$\$|\$[^\$]+?\$)/g);
 
   return (
     <span className={inline ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14px] sm:text-[14.5px] font-normal text-slate-800"}>
       {parts.map((part, i) => {
         if (!part) return null;
 
-        const imgMatch = part.match(/^\[img:([^\]]+)\]$/i);
+        const imgMatch = part.match(/^\[img:([a-zA-Z0-9_\-\.\/]+)\]$/i);
         if (imgMatch && imgMatch[1]) {
           const rawKey = imgMatch[1].trim();
           const src = resolveImageSrc(rawKey, mediaMap);
 
           if (!src) {
             return (
-              <span key={i} className="my-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
-                <span>[Hình vẽ / Bảng biến thiên: {rawKey.replace(/\$/g, "")}]</span>
+              <span key={i} className="my-2.5 block text-center">
+                <span className="inline-block p-2 rounded-xl bg-amber-50 border border-dashed border-amber-300 text-amber-700 text-xs font-semibold text-center">
+                  [Hình vẽ: {rawKey} - Chưa tìm thấy ảnh trong mediaMap]
+                </span>
               </span>
             );
           }
@@ -353,7 +356,6 @@ export function ExamRoomView({
             let qIdx = 1;
 
             rawSections.forEach((sec: any) => {
-              // Trích xuất mediaMap nằm trong từng section
               if (sec.mediaMap && typeof sec.mediaMap === "object") {
                 Object.assign(mappedImages, sec.mediaMap);
               }
@@ -372,7 +374,6 @@ export function ExamRoomView({
               (sec.questions || []).forEach((q: any) => {
                 const qType = q.type || secType || "multiple_choice";
 
-                // Nếu câu hỏi có đính kèm mediaMap cục bộ
                 if (q.mediaMap && typeof q.mediaMap === "object") {
                   Object.assign(mappedImages, q.mediaMap);
                 }
@@ -525,7 +526,7 @@ export function ExamRoomView({
         const userTF = answers[q.id] || {};
         const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
         let correctSubItems = 0;
-        
+
         q.options.forEach((opt, idx) => {
           const expectedChar = cleanAns[idx] || "Đ";
           const expectedVal = (expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T") ? "T" : "F";
@@ -1085,7 +1086,7 @@ export function ExamRoomView({
                             : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
                         }`}
                       >
-                        <Flag className="w-3.5 h-3.5 fill-current" />
+                        <Flag className="w-3 h-3 fill-current" />
                         <span>{flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
                       </button>
                       <span className="text-xs font-semibold text-slate-500">
