@@ -7,7 +7,7 @@ import {
   HelpCircle, ChevronLeft, ChevronRight, RotateCcw,
   Eye, Trophy, Home, Send, Award, Check, X,
   Grid3X3, BookOpen, PenLine, Loader2, Flag, ZoomIn,
-  ListFilter, FileText
+  ListFilter, FileText, Image as ImageIcon
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -28,6 +28,7 @@ interface QuestionItem {
   correctAnswer: string;
   explanation?: string;
   image?: string;
+  images?: string[];
 }
 
 interface ExamRoomViewProps {
@@ -37,6 +38,42 @@ interface ExamRoomViewProps {
   profile: Profile;
   isHomework?: boolean;
   onBackToDashboard: () => void;
+}
+
+// HÀM TRA CỨU VÀ GIẢI MÃ NGUỒN ẢNH ĐA TẦNG THÔNG MINH
+function resolveImageSrc(rawKey: string, mediaMap: Record<string, string> = {}): string {
+  if (!rawKey) return "";
+  let cleanKey = rawKey.trim();
+
+  // Bóc tách cú pháp thẻ bọc $
+  if (cleanKey.startsWith("$") && cleanKey.endsWith("$")) {
+    cleanKey = cleanKey.slice(1, -1).trim();
+  }
+
+  // 1. Nếu là URL trực tuyến hoặc Base64 trực tiếp
+  if (cleanKey.startsWith("http://") || cleanKey.startsWith("https://") || cleanKey.startsWith("data:image/") || cleanKey.startsWith("blob:")) {
+    return cleanKey;
+  }
+
+  // 2. Tra cứu trực tiếp trong mediaMap
+  if (mediaMap[cleanKey]) {
+    return mediaMap[cleanKey];
+  }
+
+  // 3. Tra cứu có tiền tố img_ hoặc không có tiền tố
+  if (mediaMap["$" + cleanKey + "$"]) {
+    return mediaMap["$" + cleanKey + "$"];
+  }
+
+  const normalizedKey = cleanKey.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  for (const [k, v] of Object.entries(mediaMap)) {
+    const normK = k.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (normK === normalizedKey && v) {
+      return v;
+    }
+  }
+
+  return "";
 }
 
 function MathRenderer({
@@ -52,6 +89,7 @@ function MathRenderer({
 }) {
   if (!content) return null;
   let text = content.normalize("NFC");
+
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math + "$");
   text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
@@ -62,28 +100,34 @@ function MathRenderer({
   text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
 
+  // Nhận diện đồng thời [img:...], [image:...], {{...}}
+  text = text.replace(/\{\{([a-zA-Z0-9_\-\.\$\/]+)\}\}/g, "[img:$1]");
+  text = text.replace(/\[image:([^\]]+)\]/gi, "[img:$1]");
+
   const parts = text.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
 
   return (
     <span className={inline ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14px] sm:text-[14.5px] font-normal text-slate-800"}>
       {parts.map((part, i) => {
         if (!part) return null;
-        const imgMatch = part.match(/^\[img:([^\]]+)\]$/);
+
+        const imgMatch = part.match(/^\[img:([^\]]+)\]$/i);
         if (imgMatch && imgMatch[1]) {
-          let rawKey = imgMatch[1].trim();
-          if (rawKey.startsWith("$") && rawKey.endsWith("$")) {
-            rawKey = rawKey.slice(1, -1);
-          }
-          const isDirectUrl = rawKey.startsWith("http://") || rawKey.startsWith("https://") || rawKey.startsWith("data:");
-          const src = isDirectUrl ? rawKey : mediaMap[rawKey];
+          const rawKey = imgMatch[1].trim();
+          const src = resolveImageSrc(rawKey, mediaMap);
+
           if (!src) return null;
+
           return inline ? (
             <img
               key={i}
               src={src}
               alt="Hình ảnh"
+              loading="lazy"
               onClick={() => onImageClick && onImageClick(src)}
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white cursor-pointer hover:opacity-90"
             />
           ) : (
@@ -92,8 +136,11 @@ function MathRenderer({
                 <img
                   src={src}
                   alt="Hình minh họa"
-                  onError={(e) => { e.currentTarget.style.display = "none"; }}
-                  className="max-h-[200px] sm:max-h-[220px] max-w-full rounded-xl border border-slate-200/80 bg-slate-50/50 p-2 shadow-2xs object-contain mx-auto transition-transform group-hover:scale-[1.01]"
+                  loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                  className="max-h-[220px] sm:max-h-[260px] max-w-full rounded-xl border border-slate-200/80 bg-white p-2 shadow-2xs object-contain mx-auto transition-transform group-hover:scale-[1.01]"
                 />
                 <span className="absolute bottom-3 right-3 bg-slate-900/70 text-white p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
                   <ZoomIn className="w-3.5 h-3.5" />
@@ -227,7 +274,9 @@ export function ExamRoomView({
     const loadExamQuestions = async () => {
       let loaded: QuestionItem[] = [];
       let mappedImages: Record<string, string> = {};
+
       try {
+        // 1. Tìm trong bảng practice_exams
         const { data: dbExam } = await supabase
           .from("practice_exams")
           .select("*")
@@ -235,18 +284,31 @@ export function ExamRoomView({
           .maybeSingle();
 
         let targetExam = dbExam;
+
+        // 2. Tìm trong localStorage practice_exams
         if (!targetExam && typeof window !== "undefined") {
           const savedPractice = localStorage.getItem("edunexus_practice_exams");
           if (savedPractice) {
-            const exams = JSON.parse(savedPractice);
-            targetExam = exams.find((e: any) => e.id === quizId || e.title === quizTitle);
+            try {
+              const exams = JSON.parse(savedPractice);
+              targetExam = exams.find((e: any) => e.id === quizId || e.title === quizTitle);
+            } catch (e) {}
           }
         }
 
+        // 3. Tìm trong bảng courses (bài học BTVN hoặc Đề KT)
         if (!targetExam) {
           const { data: courseRow } = await supabase.from("courses").select("chapters").limit(1).maybeSingle();
-          if (courseRow && Array.isArray(courseRow.chapters)) {
-            for (const chap of courseRow.chapters) {
+          let allChapters = courseRow?.chapters;
+          if (!allChapters && typeof window !== "undefined") {
+            const localCourses = localStorage.getItem("edunexus_course_data");
+            if (localCourses) {
+              try { allChapters = JSON.parse(localCourses); } catch (e) {}
+            }
+          }
+
+          if (Array.isArray(allChapters)) {
+            for (const chap of allChapters) {
               for (const les of chap.lessons || []) {
                 const foundHw = (les.homework_files || []).find((f: any) => f.id === quizId || f.title === quizTitle);
                 const foundTest = (les.test_quizzes || []).find((f: any) => f.id === quizId || f.title === quizTitle);
@@ -260,20 +322,37 @@ export function ExamRoomView({
 
         if (targetExam) {
           mappedImages = targetExam.media_map || targetExam.mediaMap || {};
+          
+          // Trích xuất bổ sung nếu câu hỏi có chứa mediaMap cục bộ
+          if (targetExam.data && Array.isArray(targetExam.data)) {
+            targetExam.data.forEach((sec: any) => {
+              if (sec.mediaMap) Object.assign(mappedImages, sec.mediaMap);
+              if (sec.media_map) Object.assign(mappedImages, sec.media_map);
+            });
+          }
+
           setMediaMap(mappedImages);
 
-          if (targetExam.data && Array.isArray(targetExam.data)) {
+          const rawSections = targetExam.data || targetExam.sections;
+          if (rawSections && Array.isArray(rawSections)) {
             let qIdx = 1;
-            targetExam.data.forEach((sec: any) => {
+            rawSections.forEach((sec: any) => {
               const secType = sec.section_type || sec.type || (
-                sec.title && /đúng\s*sai/i.test(sec.title)
+                sec.section_title && /đúng\s*sai/i.test(sec.section_title)
                   ? "true_false"
-                  : sec.title && /trả\s*lời\s*ngắn|điền/i.test(sec.title)
+                  : sec.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
                   ? "short_answer"
                   : "multiple_choice"
               );
+
               (sec.questions || []).forEach((q: any) => {
                 const qType = q.type || secType || "multiple_choice";
+                
+                // Nếu từng câu hỏi có trường image riêng biệt thì đưa vào mediaMap
+                if (q.image && typeof q.image === "string") {
+                  mappedImages[`q_img_${qIdx}`] = q.image;
+                }
+
                 loaded.push({
                   id: q.id || ("q-" + qIdx),
                   order: qIdx++,
@@ -284,7 +363,8 @@ export function ExamRoomView({
                     text: opt.text_html || opt.text || ""
                   })),
                   correctAnswer: q.correct_answer || q.correctAnswer || "A",
-                  explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết."
+                  explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
+                  image: q.image || (q.images && q.images[0]) || undefined
                 });
               });
             });
@@ -299,7 +379,8 @@ export function ExamRoomView({
                 text: opt.text_html || opt.text || ""
               })),
               correctAnswer: q.correct_answer || q.correctAnswer || "A",
-              explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết."
+              explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
+              image: q.image || (q.images && q.images[0]) || undefined
             }));
           }
         }
@@ -381,7 +462,7 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   };
 
-  // NỘP BÀI THI: BẢO TOÀN ĐẦY ĐỦ UUID, TÊN THẬT, PHÂN HỆ VÀ GỬI LÊN SERVER
+  // NỘP BÀI THI
   const handleSubmitExam = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -470,17 +551,13 @@ export function ExamRoomView({
       createdAt: nowIso
     };
 
-    // 1. GỬI QUA API ROUTE SERVER-SIDE (ĐỒNG BỘ 100% SUPABASE)
+    // 1. GỬI QUA API ROUTE SERVER-SIDE
     try {
-      const response = await fetch("/api/student/submit-quiz", {
+      await fetch("/api/student/submit-quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(attemptPayload)
       });
-      const resJson = await response.json();
-      if (!response.ok) {
-        console.warn("API Server phản hồi lỗi, kích hoạt fallback client:", resJson);
-      }
     } catch (apiErr) {
       console.warn("Không kết nối được API Route, dùng client fallback:", apiErr);
     }
@@ -594,13 +671,11 @@ export function ExamRoomView({
     }).length;
   }, [userAnswers]);
 
-  // Tỷ lệ hoàn thành câu hỏi cho Progress Bar
   const progressPercent = useMemo(() => {
     if (!questions.length) return 0;
     return Math.min(100, Math.round((answeredCount / questions.length) * 100));
   }, [answeredCount, questions.length]);
 
-  // Màu đồng hồ theo thời gian
   const timerHeaderStyles = useMemo(() => {
     if (isHomework) return "bg-blue-50/70 border-blue-200/70 text-blue-700";
     if (secondsRemaining <= 60) return "bg-rose-50 border-rose-300 text-rose-600 animate-pulse";
@@ -770,7 +845,7 @@ export function ExamRoomView({
       );
     }
 
-    // DẠNG TRẮC NGHIỆM ĐƠN A, B, C, D (THANH THOÁT, VIỀN XANH KHI CHỌN)
+    // DẠNG TRẮC NGHIỆM ĐƠN A, B, C, D
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5 pt-1">
         {q.options.map(opt => {
@@ -829,7 +904,7 @@ export function ExamRoomView({
       }}
       className="fixed inset-0 z-[120] bg-[#F8FAFC] text-slate-800 flex flex-col overflow-hidden"
     >
-      {/* 1. THANH HEADER TRÊN CÙNG TINH TẾ */}
+      {/* 1. THANH HEADER TRÊN CÙNG */}
       <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white border-b border-slate-200 shadow-2xs flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
@@ -862,9 +937,8 @@ export function ExamRoomView({
           </div>
         </div>
 
-        {/* CỤM ĐIỀU KHIỂN GIỮA: NÚT TOGGLE CHẾ ĐỘ XEM & ĐỒNG HỒ THỜI GIAN */}
+        {/* CỤM ĐIỀU KHIỂN GIỮA */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* SEGMENTED CONTROL: BẬT TẮT CHẾ ĐỘ CUỘN / TỪNG CÂU */}
           <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
             <button
               type="button"
@@ -892,7 +966,6 @@ export function ExamRoomView({
             </button>
           </div>
 
-          {/* ĐỒNG HỒ THỜI GIAN TRÊN HEADER (TIMES NEW ROMAN THANH LỊCH) */}
           <div className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl border shadow-2xs text-xs font-semibold tabular-nums font-['Times_New_Roman',serif] tracking-wider ${timerHeaderStyles}`}>
             <Clock className="w-3.5 h-3.5 shrink-0" />
             <span>
@@ -954,7 +1027,7 @@ export function ExamRoomView({
                 </div>
               )}
 
-              {/* CHẾ ĐỘ 1: TỪNG CÂU CHUẨN TSA/HSA */}
+              {/* CHẾ ĐỘ 1: TỪNG CÂU */}
               {layoutMode === "single" ? (
                 <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs space-y-3 text-left relative">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -974,7 +1047,6 @@ export function ExamRoomView({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI */}
                       <button
                         type="button"
                         onClick={() => toggleFlagQuestion(currentQ.id)}
@@ -995,6 +1067,19 @@ export function ExamRoomView({
 
                   <div className="py-0.5">
                     <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                    
+                    {/* Fallback hiển thị hình ảnh nếu câu hỏi có trường image riêng */}
+                    {currentQ.image && (
+                      <div className="my-2.5 text-center">
+                        <img 
+                          src={resolveImageSrc(currentQ.image, mediaMap)} 
+                          alt="Hình minh họa" 
+                          loading="lazy"
+                          onClick={() => setPreviewImage(resolveImageSrc(currentQ.image!, mediaMap))}
+                          className="max-h-[220px] max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-2xs object-contain mx-auto cursor-pointer"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {renderQuestionOptions(currentQ)}
@@ -1011,7 +1096,7 @@ export function ExamRoomView({
                   )}
                 </div>
               ) : (
-                /* CHẾ ĐỘ 2: CUỘN DANH SÁCH TẤT CẢ CÂU HỎI */
+                /* CHẾ ĐỘ 2: CUỘN DANH SÁCH */
                 <div className="space-y-3.5 pb-16">
                   {questions.map((q, qIndex) => (
                     <div
@@ -1036,7 +1121,6 @@ export function ExamRoomView({
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {/* NÚT FLAG ĐÁNH DẤU CÂU HỎI TRONG BẢN CUỘN */}
                           <button
                             type="button"
                             onClick={() => toggleFlagQuestion(q.id)}
@@ -1057,6 +1141,18 @@ export function ExamRoomView({
 
                       <div className="py-0.5">
                         <MathRenderer content={q.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                        
+                        {q.image && (
+                          <div className="my-2.5 text-center">
+                            <img 
+                              src={resolveImageSrc(q.image, mediaMap)} 
+                              alt="Hình minh họa" 
+                              loading="lazy"
+                              onClick={() => setPreviewImage(resolveImageSrc(q.image!, mediaMap))}
+                              className="max-h-[220px] max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-2xs object-contain mx-auto cursor-pointer"
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {renderQuestionOptions(q)}
@@ -1078,7 +1174,7 @@ export function ExamRoomView({
             </div>
           </div>
 
-          {/* THANH ĐIỀU HƯỚNG CỐ ĐỊNH Ở ĐÁY (STICKY/FIXED BOTTOM BAR) DÀNH RIÊNG CHO CHẾ ĐỘ "TỪNG CÂU" */}
+          {/* THANH ĐIỀU HƯỚNG ĐÁY CHO CHẾ ĐỘ TỪNG CÂU */}
           {layoutMode === "single" && (
             <div className="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200/80 py-2.5 px-4 flex items-center justify-center gap-3 sm:gap-4 shadow-sm">
               <button
@@ -1130,10 +1226,9 @@ export function ExamRoomView({
           )}
         </main>
 
-        {/* 3. SIDEBAR MA TRẬN & ĐỒNG HỒ THANH LỊCH TRÊN DESKTOP */}
+        {/* 3. SIDEBAR MA TRẬN TRÊN DESKTOP */}
         <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200 bg-white p-4.5 flex-col justify-between overflow-y-auto custom-scrollbar">
           <div className="space-y-3.5">
-            {/* THẺ THÍ SINH GỌN GÀNG */}
             <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200 shadow-2xs space-y-1 text-left">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Thí sinh</span>
               <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">{profile?.full_name}</p>
@@ -1143,7 +1238,6 @@ export function ExamRoomView({
               </div>
             </div>
 
-            {/* KHỐI ĐỒNG HỒ ĐẾM NGƯỢC (TIMES NEW ROMAN SẮC NÉT, MỀM MẠI) */}
             <div className={`p-3 rounded-xl border shadow-2xs space-y-0.5 text-left transition-colors ${timerSidebarStyles}`}>
               <span className="text-[10px] font-black uppercase tracking-wider opacity-75 block">
                 {isHomework ? "THỜI GIAN LÀM BÀI" : "THỜI GIAN CÒN LẠI"}
@@ -1156,14 +1250,12 @@ export function ExamRoomView({
               </div>
             </div>
 
-            {/* BẢNG MA TRẬN CÂU HỎI KÈM PROGRESS BAR & CHẤM VÀNG FLAG */}
             <div className="space-y-2 text-left pt-1">
               <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                 <span className="uppercase text-[11px]">Danh sách câu</span>
                 <span className="text-[11px] font-bold text-slate-400">{answeredCount}/{questions.length} câu</span>
               </div>
 
-              {/* THANH TIẾN ĐỘ PROGRESS BAR TINH TẾ */}
               <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
                 <div
                   className="h-full bg-[#1D4ED8] rounded-full transition-all duration-300 ease-out"
@@ -1171,7 +1263,6 @@ export function ExamRoomView({
                 />
               </div>
 
-              {/* LƯỚI 5 CỘT MA TRẬN */}
               <div className="grid grid-cols-5 gap-1.5 pt-1">
                 {questions.map((q, idx) => {
                   const isCurrent = currentIdx === idx;
@@ -1199,7 +1290,6 @@ export function ExamRoomView({
                     >
                       <span>{idx + 1}</span>
 
-                      {/* CHẤM VÀNG FLAG ĐÁNH DẤU */}
                       {isFlagged && (
                         <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400 ring-1 ring-white" />
                       )}
@@ -1284,7 +1374,6 @@ export function ExamRoomView({
                 </button>
               </div>
 
-              {/* TOGGLE CHẾ ĐỘ TRÊN MOBILE */}
               <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 my-2">
                 <button
                   type="button"
@@ -1392,7 +1481,7 @@ export function ExamRoomView({
         )}
       </AnimatePresence>
 
-      {/* 6. MODAL KẾT QUẢ THI NGUYÊN BẢN */}
+      {/* 6. MODAL KẾT QUẢ THI */}
       <AnimatePresence>
         {showResultModal && (
           <div
@@ -1523,7 +1612,7 @@ export function ExamRoomView({
               <button
                 type="button"
                 onClick={() => setPreviewImage(null)}
-                className="absolute top-3 right-3 p-1.5 bg-slate-900/60 hover:bg-slate-900 text-white rounded-full transition"
+                className="absolute top-3 right-3 p-1.5 bg-slate-900/60 hover:bg-slate-900 text-white rounded-full transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
