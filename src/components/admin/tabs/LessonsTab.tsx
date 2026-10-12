@@ -30,38 +30,6 @@ const AzotaExamConfigModal = dynamic(
   { ssr: false }
 );
 
-// HÀM LỌC SẠCH BASE64 KHỎI PAYLOAD ĐỀ THI TRƯỚC KHI LƯU VÀO STATE
-function cleanExamPayloadMedia(rawSections: any[], rawMediaMap: Record<string, string>): { sections: any[]; mediaMap: Record<string, string> } {
-  const cleanMap: Record<string, string> = {};
-  
-  if (rawMediaMap && typeof rawMediaMap === "object") {
-    for (const [k, v] of Object.entries(rawMediaMap)) {
-      if (typeof v === "string") {
-        if (v.startsWith("http://") || v.startsWith("https://") || v.startsWith("/")) {
-          cleanMap[k] = v;
-        } else if (v.startsWith("data:image/")) {
-          cleanMap[k] = ""; 
-        } else {
-          cleanMap[k] = v;
-        }
-      }
-    }
-  }
-
-  const cleanSections = (rawSections || []).map((sec: any) => {
-    try {
-      let secStr = JSON.stringify(sec);
-      if (secStr.includes("data:image/")) {
-        secStr = secStr.replace(/data:image\/[^;]+;base64,[^"'\s\)]+/g, "");
-        return JSON.parse(secStr);
-      }
-    } catch (e) {}
-    return sec;
-  });
-
-  return { sections: cleanSections, mediaMap: cleanMap };
-}
-
 export const MatrixCell = ({
   items,
   onAdd,
@@ -258,7 +226,7 @@ export default function LessonsTab({
     setInternalUploadModal(null);
   };
 
-  // CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN ĐỀ (NON-BLOCKING - 0MS)
+  // CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN ĐỀ (GIỮ 100% MEDIAMAP GỐC)
   const handleSaveExamFromAzota = (payload: any) => {
     const currentTarget = activeUploadTarget || uploadTargetRef.current;
     if (!currentTarget) {
@@ -271,9 +239,10 @@ export default function LessonsTab({
 
     const examData = payload?.examData || payload?.data || payload;
     const rawSections = payload?.sections || examData?.sections || payload?.data || [];
-    const rawMediaMap = payload?.mediaMap || payload?.media_map || examData?.mediaMap || examData?.media_map || {};
     
-    // Tự động gán tiêu đề chuẩn xác cho BTVN nếu chưa có
+    // GIỮ NGUYÊN VẸN 100% MEDIAMAP GỐC - TUYỆT ĐỐI KHÔNG LỌC SẠCH/XÓA TRẮNG BASE64
+    const incomingMediaMap = payload?.mediaMap || payload?.media_map || examData?.mediaMap || examData?.media_map || {};
+
     const defaultTitle = isHw ? "Bài tập về nhà (BTVN)" : "Đề kiểm tra định kỳ";
     const title = payload?.title || examData?.title || activeTestFile?.name?.replace(/\.[^/.]+$/, "") || defaultTitle;
     
@@ -286,20 +255,17 @@ export default function LessonsTab({
     setActiveUploadTarget(null);
     uploadTargetRef.current = null;
 
-    // 2. LÀM SẠCH BASE64 KHỎI PAYLOAD ĐỂ DỮ LIỆU SIÊU NHẸ
-    const { sections, mediaMap } = cleanExamPayloadMedia(rawSections, rawMediaMap);
-
-    // CẤU TRÚC ĐỐI TƯỢNG BÀI THI/BTVN ĐẦY ĐỦ ĐỂ MODAL XEM CHI TIẾT HIỂN THỊ CHUẨN 100%
+    // 2. CẤU TRÚC ĐỐI TƯỢNG BÀI THI/BTVN CHUẨN XÁC, LƯU ĐỦ CẢ MEDIAMAP VÀ DATA/SECTIONS
     const newQuizItem = {
       id: quizId,
       title: title,
       duration_minutes: duration,
       is_quiz: true,
       isHomework: isHw,
-      data: sections,
-      sections: sections,
-      media_map: mediaMap,
-      mediaMap: mediaMap,
+      data: rawSections,
+      sections: rawSections,
+      media_map: incomingMediaMap,
+      mediaMap: incomingMediaMap,
       created_at: new Date().toISOString()
     };
 
@@ -382,7 +348,7 @@ export default function LessonsTab({
         }}
       />
 
-      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC PHÂN LUỒNG & NÚT TẠO MỚI (ĐÃ BỎ BADGE TRÙNG VỚI PAGE.TSX) */}
+      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC PHÂN LUỒNG & NÚT TẠO MỚI (ĐÃ LOẠI BỎ KHỐI TRẠNG THÁI TRÙNG VỚI PAGE.TSX) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
         <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
           <button
