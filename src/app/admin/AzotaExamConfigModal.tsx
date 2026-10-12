@@ -26,10 +26,15 @@ export interface ExtendedParsedQuestion extends ParsedQuestion {
   points?: number;
   sub_points?: Record<string, number>;
   sub_percentages?: Record<string, number>;
+  image?: string;
+  media_map?: Record<string, string>;
+  mediaMap?: Record<string, string>;
 }
 
 export interface ExtendedExamSection extends ExamSection {
   questions: ExtendedParsedQuestion[];
+  media_map?: Record<string, string>;
+  mediaMap?: Record<string, string>;
 }
 
 // ============================================================================
@@ -376,7 +381,7 @@ export function repairMathTypeGlitch(raw: string): string {
 }
 
 // ============================================================================
-// 2. TRÍCH XUẤT ĐỆ QUY FILE WORD (.DOCX) - LƯU BASE64 VĨNH CỬU CHỐNG MẤT ẢNH
+// 2. TRÍCH XUẤT ĐỆ QUY FILE WORD (.DOCX) - LƯU BASE64 VĨNH CỬU CHUẨN XÁC
 // ============================================================================
 
 export async function extractDocxDirectly(file: File) {
@@ -403,7 +408,6 @@ export async function extractDocxDirectly(file: File) {
     const fileEntry = zip.files[zipPath];
     if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       if (!pathToToken[zipPath]) {
-        // ĐỌC TRỰC TIẾP RA BASE64 ĐỂ ẢNH SỐNG VĨNH CỬU KHI F5 HOẶC CHUYỂN SANG MÁY KHÁC
         const b64 = await fileEntry.async("base64");
         let ext = "jpeg";
         if (zipPath.toLowerCase().endsWith("png")) ext = "png";
@@ -412,6 +416,7 @@ export async function extractDocxDirectly(file: File) {
         else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
         
         const key = "img_" + (imgCount++);
+        // BẮT BUỘC LƯU DATAURL ĐỂ ẢNH VĨNH CỬU KHÔNG BỊ REVOKE
         mediaMap[key] = `data:image/${ext};base64,${b64}`;
         pathToToken[zipPath] = "[img:$" + key + "$]";
       }
@@ -1055,7 +1060,7 @@ export function TokenViewer({
 }
 
 // ============================================================================
-// 5. COMPONENT MODAL AZOTA CHÍNH (XUẤT BẢN ĐỀ THI VỚI BASE64 VĨNH CỬU)
+// 5. COMPONENT MODAL AZOTA CHÍNH (INLINE EMBEDDING BASE64 VÀO CÂU HỎI VÀ SECTION)
 // ============================================================================
 
 interface AzotaExamConfigModalProps {
@@ -1162,7 +1167,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
         const blob = items[i].getAsFile();
         if (!blob) return;
 
-        // DÙNG FileReader.readAsDataURL ĐỂ LƯU BASE64 VĨNH CỬU, KHÔNG DÙNG createObjectURL
+        // DÙNG FileReader ĐỌC DATAURL BASE64 VĨNH CỬU
         const reader = new FileReader();
         reader.onload = (event) => {
           const b64 = event.target?.result as string;
@@ -1414,7 +1419,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    // DÙNG FileReader.readAsDataURL ĐỂ LƯU BASE64 VĨNH CỬU
+    // DÙNG FileReader ĐỌC DATAURL BASE64 VĨNH CỬU
     const reader = new FileReader();
     reader.onload = (event) => {
       const b64 = event.target?.result as string;
@@ -1466,21 +1471,44 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     return (tfGlobalPercent.a || 0) + (tfGlobalPercent.b || 0) + (tfGlobalPercent.c || 0) + (tfGlobalPercent.d || 0);
   }, [tfGlobalPercent]);
 
-  // HÀM XUẤT BẢN ĐỀ THI VỚI ĐẦY ĐỦ MEDIAMAP (DATA:IMAGE/...;BASE64,...)
+  // HÀM XUẤT BẢN ĐỀ THI: "INLINE EMBEDDING" ĐÓNG GÓI ẢNH TRỰC TIẾP VÀO TỪNG CÂU HỎI
   const handleFinalPublish = () => {
+    // NHÚNG TRỰC TIẾP ẢNH VÀO TỪNG CÂU HỎI VÀ TỪNG SECTION
+    const embeddedSections = sections.map((sec: any) => ({
+      ...sec,
+      media_map: mediaMap,
+      mediaMap: mediaMap,
+      questions: (sec.questions || []).map((q: any) => {
+        let resolvedSrc = q.image || "";
+        const promptText = q.prompt_html || q.prompt || "";
+        const m = promptText.match(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/i);
+        if (m && m[1]) {
+          const cleanK = m[1].replace(/\$/g, "").trim();
+          resolvedSrc = mediaMap[cleanK] || mediaMap[`$${cleanK}$`] || mediaMap[m[1]] || resolvedSrc;
+        }
+
+        return {
+          ...q,
+          image: resolvedSrc || undefined,
+          media_map: mediaMap,
+          mediaMap: mediaMap
+        };
+      })
+    }));
+
     const examPayload = {
       id: "exam-" + Date.now(),
       title: examTitle || "Đề thi mới",
       duration_minutes: duration,
       category,
-      sections,
+      sections: embeddedSections,
+      data: embeddedSections,
       total_points: 10.0,
       mediaMap: mediaMap,
       media_map: mediaMap,
       createdAt: new Date().toISOString()
     };
 
-    // Gọi callbacks tương thích
     if (typeof onSave === "function") onSave(examPayload);
     if (typeof onSaveExam === "function") onSaveExam(examPayload);
     if (typeof onSuccess === "function") onSuccess(examPayload);
