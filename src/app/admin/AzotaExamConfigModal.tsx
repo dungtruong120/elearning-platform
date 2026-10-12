@@ -376,7 +376,7 @@ export function repairMathTypeGlitch(raw: string): string {
 }
 
 // ============================================================================
-// 2. TRÍCH XUẤT ĐỆ QUY FILE WORD (.DOCX) - TỐI ƯU HÓA MEMORY VÀ BASE64
+// 2. TRÍCH XUẤT ĐỆ QUY FILE WORD (.DOCX) - LƯU BASE64 VĨNH CỬU CHỐNG MẤT ẢNH
 // ============================================================================
 
 export async function extractDocxDirectly(file: File) {
@@ -403,18 +403,16 @@ export async function extractDocxDirectly(file: File) {
     const fileEntry = zip.files[zipPath];
     if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       if (!pathToToken[zipPath]) {
-        const u8 = await fileEntry.async("uint8array");
-        let mime = "image/jpeg";
-        if (zipPath.toLowerCase().endsWith("png")) mime = "image/png";
-        else if (zipPath.toLowerCase().endsWith("svg")) mime = "image/svg+xml";
-        else if (zipPath.toLowerCase().endsWith("webp")) mime = "image/webp";
+        // ĐỌC TRỰC TIẾP RA BASE64 ĐỂ ẢNH SỐNG VĨNH CỬU KHI F5 HOẶC CHUYỂN SANG MÁY KHÁC
+        const b64 = await fileEntry.async("base64");
+        let ext = "jpeg";
+        if (zipPath.toLowerCase().endsWith("png")) ext = "png";
+        else if (zipPath.toLowerCase().endsWith("svg")) ext = "svg+xml";
+        else if (zipPath.toLowerCase().endsWith("webp")) ext = "webp";
+        else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
         
-        // Tạo blob URL để preview tức thời không tốn byte Base64 nhồi vào RAM
-        const blob = new Blob([u8], { type: mime });
-        const objectUrl = URL.createObjectURL(blob);
         const key = "img_" + (imgCount++);
-        
-        mediaMap[key] = objectUrl;
+        mediaMap[key] = `data:image/${ext};base64,${b64}`;
         pathToToken[zipPath] = "[img:$" + key + "$]";
       }
       relIdToToken[rId] = pathToToken[zipPath];
@@ -1008,8 +1006,8 @@ export function TokenViewer({
           if (rawKey.startsWith("$") && rawKey.endsWith("$")) {
             rawKey = rawKey.slice(1, -1);
           }
-          const isDirectUrl = rawKey.startsWith("http://") || rawKey.startsWith("https://") || rawKey.startsWith("blob:") || rawKey.startsWith("data:");
-          const src = isDirectUrl ? rawKey : mediaMap[rawKey];
+          const isDirectUrl = rawKey.startsWith("http://") || rawKey.startsWith("https://") || rawKey.startsWith("data:");
+          const src = isDirectUrl ? rawKey : (mediaMap[rawKey] || mediaMap["$" + rawKey + "$"]);
           if (!src) return null;
 
           return inline ? (
@@ -1057,7 +1055,7 @@ export function TokenViewer({
 }
 
 // ============================================================================
-// 5. COMPONENT MODAL AZOTA CHÍNH (XUẤT BẢN ĐỀ THI NON-BLOCKING & SẠCH BASE64)
+// 5. COMPONENT MODAL AZOTA CHÍNH (XUẤT BẢN ĐỀ THI VỚI BASE64 VĨNH CỬU)
 // ============================================================================
 
 interface AzotaExamConfigModalProps {
@@ -1164,20 +1162,26 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
         const blob = items[i].getAsFile();
         if (!blob) return;
 
-        // Dùng createObjectURL thay vì Base64 DataURL để tránh phình dung lượng
-        const blobUrl = URL.createObjectURL(blob);
-        const newKey = "img_clip_" + Date.now();
-        setMediaMap(prev => ({ ...prev, [newKey]: blobUrl }));
+        // DÙNG FileReader.readAsDataURL ĐỂ LƯU BASE64 VĨNH CỬU, KHÔNG DÙNG createObjectURL
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const b64 = event.target?.result as string;
+          if (!b64) return;
 
-        const token = "\n[img:$" + newKey + "$]\n";
-        if (textareaRef.current) {
-          const start = textareaRef.current.selectionStart || 0;
-          const end = textareaRef.current.selectionEnd || 0;
-          const updated = rawText.substring(0, start) + token + rawText.substring(end);
-          handleRawTextChange(updated);
-        } else {
-          handleRawTextChange(rawText + token);
-        }
+          const newKey = "img_clip_" + Date.now();
+          setMediaMap(prev => ({ ...prev, [newKey]: b64 }));
+
+          const token = "\n[img:$" + newKey + "$]\n";
+          if (textareaRef.current) {
+            const start = textareaRef.current.selectionStart || 0;
+            const end = textareaRef.current.selectionEnd || 0;
+            const updated = rawText.substring(0, start) + token + rawText.substring(end);
+            handleRawTextChange(updated);
+          } else {
+            handleRawTextChange(rawText + token);
+          }
+        };
+        reader.readAsDataURL(blob);
         break;
       }
     }
@@ -1410,20 +1414,26 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    // Dùng createObjectURL thay vì Base64 DataURL
-    const blobUrl = URL.createObjectURL(selectedFile);
-    const newKey = "img_custom_" + Date.now();
-    setMediaMap(prev => ({ ...prev, [newKey]: blobUrl }));
+    // DÙNG FileReader.readAsDataURL ĐỂ LƯU BASE64 VĨNH CỬU
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const b64 = event.target?.result as string;
+      if (!b64) return;
 
-    const token = "\n[img:$" + newKey + "$]\n";
-    if (textareaRef.current) {
-      const start = textareaRef.current.selectionStart || 0;
-      const end = textareaRef.current.selectionEnd || 0;
-      const updatedText = rawText.substring(0, start) + token + rawText.substring(end);
-      handleRawTextChange(updatedText);
-    } else {
-      handleRawTextChange(rawText + token);
-    }
+      const newKey = "img_custom_" + Date.now();
+      setMediaMap(prev => ({ ...prev, [newKey]: b64 }));
+
+      const token = "\n[img:$" + newKey + "$]\n";
+      if (textareaRef.current) {
+        const start = textareaRef.current.selectionStart || 0;
+        const end = textareaRef.current.selectionEnd || 0;
+        const updatedText = rawText.substring(0, start) + token + rawText.substring(end);
+        handleRawTextChange(updatedText);
+      } else {
+        handleRawTextChange(rawText + token);
+      }
+    };
+    reader.readAsDataURL(selectedFile);
     e.target.value = "";
   };
 
@@ -1456,16 +1466,8 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     return (tfGlobalPercent.a || 0) + (tfGlobalPercent.b || 0) + (tfGlobalPercent.c || 0) + (tfGlobalPercent.d || 0);
   }, [tfGlobalPercent]);
 
-  // HÀM XUẤT BẢN ĐỀ THI TỨC THÌ (NON-BLOCKING < 30MS & SẠCH BASE64)
+  // HÀM XUẤT BẢN ĐỀ THI VỚI ĐẦY ĐỦ MEDIAMAP (DATA:IMAGE/...;BASE64,...)
   const handleFinalPublish = () => {
-    // 1. Dọn dẹp sạch toàn bộ chuỗi Base64 khỏi mediaMap để dung lượng chỉ còn vài KB
-    const cleanMediaMap: Record<string, string> = {};
-    for (const [k, v] of Object.entries(mediaMap)) {
-      if (typeof v === "string" && !v.startsWith("data:image/")) {
-        cleanMediaMap[k] = v;
-      }
-    }
-
     const examPayload = {
       id: "exam-" + Date.now(),
       title: examTitle || "Đề thi mới",
@@ -1473,18 +1475,17 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       category,
       sections,
       total_points: 10.0,
-      mediaMap: cleanMediaMap,
-      media_map: cleanMediaMap,
+      mediaMap: mediaMap,
+      media_map: mediaMap,
       createdAt: new Date().toISOString()
     };
 
-    // 2. Kích hoạt toàn bộ callbacks tương thích
+    // Gọi callbacks tương thích
     if (typeof onSave === "function") onSave(examPayload);
     if (typeof onSaveExam === "function") onSaveExam(examPayload);
     if (typeof onSuccess === "function") onSuccess(examPayload);
     if (typeof onComplete === "function") onComplete(examPayload);
 
-    // 3. Đóng modal ngay lập tức (< 30ms)
     onClose();
   };
 
