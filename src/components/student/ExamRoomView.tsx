@@ -7,7 +7,7 @@ import {
   HelpCircle, ChevronLeft, ChevronRight, RotateCcw,
   Eye, Trophy, Home, Send, Award, Check, X,
   Grid3X3, BookOpen, PenLine, Loader2, Flag, ZoomIn,
-  ListFilter, FileText, Image as ImageIcon
+  ListFilter, FileText
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -40,36 +40,49 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
-// HÀM TRA CỨU VÀ GIẢI MÃ NGUỒN ẢNH ĐA TẦNG THÔNG MINH
+// BỘ TRA CỨU ẢNH ĐA TẦNG THÔNG MINH - KHẮC PHỤC TRIỆT ĐỂ LỖI MẤT BẢNG BIẾN THIÊN
 function resolveImageSrc(rawKey: string, mediaMap: Record<string, string> = {}): string {
   if (!rawKey) return "";
-  let cleanKey = rawKey.trim();
+  const trimmed = rawKey.trim();
 
-  // Bóc tách cú pháp thẻ bọc $
-  if (cleanKey.startsWith("$") && cleanKey.endsWith("$")) {
-    cleanKey = cleanKey.slice(1, -1).trim();
+  // 1. Nếu bản thân rawKey đã là link URL trực tiếp (http, https, blob, data:image)
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("blob:") ||
+    trimmed.startsWith("data:image/")
+  ) {
+    return trimmed;
   }
 
-  // 1. Nếu là URL trực tuyến hoặc Base64 trực tiếp
-  if (cleanKey.startsWith("http://") || cleanKey.startsWith("https://") || cleanKey.startsWith("data:image/") || cleanKey.startsWith("blob:")) {
-    return cleanKey;
-  }
+  if (!mediaMap || typeof mediaMap !== "object") return "";
 
-  // 2. Tra cứu trực tiếp trong mediaMap
-  if (mediaMap[cleanKey]) {
-    return mediaMap[cleanKey];
-  }
+  // 2. Tra cứu trực tiếp chính xác
+  if (mediaMap[trimmed]) return mediaMap[trimmed];
 
-  // 3. Tra cứu có tiền tố img_ hoặc không có tiền tố
-  if (mediaMap["$" + cleanKey + "$"]) {
-    return mediaMap["$" + cleanKey + "$"];
-  }
+  // 3. Xử lý dấu $ bọc quanh key (VD: "$img_1$" <-> "img_1")
+  const strippedDollar = trimmed.replace(/^\$+|\$+$/g, "").trim();
+  if (mediaMap[strippedDollar]) return mediaMap[strippedDollar];
+  if (mediaMap["$" + strippedDollar + "$"]) return mediaMap["$" + strippedDollar + "$"];
 
-  const normalizedKey = cleanKey.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  // 4. Tra cứu không phân biệt hoa thường và tiền tố
+  const cleanId = strippedDollar.toLowerCase().replace(/[^a-z0-9_]/g, "");
   for (const [k, v] of Object.entries(mediaMap)) {
-    const normK = k.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (normK === normalizedKey && v) {
-      return v;
+    if (!v) continue;
+    const cleanK = k.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (cleanK === cleanId) return v;
+  }
+
+  // 5. Thử tra cứu các biến thể phổ biến: img_1 -> 1, 1 -> img_1
+  const numberMatch = cleanId.match(/\d+/);
+  if (numberMatch) {
+    const num = numberMatch[0];
+    for (const [k, v] of Object.entries(mediaMap)) {
+      if (!v) continue;
+      const cleanK = k.toLowerCase().replace(/[^a-z0-9_]/g, "");
+      if (cleanK === `img_${num}` || cleanK === `image_${num}` || cleanK === num) {
+        return v;
+      }
     }
   }
 
@@ -100,7 +113,7 @@ function MathRenderer({
   text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}|\(\)/g, "");
 
-  // Nhận diện đồng thời [img:...], [image:...], {{...}}
+  // Chuẩn hóa mọi biến thể thẻ ảnh về chuẩn duy nhất: [img:xyz]
   text = text.replace(/\{\{([a-zA-Z0-9_\-\.\$\/]+)\}\}/g, "[img:$1]");
   text = text.replace(/\[image:([^\]]+)\]/gi, "[img:$1]");
 
@@ -116,7 +129,13 @@ function MathRenderer({
           const rawKey = imgMatch[1].trim();
           const src = resolveImageSrc(rawKey, mediaMap);
 
-          if (!src) return null;
+          if (!src) {
+            return (
+              <span key={i} className="my-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
+                <span>[Hình vẽ / Bảng biến thiên: {rawKey.replace(/\$/g, "")}]</span>
+              </span>
+            );
+          }
 
           return inline ? (
             <img
@@ -131,7 +150,7 @@ function MathRenderer({
               className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white cursor-pointer hover:opacity-90"
             />
           ) : (
-            <span key={i} className="my-2.5 block text-center">
+            <span key={i} className="my-3 block text-center">
               <span className="relative inline-block group cursor-pointer" onClick={() => onImageClick && onImageClick(src)}>
                 <img
                   src={src}
@@ -140,7 +159,7 @@ function MathRenderer({
                   onError={(e) => {
                     e.currentTarget.style.display = "none";
                   }}
-                  className="max-h-[220px] sm:max-h-[260px] max-w-full rounded-xl border border-slate-200/80 bg-white p-2 shadow-2xs object-contain mx-auto transition-transform group-hover:scale-[1.01]"
+                  className="max-h-[220px] sm:max-h-[280px] max-w-full rounded-2xl border border-slate-200/90 bg-white p-2.5 shadow-2xs object-contain mx-auto transition-transform group-hover:scale-[1.01]"
                 />
                 <span className="absolute bottom-3 right-3 bg-slate-900/70 text-white p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
                   <ZoomIn className="w-3.5 h-3.5" />
@@ -268,7 +287,7 @@ export function ExamRoomView({
     }
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
 
-  // TẢI CÂU HỎI VÀ HÌNH VẼ
+  // TẢI CÂU HỎI VÀ TOÀN BỘ HÌNH VẼ TỪ CÁC NGUỒN DỮ LIỆU
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
@@ -321,22 +340,27 @@ export function ExamRoomView({
         }
 
         if (targetExam) {
-          mappedImages = targetExam.media_map || targetExam.mediaMap || {};
-          
-          // Trích xuất bổ sung nếu câu hỏi có chứa mediaMap cục bộ
-          if (targetExam.data && Array.isArray(targetExam.data)) {
-            targetExam.data.forEach((sec: any) => {
-              if (sec.mediaMap) Object.assign(mappedImages, sec.mediaMap);
-              if (sec.media_map) Object.assign(mappedImages, sec.media_map);
-            });
+          // Trích xuất mediaMap cấp cao nhất
+          if (targetExam.media_map && typeof targetExam.media_map === "object") {
+            Object.assign(mappedImages, targetExam.media_map);
           }
-
-          setMediaMap(mappedImages);
+          if (targetExam.mediaMap && typeof targetExam.mediaMap === "object") {
+            Object.assign(mappedImages, targetExam.mediaMap);
+          }
 
           const rawSections = targetExam.data || targetExam.sections;
           if (rawSections && Array.isArray(rawSections)) {
             let qIdx = 1;
+
             rawSections.forEach((sec: any) => {
+              // Trích xuất mediaMap nằm trong từng section
+              if (sec.mediaMap && typeof sec.mediaMap === "object") {
+                Object.assign(mappedImages, sec.mediaMap);
+              }
+              if (sec.media_map && typeof sec.media_map === "object") {
+                Object.assign(mappedImages, sec.media_map);
+              }
+
               const secType = sec.section_type || sec.type || (
                 sec.section_title && /đúng\s*sai/i.test(sec.section_title)
                   ? "true_false"
@@ -347,8 +371,15 @@ export function ExamRoomView({
 
               (sec.questions || []).forEach((q: any) => {
                 const qType = q.type || secType || "multiple_choice";
-                
-                // Nếu từng câu hỏi có trường image riêng biệt thì đưa vào mediaMap
+
+                // Nếu câu hỏi có đính kèm mediaMap cục bộ
+                if (q.mediaMap && typeof q.mediaMap === "object") {
+                  Object.assign(mappedImages, q.mediaMap);
+                }
+                if (q.media_map && typeof q.media_map === "object") {
+                  Object.assign(mappedImages, q.media_map);
+                }
+
                 if (q.image && typeof q.image === "string") {
                   mappedImages[`q_img_${qIdx}`] = q.image;
                 }
@@ -383,6 +414,8 @@ export function ExamRoomView({
               image: q.image || (q.images && q.images[0]) || undefined
             }));
           }
+
+          setMediaMap(mappedImages);
         }
       } catch (err) {
         console.error("Lỗi khi tải đề thi:", err);
@@ -551,7 +584,6 @@ export function ExamRoomView({
       createdAt: nowIso
     };
 
-    // 1. GỬI QUA API ROUTE SERVER-SIDE
     try {
       await fetch("/api/student/submit-quiz", {
         method: "POST",
@@ -562,7 +594,6 @@ export function ExamRoomView({
       console.warn("Không kết nối được API Route, dùng client fallback:", apiErr);
     }
 
-    // 2. FALLBACK TRỰC TIẾP TỪ SUPABASE CLIENT
     const clientRecord: any = {
       id: "att-" + Date.now(),
       quiz_id: String(quizId),
@@ -606,7 +637,6 @@ export function ExamRoomView({
       console.error("Lỗi Fallback Client:", clientErr);
     }
 
-    // 3. PHÁT REALTIME CHO TOÀN BỘ CÁC TAB ADMIN ĐANG MỞ
     try {
       const channel = supabase.channel("admin-realtime-global-sync");
       channel.send({
@@ -616,7 +646,6 @@ export function ExamRoomView({
       });
     } catch (e) {}
 
-    // 4. LƯU LOCALSTORAGE ĐỂ PHỤC VỤ HIỂN THỊ OFFLINE
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
@@ -1056,7 +1085,7 @@ export function ExamRoomView({
                             : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
                         }`}
                       >
-                        <Flag className="w-3 h-3 fill-current" />
+                        <Flag className="w-3.5 h-3.5 fill-current" />
                         <span>{flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
                       </button>
                       <span className="text-xs font-semibold text-slate-500">
@@ -1068,15 +1097,14 @@ export function ExamRoomView({
                   <div className="py-0.5">
                     <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
                     
-                    {/* Fallback hiển thị hình ảnh nếu câu hỏi có trường image riêng */}
                     {currentQ.image && (
-                      <div className="my-2.5 text-center">
+                      <div className="my-3 text-center">
                         <img 
                           src={resolveImageSrc(currentQ.image, mediaMap)} 
                           alt="Hình minh họa" 
                           loading="lazy"
                           onClick={() => setPreviewImage(resolveImageSrc(currentQ.image!, mediaMap))}
-                          className="max-h-[220px] max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-2xs object-contain mx-auto cursor-pointer"
+                          className="max-h-[220px] max-w-full rounded-2xl border border-slate-200 bg-white p-2.5 shadow-2xs object-contain mx-auto cursor-pointer"
                         />
                       </div>
                     )}
@@ -1130,7 +1158,7 @@ export function ExamRoomView({
                                 : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
                             }`}
                           >
-                            <Flag className="w-3 h-3 fill-current" />
+                            <Flag className="w-3.5 h-3.5 fill-current" />
                             <span>{flaggedQuestions[q.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
                           </button>
                           <span className="text-xs font-semibold text-slate-500">
@@ -1143,13 +1171,13 @@ export function ExamRoomView({
                         <MathRenderer content={q.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
                         
                         {q.image && (
-                          <div className="my-2.5 text-center">
+                          <div className="my-3 text-center">
                             <img 
                               src={resolveImageSrc(q.image, mediaMap)} 
                               alt="Hình minh họa" 
                               loading="lazy"
                               onClick={() => setPreviewImage(resolveImageSrc(q.image!, mediaMap))}
-                              className="max-h-[220px] max-w-full rounded-xl border border-slate-200 bg-white p-2 shadow-2xs object-contain mx-auto cursor-pointer"
+                              className="max-h-[220px] max-w-full rounded-2xl border border-slate-200 bg-white p-2.5 shadow-2xs object-contain mx-auto cursor-pointer"
                             />
                           </div>
                         )}
