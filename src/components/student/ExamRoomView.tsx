@@ -29,6 +29,7 @@ interface QuestionItem {
   explanation?: string;
   image?: string;
   images?: string[];
+  mediaMap?: Record<string, string>;
 }
 
 interface ExamRoomViewProps {
@@ -40,26 +41,34 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
-// BỘ TRA CỨU ẢNH TOÀN DIỆN KHÔNG BỊ LỖI DẤU $
+// BỘ TRA CỨU ẢNH TOÀN DIỆN VÀ GHI NHẬN LOG NGUỒN ẢNH CHÍNH XÁC
 function resolveImageSrc(rawKey: string, mediaMap: Record<string, string> = {}): string {
   if (!rawKey) return "";
   const trimmed = rawKey.trim();
 
-  // 1. Nếu bản thân rawKey đã là link URL trực tiếp
+  // 1. Nếu bản thân rawKey đã là link URL trực tiếp hoặc Base64
   if (
     trimmed.startsWith("http://") ||
     trimmed.startsWith("https://") ||
-    trimmed.startsWith("blob:") ||
     trimmed.startsWith("data:image/")
   ) {
     return trimmed;
   }
 
-  if (!mediaMap || typeof mediaMap !== "object") return "";
+  // Nếu là blob URL (chỉ sống trong RAM phiên cũ), log cảnh báo
+  if (trimmed.startsWith("blob:")) {
+    console.warn(`[ExamRoomView] Phát hiện blob URL: ${trimmed}. Link này sẽ bị revoke nếu F5 hoặc sang thiết bị khác.`);
+    return trimmed;
+  }
+
+  if (!mediaMap || typeof mediaMap !== "object") {
+    console.warn(`[ExamRoomView] mediaMap rỗng khi tra cứu key: ${rawKey}`);
+    return "";
+  }
 
   const cleanKey = trimmed.replace(/^\$+|\$+$/g, "").trim();
 
-  // 2. Thử tất cả các dạng key phổ biến trong mediaMap
+  // 2. Thử các dạng key phổ biến trong mediaMap
   if (mediaMap[cleanKey]) return mediaMap[cleanKey];
   if (mediaMap[`$${cleanKey}$`]) return mediaMap[`$${cleanKey}$`];
   if (mediaMap[trimmed]) return mediaMap[trimmed];
@@ -84,6 +93,7 @@ function resolveImageSrc(rawKey: string, mediaMap: Record<string, string> = {}):
     }
   }
 
+  console.warn(`[ExamRoomView] Không tìm thấy ảnh cho key: ${rawKey}`, mediaMap);
   return "";
 }
 
@@ -101,8 +111,8 @@ function MathRenderer({
   if (!content) return null;
   let text = content.normalize("NFC");
 
-  // 1. CHUẨN HÓA VÀ LOẠI BỎ TRIỆT ĐỂ DẤU $ BÊN TRONG THẺ ẢNH TRƯỚC TIÊN
-  // Ví dụ: [img:$img_1$] -> [img:img_1], {{img_1}} -> [img:img_1]
+  // 1. CHUẨN HÓA VÀ LOẠI BỎ DẤU $ BÊN TRONG THẺ ẢNH TRƯỚC TIÊN
+  // [img:$img_1$] -> [img:img_1], {{img_1}} -> [img:img_1]
   text = text.replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/gi, "[img:$1]");
   text = text.replace(/\{\{\s*(?:img:)?\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\}\}/gi, "[img:$1]");
 
@@ -230,9 +240,7 @@ export function ExamRoomView({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
 
-  // Bộ trạng thái đánh dấu xem lại câu hỏi (Flag)
   const [flaggedQuestions, setFlaggedQuestions] = useState<Record<string, boolean>>({});
-  // Trạng thái phóng to ảnh (Lightbox)
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>(() => {
@@ -246,7 +254,6 @@ export function ExamRoomView({
     return {};
   });
 
-  // Chế độ xem: "scroll" (Cuộn danh sách) hoặc "single" (Từng câu)
   const [layoutMode, setLayoutMode] = useState<"single" | "scroll">("single");
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
@@ -290,7 +297,7 @@ export function ExamRoomView({
     }
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
 
-  // TẢI CÂU HỎI VÀ TOÀN BỘ HÌNH VẼ TỪ CÁC NGUỒN DỮ LIỆU
+  // TẢI CÂU HỎI VÀ ĐỒNG BỘ MEDIAMAP VÀO TỪNG QUESTION ITEM
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
@@ -385,6 +392,7 @@ export function ExamRoomView({
                   mappedImages[`q_img_${qIdx}`] = q.image;
                 }
 
+                // GÁN TRỰC TIẾP MEDIAMAP VÀO TỪNG CÂU HỎI ĐỂ CHỐNG LỆCH STATE
                 loaded.push({
                   id: q.id || ("q-" + qIdx),
                   order: qIdx++,
@@ -396,7 +404,8 @@ export function ExamRoomView({
                   })),
                   correctAnswer: q.correct_answer || q.correctAnswer || "A",
                   explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
-                  image: q.image || (q.images && q.images[0]) || undefined
+                  image: q.image || (q.images && q.images[0]) || undefined,
+                  mediaMap: mappedImages
                 });
               });
             });
@@ -412,7 +421,8 @@ export function ExamRoomView({
               })),
               correctAnswer: q.correct_answer || q.correctAnswer || "A",
               explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
-              image: q.image || (q.images && q.images[0]) || undefined
+              image: q.image || (q.images && q.images[0]) || undefined,
+              mediaMap: mappedImages
             }));
           }
 
@@ -723,6 +733,8 @@ export function ExamRoomView({
   const renderQuestionOptions = (q: QuestionItem) => {
     const isTF = isQuestionTrueFalse(q);
     const isShort = isQuestionShortAnswer(q);
+    // ƯU TIÊN MEDIAMAP TRỰC TIẾP TỪ CÂU HỎI
+    const effectiveMediaMap = q.mediaMap || mediaMap || {};
 
     // DẠNG TRẢ LỜI NGẮN
     if (isShort) {
@@ -811,7 +823,7 @@ export function ExamRoomView({
                         <div className="flex items-start gap-2">
                           <span className="font-bold text-[#1D4ED8] shrink-0 mt-0.5">{opt.key})</span>
                           <div className="flex-1">
-                            <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} onImageClick={setPreviewImage} />
+                            <MathRenderer content={opt.text} mediaMap={effectiveMediaMap} inline={true} onImageClick={setPreviewImage} />
                           </div>
                         </div>
                       </td>
@@ -907,7 +919,7 @@ export function ExamRoomView({
                 {opt.key}
               </span>
               <div className="flex-1 min-w-0">
-                <MathRenderer content={opt.text} mediaMap={mediaMap} inline={true} onImageClick={setPreviewImage} />
+                <MathRenderer content={opt.text} mediaMap={effectiveMediaMap} inline={true} onImageClick={setPreviewImage} />
               </div>
             </button>
           );
@@ -926,6 +938,7 @@ export function ExamRoomView({
   }
 
   const currentQ = questions[currentIdx] || questions[0];
+  const activeMediaMap = currentQ?.mediaMap || mediaMap || {};
 
   return (
     <div
@@ -1086,7 +1099,7 @@ export function ExamRoomView({
                             : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
                         }`}
                       >
-                        <Flag className="w-3 h-3 fill-current" />
+                        <Flag className="w-3.5 h-3.5 fill-current" />
                         <span>{flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
                       </button>
                       <span className="text-xs font-semibold text-slate-500">
@@ -1096,15 +1109,20 @@ export function ExamRoomView({
                   </div>
 
                   <div className="py-0.5">
-                    <MathRenderer content={currentQ.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                    {/* TRUYỀN MEDIAMAP ĐA TẦNG VÀO NỘI DUNG CÂU HỎI */}
+                    <MathRenderer 
+                      content={currentQ.prompt} 
+                      mediaMap={currentQ.mediaMap || mediaMap || {}} 
+                      onImageClick={setPreviewImage} 
+                    />
                     
                     {currentQ.image && (
                       <div className="my-3 text-center">
                         <img 
-                          src={resolveImageSrc(currentQ.image, mediaMap)} 
+                          src={resolveImageSrc(currentQ.image, currentQ.mediaMap || mediaMap || {})} 
                           alt="Hình minh họa" 
                           loading="lazy"
-                          onClick={() => setPreviewImage(resolveImageSrc(currentQ.image!, mediaMap))}
+                          onClick={() => setPreviewImage(resolveImageSrc(currentQ.image!, currentQ.mediaMap || mediaMap || {}))}
                           className="max-h-[220px] max-w-full rounded-2xl border border-slate-200 bg-white p-2.5 shadow-2xs object-contain mx-auto cursor-pointer"
                         />
                       </div>
@@ -1119,7 +1137,11 @@ export function ExamRoomView({
                         <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
                       </p>
                       <div className="text-slate-700 leading-relaxed font-normal">
-                        <MathRenderer content={currentQ.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                        <MathRenderer 
+                          content={currentQ.explanation} 
+                          mediaMap={currentQ.mediaMap || mediaMap || {}} 
+                          onImageClick={setPreviewImage} 
+                        />
                       </div>
                     </div>
                   )}
@@ -1169,15 +1191,19 @@ export function ExamRoomView({
                       </div>
 
                       <div className="py-0.5">
-                        <MathRenderer content={q.prompt} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                        <MathRenderer 
+                          content={q.prompt} 
+                          mediaMap={q.mediaMap || mediaMap || {}} 
+                          onImageClick={setPreviewImage} 
+                        />
                         
                         {q.image && (
                           <div className="my-3 text-center">
                             <img 
-                              src={resolveImageSrc(q.image, mediaMap)} 
+                              src={resolveImageSrc(q.image, q.mediaMap || mediaMap || {})} 
                               alt="Hình minh họa" 
                               loading="lazy"
-                              onClick={() => setPreviewImage(resolveImageSrc(q.image!, mediaMap))}
+                              onClick={() => setPreviewImage(resolveImageSrc(q.image!, q.mediaMap || mediaMap || {}))}
                               className="max-h-[220px] max-w-full rounded-2xl border border-slate-200 bg-white p-2.5 shadow-2xs object-contain mx-auto cursor-pointer"
                             />
                           </div>
@@ -1192,7 +1218,11 @@ export function ExamRoomView({
                             <HelpCircle className="w-3.5 h-3.5" /> Lời giải chi tiết:
                           </p>
                           <div>
-                            <MathRenderer content={q.explanation} mediaMap={mediaMap} onImageClick={setPreviewImage} />
+                            <MathRenderer 
+                              content={q.explanation} 
+                              mediaMap={q.mediaMap || mediaMap || {}} 
+                              onImageClick={setPreviewImage} 
+                            />
                           </div>
                         </div>
                       )}
