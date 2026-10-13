@@ -54,15 +54,15 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action } = body;
 
-    // ACTION 1: CẬP NHẬT TRẠNG THÁI DUYỆT HỌC VIÊN
+    // 1. CẬP NHẬT TRẠNG THÁI DUYỆT HỌC VIÊN ĐỒNG THỜI CẢ 3 TRƯỜNG
     if (action === "update_status") {
       const { studentId, status } = body;
-      if (!studentId) {
-        return NextResponse.json({ success: false, error: "Thiếu studentId" }, { status: 400 });
+      if (!studentId || !status) {
+        return NextResponse.json({ success: false, error: "Thiếu tham số" }, { status: 400 });
       }
 
       const isApproved = status === "approved";
-      const { data, error } = await supabaseServer
+      const { error } = await supabaseServer
         .from("profiles")
         .update({
           approval_status: status,
@@ -70,14 +70,16 @@ export async function POST(req: Request) {
           is_approved: isApproved,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", studentId)
-        .select();
+        .eq("id", studentId);
 
-      if (error) throw error;
-      return NextResponse.json({ success: true, data });
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true });
     }
 
-    // ACTION 2: XÓA HỌC SINH VĨNH VIỄN KHỎI CƠ SỞ DỮ LIỆU
+    // 2. XÓA HỌC SINH VĨNH VIỄN KHỎI DATABASE
     if (action === "delete_student") {
       const { studentId } = body;
       if (!studentId) {
@@ -89,42 +91,42 @@ export async function POST(req: Request) {
         .delete()
         .eq("id", studentId);
 
-      if (error) throw error;
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
       return NextResponse.json({ success: true });
     }
 
-    // ACTION 3: GHI ĐÈ HỒ SƠ HỌC SINH MỚI ĐĂNG KÝ BẤT CHẤP RLS
+    // 3. GHI ĐÈ HỒ SƠ HỌC SINH MỚI ĐĂNG KÝ BẤT CHẤP RLS
     if (action === "register_profile") {
-      const { profileData } = body;
-      if (!profileData || !profileData.id) {
-        return NextResponse.json({ success: false, error: "Thiếu profileData" }, { status: 400 });
-      }
-
-      const mode = (profileData.learningMode || "offline").toLowerCase();
-
-      const newRecord = {
-        id: profileData.id,
-        full_name: profileData.fullName || "",
-        email: (profileData.email || "").toLowerCase().trim(),
-        phone: profileData.phone || "",
-        school: profileData.school || "THPT",
-        grade: profileData.grade || "Lớp 12",
-        learning_mode: mode,
-        study_mode: mode,
-        role: "student",
-        approval_status: "pending",
-        status: "pending",
-        is_approved: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+      const { id, fullName, email, phone, school, grade, learningMode } = body.profileData || {};
+      const mode = String(learningMode || "offline").toLowerCase();
 
       const { error } = await supabaseServer
         .from("profiles")
-        .upsert([newRecord]);
+        .upsert([{
+          id,
+          full_name: fullName || "",
+          email: (email || "").toLowerCase().trim(),
+          phone: (phone || "").trim(),
+          school: (school || "THPT").trim(),
+          grade: grade || "Lớp 12",
+          learning_mode: mode,
+          study_mode: mode,
+          role: "student",
+          approval_status: "pending",
+          status: "pending",
+          is_approved: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }]);
 
-      if (error) throw error;
-      return NextResponse.json({ success: true, profile: newRecord });
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ success: false, error: "Action không hợp lệ" }, { status: 400 });
