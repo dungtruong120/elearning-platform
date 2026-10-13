@@ -1132,79 +1132,34 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA - CẬP NHẬT onSave ĐỂ TRÁNH LỖI TS2769 VÀ TS2322 */}
-      {testFile && azotaTarget && (
+     {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA */}
+      {testFile && (
         <AzotaExamConfigModal 
-          isOpen={true} 
-          file={testFile} 
-          mode="course"
-          onClose={() => { setTestFile(null); setAzotaTarget(null); }} 
+          isOpen={Boolean(testFile)} 
+          file={testFile}
+          initialData={editingExamData ? {
+            title: editingExamData.title,
+            category: editingExamData.category,
+            duration_minutes: editingExamData.duration_minutes,
+            sections: editingExamData.data || editingExamData.sections,
+            mediaMap: editingExamData.media_map || editingExamData.mediaMap
+          } : undefined}
+          mode={uploadMode || "course"} 
+          onClose={() => { 
+            if (setTestFile) setTestFile(null); 
+            if (setEditingExamData) setEditingExamData(null); 
+            if (setAzotaTarget) setAzotaTarget(null);
+          }} 
           onSave={(examData: any) => {
-            const isHw = azotaTarget.type === "homework_files";
-            const newExam = {
-              id: `exam-${Date.now()}`,
-              title: examData.title || (isHw ? "Bài BTVN trực tuyến" : "Bài kiểm tra định kỳ"),
-              isHomework: isHw,
-              duration_minutes: isHw ? 0 : (examData.duration_minutes || 45),
-              is_quiz: true,
-              data: examData.sections || [],
-              sections: examData.sections || [],
-              media_map: examData.mediaMap || examData.media_map || {},
-              mediaMap: examData.mediaMap || examData.media_map || {}
-            };
-
-            const newChapters = chapters.map(chap => ({
-              ...chap,
-              lessons: chap.lessons.map((les: any) => {
-                if (les.id === azotaTarget.lessonId) {
-                  const currentList = les[azotaTarget.type] || [];
-                  return { ...les, [azotaTarget.type]: [...currentList, newExam] };
-                }
-                return les;
-              })
-            }));
-
-            if (saveToStorage) saveToStorage(newChapters);
-            if (onUpdateChapters) onUpdateChapters(newChapters);
-            
-            setTestFile(null); 
-            setAzotaTarget(null);
-            alert("✅ Đã xuất bản và lưu đề thi thành công lên hệ thống! Học sinh có thể vào làm bài ngay.");
-          }}
-          onPublish={(examData: any) => {
-            const isHw = azotaTarget.type === "homework_files";
-            const newExam = {
-              id: `exam-${Date.now()}`,
-              title: examData.title || (isHw ? "Bài BTVN trực tuyến" : "Bài kiểm tra định kỳ"),
-              isHomework: isHw,
-              duration_minutes: isHw ? 0 : (examData.duration_minutes || 45),
-              is_quiz: true,
-              data: examData.sections || [],
-              sections: examData.sections || [],
-              media_map: examData.mediaMap || examData.media_map || {},
-              mediaMap: examData.mediaMap || examData.media_map || {}
-            };
-
-            const newChapters = chapters.map(chap => ({
-              ...chap,
-              lessons: chap.lessons.map((les: any) => {
-                if (les.id === azotaTarget.lessonId) {
-                  const currentList = les[azotaTarget.type] || [];
-                  return { ...les, [azotaTarget.type]: [...currentList, newExam] };
-                }
-                return les;
-              })
-            }));
-
-            if (saveToStorage) saveToStorage(newChapters);
-            if (onUpdateChapters) onUpdateChapters(newChapters);
-            
-            setTestFile(null); 
-            setAzotaTarget(null);
-            alert("✅ Đã xuất bản và lưu đề thi thành công lên hệ thống! Học sinh có thể vào làm bài ngay.");
+            if (typeof onSaveAzotaExam === "function") {
+              onSaveAzotaExam(examData);
+            }
+            if (setTestFile) setTestFile(null); 
+            if (setEditingExamData) setEditingExamData(null); 
+            if (setAzotaTarget) setAzotaTarget(null);
           }}
         />
       )}
-    </div>
+    </>
   );
 }
