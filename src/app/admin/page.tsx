@@ -27,51 +27,15 @@ function normalizeText(str: any): string {
     .trim();
 }
 
-// HÀM LOẠI BỎ BASE64 TRƯỚC KHI LƯU SUPABASE ĐỂ GIẢM TẢI DUNG LƯỢNG
+// BẢO TOÀN 100% MEDIAMAP VÀ DATA/SECTIONS - KHÔNG XÓA BASE64 ĐỂ HỌC SINH THẤY ẢNH ĐỀ THI
 function sanitizeChaptersPayload(chaptersData: any[]): any[] {
   if (!Array.isArray(chaptersData)) return [];
-  return chaptersData.map(chap => ({
-    ...chap,
-    lessons: (chap?.lessons || []).map((les: any) => {
-      const cleanLes = { ...les };
-      const stripMediaMap = (items: any[]) => {
-        if (!Array.isArray(items)) return items;
-        return items.map(it => {
-          if (!it || typeof it !== "object") return it;
-          const cleanItem = { ...it };
-          if (cleanItem.mediaMap) {
-            const cleanMap: Record<string, string> = {};
-            for (const [k, v] of Object.entries(cleanItem.mediaMap)) {
-              if (typeof v === "string" && !v.startsWith("data:image/")) {
-                cleanMap[k] = v;
-              }
-            }
-            cleanItem.mediaMap = cleanMap;
-          }
-          if (cleanItem.media_map) {
-            const cleanMap: Record<string, string> = {};
-            for (const [k, v] of Object.entries(cleanItem.media_map)) {
-              if (typeof v === "string" && !v.startsWith("data:image/")) {
-                cleanMap[k] = v;
-              }
-            }
-            cleanItem.media_map = cleanMap;
-          }
-          return cleanItem;
-        });
-      };
-
-      if (cleanLes.homework_files) cleanLes.homework_files = stripMediaMap(cleanLes.homework_files);
-      if (cleanLes.test_quizzes) cleanLes.test_quizzes = stripMediaMap(cleanLes.test_quizzes);
-      return cleanLes;
-    })
-  }));
+  return chaptersData;
 }
 
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
-  // 1. ĐỌC TAB TỪ URL HASH
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "") as AdminTab;
@@ -84,7 +48,6 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // 2. KHỞI TẠO STATE AN TOÀN VỚI FALLBACK DEFAULT ĐẦY ĐỦ
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -135,7 +98,6 @@ function AdminDashboardContent() {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
-  // 3. STATE QUẢN LÝ TIẾN TRÌNH ĐỒNG BỘ
   const [syncStatus, setSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
@@ -299,11 +261,10 @@ function AdminDashboardContent() {
     }
   };
 
-  // 4. TRẠM ĐỒNG BỘ TRUNG TÂM (NOTIFY & SYNC - KHÔNG CHẶN GIAO DIỆN)
+  // TRẠM ĐỒNG BỘ TRUNG TÂM (NOTIFY & SYNC - KHÔNG CHẶN GIAO DIỆN)
   const notifyAndSync = useCallback((newChapters: any[], taskName: string = "bài học"): Promise<boolean> => {
     latestChaptersRef.current = newChapters;
 
-    // A. Cập nhật state UI lập tức trong 0ms
     startTransition(() => {
       setChapters(newChapters);
     });
@@ -315,7 +276,6 @@ function AdminDashboardContent() {
       console.warn("Lỗi ghi LocalStorage:", e);
     }
 
-    // B. Kích hoạt thanh tiến trình bài học sang trạng thái Đang tải
     setSyncStatus({
       isSyncing: true,
       progress: 30,
@@ -355,7 +315,6 @@ function AdminDashboardContent() {
           if (insertError) throw new Error(insertError.message);
         }
 
-        // C. Hoàn tất 100%
         setSyncStatus({
           isSyncing: true,
           progress: 100,
@@ -534,7 +493,22 @@ function AdminDashboardContent() {
     };
 
     try {
-      await supabase.from("profiles").insert([newStudent]);
+      await fetch("/api/admin/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "register_profile",
+          profileData: {
+            id: newStudent.id,
+            fullName: newStudent.full_name,
+            email: newStudent.email,
+            phone: newStudent.phone,
+            school: newStudent.school,
+            grade: newStudent.grade,
+            learningMode: newStudent.learning_mode
+          }
+        })
+      });
     } catch {}
 
     const updated = [newStudent, ...registeredStudents];
@@ -890,34 +864,69 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
+  // HÀM DUYỆT HỌC VIÊN: OPTIMISTIC UI (0MS) + GỌI API BACKEND TRÁNH BỊ RLS CHẶN
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
-    try {
-      await supabase.from("profiles").update({ approval_status: status }).eq("id", studentId);
-    } catch {}
-    const updated = registeredStudents.map(s => s.id === studentId ? { ...s, approval_status: status } : s);
+    // 1. Cập nhật giao diện lập tức (0ms)
+    const updated = registeredStudents.map(s => 
+      s.id === studentId 
+        ? { ...s, approval_status: status, status: status, is_approved: status === "approved" } 
+        : s
+    );
     setRegisteredStudents(updated);
     if (typeof window !== "undefined") {
-      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+      try {
+        localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+      } catch (e) {}
     }
     showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!", "success");
+
+    // 2. Đồng bộ lên Server qua API backend (tránh bị RLS chặn từ client)
+    try {
+      const res = await fetch("/api/admin/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_status",
+          studentId,
+          status
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        // Fallback gọi direct qua client SDK
+        await supabase.from("profiles").update({ 
+          approval_status: status, 
+          status: status, 
+          is_approved: status === "approved" 
+        }).eq("id", studentId);
+      }
+    } catch (err) {
+      console.warn("Lỗi đồng bộ trạng thái duyệt:", err);
+      try {
+        await supabase.from("profiles").update({ 
+          approval_status: status, 
+          status: status, 
+          is_approved: status === "approved" 
+        }).eq("id", studentId);
+      } catch {}
+    }
   };
 
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
-    try {
-      await supabase.from("profiles").delete().eq("id", studentId);
-    } catch {}
     const updated = registeredStudents.filter(s => s.id !== studentId);
     setRegisteredStudents(updated);
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
     }
+    try {
+      await supabase.from("profiles").delete().eq("id", studentId);
+    } catch {}
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.", "success");
   };
 
   const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
     if (!confirm("Bạn có chắc chắn muốn XÓA ca học \"" + sessionTitle + "\" khỏi hệ thống?")) return;
-
     try {
       await supabase.from("sessions").delete().eq("id", sessionId);
     } catch (err: any) {}
@@ -1106,7 +1115,6 @@ function AdminDashboardContent() {
     } catch {}
   };
 
-  // 5. TÍNH TOÁN AN TOÀN CHO TAB ĐIỂM SỐ & XẾP HẠNG (#analytics)
   const analyticsData = useMemo(() => {
     const profileMap = new Map<string, any>();
     (registeredStudents || []).forEach(s => {
@@ -1272,7 +1280,6 @@ function AdminDashboardContent() {
     chapters
   ]);
 
-  // 6. TÍNH TOÁN AN TOÀN CHO BẢNG ĐIỂM DANH (#online_schedule)
   const getVietnameseLastName = (fullName: string): string => {
     if (!fullName) return "";
     const parts = fullName.trim().split(/\s+/);
@@ -1304,7 +1311,6 @@ function AdminDashboardContent() {
     return list;
   }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
 
-  // 7. TÍNH TOÁN DANH SÁCH ĐỀ THI
   const examsWithScoresData = useMemo(() => {
     let list = Array.isArray(practiceExams) ? [...practiceExams] : [];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
@@ -1346,7 +1352,7 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // HÀM LƯU TỪ MODAL AZOTA / WORD PHẢN HỒI TỨC THÌ
+  // HÀM LƯU ĐỀ THI TỪ AZOTA CONFIG MODAL: GIỮ NGUYÊN MEDIAMAP VÀ SECTIONS
   const handleSaveAzotaExam = (examData: any) => {
     if (uploadMode === "practice") {
       const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
@@ -1359,8 +1365,10 @@ function AdminDashboardContent() {
         allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
         driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
         solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
-        data: examData.sections, 
-        media_map: examData.mediaMap || {},
+        data: examData.sections || examData.data, 
+        sections: examData.sections || examData.data,
+        media_map: examData.mediaMap || examData.media_map || {},
+        mediaMap: examData.mediaMap || examData.media_map || {},
         created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
       };
 
@@ -1395,8 +1403,10 @@ function AdminDashboardContent() {
         isHomework: isHw, 
         duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
         is_quiz: true, 
-        data: examData.sections, 
-        mediaMap: examData.mediaMap || {}
+        data: examData.sections || examData.data, 
+        sections: examData.sections || examData.data,
+        mediaMap: examData.mediaMap || examData.media_map || {},
+        media_map: examData.mediaMap || examData.media_map || {}
       };
 
       const newChapters = (chapters || []).map(chap => ({ 
@@ -1476,7 +1486,6 @@ function AdminDashboardContent() {
         <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
           {activeTab === "lessons" && (
             <div className="space-y-4">
-              {/* THANH TRẠNG THÁI TIẾN TRÌNH TẢI LÊN CỐ ĐỊNH NGAY TRONG GIAO DIỆN BÀI HỌC */}
               {!syncStatus.isSyncing && syncStatus.type === "idle" && (
                 <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between text-xs text-slate-500 shadow-2xs">
                   <div className="flex items-center gap-2 font-medium">
