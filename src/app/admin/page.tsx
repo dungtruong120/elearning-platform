@@ -16,12 +16,6 @@ import NotificationsTab from "@/components/admin/tabs/NotificationsTab";
 import StudentsTab from "@/components/admin/tabs/StudentsTab";
 import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
-import { 
-  LayoutDashboard, BookOpen, Users, Award, Trophy, 
-  Plus, FileText, Video, PenTool, ClipboardCheck, 
-  Trash2, LinkIcon, X, FileUp, FileSignature, FolderPlus, GraduationCap
-} from "lucide-react";
-import { AzotaExamConfigModal } from "../../admin/AzotaExamConfigModal";
 
 // HÀM CHUẨN HÓA TIÊU ĐỀ KHÔNG BỊ LỖI FONT TIẾNG VIỆT
 function normalizeText(str: any): string {
@@ -104,21 +98,7 @@ async function optimizeExamMediaMap(mediaMap: Record<string, any>): Promise<Reco
   return optimized;
 }
 
-const INITIAL_CHAPTERS = [
-  {
-    id: "chap-1",
-    title: "Chương 1: Ứng dụng đạo hàm để khảo sát hàm số",
-    lessons: [
-      {
-        id: "les-1",
-        title: "Bài 1: Tính đơn điệu của hàm số",
-        lecture_files: [], homework_files: [], handwritten_notes: [], video_list: [], test_quizzes: [], extra_resources: []
-      }
-    ]
-  }
-];
-
-export default function AdminDashboardContent() {
+function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
@@ -290,10 +270,7 @@ export default function AdminDashboardContent() {
   const [testFile, setTestFile] = useState<File | null>(null);
   const [editingExamData, setEditingExamData] = useState<any | null>(null);
   const [azotaTarget, setAzotaTarget] = useState<{ lessonId: string; type: "homework_files" | "test_quizzes" } | null>(null);
-  const [resourceModal, setResourceModal] = useState<{
-    isOpen: boolean; lessonId: string; lessonTitle: string; 
-    type: "lecture_files" | "homework_files" | "handwritten_notes" | "video_list" | "extra_resources" | "test_quizzes";
-  } | null>(null);
+  const [resourceModal, setResourceModal] = useState<any>(null);
   const [resTitle, setResTitle] = useState(""); 
   const [resUrl, setResUrl] = useState(""); 
   const [vidType, setVidType] = useState<"lecture" | "homework_solution">("lecture");
@@ -339,14 +316,6 @@ export default function AdminDashboardContent() {
     attempts: [],
   });
 
-  const handleWordUpload = (e: React.ChangeEvent<HTMLInputElement>, lessonId: string, targetType: any) => {
-    if (e.target.files?.[0]) {
-      setTestFile(e.target.files[0]);
-      setAzotaTarget({ lessonId, type: targetType });
-      setResourceModal(null);
-    }
-  };
-
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => { 
     setToastNotification({ message: msg, type }); 
     setTimeout(() => setToastNotification(null), 3500); 
@@ -369,12 +338,6 @@ export default function AdminDashboardContent() {
       localStorage.removeItem("edunexus_user_session");
       window.location.href = "/";
     }
-  };
-
-  const saveToStorage = (newChapters: any[]) => {
-    setChapters(newChapters);
-    localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
-    window.dispatchEvent(new Event("storage"));
   };
 
   const notifyAndSync = useCallback((newChapters: any[], taskName: string = "bài học"): Promise<boolean> => {
@@ -457,6 +420,7 @@ export default function AdminDashboardContent() {
   }, [showToast]);
 
   const handleOptimisticUpdateChapters = notifyAndSync;
+  const saveToStorage = notifyAndSync;
 
   const handleRetrySync = () => {
     if (latestChaptersRef.current) {
@@ -775,7 +739,7 @@ export default function AdminDashboardContent() {
     });
   };
 
-  const handleCreateNewItem = (e: React.FormEvent) => {
+  const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
     
@@ -821,7 +785,7 @@ export default function AdminDashboardContent() {
     showToast("Đã thêm " + itemLabel + " mới thành công!", "success");
   };
 
-  const handleEditLessonSubmit = (e: React.FormEvent) => {
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editLessonModal || !editLessonForm.title.trim()) return;
     const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
@@ -832,7 +796,7 @@ export default function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin bài học!", "success");
   };
 
-  const handleDeleteLesson = (chapterId: string, lessonId: string) => {
+  const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
     const newChapters = (chapters || []).map(chap => {
       if (chap?.id === chapterId) { 
@@ -844,7 +808,7 @@ export default function AdminDashboardContent() {
     showToast("Đã xóa bài học!", "success");
   };
 
-  const handleAddResource = (e: React.FormEvent) => {
+  const handleAddResource = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
     const newResource = { 
@@ -857,9 +821,7 @@ export default function AdminDashboardContent() {
       ...chap, 
       lessons: (chap?.lessons || []).map((les: any) => { 
         if (les?.id === resourceModal.lessonId) { 
-          const rType = resourceModal.type as "lecture_files" | "homework_files" | "handwritten_notes" | "video_list" | "extra_resources" | "test_quizzes";
-          const currentList = les[rType] || [];
-          return { ...les, [rType]: [...currentList, newResource] }; 
+          return { ...les, [resourceModal.type]: [...(les[resourceModal.type] || []), newResource] }; 
         } 
         return les; 
       }), 
@@ -872,7 +834,7 @@ export default function AdminDashboardContent() {
     showToast("Đã thêm tài nguyên thành công!", "success");
   };
 
-  const handleAddBoost = (e: React.FormEvent) => {
+  const handleAddBoost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
     const newBoost = { id: "boost-" + Date.now(), ...boostForm };
@@ -891,7 +853,7 @@ export default function AdminDashboardContent() {
     showToast("Đã thêm tài liệu tăng cường!", "success");
   };
 
-  const handleAddDriveFile = (e: React.FormEvent) => {
+  const handleAddDriveFile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
     const newItem = { id: "drive-" + Date.now(), title: driveLinkForm.title, url: driveLinkForm.url, is_quiz: false, is_drive_file: true };
@@ -910,7 +872,7 @@ export default function AdminDashboardContent() {
     showToast("Đã đính kèm file Drive!", "success");
   };
 
-  const handleDeleteResource = (lessonId: string, resType: string, resId: string) => {
+  const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
     
     if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
@@ -926,7 +888,7 @@ export default function AdminDashboardContent() {
     showToast("Đã xóa tài nguyên!", "success");
   };
 
-  const handleEditResourceSubmit = (e: React.FormEvent) => {
+  const handleEditResourceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editResourceModal || !editResourceForm.title.trim()) return;
     const newChapters = (chapters || []).map(chap => ({ 
@@ -1506,7 +1468,7 @@ export default function AdminDashboardContent() {
         type: "loading"
       });
 
-      // 2. ĐỒNG BỘ NGẦM LÊN SERVER QUA BACKEND API SERVICE ROLE KEY (BẢO VỆ CHỐNG RLS & HTTP 413)
+      // 2. NÉN ẢNH VÀ ĐỒNG BỘ NGẦM LÊN SERVER QUA BACKEND API SERVICE ROLE KEY (BẢO VỆ CHỐNG RLS & HTTP 413)
       (async () => {
         try {
           setPracticeSyncStatus(prev => ({
