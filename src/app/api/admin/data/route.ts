@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Khởi tạo Supabase Server Client với SERVICE_ROLE_KEY để bypass RLS và có quyền quản trị Auth Admin
+// Khởi tạo Supabase Server Client với SERVICE_ROLE_KEY để bypass RLS và xử lý payload lớn
 const supabaseServer = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // ACTION 2: XÓA HỌC SINH VĨNH VIỄN Ở CẢ AUTH USERS VÀ PUBLIC PROFILES (GIẢI PHÓNG EMAIL)
+    // ACTION 2: XÓA HỌC SINH VĨNH VIỄN Ở CẢ AUTH USERS VÀ PUBLIC PROFILES
     if (action === "delete_student") {
       const { studentId } = body;
       if (!studentId) {
@@ -93,13 +93,11 @@ export async function POST(req: Request) {
       }
 
       try {
-        // 1. Xóa trong hệ thống Supabase Auth (giải phóng email để học sinh có thể đăng ký lại)
         const { error: authError } = await supabaseServer.auth.admin.deleteUser(studentId);
         if (authError) {
           console.warn("[API delete_student] Cảnh báo xóa auth user:", authError.message);
         }
 
-        // 2. Xóa trong bảng public.profiles
         const { error: profileError } = await supabaseServer
           .from("profiles")
           .delete()
@@ -143,6 +141,43 @@ export async function POST(req: Request) {
       }
 
       return NextResponse.json({ success: true });
+    }
+
+    // ACTION 4: LƯU / CẬP NHẬT ĐỀ THI LUYỆN ĐỀ (PRACTICE EXAMS) - BYPASS RLS & PAYLOAD LỚN
+    if (action === "save_practice_exam") {
+      const { examData } = body;
+      if (!examData || !examData.id) {
+        return NextResponse.json({ success: false, error: "Thiếu thông tin examData hoặc id" }, { status: 400 });
+      }
+
+      const examPayload = {
+        id: String(examData.id).trim(),
+        title: examData.title || "Đề luyện thi mới",
+        category: examData.category || "Tự do",
+        duration_minutes: Number(examData.duration_minutes) || 45,
+        target_mode: examData.target_mode || "all",
+        allowRetake: examData.allowRetake ?? true,
+        allowViewFile: examData.allowViewFile ?? true,
+        driveUrl: examData.driveUrl || "",
+        solutionVideoUrl: examData.solutionVideoUrl || "",
+        data: examData.sections || examData.data || [],
+        sections: examData.sections || examData.data || [],
+        media_map: examData.media_map || examData.mediaMap || {},
+        mediaMap: examData.media_map || examData.mediaMap || {},
+        created_at: examData.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { error } = await supabaseServer
+        .from("practice_exams")
+        .upsert([examPayload]);
+
+      if (error) {
+        console.error("[API save_practice_exam] Lỗi Supabase upsert:", error);
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, examId: examPayload.id });
     }
 
     return NextResponse.json({ success: false, error: "Action không hợp lệ" }, { status: 400 });
