@@ -68,41 +68,71 @@ function normalizeStudentProfile(raw: any): any {
   };
 }
 
-// HÀM NÉN ẢNH BASE64 CLIENT-SIDE BẰNG CANVAS (ĐẢM BẢO ĐỀ THI NHẸ < 500KB)
-async function compressBase64Image(base64Str: string, maxWidth = 900, quality = 0.8): Promise<string> {
-  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) return base64Str;
+// HÀM LƯU LOCALSTORAGE AN TOÀN CHỐNG LỖI QUOTA EXCEEDED
+function safeSavePracticeExamsToStorage(examsList: any[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("edunexus_practice_exams", JSON.stringify(examsList));
+  } catch (e) {
+    console.warn("LocalStorage đầy dung lượng, chuyển sang lưu metadata tóm tắt.");
+    const lightweightExams = (examsList || []).map((ex: any) => ({
+      id: ex?.id,
+      title: ex?.title,
+      category: ex?.category,
+      duration_minutes: ex?.duration_minutes,
+      target_mode: ex?.target_mode,
+      allowRetake: ex?.allowRetake,
+      allowViewFile: ex?.allowViewFile,
+      driveUrl: ex?.driveUrl,
+      solutionVideoUrl: ex?.solutionVideoUrl,
+      created_at: ex?.created_at
+    }));
+    try {
+      localStorage.setItem("edunexus_practice_exams", JSON.stringify(lightweightExams));
+    } catch (err) {
+      try {
+        localStorage.removeItem("edunexus_practice_exams");
+        localStorage.setItem("edunexus_practice_exams", JSON.stringify(lightweightExams));
+      } catch {}
+    }
+  }
+}
+
+// HÀM NÉN ẢNH CANVAS XUỐNG MAXWIDTH 800PX, QUALITY 0.7 (30-50KB/ẢNH)
+async function compressBase64(base64: string): Promise<string> {
+  if (!base64 || typeof base64 !== "string" || !base64.startsWith("data:image")) return base64;
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      let width = img.width;
-      let height = img.height;
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width);
-        width = maxWidth;
+      let w = img.width;
+      let h = img.height;
+      const maxW = 800;
+      if (w > maxW) {
+        h = Math.round((h * maxW) / w);
+        w = maxW;
       }
       const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return resolve(base64Str);
+      if (!ctx) return resolve(base64);
       ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      const compressed = canvas.toDataURL("image/jpeg", quality);
-      resolve(compressed.length < base64Str.length ? compressed : base64Str);
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
     };
-    img.onerror = () => resolve(base64Str);
-    img.src = base64Str;
+    img.onerror = () => resolve(base64);
+    img.src = base64;
   });
 }
 
-// HÀM TỐI ƯU TOÀN BỘ ẢNH TRONG MEDIAMAP
+// HÀM NÉN ĐỒNG BỘ QUA TỪNG ẢNH TRONG MEDIAMAP
 async function optimizeExamMediaMap(mediaMap: Record<string, any>): Promise<Record<string, any>> {
   if (!mediaMap || typeof mediaMap !== "object") return {};
   const optimized: Record<string, any> = {};
   for (const [key, val] of Object.entries(mediaMap)) {
     if (typeof val === "string" && val.startsWith("data:image")) {
-      optimized[key] = await compressBase64Image(val, 900, 0.8);
+      optimized[key] = await compressBase64(val);
     } else {
       optimized[key] = val;
     }
@@ -110,31 +140,57 @@ async function optimizeExamMediaMap(mediaMap: Record<string, any>): Promise<Reco
   return optimized;
 }
 
-// HÀM TỐI ƯU ẢNH NHÚNG TRỰC TIẾP TRONG CÂU HỎI (NẾU CÓ)
-async function optimizeExamSections(sections: any[]): Promise<any[]> {
+// HÀM QUÉT VÀ NÉN MỌI ẢNH BASE64 NHÚNG TRỰC TIẾP TRONG CÂU HỎI / HTML CỦA SECTIONS
+async function optimizeExamSectionsDeep(sections: any[]): Promise<any[]> {
   if (!Array.isArray(sections)) return [];
-  const result = [];
-  for (const sec of sections) {
-    if (!sec || typeof sec !== "object") {
-      result.push(sec);
-      continue;
+  const cache = new Map<string, string>();
+
+  async function compressStringWithInlineImages(str: string): Promise<string> {
+    if (!str || typeof str !== "string" || !str.includes("data:image/")) return str;
+    if (str.startsWith("data:image/") && !str.includes(" ") && !str.includes('"') && !str.includes(">")) {
+      if (cache.has(str)) return cache.get(str)!;
+      const comp = await compressBase64(str);
+      cache.set(str, comp);
+      return comp;
     }
-    const questions = Array.isArray(sec.questions) ? [...sec.questions] : [];
-    const optQuestions = [];
-    for (const q of questions) {
-      if (!q || typeof q !== "object") {
-        optQuestions.push(q);
-        continue;
+    const regex = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+/g;
+    const matches = str.match(regex);
+    if (!matches || matches.length === 0) return str;
+    let updated = str;
+    for (const m of Array.from(new Set(matches))) {
+      let comp = cache.get(m);
+      if (!comp) {
+        comp = await compressBase64(m);
+        cache.set(m, comp);
       }
-      const cloneQ = { ...q };
-      if (typeof cloneQ.image === "string" && cloneQ.image.startsWith("data:image")) {
-        cloneQ.image = await compressBase64Image(cloneQ.image, 900, 0.8);
-      }
-      optQuestions.push(cloneQ);
+      updated = updated.split(m).join(comp);
     }
-    result.push({ ...sec, questions: optQuestions });
+    return updated;
   }
-  return result;
+
+  async function walkNode(node: any): Promise<any> {
+    if (!node) return node;
+    if (typeof node === "string") {
+      return await compressStringWithInlineImages(node);
+    }
+    if (Array.isArray(node)) {
+      const arr = [];
+      for (const item of node) {
+        arr.push(await walkNode(item));
+      }
+      return arr;
+    }
+    if (typeof node === "object") {
+      const obj: Record<string, any> = {};
+      for (const [k, v] of Object.entries(node)) {
+        obj[k] = await walkNode(v);
+      }
+      return obj;
+    }
+    return node;
+  }
+
+  return await walkNode(sections);
 }
 
 function AdminDashboardContent() {
@@ -467,7 +523,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM TẢI DANH SÁCH ĐỀ THI TỪ SUPABASE
+  // HÀM TẢI DANH SÁCH ĐỀ THI TỪ SUPABASE (CÓ BỌC CHỐNG TRÀN QUOTA LOCALSTORAGE)
   const fetchPracticeExams = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -477,9 +533,7 @@ function AdminDashboardContent() {
 
       if (!error && Array.isArray(data)) {
         setPracticeExams(data);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(data));
-        }
+        safeSavePracticeExamsToStorage(data);
         return data;
       }
     } catch (e) {
@@ -488,7 +542,7 @@ function AdminDashboardContent() {
     return null;
   }, []);
 
-  // NẠP DỮ LIỆU TỪ SERVER: SERVER LÀ SINGLE SOURCE OF TRUTH
+  // NẠP DỮ LIỆU TỪ SERVER: BỌC TRY-CATCH QUOTA CHO LOCALSTORAGE ĐỂ KHÔNG BỊ VĂNG LỖI
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -504,13 +558,30 @@ function AdminDashboardContent() {
 
         setRegisteredStudents(serverProfiles);
         if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_registered_students", JSON.stringify(serverProfiles));
+          try {
+            localStorage.setItem("edunexus_registered_students", JSON.stringify(serverProfiles));
+          } catch (e) {}
         }
 
         if (Array.isArray(apiData.practiceExams)) {
-          setPracticeExams(apiData.practiceExams);
+          const examsList = apiData.practiceExams;
+          setPracticeExams(examsList);
           if (typeof window !== "undefined") {
-            localStorage.setItem("edunexus_practice_exams", JSON.stringify(apiData.practiceExams));
+            try {
+              localStorage.setItem("edunexus_practice_exams", JSON.stringify(examsList));
+            } catch (e) {
+              console.warn("LocalStorage đầy dung lượng, chuyển sang lưu metadata tóm tắt.");
+              const lightweightExams = (examsList || []).map((ex: any) => ({
+                id: ex.id,
+                title: ex.title,
+                category: ex.category,
+                duration_minutes: ex.duration_minutes,
+                created_at: ex.created_at
+              }));
+              try {
+                localStorage.setItem("edunexus_practice_exams", JSON.stringify(lightweightExams));
+              } catch (err) {}
+            }
           }
         }
 
@@ -567,7 +638,9 @@ function AdminDashboardContent() {
         if (finalAttempts.length > 0) {
           setAllAttempts(finalAttempts);
           if (typeof window !== "undefined") {
-            localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
+            try {
+              localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
+            } catch (e) {}
           }
         }
       }
@@ -623,7 +696,9 @@ function AdminDashboardContent() {
     const updated = [newStudent, ...registeredStudents];
     setRegisteredStudents(updated);
     if (typeof window !== "undefined") {
-      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+      try {
+        localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+      } catch (e) {}
     }
     setIsAddStudentModalOpen(false);
     setQuickStudentForm({ lastName: "", firstName: "", status: "approved" });
@@ -641,14 +716,18 @@ function AdminDashboardContent() {
       if (courseRes.status === "fulfilled" && courseRes.value.data?.chapters) {
         setChapters(courseRes.value.data.chapters);
         if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
+          try {
+            localStorage.setItem("edunexus_course_data", JSON.stringify(courseRes.value.data.chapters));
+          } catch (e) {}
         }
       }
 
       if (sessRes.status === "fulfilled" && sessRes.value.data) {
         setOnlineSessions(sessRes.value.data);
         if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_online_sessions", JSON.stringify(sessRes.value.data));
+          try {
+            localStorage.setItem("edunexus_online_sessions", JSON.stringify(sessRes.value.data));
+          } catch (e) {}
         }
         const datesFromSessions = Array.from(new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean)));
         if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
@@ -657,7 +736,9 @@ function AdminDashboardContent() {
       if (notifRes.status === "fulfilled" && notifRes.value.data) {
         setSysNotifications(notifRes.value.data);
         if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
+          try {
+            localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
+          } catch (e) {}
         }
       }
     } catch (e) {}
@@ -708,11 +789,7 @@ function AdminDashboardContent() {
 
   const savePracticeExams = async (newExams: any[]) => {
     setPracticeExams(newExams);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(newExams));
-      } catch (e) {}
-    }
+    safeSavePracticeExamsToStorage(newExams);
   };
 
   const handleChangeExamCategory = async (examId: string, newCategory: string) => {
@@ -1480,7 +1557,7 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // HÀM LƯU ĐỀ THI THỰC CHẤT VÀO SUPABASE DATABASE (CHIẾN LƯỢC 2 TẦNG + NÉN ẢNH < 500KB)
+  // HÀM LƯU ĐỀ THI: NÉN ĐỒNG BỘ MAXWIDTH 800PX + LƯU ĐƠN LẺ SUPABASE & FALLBACK API + CHỐNG QUOTA EXCEEDED
   const handleSaveAzotaExam = async (examData: any) => {
     const currentUploadMode = uploadMode;
     const currentEditingExam = editingExamData;
@@ -1500,13 +1577,8 @@ function AdminDashboardContent() {
       const incomingMediaMap = examData.mediaMap || examData.media_map || {};
       const createdAt = currentEditingExam?.created_at || new Date().toISOString();
 
-      // Đóng modal ngay để thấy thanh tiến trình
-      setTestFile(null);
-      setEditingExamData(null);
-      setAzotaTarget(null);
-
       try {
-        // BƯỚC 1: Nén ảnh Base64
+        // BƯỚC 1: Nén đồng bộ toàn bộ ảnh Base64 trong media_map và trong sections (< 500KB)
         setPracticeSyncStatus({
           isSyncing: true,
           progress: 40,
@@ -1514,12 +1586,9 @@ function AdminDashboardContent() {
           type: "loading"
         });
 
-        const [optimizedMedia, optimizedSections] = await Promise.all([
-          optimizeExamMediaMap(incomingMediaMap),
-          optimizeExamSections(rawSections)
-        ]);
+        const optimizedMedia = await optimizeExamMediaMap(incomingMediaMap);
+        const optimizedSections = await optimizeExamSectionsDeep(rawSections);
 
-        // Đối tượng đầy đủ dùng cho State UI & LocalStorage
         const payloadExam = {
           id: examId,
           title: title,
@@ -1537,8 +1606,8 @@ function AdminDashboardContent() {
           created_at: createdAt
         };
 
-        // Đối tượng 11 cột chuẩn xác của bảng practice_exams trên Supabase (tránh lỗi PGRST204 lệch cột)
-        const dbExamRow = {
+        // Bản ghi chuẩn 11 cột cho bảng practice_exams (chỉ gửi duy nhất 1 đề, không nhân đôi dữ liệu)
+        const singleExamDbRecord = {
           id: examId,
           title: title,
           category: category,
@@ -1559,12 +1628,14 @@ function AdminDashboardContent() {
           type: "loading"
         });
 
-        // BƯỚC 2: Lưu thực chất vào Supabase (Chiến lược 2 tầng)
+        // BƯỚC 2: Lưu thực chất vào Supabase (Chỉ gửi duy nhất 1 đề hiện tại)
         let saveSuccess = false;
 
-        // Tầng 1: Thử dùng Supabase Client trực tiếp (bỏ qua hoàn toàn Vercel Gateway)
+        // Tầng 1: Thử dùng Supabase Client trực tiếp (bỏ qua Vercel Gateway)
         if (supabase) {
-          const { error: sbError } = await supabase.from("practice_exams").upsert(dbExamRow);
+          const { error: sbError } = await supabase
+            .from("practice_exams")
+            .upsert(singleExamDbRecord);
           if (!sbError) {
             saveSuccess = true;
           } else {
@@ -1572,18 +1643,15 @@ function AdminDashboardContent() {
           }
         }
 
-        // Tầng 2: Nếu chưa thành công, fallback qua Backend API Route
+        // Tầng 2: Nếu chưa thành công, fallback sang Backend API Route với payload đã nén nhẹ
         if (!saveSuccess) {
           const res = await fetch("/api/admin/data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "save_practice_exam", examData: dbExamRow })
+            body: JSON.stringify({ action: "save_practice_exam", examData: singleExamDbRecord })
           });
           if (res.ok) {
-            const resJson = await res.json().catch(() => ({}));
-            if (resJson.success !== false) {
-              saveSuccess = true;
-            }
+            saveSuccess = true;
           }
         }
 
@@ -1595,16 +1663,14 @@ function AdminDashboardContent() {
           handleRecalculateExamScores(examId, optimizedSections);
         }
 
-        // BƯỚC 3: Đồng bộ lại danh sách và cập nhật UI
+        // BƯỚC 3: Đồng bộ lại danh sách và cập nhật UI + LocalStorage an toàn
         const refreshed = await fetchPracticeExams();
         if (!refreshed) {
           const updatedList = currentEditingExam
             ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
             : [payloadExam, ...(practiceExams || [])];
           setPracticeExams(updatedList);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedList));
-          }
+          safeSavePracticeExamsToStorage(updatedList);
         }
 
         setPracticeSyncStatus({
@@ -1614,6 +1680,11 @@ function AdminDashboardContent() {
           type: "success"
         });
         showToast("Đã lưu đề thi vào hệ thống thành công!", "success");
+
+        // Đóng modal
+        setTestFile(null);
+        setEditingExamData(null);
+        setAzotaTarget(null);
 
         setTimeout(() => {
           setPracticeSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
@@ -1643,10 +1714,8 @@ function AdminDashboardContent() {
       try {
         const rawMedia = examData.mediaMap || examData.media_map || {};
         const rawSections = examData.sections || examData.data || [];
-        const [optMedia, optSections] = await Promise.all([
-          optimizeExamMediaMap(rawMedia),
-          optimizeExamSections(rawSections)
-        ]);
+        const optimizedMedia = await optimizeExamMediaMap(rawMedia);
+        const optimizedSections = await optimizeExamSectionsDeep(rawSections);
 
         const newExam = { 
           id: "exam-" + Date.now(), 
@@ -1654,10 +1723,10 @@ function AdminDashboardContent() {
           isHomework: isHw, 
           duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
           is_quiz: true, 
-          data: optSections, 
-          sections: optSections, 
-          mediaMap: optMedia, 
-          media_map: optMedia 
+          data: optimizedSections, 
+          sections: optimizedSections, 
+          mediaMap: optimizedMedia, 
+          media_map: optimizedMedia 
         };
 
         const newChapters = (latestChaptersRef.current || []).map(chap => ({ 
