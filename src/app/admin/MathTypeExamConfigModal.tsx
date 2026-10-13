@@ -65,17 +65,17 @@ function convertOmmlToLatex(node: Node): string {
   if (name === "f") {
     const num = Array.from(el.childNodes).find((n: any) => n.nodeName.includes("num")) as any;
     const den = Array.from(el.childNodes).find((n: any) => n.nodeName.includes("den")) as any;
-    return `\\frac{\({num ? convertOmmlToLatex(num) : ""}}{\){den ? convertOmmlToLatex(den) : ""}}`;
+    return `\\frac{${num ? convertOmmlToLatex(num) : ""}}{${den ? convertOmmlToLatex(den) : ""}}`;
   }
   if (name === "sSup") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName.includes("e")) as any;
     const sup = Array.from(el.childNodes).find((n: any) => n.nodeName.includes("sup")) as any;
-    return `{\({e ? convertOmmlToLatex(e) : ""}}^{\){sup ? convertOmmlToLatex(sup) : ""}}`;
+    return `{${e ? convertOmmlToLatex(e) : ""}}^{${sup ? convertOmmlToLatex(sup) : ""}}`;
   }
   if (name === "sSub") {
     const e = Array.from(el.childNodes).find((n: any) => n.nodeName.includes("e")) as any;
     const sub = Array.from(el.childNodes).find((n: any) => n.nodeName.includes("sub")) as any;
-    return `{\({e ? convertOmmlToLatex(e) : ""}}_{\){sub ? convertOmmlToLatex(sub) : ""}}`;
+    return `{${e ? convertOmmlToLatex(e) : ""}}_{${sub ? convertOmmlToLatex(sub) : ""}}`;
   }
   let str = "";
   for (let i = 0; i < el.childNodes.length; i++) str += convertOmmlToLatex(el.childNodes[i]);
@@ -84,8 +84,8 @@ function convertOmmlToLatex(node: Node): string {
 
 async function extractDocxDirectly(file: File) {
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
-  const mediaMap: Record = {};
-  const relsMap: Record = {};
+  const mediaMap: Record<string, any> = {};
+  const relsMap: Record<string, any> = {};
 
   const relsFile = zip.files["word/_rels/document.xml.rels"];
   if (relsFile) {
@@ -97,16 +97,17 @@ async function extractDocxDirectly(file: File) {
     });
   }
 
-  const targetToToken: Record = {};
+  const targetToToken: Record<string, any> = {};
   let imgCount = 1;
 
   for (const [rId, path] of Object.entries(relsMap)) {
-    const zipPath = path.startsWith("word/") ? path : `word/${path}`;
+    const pathStr = String(path || "");
+    const zipPath = pathStr.startsWith("word/") ? pathStr : `word/${pathStr}`;
     const fileEntry = zip.files[zipPath];
     if (fileEntry && /\.(png|jpe?g)$/i.test(zipPath)) {
       const b64 = await fileEntry.async("base64");
       const key = `img_${imgCount++}`;
-      mediaMap[key] = `data:image/\({zipPath.toLowerCase().endsWith("png") ? "png" : "jpeg"};base64,\){b64}`;
+      mediaMap[key] = `data:image/${zipPath.toLowerCase().endsWith("png") ? "png" : "jpeg"};base64,${b64}`;
       targetToToken[rId] = `[img:${key}]`;
     }
   }
@@ -123,7 +124,7 @@ async function extractDocxDirectly(file: File) {
       const name = (child as Element).localName || child.nodeName.split(":").pop() || "";
       if (name === "oMath" || name === "oMathPara") {
         const latex = convertOmmlToLatex(child).trim();
-        if (latex) line += ` $\({latex.replace(/==/g, "=").replace(/R/g, "\\mathbb{R}")}\) `;
+        if (latex) line += ` $${latex.replace(/==/g, "=").replace(/R/g, "\\mathbb{R}")}$ `;
       } else if (name === "r") {
         Array.from((child as Element).getElementsByTagNameNS("*", "t")).forEach(t => { line += t.textContent; });
         Array.from((child as Element).getElementsByTagNameNS("*", "blip")).forEach(blip => {
