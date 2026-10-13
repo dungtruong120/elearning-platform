@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Khởi tạo Supabase Server Client với SERVICE_ROLE_KEY để bypass RLS và xử lý payload lớn
+// Tăng thời gian timeout và ép runtime Node.js cho Next.js App Router
+export const maxDuration = 60; // 60s
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// Khởi tạo Supabase Server Client với SERVICE_ROLE_KEY để bypass RLS
 const supabaseServer = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   {
     auth: {
       autoRefreshToken: false,
-      persistSession: false
-    }
+      persistSession: false,
+    },
   }
 );
 
@@ -57,10 +62,22 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    // Đọc dạng text trước để chống crash JSON parser khi payload quá lớn
+    const rawBodyText = await req.text();
+    if (!rawBodyText) {
+      return NextResponse.json({ success: false, error: "Empty body" }, { status: 400 });
+    }
+
+    let body: any;
+    try {
+      body = JSON.parse(rawBodyText);
+    } catch (parseErr) {
+      return NextResponse.json({ success: false, error: "Dữ liệu gửi lên không đúng định dạng JSON" }, { status: 400 });
+    }
+
     const { action } = body;
 
-    // ACTION 1: CẬP NHẬT TRẠNG THÁI DUYỆT HỌC VIÊN
+    // 1. CẬP NHẬT TRẠNG THÁI DUYỆT HỌC VIÊN
     if (action === "update_status") {
       const { studentId, status } = body;
       if (!studentId || !status) {
@@ -85,7 +102,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // ACTION 2: XÓA HỌC SINH VĨNH VIỄN Ở CẢ AUTH USERS VÀ PUBLIC PROFILES
+    // 2. XÓA HỌC SINH VĨNH VIỄN Ở CẢ AUTH USERS VÀ PUBLIC PROFILES
     if (action === "delete_student") {
       const { studentId } = body;
       if (!studentId) {
@@ -112,7 +129,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // ACTION 3: GHI ĐÈ HỒ SƠ HỌC SINH MỚI ĐĂNG KÝ BẤT CHẤP RLS
+    // 3. GHI ĐÈ HỒ SƠ HỌC SINH MỚI ĐĂNG KÝ BẤT CHẤP RLS
     if (action === "register_profile") {
       const { id, fullName, email, phone, school, grade, learningMode } = body.profileData || {};
       const mode = String(learningMode || "offline").toLowerCase();
@@ -143,7 +160,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // ACTION 4: LƯU / CẬP NHẬT ĐỀ THI LUYỆN ĐỀ (PRACTICE EXAMS) - BYPASS RLS & PAYLOAD LỚN
+    // 4. LƯU / CẬP NHẬT ĐỀ THI LUYỆN ĐỀ (PRACTICE EXAMS) - XỬ LÝ AN TOÀN PAYLOAD LỚN
     if (action === "save_practice_exam") {
       const { examData } = body;
       if (!examData || !examData.id) {
@@ -165,7 +182,7 @@ export async function POST(req: Request) {
         media_map: examData.media_map || examData.mediaMap || {},
         mediaMap: examData.media_map || examData.mediaMap || {},
         created_at: examData.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       };
 
       const { error } = await supabaseServer
