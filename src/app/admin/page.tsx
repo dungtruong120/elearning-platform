@@ -56,6 +56,48 @@ function normalizeStudentProfile(raw: any): any {
   };
 }
 
+// HÀM NÉN ẢNH BASE64 TRÊN TRÌNH DUYỆT ĐỂ CHỐNG LỖI HTTP 413
+async function compressBase64Image(base64Str: string, maxWidth = 900, quality = 0.8): Promise<string> {
+  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) {
+    return base64Str;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(base64Str);
+      ctx.drawImage(img, 0, 0, width, height);
+      const compressed = canvas.toDataURL("image/jpeg", quality);
+      resolve(compressed.length < base64Str.length ? compressed : base64Str);
+    };
+    img.onerror = () => resolve(base64Str);
+    img.src = base64Str;
+  });
+}
+
+// HÀM TỐI ƯU TOÀN BỘ ĐỒ THỊ TRONG MEDIAMAP
+async function optimizeExamMediaMap(mediaMap: Record<string, any>): Promise<Record<string, any>> {
+  if (!mediaMap || typeof mediaMap !== "object") return mediaMap;
+  const optimized: Record<string, any> = {};
+  for (const [key, val] of Object.entries(mediaMap)) {
+    if (typeof val === "string" && val.startsWith("data:image")) {
+      optimized[key] = await compressBase64Image(val, 900, 0.8);
+    } else {
+      optimized[key] = val;
+    }
+  }
+  return optimized;
+}
+
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
@@ -1433,6 +1475,19 @@ function AdminDashboardContent() {
         try {
           setPracticeSyncStatus(prev => ({
             ...prev,
+            progress: 50,
+            message: "Đang nén & tối ưu đồ thị đề thi... [50%]"
+          }));
+
+          const optimizedMedia = await optimizeExamMediaMap(newExam.media_map || newExam.mediaMap || {});
+          const payloadExam = {
+            ...newExam,
+            media_map: optimizedMedia,
+            mediaMap: optimizedMedia,
+          };
+
+          setPracticeSyncStatus(prev => ({
+            ...prev,
             progress: 75,
             message: "Đang đồng bộ đề thi lên đám mây... [75%]"
           }));
@@ -1442,7 +1497,7 @@ function AdminDashboardContent() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action: "save_practice_exam",
-              examData: newExam
+              examData: payloadExam
             })
           });
 
