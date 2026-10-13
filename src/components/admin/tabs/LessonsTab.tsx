@@ -25,7 +25,7 @@ import {
 import dynamic from "next/dynamic";
 
 // Dynamic import AzotaExamConfigModal chuẩn Next.js (SSR: false)
-const AzotaExamConfigModal = dynamic(
+const AzotaExamConfigModal = dynamic<any>(
   () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
 );
@@ -98,6 +98,7 @@ interface LessonsTabProps {
     message: string;
     type: "idle" | "loading" | "success" | "error";
   };
+  [key: string]: any;
 }
 
 export default function LessonsTab({
@@ -157,7 +158,7 @@ export default function LessonsTab({
     return list;
   }, [chapters, lessonModeTab]);
 
-  const lessonsToRender = (restProps as any)?.flattenedLessons || computedFlattenedLessons;
+  const lessonsToRender = restProps.flattenedLessons || computedFlattenedLessons;
   const flattenedLessons = lessonsToRender;
 
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE)
@@ -198,7 +199,7 @@ export default function LessonsTab({
     } else if (typeof saveToStorage === "function") {
       saveToStorage(newChapters, taskLabel);
     } else if (typeof setChapters === "function") {
-      (setChapters as any)(newChapters);
+      setChapters(newChapters);
     }
   };
 
@@ -720,17 +721,18 @@ export default function LessonsTab({
       {/* 5. GỌI TRỰC TIẾP AZOTA EXAM CONFIG MODAL (NON-BLOCKING CALLBACK) */}
       {activeTestFile && (
         <AzotaExamConfigModal 
-          isOpen={true} 
+          isOpen={Boolean(activeTestFile)} 
           file={activeTestFile}
           mode="course" 
           onClose={() => {
             setActiveTestFile(null);
             setActiveUploadTarget(null);
           }} 
-          onSave={handleSaveExamFromAzota}
-          onSaveExam={handleSaveExamFromAzota}
-          onSuccess={handleSaveExamFromAzota}
-          onComplete={handleSaveExamFromAzota}
+          onSave={(examData: any) => {
+            handleSaveExamFromAzota(examData);
+            setActiveTestFile(null);
+            setActiveUploadTarget(null);
+          }}
         />
       )}
     </div>
