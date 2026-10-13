@@ -68,11 +68,9 @@ function normalizeStudentProfile(raw: any): any {
   };
 }
 
-// LỚP 1: HÀM NÉN ẢNH BASE64 TRÊN TRÌNH DUYỆT (CÓ LÓT NỀN TRẮNG CHO ẢNH ĐỒ THỊ PNG)
-async function compressBase64Image(base64Str: string, maxWidth = 900, quality = 0.78): Promise<string> {
-  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) {
-    return base64Str;
-  }
+// HÀM NÉN ẢNH BASE64 CLIENT-SIDE BẰNG CANVAS (ĐẢM BẢO ĐỀ THI NHẸ < 500KB)
+async function compressBase64Image(base64Str: string, maxWidth = 900, quality = 0.8): Promise<string> {
+  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) return base64Str;
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -98,13 +96,13 @@ async function compressBase64Image(base64Str: string, maxWidth = 900, quality = 
   });
 }
 
-// HÀM TỐI ƯU TOÀN BỘ ĐỒ THỊ TRONG MEDIAMAP
+// HÀM TỐI ƯU TOÀN BỘ ẢNH TRONG MEDIAMAP
 async function optimizeExamMediaMap(mediaMap: Record<string, any>): Promise<Record<string, any>> {
   if (!mediaMap || typeof mediaMap !== "object") return {};
   const optimized: Record<string, any> = {};
   for (const [key, val] of Object.entries(mediaMap)) {
     if (typeof val === "string" && val.startsWith("data:image")) {
-      optimized[key] = await compressBase64Image(val, 900, 0.78);
+      optimized[key] = await compressBase64Image(val, 900, 0.8);
     } else {
       optimized[key] = val;
     }
@@ -112,7 +110,7 @@ async function optimizeExamMediaMap(mediaMap: Record<string, any>): Promise<Reco
   return optimized;
 }
 
-// HÀM TỐI ƯU ẢNH BASE64 NHÚNG TRỰC TIẾP TRONG SECTIONS
+// HÀM TỐI ƯU ẢNH NHÚNG TRỰC TIẾP TRONG CÂU HỎI (NẾU CÓ)
 async function optimizeExamSections(sections: any[]): Promise<any[]> {
   if (!Array.isArray(sections)) return [];
   const result = [];
@@ -130,7 +128,7 @@ async function optimizeExamSections(sections: any[]): Promise<any[]> {
       }
       const cloneQ = { ...q };
       if (typeof cloneQ.image === "string" && cloneQ.image.startsWith("data:image")) {
-        cloneQ.image = await compressBase64Image(cloneQ.image, 900, 0.78);
+        cloneQ.image = await compressBase64Image(cloneQ.image, 900, 0.8);
       }
       optQuestions.push(cloneQ);
     }
@@ -469,6 +467,28 @@ function AdminDashboardContent() {
     }
   };
 
+  // HÀM TẢI DANH SÁCH ĐỀ THI TỪ SUPABASE
+  const fetchPracticeExams = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("practice_exams")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        setPracticeExams(data);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_practice_exams", JSON.stringify(data));
+        }
+        return data;
+      }
+    } catch (e) {
+      console.warn("Lỗi fetchPracticeExams:", e);
+    }
+    return null;
+  }, []);
+
+  // NẠP DỮ LIỆU TỪ SERVER: SERVER LÀ SINGLE SOURCE OF TRUTH
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -1460,181 +1480,167 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // LỚP 2: HÀM LƯU ĐỀ THI ĐÃ TỐI ƯU HÓA 3 LỚP (NÉN ẢNH + KHÔNG NHÂN ĐÔI KEY + ĐỒNG BỘ SUPABASE & API)
-  const handleSaveAzotaExam = (examData: any) => {
-    if (uploadMode === "practice") {
-      const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
-      const isEditing = Boolean(editingExamData);
+  // HÀM LƯU ĐỀ THI THỰC CHẤT VÀO SUPABASE DATABASE (CHIẾN LƯỢC 2 TẦNG + NÉN ẢNH < 500KB)
+  const handleSaveAzotaExam = async (examData: any) => {
+    const currentUploadMode = uploadMode;
+    const currentEditingExam = editingExamData;
+    const currentAzotaTarget = azotaTarget;
+
+    if (currentUploadMode === "practice") {
+      const examId = currentEditingExam ? currentEditingExam.id : ("prac-" + Date.now());
+      const title = examData.title || "Đề luyện thi mới";
+      const category = examData.category || "Tự do";
+      const duration = Number(examData.duration_minutes) || 45;
+      const targetMode = examData.target_mode || (currentEditingExam?.target_mode ?? "all");
+      const allowRetake = currentEditingExam ? (currentEditingExam.allowRetake ?? true) : true;
+      const allowViewFile = currentEditingExam ? (currentEditingExam.allowViewFile ?? true) : true;
+      const driveUrl = examData.driveUrl || (currentEditingExam?.driveUrl ?? "");
+      const solutionVideoUrl = examData.solutionVideoUrl || (currentEditingExam?.solutionVideoUrl ?? "");
       const rawSections = examData.sections || examData.data || [];
-      const rawMedia = examData.mediaMap || examData.media_map || {};
+      const incomingMediaMap = examData.mediaMap || examData.media_map || {};
+      const createdAt = currentEditingExam?.created_at || new Date().toISOString();
 
-      const newExam = { 
-        id: examId, 
-        title: examData.title || "Đề luyện thi mới", 
-        category: examData.category || "Tự do", 
-        duration_minutes: Number(examData.duration_minutes) || 45, 
-        target_mode: examData.target_mode || (editingExamData?.target_mode ?? "all"),
-        allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
-        allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
-        driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
-        solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
-        data: rawSections, 
-        sections: rawSections, 
-        media_map: rawMedia, 
-        mediaMap: rawMedia, 
-        created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
-      };
-
-      // 1. CẬP NHẬT GIAO DIỆN LẬP TỨC (0MS - OPTIMISTIC UI)
-      let updatedExams: any[];
-      if (isEditing) {
-        updatedExams = (practiceExams || []).map(ex => ex.id === examId ? newExam : ex);
-      } else {
-        updatedExams = [newExam, ...(practiceExams || [])];
-      }
-
-      setPracticeExams(updatedExams);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedExams));
-        } catch (e) {}
-      }
-
-      // Đóng modal tức thì (< 30ms)
-      setTestFile(null); 
-      setEditingExamData(null); 
+      // Đóng modal ngay để thấy thanh tiến trình
+      setTestFile(null);
+      setEditingExamData(null);
       setAzotaTarget(null);
 
-      // Bật thanh tiến trình ở trạng thái Đang tải (35%)
-      setPracticeSyncStatus({
-        isSyncing: true,
-        progress: 35,
-        message: "Đang nạp và tối ưu cấu trúc đề thi... [35%]",
-        type: "loading"
-      });
+      try {
+        // BƯỚC 1: Nén ảnh Base64
+        setPracticeSyncStatus({
+          isSyncing: true,
+          progress: 40,
+          message: "Đang tối ưu dung lượng đề thi...",
+          type: "loading"
+        });
 
-      // 2. NÉN ẢNH CLIENT-SIDE & ĐỒNG BỘ ĐÁM MÂY (KHÔNG GỬI KEY TRÙNG LẶP ĐỂ GIẢM 60% DUNG LƯỢNG)
-      (async () => {
-        try {
-          setPracticeSyncStatus(prev => ({
-            ...prev,
-            progress: 55,
-            message: "Đang nén & tối ưu đồ thị đề thi... [55%]"
-          }));
+        const [optimizedMedia, optimizedSections] = await Promise.all([
+          optimizeExamMediaMap(incomingMediaMap),
+          optimizeExamSections(rawSections)
+        ]);
 
-          const [optimizedMedia, optimizedSections] = await Promise.all([
-            optimizeExamMediaMap(rawMedia),
-            optimizeExamSections(rawSections)
-          ]);
+        // Đối tượng đầy đủ dùng cho State UI & LocalStorage
+        const payloadExam = {
+          id: examId,
+          title: title,
+          category: category,
+          duration_minutes: duration,
+          target_mode: targetMode || "all",
+          allowRetake: allowRetake ?? true,
+          allowViewFile: allowViewFile ?? true,
+          driveUrl: driveUrl || "",
+          solutionVideoUrl: solutionVideoUrl || "",
+          data: optimizedSections,
+          sections: optimizedSections,
+          media_map: optimizedMedia,
+          mediaMap: optimizedMedia,
+          created_at: createdAt
+        };
 
-          // Payload chuẩn cho bảng practice_exams (không nhân đôi sections/mediaMap để tránh vượt 4.5MB)
-          const slimPayloadExam = {
-            id: newExam.id,
-            title: newExam.title,
-            category: newExam.category,
-            duration_minutes: newExam.duration_minutes,
-            target_mode: newExam.target_mode,
-            allowRetake: newExam.allowRetake,
-            allowViewFile: newExam.allowViewFile,
-            driveUrl: newExam.driveUrl,
-            solutionVideoUrl: newExam.solutionVideoUrl,
-            data: optimizedSections,
-            media_map: optimizedMedia,
-            created_at: newExam.created_at
-          };
+        // Đối tượng 11 cột chuẩn xác của bảng practice_exams trên Supabase (tránh lỗi PGRST204 lệch cột)
+        const dbExamRow = {
+          id: examId,
+          title: title,
+          category: category,
+          duration_minutes: duration,
+          allowRetake: allowRetake ?? true,
+          allowViewFile: allowViewFile ?? true,
+          driveUrl: driveUrl || "",
+          solutionVideoUrl: solutionVideoUrl || "",
+          data: optimizedSections,
+          media_map: optimizedMedia,
+          created_at: createdAt
+        };
 
-          // Cập nhật lại bản đã nén vào State và LocalStorage để tiết kiệm bộ nhớ trình duyệt
-          const compressedLocalExam = {
-            ...newExam,
-            data: optimizedSections,
-            sections: optimizedSections,
-            media_map: optimizedMedia,
-            mediaMap: optimizedMedia
-          };
+        setPracticeSyncStatus({
+          isSyncing: true,
+          progress: 70,
+          message: "Đang lưu đề lên máy chủ Supabase...",
+          type: "loading"
+        });
 
-          setPracticeExams(prev => prev.map(ex => ex.id === examId ? compressedLocalExam : ex));
-          if (typeof window !== "undefined") {
-            try {
-              const finalSaved = updatedExams.map(ex => ex.id === examId ? compressedLocalExam : ex);
-              localStorage.setItem("edunexus_practice_exams", JSON.stringify(finalSaved));
-            } catch (e) {}
+        // BƯỚC 2: Lưu thực chất vào Supabase (Chiến lược 2 tầng)
+        let saveSuccess = false;
+
+        // Tầng 1: Thử dùng Supabase Client trực tiếp (bỏ qua hoàn toàn Vercel Gateway)
+        if (supabase) {
+          const { error: sbError } = await supabase.from("practice_exams").upsert(dbExamRow);
+          if (!sbError) {
+            saveSuccess = true;
+          } else {
+            console.warn("Lưu qua Supabase Client thất bại, chuyển sang API Route:", sbError);
           }
-
-          setPracticeSyncStatus(prev => ({
-            ...prev,
-            progress: 80,
-            message: "Đang đồng bộ đề thi lên đám mây... [80%]"
-          }));
-
-          // Ưu tiên 1: Ghi trực tiếp qua Supabase Client (Bypass giới hạn 4.5MB của Vercel Serverless)
-          let synced = false;
-          try {
-            const { error: directErr } = await supabase
-              .from("practice_exams")
-              .upsert([slimPayloadExam]);
-            if (!directErr) {
-              synced = true;
-            }
-          } catch (e) {}
-
-          // Ưu tiên 2: Nếu cần Service Role (do RLS), gọi qua API /api/admin/data với slimPayloadExam
-          if (!synced) {
-            const res = await fetch("/api/admin/data", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "save_practice_exam",
-                examData: slimPayloadExam
-              })
-            });
-
-            if (res.ok) {
-              synced = true;
-            }
-          }
-
-          if (isEditing) {
-            handleRecalculateExamScores(examId, optimizedSections);
-          }
-
-          // Đặt trạng thái hoàn tất 100%
-          setPracticeSyncStatus({
-            isSyncing: false,
-            progress: 100,
-            message: "✓ Đã đồng bộ đám mây thành công!",
-            type: "success"
-          });
-
-          showToast("Đã lưu đề thi vào kho Luyện đề: " + newExam.category, "success");
-
-          setTimeout(() => {
-            setPracticeSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
-          }, 1800);
-
-        } catch (err: any) {
-          console.warn("Cảnh báo đồng bộ ngầm practice_exams:", err);
-          setPracticeSyncStatus({
-            isSyncing: false,
-            progress: 100,
-            message: "✓ Đã lưu đề thi thành công!",
-            type: "success"
-          });
-          showToast("Đã lưu đề thi vào kho Luyện đề: " + newExam.category, "success");
         }
-      })();
+
+        // Tầng 2: Nếu chưa thành công, fallback qua Backend API Route
+        if (!saveSuccess) {
+          const res = await fetch("/api/admin/data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "save_practice_exam", examData: dbExamRow })
+          });
+          if (res.ok) {
+            const resJson = await res.json().catch(() => ({}));
+            if (resJson.success !== false) {
+              saveSuccess = true;
+            }
+          }
+        }
+
+        if (!saveSuccess) {
+          throw new Error("Không thể ghi dữ liệu đề thi vào Supabase!");
+        }
+
+        if (currentEditingExam) {
+          handleRecalculateExamScores(examId, optimizedSections);
+        }
+
+        // BƯỚC 3: Đồng bộ lại danh sách và cập nhật UI
+        const refreshed = await fetchPracticeExams();
+        if (!refreshed) {
+          const updatedList = currentEditingExam
+            ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
+            : [payloadExam, ...(practiceExams || [])];
+          setPracticeExams(updatedList);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedList));
+          }
+        }
+
+        setPracticeSyncStatus({
+          isSyncing: false,
+          progress: 100,
+          message: "✓ Đã lưu vĩnh viễn lên đám mây!",
+          type: "success"
+        });
+        showToast("Đã lưu đề thi vào hệ thống thành công!", "success");
+
+        setTimeout(() => {
+          setPracticeSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
+        }, 2000);
+
+      } catch (err: any) {
+        console.error("Lỗi lưu đề thi:", err);
+        setPracticeSyncStatus({
+          isSyncing: false,
+          progress: 0,
+          message: "Lỗi lưu đám mây: " + err.message,
+          type: "error"
+        });
+        showToast("Lỗi khi lưu đề thi: " + err.message, "error");
+      }
 
     } else {
-      if (!azotaTarget) return;
-      const isHw = azotaTarget.type === "homework_files";
-      const targetLessonId = azotaTarget.lessonId;
-      const targetType = azotaTarget.type;
+      if (!currentAzotaTarget) return;
+      const isHw = currentAzotaTarget.type === "homework_files";
+      const targetLessonId = currentAzotaTarget.lessonId;
+      const targetType = currentAzotaTarget.type;
 
-      // Đóng modal tức thì
       setTestFile(null); 
       setEditingExamData(null); 
       setAzotaTarget(null);
 
-      (async () => {
+      try {
         const rawMedia = examData.mediaMap || examData.media_map || {};
         const rawSections = examData.sections || examData.data || [];
         const [optMedia, optSections] = await Promise.all([
@@ -1666,9 +1672,13 @@ function AdminDashboardContent() {
 
         notifyAndSync(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
         showToast("Đã nạp đề vào bài học thành công!", "success");
-      })();
+      } catch (err: any) {
+        showToast("Lỗi khi nạp đề vào bài học: " + err.message, "error");
+      }
     }
   };
+
+  const SafeAzotaModal = AzotaExamConfigModal as React.ComponentType<any>;
 
   if (!mounted) {
     return (
