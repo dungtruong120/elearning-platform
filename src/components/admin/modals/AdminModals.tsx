@@ -6,7 +6,7 @@ import {
   ExternalLink, Video, FileText, PenTool, CheckSquare, 
   Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, 
   Save, FileUp, Edit3, UploadCloud, CheckCircle2, FileSignature, 
-  Sparkles, RefreshCw, Loader2 
+  Sparkles, RefreshCw, Loader2, Zap 
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -16,36 +16,9 @@ const AzotaExamConfigModal = dynamic(
   { ssr: false }
 );
 
-// HÀM LÀM SẠCH CHUỖI BASE64 DỮ LIỆU RÁC ĐỂ TRÁNH PHÌNH TO DATABASE
 function cleanResourceMediaPayload(item: any): any {
   if (!item || typeof item !== "object") return item;
-  const clone = { ...item };
-  
-  if (typeof clone.url === "string" && clone.url.startsWith("data:image/")) {
-    clone.url = ""; // Không lưu DataURL nặng vào trường URL
-  }
-
-  if (clone.mediaMap && typeof clone.mediaMap === "object") {
-    const cleanMedia: Record<string, string> = {};
-    for (const [k, v] of Object.entries(clone.mediaMap)) {
-      if (typeof v === "string" && !v.startsWith("data:image/")) {
-        cleanMedia[k] = v;
-      }
-    }
-    clone.mediaMap = cleanMedia;
-  }
-
-  if (clone.media_map && typeof clone.media_map === "object") {
-    const cleanMedia: Record<string, string> = {};
-    for (const [k, v] of Object.entries(clone.media_map)) {
-      if (typeof v === "string" && !v.startsWith("data:image/")) {
-        cleanMedia[k] = v;
-      }
-    }
-    clone.media_map = cleanMedia;
-  }
-
-  return clone;
+  return { ...item };
 }
 
 interface AdminModalsProps {
@@ -86,6 +59,7 @@ interface AdminModalsProps {
   setAzotaTarget?: (target: { lessonId: string; type: "homework_files" | "test_quizzes" } | null) => void;
   editingExamData?: any | null;
   setEditingExamData?: (data: any | null) => void;
+  onSaveAzotaExam?: (examData: any) => void;
   practiceExams?: any[];
   savePracticeExams?: (exams: any[]) => Promise<void>;
   handleRecalculateExamScores?: (examId: string, sections: any[]) => Promise<void>;
@@ -125,39 +99,32 @@ export default function AdminModals(props: AdminModalsProps) {
     setAzotaTarget,
     editingExamData = null,
     setEditingExamData,
+    onSaveAzotaExam,
     practiceExams = [],
     savePracticeExams,
     handleRecalculateExamScores
   } = props;
 
-  // State bộ nút gạt phân loại học sinh: Tất cả | Online | Offline
   const [filterMode, setFilterMode] = useState<"all" | "online" | "offline">("all");
 
-  // State form thêm tài nguyên (Video / Bài giảng / Viết tay)
   const [resTitle, setResTitle] = useState<string>("");
   const [resUrl, setResUrl] = useState<string>("");
   const [vidType, setVidType] = useState<"lecture" | "homework_solution">("lecture");
 
-  // State form tạo Chương / Bài học mới
   const [newItemTitle, setNewItemTitle] = useState<string>("");
   const [newItemDescription, setNewItemDescription] = useState<string>("");
   const [newItemFormat, setNewItemFormat] = useState<string>("Zoom");
   const [newItemTargetMode, setNewItemTargetMode] = useState<"online" | "offline" | "all">("all");
 
-  // State form tài liệu tăng cường
   const [boostForm, setBoostForm] = useState({ title: "", type: "video", url: "", note: "" });
 
-  // State form đính kèm link Drive cho BTVN / Đề KT
   const [driveLinkModal, setDriveLinkModal] = useState<{ lessonId: string; type: "homework_files" | "test_quizzes" } | null>(null);
   const [driveLinkForm, setDriveLinkForm] = useState({ title: "", url: "" });
 
-  // State form sửa tài nguyên đang xem
   const [editResourceModal, setEditResourceModal] = useState<{ lessonId: string; type: string; item: any } | null>(null);
   const [editResourceForm, setEditResourceForm] = useState({ title: "", url: "", type: "lecture" });
 
-  // HÀM ĐẨY DỮ LIỆU TỨC THÌ (OPTIMISTIC PIPELINE - PHẢN HỒI < 30MS, KÍCH HOẠT THANH % NỔI)
   const dispatchOptimisticUpdate = (newChapters: any[]) => {
-    // 1. Bắn callback tức thì lên component cha để cập nhật React State & kích hoạt Floating Sync Bar
     if (typeof onUpdateChapters === "function") {
       onUpdateChapters(newChapters);
     } else if (typeof saveToStorage === "function") {
@@ -166,7 +133,6 @@ export default function AdminModals(props: AdminModalsProps) {
       setChapters(newChapters);
     }
 
-    // 2. Ghi LocalStorage phi đồng bộ để không chặn Main Thread
     setTimeout(() => {
       try {
         localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
@@ -175,7 +141,6 @@ export default function AdminModals(props: AdminModalsProps) {
     }, 0);
   };
 
-  // 1. TẠO PROFILE MAP TRA CỨU DANH TÍNH ĐA TẦNG CHO MODAL AZOTA
   const profileMap = useMemo(() => {
     const map = new Map<string, any>();
     (registeredStudents || []).forEach((p: any) => {
@@ -193,7 +158,6 @@ export default function AdminModals(props: AdminModalsProps) {
     return map;
   }, [registeredStudents]);
 
-  // 2. PHÂN TÍCH VÀ ĐỐI SOÁT DỮ LIỆU TỪNG BÀI NỘP
   const enhancedAttempts = useMemo(() => {
     return (azotaScoreViewModal.attempts || []).map((att: any) => {
       const stuId = String(att.student_id || att.studentId || att.user_id || "").trim().toLowerCase();
@@ -214,13 +178,7 @@ export default function AdminModals(props: AdminModalsProps) {
       }
 
       if (!displayName || displayName.toLowerCase() === "học sinh") {
-        if (stuId.includes("f0296403") || stuId.includes("dung123")) {
-          displayName = "dung123";
-        } else if (stuId.includes("d307dde9") || stuId.includes("dung22")) {
-          displayName = "dung22";
-        } else {
-          displayName = "dung123";
-        }
+        displayName = "dung123";
       }
 
       let isOffline = false;
@@ -229,7 +187,7 @@ export default function AdminModals(props: AdminModalsProps) {
         isOffline = pMode === "offline";
       } else {
         const attMode = String(att.learningMode || att.learning_mode || "").toLowerCase();
-        isOffline = attMode === "offline" || displayName.toLowerCase().includes("off") || displayName.toLowerCase().includes("dung22");
+        isOffline = attMode === "offline" || displayName.toLowerCase().includes("off");
       }
 
       const cleanWords = displayName.trim().split(/\s+/).filter(Boolean);
@@ -254,7 +212,6 @@ export default function AdminModals(props: AdminModalsProps) {
     return enhancedAttempts.filter((att: any) => att.resolvedMode === filterMode);
   }, [enhancedAttempts, filterMode]);
 
-  // XÓA VĨNH VIỄN LƯỢT LÀM BÀI KHỎI DATABASE (OPTIMISTIC UI < 20MS)
   const handleDeleteAttempt = (attemptId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa vĩnh viễn lượt làm bài này?")) return;
 
@@ -267,7 +224,6 @@ export default function AdminModals(props: AdminModalsProps) {
 
     if (showToast) showToast("Đã xóa lượt làm bài!", "success");
 
-    // Xóa ngầm dưới nền
     (async () => {
       try {
         if (supabase) {
@@ -293,7 +249,6 @@ export default function AdminModals(props: AdminModalsProps) {
     })();
   };
 
-  // 3. THÊM TÀI NGUYÊN (VIDEO / BÀI GIẢNG / VIẾT TAY) - CẬP NHẬT TỨC THÌ (< 30MS)
   const handleAddResource = (e: React.FormEvent) => {
     e.preventDefault();
     if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
@@ -315,21 +270,17 @@ export default function AdminModals(props: AdminModalsProps) {
       }) 
     }));
 
-    // ĐÓNG MODAL VÀ RESET FORM TRONG 0.01S
     setResTitle(""); 
     setResUrl(""); 
     setVidType("lecture");
     if (setResourceModal) setResourceModal(null); 
 
-    // ĐẨY ĐỒNG BỘ NGẦM TỨC THÌ LÊN CẤP CHA
     dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 4. XÓA TÀI NGUYÊN TRONG VIEW RESOURCES MODAL - CẬP NHẬT TỨC THÌ (< 20MS, TUYỆT ĐỐI KHÔNG AWAIT)
   const handleDeleteResource = (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
 
-    // 1. Cập nhật state của View Modal trước mắt Admin ngay lập tức (Item biến mất tức thì)
     if (viewResourcesModal && setViewResourcesModal) {
       setViewResourcesModal((prev: any) => prev ? {
         ...prev,
@@ -337,7 +288,6 @@ export default function AdminModals(props: AdminModalsProps) {
       } : null);
     }
 
-    // 2. Cập nhật cây Chapters và kích hoạt thanh % đồng bộ
     const newChapters = (chapters || []).map((chap: any) => ({ 
       ...chap, 
       lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { 
@@ -349,7 +299,6 @@ export default function AdminModals(props: AdminModalsProps) {
     dispatchOptimisticUpdate(newChapters);
   };
 
-  // 5. SỬA TÀI NGUYÊN - CẬP NHẬT TỨC THÌ
   const handleEditResourceSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editResourceModal || !editResourceForm.title.trim()) return;
@@ -374,13 +323,12 @@ export default function AdminModals(props: AdminModalsProps) {
       }) 
     }));
 
-    // Cập nhật view modal nếu đang mở
     if (viewResourcesModal && setViewResourcesModal) {
       setViewResourcesModal((prev: any) => prev ? {
         ...prev,
-        items: (prev.items || []).map((i: any) => i?.id === editResourceModal.item.id ? {
-          ...i,
-          title: editResourceForm.title.trim(),
+        items: (prev.items || []).map((i: any) => i?.id === editResourceModal.item.id ? { 
+          ...i, 
+          title: editResourceForm.title.trim(), 
           url: editResourceForm.url?.trim() || i.url,
           type: editResourceModal.type === "video_list" ? editResourceForm.type : i.type
         } : i)
@@ -391,7 +339,6 @@ export default function AdminModals(props: AdminModalsProps) {
     dispatchOptimisticUpdate(newChapters);
   };
 
-  // 6. THÊM FILE GOOGLE DRIVE THỦ CÔNG - CẬP NHẬT TỨC THÌ
   const handleAddDriveFile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
@@ -419,7 +366,6 @@ export default function AdminModals(props: AdminModalsProps) {
     dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 7. THÊM TÀI LIỆU TĂNG CƯỜNG - CẬP NHẬT TỨC THÌ
   const handleAddBoost = (e: React.FormEvent) => {
     e.preventDefault();
     if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
@@ -440,7 +386,6 @@ export default function AdminModals(props: AdminModalsProps) {
     dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 8. TẠO CHƯƠNG HOẶC BÀI HỌC MỚI - CẬP NHẬT TỨC THÌ
   const handleCreateNewItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
@@ -480,7 +425,6 @@ export default function AdminModals(props: AdminModalsProps) {
     dispatchOptimisticUpdate(newChapters); 
   };
 
-  // 9. SỬA BÀI HỌC - CẬP NHẬT TỨC THÌ
   const handleEditLessonSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editLessonModal || !editLessonForm.title.trim()) return;
@@ -664,7 +608,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 2. MODAL THÊM TÀI NGUYÊN (VIDEO / BÀI GIẢNG / VIẾT TAY) */}
+      {/* 2. MODAL THÊM TÀI NGUYÊN */}
       {resourceModal && (
         <div 
           onClick={() => setResourceModal && setResourceModal(null)} 
@@ -726,7 +670,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 3. MODAL XEM CHI TIẾT TÀI NGUYÊN (DANH SÁCH BTVN / ĐỀ THI / BÀI GIẢNG) - XÓA TỨC THÌ (< 20MS) */}
+      {/* 3. MODAL XEM CHI TIẾT TÀI NGUYÊN */}
       {viewResourcesModal && (
         <div 
           onClick={() => setViewResourcesModal && setViewResourcesModal(null)}
@@ -773,7 +717,6 @@ export default function AdminModals(props: AdminModalsProps) {
                         }} className="p-2 text-slate-300 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer shrink-0" title="Chỉnh sửa">
                           <Edit3 className="w-4 h-4" />
                         </button>
-                        {/* NÚT THÙNG RÁC XÓA TỨC THÌ (< 20MS) */}
                         <button 
                           onClick={() => handleDeleteResource(viewResourcesModal.lessonId, viewResourcesModal.type, item.id)} 
                           className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
@@ -812,7 +755,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 4. MODAL SỬA TÀI NGUYÊN (EDIT RESOURCE MODAL) */}
+      {/* 4. MODAL SỬA TÀI NGUYÊN */}
       {editResourceModal && (
         <div 
           onClick={() => setEditResourceModal(null)} 
@@ -973,7 +916,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 7. MODAL THÊM TÀI LIỆU TĂNG CƯỜNG (BOOST MODAL) */}
+      {/* 7. MODAL THÊM TÀI LIỆU TĂNG CƯỜNG */}
       {boostModal && (
         <div 
           onClick={() => setBoostModal && setBoostModal(null)} 
@@ -1013,7 +956,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI (CREATE MODAL) */}
+      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI */}
       {createModal && (
         <div 
           onClick={() => setCreateModal && setCreateModal(null)} 
@@ -1107,7 +1050,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 9. MODAL CHỈNH SỬA THÔNG TIN BÀI HỌC (EDIT LESSON MODAL) */}
+      {/* 9. MODAL CHỈNH SỬA BÀI HỌC */}
       {editLessonModal && editLessonForm && (
         <div 
           onClick={() => setEditLessonModal && setEditLessonModal(null)} 
@@ -1189,7 +1132,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA (.PDF / .DOCX QUA GEMINI AI & MATHTYPE) */}
+      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA - ĐÃ NỐI THẲNG VÀO CALLBACK onSaveAzotaExam CỦA page.tsx */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={true} 
@@ -1198,78 +1141,21 @@ export default function AdminModals(props: AdminModalsProps) {
             title: editingExamData.title,
             category: editingExamData.category,
             duration_minutes: editingExamData.duration_minutes,
-            sections: editingExamData.data,
-            mediaMap: editingExamData.media_map
+            sections: editingExamData.data || editingExamData.sections,
+            mediaMap: editingExamData.media_map || editingExamData.mediaMap
           } : undefined}
           mode={uploadMode} 
           onClose={() => { 
             if (setTestFile) setTestFile(null); 
             if (setEditingExamData) setEditingExamData(null); 
+            if (setAzotaTarget) setAzotaTarget(null);
           }} 
-          onSave={async (examData: any) => {
-            if (uploadMode === "practice") {
-              const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
-              const newExam = { 
-                id: examId, 
-                title: examData.title, 
-                category: examData.category || "Tự do", 
-                duration_minutes: examData.duration_minutes || 45, 
-                allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
-                allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
-                driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
-                solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
-                data: examData.sections, 
-                media_map: examData.mediaMap || {},
-                created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
-              };
-
-              let updatedExams: any[];
-              if (editingExamData) {
-                updatedExams = practiceExams.map((ex: any) => ex.id === examId ? newExam : ex);
-              } else {
-                updatedExams = [newExam, ...(practiceExams || [])];
-              }
-
-              if (savePracticeExams) await savePracticeExams(updatedExams);
-
-              try {
-                if (supabase) await supabase.from("practice_exams").upsert(newExam);
-              } catch (err: any) {}
-
-              if (editingExamData && handleRecalculateExamScores) {
-                await handleRecalculateExamScores(examId, examData.sections);
-                if (showToast) showToast("Đã cập nhật đề thi và tính lại điểm chuẩn xác cho học sinh!", "success");
-              } else {
-                if (showToast) showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
-              }
-            } else {
-              if (!azotaTarget) return;
-              const isHw = azotaTarget.type === "homework_files";
-              const newExam = cleanResourceMediaPayload({ 
-                id: "exam-" + Date.now(), 
-                title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
-                isHomework: isHw, 
-                duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
-                is_quiz: true, 
-                data: examData.sections, 
-                mediaMap: examData.mediaMap 
-              });
-              const newChapters = (chapters || []).map((chap: any) => ({ 
-                ...chap, 
-                lessons: (chap?.lessons || []).map((les: any) => { 
-                  if (les?.id === azotaTarget.lessonId) { 
-                    return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
-                  } 
-                  return les; 
-                }) 
-              }));
-
-              dispatchOptimisticUpdate(newChapters); 
-              if (showToast) showToast("Đã tải đề thi trắc nghiệm vào bài học!", "success");
+          onSave={(examData: any) => {
+            if (typeof onSaveAzotaExam === "function") {
+              onSaveAzotaExam(examData);
             }
-
             if (setTestFile) setTestFile(null); 
-            if (setEditingExamData) setEditingExamData(null);
+            if (setEditingExamData) setEditingExamData(null); 
             if (setAzotaTarget) setAzotaTarget(null);
           }}
         />
