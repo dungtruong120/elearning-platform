@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import { 
   User, Award, Copy, Printer, Sparkles, PlusCircle, 
   UserCheck, Check, Eye, X, Plus, Trash2, BookOpen, 
-  Download, ImageIcon, Search, ChevronRight, ShieldCheck, Target
+  Download, ImageIcon, Search, ChevronRight, ShieldCheck, Target,
+  Filter, CheckSquare, Square
 } from "lucide-react";
 
 interface Props {
@@ -13,6 +14,15 @@ interface Props {
   chapters?: any[];
   practiceExams?: any[];
   attendanceRecords?: any[];
+}
+
+interface SelectedPracticeExamItem {
+  id: string;
+  title: string;
+  category: string;
+  completedDate: string;
+  score: number | string;
+  durationText?: string;
 }
 
 export default function AdminStudentReportPanel({
@@ -28,6 +38,10 @@ export default function AdminStudentReportPanel({
   const [isExporting, setIsExporting] = useState(false);
   const [renderedImageUrl, setRenderedImageUrl] = useState<string | null>(null);
 
+  // Modal chọn đề thi đưa vào báo cáo
+  const [showPracticePickerModal, setShowPracticePickerModal] = useState<boolean>(false);
+  const [practiceMonthFilter, setPracticeMonthFilter] = useState<string>("all");
+
   const reportCardRef = useRef<HTMLDivElement>(null);
 
   // --- CHẾ ĐỘ TỰ ĐỘNG ---
@@ -35,46 +49,42 @@ export default function AdminStudentReportPanel({
     registeredStudents[0]?.id || ""
   );
   const [searchStudent, setSearchStudent] = useState<string>("");
-  const [reportMonth, setReportMonth] = useState<number>(9);
+  const [reportMonth, setReportMonth] = useState<number>(10);
   const [autoTeacherEvaluation, setAutoTeacherEvaluation] = useState<string>(
     "- Chuyên cần & Thái độ: Con đi học đầy đủ và luôn đúng giờ. Trong giờ học, con ngoan, tập trung và có tinh thần tự giác tốt.\n\n" +
     "- Khả năng tiếp thu: Con nắm được các dạng toán cơ bản và hiểu bài ổn định. Tuy nhiên, ở một số dạng bài mới hoặc nâng cao, con vẫn còn phản xạ hơi chậm.\n\n" +
     "- Em đã tiến hành thu điện thoại của con trong giờ học và đề nghị con nghiêm túc chấp hành nội quy này.\n\n" +
-    "- Kết quả kiểm tra tháng: Đạt 7,5/10. Con đã có tiến bộ, nhưng điểm số bị trừ ở các lỗi tính toán chưa cẩn thận và phần trình bày bài giải.\n\n" +
-    "- Định hướng giai đoạn tới: Sắp tới kỳ thi giữa học kì 1, em mong gia đình cùng nhắc nhở con chăm chỉ làm đầy đủ bài tập về nhà hơn. Em cũng đã dặn con phần nào chưa hiểu hoặc gặp bài khó thì chủ động nhắn hỏi em ngay để được bổ trợ, giúp con tự tin và đạt kết quả tốt nhất trong bài thi sắp tới"
+    "- Kết quả kiểm tra tháng: Con đã có nhiều tiến bộ, cần lưu ý cẩn thận hơn ở khâu biến đổi tính toán và trình bày để tránh mất điểm đáng tiếc.\n\n" +
+    "- Định hướng giai đoạn tới: Gia đình cùng nhắc nhở con duy trì làm bài tập về nhà và luyện đề bấm giờ đều đặn. Thầy luôn sẵn sàng hỗ trợ giải đáp bất cứ khi nào con gặp khó khăn."
   );
+
+  // Danh sách các đề luyện thi được chọn đưa vào báo cáo
+  const [selectedPracticeExams, setSelectedPracticeExams] = useState<SelectedPracticeExamItem[]>([]);
 
   // --- CHẾ ĐỘ THỦ CÔNG ---
   const [manualForm, setManualForm] = useState({
-    fullName: "Vương Ngọc Bảo Trung",
-    school: "THPT Đống Đa",
+    fullName: "Trương Ngọc Dũng",
+    school: "THPT Lê Quý Đôn",
     grade: "Lớp 12",
-    reportMonth: 9,
+    reportMonth: 10,
     evaluation: 
       "- Chuyên cần & Thái độ: Con đi học đầy đủ và luôn đúng giờ. Trong giờ học, con ngoan, tập trung và có tinh thần tự giác tốt.\n\n" +
       "- Khả năng tiếp thu: Con nắm được các dạng toán cơ bản và hiểu bài ổn định. Tuy nhiên, ở một số dạng bài mới hoặc nâng cao, con vẫn còn phản xạ hơi chậm.\n\n" +
       "- Em đã tiến hành thu điện thoại của con trong giờ học và đề nghị con nghiêm túc chấp hành nội quy này.\n\n" +
-      "- Kết quả kiểm tra tháng: Đạt 7,5/10. Con đã có tiến bộ, nhưng điểm số bị trừ ở các lỗi tính toán chưa cẩn thận và phần trình bày bài giải.\n\n" +
-      "- Định hướng giai đoạn tới: Sắp tới kỳ thi giữa học kì 1, em mong gia đình cùng nhắc nhở con chăm chỉ làm đầy đủ bài tập về nhà hơn. Em cũng đã dặn con phần nào chưa hiểu hoặc gặp bài khó thì chủ động nhắn hỏi em ngay để được bổ trợ, giúp con tự tin và đạt kết quả tốt nhất trong bài thi sắp tới"
+      "- Kết quả kiểm tra tháng: Con đã có nhiều tiến bộ, cần lưu ý cẩn thận hơn ở khâu biến đổi tính toán và trình bày để tránh mất điểm đáng tiếc.\n\n" +
+      "- Định hướng giai đoạn tới: Gia đình cùng nhắc nhở con duy trì làm bài tập về nhà và luyện đề bấm giờ đều đặn. Thầy luôn sẵn sàng hỗ trợ giải đáp bất cứ khi nào con gặp khó khăn."
   });
 
   const [manualHWScores, setManualHWScores] = useState<{ [key: number]: string }>({
-    1: "8",
-    2: "8,5",
-    3: "7,5",
+    1: "8.5",
+    2: "9.0",
+    3: "8.0",
     4: ""
   });
 
   const [manualTestScores, setManualTestScores] = useState<{ [key: number]: string }>({
-    1: "7",
-    2: "7,5",
-    3: "",
-    4: ""
-  });
-
-  const [manualPracticeScores, setManualPracticeScores] = useState<{ [key: number]: string }>({
-    1: "8",
-    2: "7,8",
+    1: "7.5",
+    2: "8.0",
     3: "",
     4: ""
   });
@@ -90,122 +100,195 @@ export default function AdminStudentReportPanel({
     return registeredStudents.find(s => s.id === selectedStudentId) || registeredStudents[0] || null;
   }, [registeredStudents, selectedStudentId]);
 
-  // Bóc tách điểm tự động (Khôi phục thông minh cả BTVN, Kiểm tra và Luyện đề)
+  // Toàn bộ lịch sử làm bài của học sinh đang chọn
+  const studentAllAttempts = useMemo(() => {
+    if (!currentStudent) return [];
+    return allAttempts.filter(att => 
+      String(att.studentId || att.student_id || "").trim() === String(currentStudent.id || "").trim() ||
+      String(att.studentName || att.student_name || "").trim().toLowerCase() === String(currentStudent.full_name || "").trim().toLowerCase()
+    );
+  }, [allAttempts, currentStudent]);
+
+  // Danh sách các lượt nộp thuộc kho "Luyện đề thực chiến"
+  const studentPracticeAttempts = useMemo(() => {
+    return studentAllAttempts.filter(a => {
+      const isHw = a.type === "homework" || a.isHomework || a.is_homework;
+      const isTest = a.type === "test";
+      return !isHw && !isTest;
+    });
+  }, [studentAllAttempts]);
+
+  // Tự động gán đề luyện thi mặc định khi chuyển học sinh hoặc chuyển tháng
+  useEffect(() => {
+    if (studentPracticeAttempts.length > 0) {
+      // Ưu tiên các đề trong tháng được chọn, nếu không có thì lấy các đề gần nhất
+      const inMonth = studentPracticeAttempts.filter(a => {
+        const d = new Date(a.createdAt || a.created_at || Date.now());
+        return d.getMonth() + 1 === reportMonth;
+      });
+
+      const sourceList = inMonth.length > 0 ? inMonth : studentPracticeAttempts.slice(0, 4);
+
+      const mapped: SelectedPracticeExamItem[] = sourceList.map((a, idx) => {
+        const d = new Date(a.createdAt || a.created_at || Date.now());
+        const dateStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+        return {
+          id: a.id || `prac-${idx}`,
+          title: a.examTitle || a.quizTitle || a.quiz_title || a.title || "Đề luyện thi thực chiến",
+          category: a.category || "Luyện đề",
+          completedDate: dateStr,
+          score: a.score ?? a.points ?? "--",
+          durationText: a.timeSpent || a.time_spent || ""
+        };
+      });
+
+      setSelectedPracticeExams(mapped);
+    } else {
+      setSelectedPracticeExams([]);
+    }
+  }, [currentStudent?.id, reportMonth, studentPracticeAttempts]);
+
+  // Bóc tách điểm 4 tuần cho BTVN và Kiểm tra định kỳ
   const autoData = useMemo(() => {
     if (!currentStudent) {
       return { 
-        total: 0, 
+        totalHwTest: 0, 
         hwAvg: "--", 
         testAvg: "--", 
-        practiceAvg: "--",
         hwByWeek: { 1: "", 2: "", 3: "", 4: "" }, 
-        testByWeek: { 1: "", 2: "", 3: "", 4: "" },
-        practiceByWeek: { 1: "", 2: "", 3: "", 4: "" }
+        testByWeek: { 1: "", 2: "", 3: "", 4: "" }
       };
     }
 
-    const studentAttempts = allAttempts.filter(att => 
-      att.studentId === currentStudent.id || 
-      att.studentName === currentStudent.full_name
-    );
+    const hwAttempts = studentAllAttempts.filter(a => a.type === "homework" || a.isHomework || a.is_homework);
+    const testAttempts = studentAllAttempts.filter(a => a.type === "test");
 
-    const hwAttempts = studentAttempts.filter(a => a.type === "homework" || a.isHomework);
-    const practiceAttempts = studentAttempts.filter(a => a.type === "practice" || (!a.isHomework && !a.type?.includes("test")));
-    const testAttempts = studentAttempts.filter(a => a.type === "test" || (a.type !== "homework" && a.type !== "practice"));
-
-    const hwScores = hwAttempts.map(a => Number(a.score) || 0);
-    const testScores = testAttempts.map(a => Number(a.score) || 0);
-    const practiceScores = practiceAttempts.map(a => Number(a.score) || 0);
+    const hwScores = hwAttempts.map(a => Number(a.score ?? a.points ?? 0));
+    const testScores = testAttempts.map(a => Number(a.score ?? a.points ?? 0));
 
     const hwAvg = hwScores.length > 0 ? (hwScores.reduce((a, b) => a + b, 0) / hwScores.length).toFixed(1) : "--";
     const testAvg = testScores.length > 0 ? (testScores.reduce((a, b) => a + b, 0) / testScores.length).toFixed(1) : "--";
-    const practiceAvg = practiceScores.length > 0 ? (practiceScores.reduce((a, b) => a + b, 0) / practiceScores.length).toFixed(1) : "--";
 
     const hwByWeek: { [key: number]: string } = { 1: "", 2: "", 3: "", 4: "" };
     hwAttempts.slice(0, 4).forEach((att, idx) => {
-      hwByWeek[idx + 1] = att.score !== undefined && att.score !== null ? String(att.score) : "";
+      const sc = att.score ?? att.points;
+      hwByWeek[idx + 1] = sc !== undefined && sc !== null ? String(sc) : "";
     });
 
     const testByWeek: { [key: number]: string } = { 1: "", 2: "", 3: "", 4: "" };
     testAttempts.slice(0, 4).forEach((att, idx) => {
-      testByWeek[idx + 1] = att.score !== undefined && att.score !== null ? String(att.score) : "";
-    });
-
-    const practiceByWeek: { [key: number]: string } = { 1: "", 2: "", 3: "", 4: "" };
-    practiceAttempts.slice(0, 4).forEach((att, idx) => {
-      practiceByWeek[idx + 1] = att.score !== undefined && att.score !== null ? String(att.score) : "";
+      const sc = att.score ?? att.points;
+      testByWeek[idx + 1] = sc !== undefined && sc !== null ? String(sc) : "";
     });
 
     return {
-      total: studentAttempts.length,
+      totalHwTest: hwAttempts.length + testAttempts.length,
       hwAvg,
       testAvg,
-      practiceAvg,
       hwByWeek,
-      testByWeek,
-      practiceByWeek
+      testByWeek
     };
-  }, [allAttempts, currentStudent]);
+  }, [studentAllAttempts, currentStudent]);
+
+  // Điểm trung bình của các đề thi được chọn trong bảng động
+  const practiceStats = useMemo(() => {
+    const parseScore = (val: any) => Number(String(val).replace(",", "."));
+    const validScores = selectedPracticeExams
+      .map(item => parseScore(item.score))
+      .filter(sc => !isNaN(sc));
+
+    const avg = validScores.length > 0 
+      ? (validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(1) 
+      : "--";
+
+    return {
+      count: selectedPracticeExams.length,
+      avg
+    };
+  }, [selectedPracticeExams]);
 
   // Tính điểm thủ công tự động
   const manualStats = useMemo(() => {
     const parseScore = (val: string) => Number(val.replace(",", "."));
     const validHw = Object.values(manualHWScores).filter(val => val && !isNaN(parseScore(val))).map(parseScore);
     const validTest = Object.values(manualTestScores).filter(val => val && !isNaN(parseScore(val))).map(parseScore);
-    const validPractice = Object.values(manualPracticeScores).filter(val => val && !isNaN(parseScore(val))).map(parseScore);
 
     const hwAvg = validHw.length > 0 ? (validHw.reduce((a, b) => a + b, 0) / validHw.length).toFixed(1) : "--";
     const testAvg = validTest.length > 0 ? (validTest.reduce((a, b) => a + b, 0) / validTest.length).toFixed(1) : "--";
-    const practiceAvg = validPractice.length > 0 ? (validPractice.reduce((a, b) => a + b, 0) / validPractice.length).toFixed(1) : "--";
 
     return {
-      total: validHw.length + validTest.length + validPractice.length,
+      totalHwTest: validHw.length + validTest.length,
       hwAvg,
-      testAvg,
-      practiceAvg
+      testAvg
     };
-  }, [manualHWScores, manualTestScores, manualPracticeScores]);
+  }, [manualHWScores, manualTestScores]);
 
   // Tổng hợp thông tin báo cáo
   const currentReport = useMemo(() => {
     if (reportMode === "auto") {
       const month = reportMonth;
+      const totalOverall = autoData.totalHwTest + practiceStats.count;
       return {
         fullName: currentStudent?.full_name || "Chưa nhập họ tên",
         school: currentStudent?.school || "THPT",
         grade: currentStudent?.grade || "Lớp 12",
         month,
         timeframeText: "Tháng " + (month < 10 ? "0" + month : month) + "/2026",
-        total: autoData.total,
+        total: totalOverall,
         hwAvg: autoData.hwAvg,
         testAvg: autoData.testAvg,
-        practiceAvg: autoData.practiceAvg,
+        practiceAvg: practiceStats.avg,
         evaluation: autoTeacherEvaluation,
         hwScores: autoData.hwByWeek,
         testScores: autoData.testByWeek,
-        practiceScores: autoData.practiceByWeek
+        practiceItems: selectedPracticeExams
       };
     } else {
       const month = manualForm.reportMonth;
+      const totalOverall = manualStats.totalHwTest + practiceStats.count;
       return {
         fullName: manualForm.fullName.trim() || "Chưa nhập họ tên",
         school: manualForm.school.trim() || "THPT",
         grade: manualForm.grade,
         month,
         timeframeText: "Tháng " + (month < 10 ? "0" + month : month) + "/2026",
-        total: manualStats.total,
+        total: totalOverall,
         hwAvg: manualStats.hwAvg,
         testAvg: manualStats.testAvg,
-        practiceAvg: manualStats.practiceAvg,
+        practiceAvg: practiceStats.avg,
         evaluation: manualForm.evaluation,
         hwScores: manualHWScores,
         testScores: manualTestScores,
-        practiceScores: manualPracticeScores
+        practiceItems: selectedPracticeExams
       };
     }
-  }, [reportMode, currentStudent, reportMonth, autoData, autoTeacherEvaluation, manualForm, manualStats, manualHWScores, manualTestScores, manualPracticeScores]);
+  }, [reportMode, currentStudent, reportMonth, autoData, practiceStats, autoTeacherEvaluation, manualForm, manualStats, manualHWScores, manualTestScores, selectedPracticeExams]);
 
-  // HÀM VẼ CANVAS NATIVE VỚI 4 DÒNG ĐIỂM HOÀN CHỈNH
+  // Toggle chọn đề từ Modal Picker
+  const handleToggleSelectPracticeExam = (att: any) => {
+    const existing = selectedPracticeExams.find(item => item.id === att.id);
+    if (existing) {
+      setSelectedPracticeExams(prev => prev.filter(item => item.id !== att.id));
+    } else {
+      const d = new Date(att.createdAt || att.created_at || Date.now());
+      const dateStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+      const newItem: SelectedPracticeExamItem = {
+        id: att.id,
+        title: att.examTitle || att.quizTitle || att.quiz_title || att.title || "Đề luyện thi thực chiến",
+        category: att.category || "Luyện đề",
+        completedDate: dateStr,
+        score: att.score ?? att.points ?? "--",
+        durationText: att.timeSpent || att.time_spent || ""
+      };
+      setSelectedPracticeExams(prev => [...prev, newItem]);
+    }
+  };
+
+  const handleRemovePracticeItem = (id: string) => {
+    setSelectedPracticeExams(prev => prev.filter(item => item.id !== id));
+  };
+
+  // HÀM VẼ CANVAS NATIVE GỒM BẢNG 4 TUẦN + BẢNG ĐỘNG CÁC ĐỀ LUYỆN THI
   const generateNativeCanvasImage = (): string | null => {
     const canvas = document.createElement("canvas");
     const width = 1200;
@@ -251,8 +334,9 @@ export default function AdminStudentReportPanel({
       }
     });
 
-    const boxH = Math.max(220, wrappedLines.length * 30 + 50);
-    const approxHeight = 690 + boxH;
+    const boxH = Math.max(200, wrappedLines.length * 30 + 50);
+    const practiceTableH = currentReport.practiceItems.length > 0 ? (currentReport.practiceItems.length * 38 + 50) : 60;
+    const approxHeight = 720 + practiceTableH + boxH;
 
     canvas.width = width;
     canvas.height = approxHeight;
@@ -263,7 +347,7 @@ export default function AdminStudentReportPanel({
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, approxHeight);
 
-    // Bo viền khung chính thẩm mỹ
+    // Bo viền khung chính
     ctx.strokeStyle = "#e2e8f0";
     ctx.lineWidth = 2;
     ctx.strokeRect(15, 15, width - 30, approxHeight - 30);
@@ -287,7 +371,6 @@ export default function AdminStudentReportPanel({
     ctx.font = "600 16px " + FONT_FAMILY;
     ctx.fillText(currentReport.school + " • " + currentReport.grade, padding + 25, padding + 105);
 
-    // Tag Tháng bên phải
     ctx.fillStyle = "#2563eb";
     ctx.fillRect(width - padding - 210, padding + 25, 185, 38);
     ctx.fillStyle = "#ffffff";
@@ -325,7 +408,7 @@ export default function AdminStudentReportPanel({
     ctx.strokeRect(padding + cardW + 15, cardY, cardW, cardH);
     ctx.fillStyle = "#065f46";
     ctx.font = "bold 12px " + FONT_FAMILY;
-    ctx.fillText("Đ.TB BÀI TẬP VỀ NHÀ", padding + cardW + 33, cardY + 30);
+    ctx.fillText("Đ.TB BTVN", padding + cardW + 33, cardY + 30);
     ctx.fillStyle = "#047857";
     ctx.font = "900 28px " + FONT_FAMILY;
     ctx.fillText(currentReport.hwAvg + " / 10", padding + cardW + 33, cardY + 72);
@@ -337,7 +420,7 @@ export default function AdminStudentReportPanel({
     ctx.strokeRect(padding + (cardW + 15) * 2, cardY, cardW, cardH);
     ctx.fillStyle = "#3730a3";
     ctx.font = "bold 12px " + FONT_FAMILY;
-    ctx.fillText("Đ.TB KIỂM TRA ĐỊNH KỲ", padding + (cardW + 15) * 2 + 18, cardY + 30);
+    ctx.fillText("Đ.TB KIỂM TRA", padding + (cardW + 15) * 2 + 18, cardY + 30);
     ctx.fillStyle = "#4338ca";
     ctx.font = "900 28px " + FONT_FAMILY;
     ctx.fillText(currentReport.testAvg + " / 10", padding + (cardW + 15) * 2 + 18, cardY + 72);
@@ -349,23 +432,23 @@ export default function AdminStudentReportPanel({
     ctx.strokeRect(padding + (cardW + 15) * 3, cardY, cardW, cardH);
     ctx.fillStyle = "#1e40af";
     ctx.font = "bold 12px " + FONT_FAMILY;
-    ctx.fillText("Đ.TB LUYỆN ĐỀ THI", padding + (cardW + 15) * 3 + 18, cardY + 30);
+    ctx.fillText("Đ.TB LUYỆN ĐỀ", padding + (cardW + 15) * 3 + 18, cardY + 30);
     ctx.fillStyle = "#1d4ed8";
     ctx.font = "900 28px " + FONT_FAMILY;
     ctx.fillText(currentReport.practiceAvg + " / 10", padding + (cardW + 15) * 3 + 18, cardY + 72);
 
-    // 3. BẢNG ĐIỂM THEO TUẦN (CÓ THÊM HÀNG LUYỆN ĐỀ THỰC CHIẾN)
+    // 3. BẢNG 4 TUẦN CHO BTVN VÀ KIỂM TRA ĐỊNH KỲ
     const tableY = cardY + 130;
     ctx.fillStyle = "#0f172a";
     ctx.font = "bold 16px " + FONT_FAMILY;
-    ctx.fillText("1. BẢNG THEO DÕI ĐIỂM SỐ THEO TỪNG TUẦN", padding, tableY);
+    ctx.fillText("1. BẢNG THEO DÕI ĐIỂM SỐ 4 TUẦN (BTVN & KIỂM TRA ĐỊNH KỲ)", padding, tableY);
 
     const tblTop = tableY + 15;
-    const tblH = 160;
+    const tblH = 120;
     ctx.strokeStyle = "#cbd5e1";
     ctx.strokeRect(padding, tblTop, contentWidth, tblH);
 
-    // Header table
+    // Header table 4 tuần
     ctx.fillStyle = "#f1f5f9";
     ctx.fillRect(padding, tblTop, contentWidth, 40);
     ctx.fillStyle = "#334155";
@@ -375,7 +458,7 @@ export default function AdminStudentReportPanel({
     ctx.fillText("T2." + currentReport.month, padding + 490, tblTop + 26);
     ctx.fillText("T3." + currentReport.month, padding + 640, tblTop + 26);
     ctx.fillText("T4." + currentReport.month, padding + 790, tblTop + 26);
-    ctx.fillText("Điểm trung bình", padding + 940, tblTop + 26);
+    ctx.fillText("Trung bình", padding + 940, tblTop + 26);
 
     // Hàng 1: BTVN
     ctx.fillStyle = "#0f172a";
@@ -389,7 +472,7 @@ export default function AdminStudentReportPanel({
     ctx.fillText(currentReport.hwScores[4] ? currentReport.hwScores[4] + " đ" : "--", padding + 790, tblTop + 68);
     ctx.fillText(currentReport.hwAvg !== "--" ? currentReport.hwAvg + " / 10" : "--", padding + 940, tblTop + 68);
 
-    // Kẻ ngang 1
+    // Kẻ ngang
     ctx.strokeStyle = "#e2e8f0";
     ctx.beginPath();
     ctx.moveTo(padding, tblTop + 80);
@@ -408,29 +491,69 @@ export default function AdminStudentReportPanel({
     ctx.fillText(currentReport.testScores[4] ? currentReport.testScores[4] + " đ" : "--", padding + 790, tblTop + 108);
     ctx.fillText(currentReport.testAvg !== "--" ? currentReport.testAvg + " / 10" : "--", padding + 940, tblTop + 108);
 
-    // Kẻ ngang 2
-    ctx.beginPath();
-    ctx.moveTo(padding, tblTop + 120);
-    ctx.lineTo(width - padding, tblTop + 120);
-    ctx.stroke();
-
-    // Hàng 3: Luyện đề thực chiến
-    ctx.fillStyle = "#0f172a";
-    ctx.font = "bold 15px " + FONT_FAMILY;
-    ctx.fillText("Luyện đề thực chiến", padding + 20, tblTop + 148);
-    ctx.fillStyle = "#1d4ed8";
-    ctx.font = "bold 16px " + FONT_FAMILY;
-    ctx.fillText(currentReport.practiceScores[1] ? currentReport.practiceScores[1] + " đ" : "--", padding + 340, tblTop + 148);
-    ctx.fillText(currentReport.practiceScores[2] ? currentReport.practiceScores[2] + " đ" : "--", padding + 490, tblTop + 148);
-    ctx.fillText(currentReport.practiceScores[3] ? currentReport.practiceScores[3] + " đ" : "--", padding + 640, tblTop + 148);
-    ctx.fillText(currentReport.practiceScores[4] ? currentReport.practiceScores[4] + " đ" : "--", padding + 790, tblTop + 148);
-    ctx.fillText(currentReport.practiceAvg !== "--" ? currentReport.practiceAvg + " / 10" : "--", padding + 940, tblTop + 148);
-
-    // 4. NHẬN XÉT CHI TIẾT
-    const evalY = tblTop + tblH + 35;
+    // 4. BẢNG ĐỘNG LUYỆN ĐỀ THỰC CHIẾN
+    const pracSectionY = tblTop + tblH + 35;
     ctx.fillStyle = "#0f172a";
     ctx.font = "bold 16px " + FONT_FAMILY;
-    ctx.fillText("2. NHẬN XÉT CHI TIẾT TỪ GIÁO VIÊN PHỤ TRÁCH", padding, evalY);
+    ctx.fillText("2. BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN (TÙY CHỌN GỬI PHỤ HUYNH)", padding, pracSectionY);
+
+    const pracTableTop = pracSectionY + 15;
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.strokeRect(padding, pracTableTop, contentWidth, practiceTableH);
+
+    ctx.fillStyle = "#eff6ff";
+    ctx.fillRect(padding, pracTableTop, contentWidth, 40);
+    ctx.fillStyle = "#1e40af";
+    ctx.font = "bold 14px " + FONT_FAMILY;
+    ctx.fillText("STT", padding + 15, pracTableTop + 25);
+    ctx.fillText("Tên đề thi", padding + 65, pracTableTop + 25);
+    ctx.fillText("Phân loại", padding + 580, pracTableTop + 25);
+    ctx.fillText("Ngày nộp", padding + 790, pracTableTop + 25);
+    ctx.fillText("Điểm số", padding + 960, pracTableTop + 25);
+
+    let curPracY = pracTableTop + 40;
+    if (currentReport.practiceItems.length === 0) {
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "normal 14px " + FONT_FAMILY;
+      ctx.fillText("Chưa chọn đề luyện thi nào vào báo cáo tháng này.", padding + 20, curPracY + 25);
+      curPracY += 35;
+    } else {
+      currentReport.practiceItems.forEach((item, pIdx) => {
+        ctx.fillStyle = pIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
+        ctx.fillRect(padding, curPracY, contentWidth, 38);
+
+        ctx.strokeStyle = "#f1f5f9";
+        ctx.strokeRect(padding, curPracY, contentWidth, 38);
+
+        ctx.fillStyle = "#64748b";
+        ctx.font = "bold 14px " + FONT_FAMILY;
+        ctx.fillText(String(pIdx + 1), padding + 18, curPracY + 24);
+
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "bold 14px " + FONT_FAMILY;
+        ctx.fillText(item.title, padding + 65, curPracY + 24);
+
+        ctx.fillStyle = "#2563eb";
+        ctx.font = "bold 13px " + FONT_FAMILY;
+        ctx.fillText(item.category || "Luyện đề", padding + 580, curPracY + 24);
+
+        ctx.fillStyle = "#475569";
+        ctx.font = "normal 14px " + FONT_FAMILY;
+        ctx.fillText(item.completedDate, padding + 790, curPracY + 24);
+
+        ctx.fillStyle = "#1d4ed8";
+        ctx.font = "bold 15px " + FONT_FAMILY;
+        ctx.fillText(`${item.score} / 10`, padding + 960, curPracY + 24);
+
+        curPracY += 38;
+      });
+    }
+
+    // 5. NHẬN XÉT CHI TIẾT
+    const evalY = pracTableTop + practiceTableH + 35;
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "bold 16px " + FONT_FAMILY;
+    ctx.fillText("3. NHẬN XÉT CHI TIẾT TỪ GIÁO VIÊN PHỤ TRÁCH", padding, evalY);
 
     const boxY = evalY + 15;
     ctx.fillStyle = "#f8fafc";
@@ -483,6 +606,15 @@ export default function AdminStudentReportPanel({
 
   const handleCopyZalo = () => {
     const m = currentReport.month;
+    let practiceLines = "";
+    if (currentReport.practiceItems.length > 0) {
+      practiceLines = currentReport.practiceItems
+        .map((p, idx) => `  ${idx + 1}. ${p.title} [${p.category}]: ${p.score}/10 (${p.completedDate})`)
+        .join("\n");
+    } else {
+      practiceLines = "  (Chưa có đề thi nào)";
+    }
+
     const msg = 
       "[PHIẾU BÁO CÁO HỌC TẬP - DUNGTRUONG.TCT]\n" +
       "Kính gửi Phụ huynh em: " + currentReport.fullName + "\n" +
@@ -490,14 +622,16 @@ export default function AdminStudentReportPanel({
       "Kỳ báo cáo: " + currentReport.timeframeText + "\n" +
       "------------------------------------\n" +
       "I. KẾT QUẢ ĐẠT ĐƯỢC:\n" +
-      "- Tổng số bài đã nộp: " + currentReport.total + " bài\n" +
+      "- Tổng số bài nộp: " + currentReport.total + " bài\n" +
       "- Điểm trung bình BTVN: " + currentReport.hwAvg + " / 10\n" +
       "- Điểm trung bình Kiểm tra định kỳ: " + currentReport.testAvg + " / 10\n" +
       "- Điểm trung bình Luyện đề thực chiến: " + currentReport.practiceAvg + " / 10\n\n" +
-      "* Chi tiết điểm theo tuần:\n" +
-      "  + BTVN: [T1." + m + ": " + (currentReport.hwScores[1] || "--") + "] | [T2." + m + ": " + (currentReport.hwScores[2] || "--") + "] | [T3." + m + ": " + (currentReport.hwScores[3] || "--") + "] | [T4." + m + ": " + (currentReport.hwScores[4] || "--") + "]\n" +
-      "  + Kiểm tra: [T1." + m + ": " + (currentReport.testScores[1] || "--") + "] | [T2." + m + ": " + (currentReport.testScores[2] || "--") + "] | [T3." + m + ": " + (currentReport.testScores[3] || "--") + "] | [T4." + m + ": " + (currentReport.testScores[4] || "--") + "]\n" +
-      "  + Luyện đề: [T1." + m + ": " + (currentReport.practiceScores[1] || "--") + "] | [T2." + m + ": " + (currentReport.practiceScores[2] || "--") + "] | [T3." + m + ": " + (currentReport.practiceScores[3] || "--") + "] | [T4." + m + ": " + (currentReport.practiceScores[4] || "--") + "]\n\n" +
+      "* Chi tiết BTVN 4 tuần:\n" +
+      "  [T1." + m + ": " + (currentReport.hwScores[1] || "--") + "] | [T2." + m + ": " + (currentReport.hwScores[2] || "--") + "] | [T3." + m + ": " + (currentReport.hwScores[3] || "--") + "] | [T4." + m + ": " + (currentReport.hwScores[4] || "--") + "]\n\n" +
+      "* Chi tiết Kiểm tra định kỳ 4 tuần:\n" +
+      "  [T1." + m + ": " + (currentReport.testScores[1] || "--") + "] | [T2." + m + ": " + (currentReport.testScores[2] || "--") + "] | [T3." + m + ": " + (currentReport.testScores[3] || "--") + "] | [T4." + m + ": " + (currentReport.testScores[4] || "--") + "]\n\n" +
+      "* Danh sách Luyện đề thực chiến gửi phụ huynh:\n" +
+      practiceLines + "\n\n" +
       "------------------------------------\n" +
       "II. NHẬN XÉT CỦA GIÁO VIÊN:\n" +
       currentReport.evaluation + "\n\n" +
@@ -509,6 +643,16 @@ export default function AdminStudentReportPanel({
       setTimeout(() => setCopiedToast(false), 2500);
     }
   };
+
+  // Lọc danh sách đề thi trong Modal Picker theo tháng
+  const filteredModalPracticeAttempts = useMemo(() => {
+    if (practiceMonthFilter === "all") return studentPracticeAttempts;
+    const targetM = Number(practiceMonthFilter);
+    return studentPracticeAttempts.filter(a => {
+      const d = new Date(a.createdAt || a.created_at || Date.now());
+      return d.getMonth() + 1 === targetM;
+    });
+  }, [studentPracticeAttempts, practiceMonthFilter]);
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto text-left font-sans">
@@ -567,7 +711,8 @@ export default function AdminStudentReportPanel({
       {/* CHẾ ĐỘ 1: THEO HỆ THỐNG */}
       {reportMode === "auto" ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-col h-[700px]">
+          {/* CỘT DANH SÁCH HỌC SINH */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-col h-[750px]">
             <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
               <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
                 <User className="w-4 h-4 text-[#1D4ED8]" /> Danh sách học viên
@@ -612,6 +757,7 @@ export default function AdminStudentReportPanel({
             </div>
           </div>
 
+          {/* CỘT NỘI DUNG BÁO CÁO CHI TIẾT */}
           <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-5">
             {currentStudent ? (
               <>
@@ -636,11 +782,11 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* 4 KHỐI ĐIỂM SỐ BAO GỒM LUYỆN ĐỀ THỰC CHIẾN */}
+                {/* 4 KHỐI ĐIỂM SỐ NỔI BẬT */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-center">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Tổng bài nộp</span>
-                    <span className="text-lg font-black text-slate-900 mt-1 block">{autoData.total} bài</span>
+                    <span className="text-lg font-black text-slate-900 mt-1 block">{currentReport.total} bài</span>
                   </div>
                   <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-center">
                     <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Đ.TB BTVN</span>
@@ -652,55 +798,118 @@ export default function AdminStudentReportPanel({
                   </div>
                   <div className="p-3 bg-blue-50 rounded-2xl border border-blue-200 text-center">
                     <span className="text-[10px] font-bold text-[#1D4ED8] uppercase tracking-wider block">Đ.TB Luyện đề</span>
-                    <span className="text-lg font-black text-[#1D4ED8] mt-1 block">{autoData.practiceAvg} / 10</span>
+                    <span className="text-lg font-black text-[#1D4ED8] mt-1 block">{practiceStats.avg} / 10</span>
                   </div>
                 </div>
 
-                {/* BẢNG ĐIỂM THEO TUẦN CÓ ĐẦY ĐỦ DÒNG LUYỆN ĐỀ THỰC CHIẾN */}
-                <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                  <table className="w-full text-center text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
-                        <th className="py-2.5 px-3 text-left w-36">Hạng mục điểm</th>
-                        <th className="py-2.5 px-2">T1.{reportMonth}</th>
-                        <th className="py-2.5 px-2">T2.{reportMonth}</th>
-                        <th className="py-2.5 px-2">T3.{reportMonth}</th>
-                        <th className="py-2.5 px-2">T4.{reportMonth}</th>
-                        <th className="py-2.5 px-3 text-right">Trung bình</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-semibold">
-                      <tr>
-                        <td className="py-2.5 px-3 text-left font-bold text-slate-800">Bài tập về nhà (BTVN)</td>
-                        <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[1] || "--"}</td>
-                        <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[2] || "--"}</td>
-                        <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[3] || "--"}</td>
-                        <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[4] || "--"}</td>
-                        <td className="py-2.5 px-3 text-right font-black text-emerald-700">{autoData.hwAvg}</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 px-3 text-left font-bold text-slate-800">Kiểm tra định kỳ</td>
-                        <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[1] || "--"}</td>
-                        <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[2] || "--"}</td>
-                        <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[3] || "--"}</td>
-                        <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[4] || "--"}</td>
-                        <td className="py-2.5 px-3 text-right font-black text-indigo-700">{autoData.testAvg}</td>
-                      </tr>
-                      {/* DÒNG ĐIỂM LUYỆN ĐỀ BỔ SUNG CHUẨN XÁC DƯỚI DÒNG KIỂM TRA ĐỊNH KỲ */}
-                      <tr className="bg-blue-50/30">
-                        <td className="py-2.5 px-3 text-left font-bold text-blue-900 flex items-center gap-1.5">
-                          <Target className="w-3.5 h-3.5 text-[#1D4ED8]" /> Luyện đề thực chiến
-                        </td>
-                        <td className="py-2.5 px-2 text-[#1D4ED8] font-black">{autoData.practiceByWeek[1] || "--"}</td>
-                        <td className="py-2.5 px-2 text-[#1D4ED8] font-black">{autoData.practiceByWeek[2] || "--"}</td>
-                        <td className="py-2.5 px-2 text-[#1D4ED8] font-black">{autoData.practiceByWeek[3] || "--"}</td>
-                        <td className="py-2.5 px-2 text-[#1D4ED8] font-black">{autoData.practiceByWeek[4] || "--"}</td>
-                        <td className="py-2.5 px-3 text-right font-black text-[#1D4ED8]">{autoData.practiceAvg}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                {/* 1. BẢNG 4 TUẦN NGUYÊN BẢN (CHỈ DÀNH CHO BTVN VÀ KIỂM TRA ĐỊNH KỲ) */}
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-black uppercase text-slate-900 tracking-wider flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-[#1D4ED8]" /> 1. Bảng theo dõi điểm số 4 tuần (BTVN & Kiểm tra định kỳ)
+                  </h4>
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-center text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                          <th className="py-2.5 px-3 text-left w-48">Hạng mục điểm</th>
+                          <th className="py-2.5 px-2">T1.{reportMonth}</th>
+                          <th className="py-2.5 px-2">T2.{reportMonth}</th>
+                          <th className="py-2.5 px-2">T3.{reportMonth}</th>
+                          <th className="py-2.5 px-2">T4.{reportMonth}</th>
+                          <th className="py-2.5 px-3 text-right">Trung bình</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-semibold bg-white">
+                        <tr>
+                          <td className="py-2.5 px-3 text-left font-bold text-slate-800">Bài tập về nhà (BTVN)</td>
+                          <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[1] || "--"}</td>
+                          <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[2] || "--"}</td>
+                          <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[3] || "--"}</td>
+                          <td className="py-2.5 px-2 text-emerald-700 font-black">{autoData.hwByWeek[4] || "--"}</td>
+                          <td className="py-2.5 px-3 text-right font-black text-emerald-700">{autoData.hwAvg}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 text-left font-bold text-slate-800">Kiểm tra định kỳ</td>
+                          <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[1] || "--"}</td>
+                          <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[2] || "--"}</td>
+                          <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[3] || "--"}</td>
+                          <td className="py-2.5 px-2 text-indigo-700 font-black">{autoData.testByWeek[4] || "--"}</td>
+                          <td className="py-2.5 px-3 text-right font-black text-indigo-700">{autoData.testAvg}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
+                {/* 2. BẢNG ĐỘNG TÁCH BIỆT: LUYỆN ĐỀ THỰC CHIẾN TÙY CHỌN */}
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-[#1D4ED8]" /> Bảng điểm Luyện đề Thực chiến (Tùy chọn gửi Phụ huynh)
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowPracticePickerModal(true)}
+                      className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] rounded-xl text-xs font-black transition flex items-center gap-1 border border-blue-200 cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Chọn đề đưa vào báo cáo
+                    </button>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/40">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold text-[11px] uppercase">
+                          <th className="py-2.5 px-3 text-center w-12">STT</th>
+                          <th className="py-2.5 px-4 min-w-[200px]">Tên đề thi</th>
+                          <th className="py-2.5 px-3">Phân loại</th>
+                          <th className="py-2.5 px-3 text-center">Ngày hoàn thành</th>
+                          <th className="py-2.5 px-3 text-center">Điểm số</th>
+                          <th className="py-2.5 px-3 text-center w-16">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {selectedPracticeExams.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-6 text-center text-slate-400 italic">
+                              Chưa có đề luyện thi nào được chọn. Bấm nút <strong>"+ Chọn đề đưa vào báo cáo"</strong> để thêm đề.
+                            </td>
+                          </tr>
+                        ) : (
+                          selectedPracticeExams.map((item, idx) => (
+                            <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-2.5 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                              <td className="py-2.5 px-4 font-bold text-slate-800">{item.title}</td>
+                              <td className="py-2.5 px-3">
+                                <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+                                  {item.category || "Luyện đề"}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center text-slate-500 font-medium">{item.completedDate}</td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="font-black text-sm text-[#1D4ED8] bg-blue-50/70 px-2.5 py-0.5 rounded-lg border border-blue-200">
+                                  {item.score} / 10
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemovePracticeItem(item.id)}
+                                  className="p-1 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                  title="Gỡ đề khỏi báo cáo"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 3. SOẠN NHẬN XÉT GỬI PHỤ HUYNH */}
                 <div>
                   <label className="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Nhận xét gửi Phụ huynh:
@@ -740,7 +949,7 @@ export default function AdminStudentReportPanel({
                 type="text"
                 value={manualForm.fullName}
                 onChange={e => setManualForm({ ...manualForm, fullName: e.target.value })}
-                placeholder="VD: Vương Ngọc Bảo Trung"
+                placeholder="VD: Trương Ngọc Dũng"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-emerald-600 focus:bg-white"
               />
             </div>
@@ -750,7 +959,7 @@ export default function AdminStudentReportPanel({
                 type="text"
                 value={manualForm.school}
                 onChange={e => setManualForm({ ...manualForm, school: e.target.value })}
-                placeholder="VD: THPT Đống Đa"
+                placeholder="VD: THPT Lê Quý Đôn"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-emerald-600 focus:bg-white"
               />
             </div>
@@ -780,14 +989,14 @@ export default function AdminStudentReportPanel({
             </div>
           </div>
 
-          {/* BẢNG ĐIỂM NGANG TỪNG TUẦN (CHẾ ĐỘ THỦ CÔNG) */}
+          {/* BẢNG 4 TUẦN THỦ CÔNG (BTVN VÀ KIỂM TRA ĐỊNH KỲ) */}
           <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50">
             <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
               <span className="font-black text-xs text-slate-800">
-                Bảng điểm theo tuần (Nhập điểm hoặc để trống nếu chưa có)
+                1. Bảng điểm theo tuần (Nhập điểm hoặc để trống nếu chưa có)
               </span>
               <span className="text-[11px] text-slate-500 font-semibold">
-                Đ.TB tính tự động: BTVN ({manualStats.hwAvg}) • KT ({manualStats.testAvg}) • Luyện đề ({manualStats.practiceAvg})
+                Đ.TB tính tự động: BTVN ({manualStats.hwAvg}) • KT ({manualStats.testAvg})
               </span>
             </div>
             <table className="w-full text-center text-xs border-collapse">
@@ -818,7 +1027,7 @@ export default function AdminStudentReportPanel({
                   <td className="py-2 px-3 text-right font-black text-emerald-700">{manualStats.hwAvg}</td>
                 </tr>
                 <tr>
-                  <td className="py-2 px-3 text-left font-bold text-slate-800">Kiểm tra</td>
+                  <td className="py-2 px-3 text-left font-bold text-slate-800">Kiểm tra định kỳ</td>
                   {[1, 2, 3, 4].map(w => (
                     <td key={w} className="py-1.5 px-2">
                       <input
@@ -832,28 +1041,80 @@ export default function AdminStudentReportPanel({
                   ))}
                   <td className="py-2 px-3 text-right font-black text-indigo-700">{manualStats.testAvg}</td>
                 </tr>
-                <tr>
-                  <td className="py-2 px-3 text-left font-bold text-blue-900">Luyện đề</td>
-                  {[1, 2, 3, 4].map(w => (
-                    <td key={w} className="py-1.5 px-2">
-                      <input
-                        type="text"
-                        value={manualPracticeScores[w] || ""}
-                        onChange={e => setManualPracticeScores({ ...manualPracticeScores, [w]: e.target.value })}
-                        placeholder="--"
-                        className="w-14 py-1 text-center font-black text-[#1D4ED8] bg-blue-50 rounded-lg border border-blue-200 outline-none"
-                      />
-                    </td>
-                  ))}
-                  <td className="py-2 px-3 text-right font-black text-[#1D4ED8]">{manualStats.practiceAvg}</td>
-                </tr>
               </tbody>
             </table>
           </div>
 
+          {/* BẢNG ĐỘNG LUYỆN ĐỀ (CHẾ ĐỘ THỦ CÔNG) */}
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-[#1D4ED8]" /> 2. Bảng điểm Luyện đề Thực chiến (Tùy chọn)
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowPracticePickerModal(true)}
+                className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] rounded-xl text-xs font-black transition flex items-center gap-1 border border-blue-200 cursor-pointer shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5" /> Chọn đề đưa vào báo cáo
+              </button>
+            </div>
+
+            <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/40">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold text-[11px] uppercase">
+                    <th className="py-2.5 px-3 text-center w-12">STT</th>
+                    <th className="py-2.5 px-4 min-w-[200px]">Tên đề thi</th>
+                    <th className="py-2.5 px-3">Phân loại</th>
+                    <th className="py-2.5 px-3 text-center">Ngày hoàn thành</th>
+                    <th className="py-2.5 px-3 text-center">Điểm số</th>
+                    <th className="py-2.5 px-3 text-center w-16">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {selectedPracticeExams.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-slate-400 italic">
+                        Chưa có đề luyện thi nào. Bấm <strong>"+ Chọn đề đưa vào báo cáo"</strong> để thêm.
+                      </td>
+                    </tr>
+                  ) : (
+                    selectedPracticeExams.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                        <td className="py-2.5 px-4 font-bold text-slate-800">{item.title}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+                            {item.category || "Luyện đề"}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-slate-500 font-medium">{item.completedDate}</td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className="font-black text-sm text-[#1D4ED8] bg-blue-50/70 px-2.5 py-0.5 rounded-lg border border-blue-200">
+                            {item.score} / 10
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePracticeItem(item.id)}
+                            className="p-1 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Nhận xét của Giáo viên (Hỗ trợ viết dài nhiều đoạn):
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Nhận xét của Giáo viên:
             </label>
             <textarea
               rows={6}
@@ -867,7 +1128,131 @@ export default function AdminStudentReportPanel({
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL BẢN CHÍNH THỨC: XUẤT ẢNH PNG NATIVE 2X ĐẦY ĐỦ 3 MỤC ĐIỂM SỐ */}
+      {/* MODAL / DRAWER CHỌN ĐỀ THI ĐƯA VÀO BÁO CÁO */}
+      {/* ========================================================================= */}
+      {showPracticePickerModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden text-left">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
+              <div>
+                <h3 className="font-black text-slate-900 text-sm sm:text-base flex items-center gap-2">
+                  <Award className="w-5 h-5 text-[#1D4ED8]" /> Chọn đề Luyện thi thực chiến đưa vào Báo cáo
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Học sinh: <strong className="text-slate-800">{currentReport.fullName}</strong> • Đã chọn {selectedPracticeExams.length} đề
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPracticePickerModal(false)}
+                className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-200/60 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* THANH LỌC NHANH THEO THÁNG */}
+            <div className="p-3 bg-slate-100/70 border-b border-slate-200/80 flex items-center gap-2 overflow-x-auto shrink-0 custom-scrollbar">
+              <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1 shrink-0 ml-1">
+                <Filter className="w-3.5 h-3.5" /> Lọc tháng:
+              </span>
+              {[
+                { val: "all", label: "Tất cả đề" },
+                { val: "8", label: "Tháng 08" },
+                { val: "9", label: "Tháng 09" },
+                { val: "10", label: "Tháng 10" },
+                { val: "11", label: "Tháng 11" },
+                { val: "12", label: "Tháng 12" }
+              ].map(item => (
+                <button
+                  key={item.val}
+                  type="button"
+                  onClick={() => setPracticeMonthFilter(item.val)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer ${
+                    practiceMonthFilter === item.val
+                      ? "bg-[#1D4ED8] text-white shadow-2xs"
+                      : "bg-white text-slate-600 hover:bg-slate-200 border border-slate-200"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* DANH SÁCH CÁC ĐỀ THI ĐÃ NỘP */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+              {filteredModalPracticeAttempts.length === 0 ? (
+                <div className="py-16 text-center text-slate-400 text-xs">
+                  Không tìm thấy bài làm nào trong bộ lọc này.
+                </div>
+              ) : (
+                filteredModalPracticeAttempts.map(att => {
+                  const isSelected = selectedPracticeExams.some(item => item.id === att.id);
+                  const d = new Date(att.createdAt || att.created_at || Date.now());
+                  const dateStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+                  const title = att.examTitle || att.quizTitle || att.quiz_title || att.title || "Đề luyện thi thực chiến";
+                  const score = att.score ?? att.points ?? "--";
+
+                  return (
+                    <div
+                      key={att.id}
+                      onClick={() => handleToggleSelectPracticeExam(att)}
+                      className={`p-3.5 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
+                        isSelected 
+                          ? "bg-blue-50/80 border-[#1D4ED8] shadow-2xs ring-1 ring-[#1D4ED8]/30" 
+                          : "bg-white border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="text-[#1D4ED8] shrink-0">
+                          {isSelected ? (
+                            <CheckSquare className="w-5 h-5 fill-blue-600 text-white" />
+                          ) : (
+                            <Square className="w-5 h-5 text-slate-300" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h5 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
+                            {title}
+                          </h5>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-semibold mt-0.5">
+                            <span className="text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded font-black text-[9px] uppercase">
+                              {att.category || "Luyện đề"}
+                            </span>
+                            <span>• Ngày nộp: {dateStr}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0 ml-3">
+                        <span className="font-black text-sm text-[#1D4ED8] bg-white px-2.5 py-1 rounded-xl border border-blue-200 shadow-2xs">
+                          {score} / 10
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50 shrink-0">
+              <span className="text-xs font-bold text-slate-600">
+                Đã chọn: <strong className="text-[#1D4ED8]">{selectedPracticeExams.length} đề</strong> đưa vào báo cáo
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPracticePickerModal(false)}
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl text-xs font-black shadow-sm transition cursor-pointer"
+              >
+                Xác nhận & Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL BẢN CHÍNH THỨC: XUẤT ẢNH PNG / IN ẤN CÓ CẢ BẢNG 4 TUẦN VÀ BẢNG ĐỘNG */}
       {/* ========================================================================= */}
       {showOfficialModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
@@ -965,10 +1350,10 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* 3. BẢNG ĐIỂM THEO TỪNG TUẦN (ĐẦY ĐỦ 3 HÀNG) */}
+                {/* 3. BẢNG ĐIỂM 4 TUẦN (BTVN & KIỂM TRA ĐỊNH KỲ) */}
                 <div className="space-y-1.5">
                   <h4 className="text-xs font-black uppercase text-slate-900 tracking-wider flex items-center gap-1.5">
-                    <BookOpen className="w-3.5 h-3.5 text-[#1D4ED8]" /> 1. Bảng theo dõi điểm số theo từng tuần
+                    <BookOpen className="w-3.5 h-3.5 text-[#1D4ED8]" /> 1. Bảng theo dõi điểm số 4 tuần (BTVN & Kiểm tra định kỳ)
                   </h4>
 
                   <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
@@ -980,7 +1365,7 @@ export default function AdminStudentReportPanel({
                           <th className="py-2.5 px-3">T2.{currentReport.month}</th>
                           <th className="py-2.5 px-3">T3.{currentReport.month}</th>
                           <th className="py-2.5 px-3">T4.{currentReport.month}</th>
-                          <th className="py-2.5 px-4 text-right">Điểm trung bình</th>
+                          <th className="py-2.5 px-4 text-right">Trung bình</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white font-semibold">
@@ -1000,25 +1385,59 @@ export default function AdminStudentReportPanel({
                           <td className="py-2.5 px-3 text-indigo-700 font-black">{currentReport.testScores[4] ? (currentReport.testScores[4] + " đ") : "--"}</td>
                           <td className="py-2.5 px-4 text-right font-black text-indigo-700">{currentReport.testAvg !== "--" ? (currentReport.testAvg + " / 10") : "--"}</td>
                         </tr>
-                        <tr className="bg-blue-50/40">
-                          <td className="py-2.5 px-4 text-left font-bold text-blue-900 flex items-center gap-1.5">
-                            <Target className="w-3.5 h-3.5 text-[#1D4ED8]" /> Luyện đề thực chiến
-                          </td>
-                          <td className="py-2.5 px-3 text-[#1D4ED8] font-black">{currentReport.practiceScores[1] ? (currentReport.practiceScores[1] + " đ") : "--"}</td>
-                          <td className="py-2.5 px-3 text-[#1D4ED8] font-black">{currentReport.practiceScores[2] ? (currentReport.practiceScores[2] + " đ") : "--"}</td>
-                          <td className="py-2.5 px-3 text-[#1D4ED8] font-black">{currentReport.practiceScores[3] ? (currentReport.practiceScores[3] + " đ") : "--"}</td>
-                          <td className="py-2.5 px-3 text-[#1D4ED8] font-black">{currentReport.practiceScores[4] ? (currentReport.practiceScores[4] + " đ") : "--"}</td>
-                          <td className="py-2.5 px-4 text-right font-black text-[#1D4ED8]">{currentReport.practiceAvg !== "--" ? (currentReport.practiceAvg + " / 10") : "--"}</td>
-                        </tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
 
-                {/* 4. NHẬN XÉT CHI TIẾT */}
+                {/* 4. BẢNG ĐỘNG LUYỆN ĐỀ THỰC CHIẾN GỬI PHỤ HUYNH */}
+                <div className="space-y-1.5 pt-1">
+                  <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
+                    <Award className="w-3.5 h-3.5 text-[#1D4ED8]" /> 2. Bảng điểm Luyện đề Thực chiến (Tùy chọn gửi Phụ huynh)
+                  </h4>
+
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-blue-50/70 border-b border-blue-200 text-blue-900 font-bold">
+                          <th className="py-2 px-3 text-center w-12">STT</th>
+                          <th className="py-2 px-4">Tên đề thi</th>
+                          <th className="py-2 px-3">Phân loại</th>
+                          <th className="py-2 px-3 text-center">Ngày nộp</th>
+                          <th className="py-2 px-3 text-right">Điểm số</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white font-semibold">
+                        {currentReport.practiceItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-4 text-center text-slate-400 italic">
+                              Chưa có đề luyện thi nào được chọn vào báo cáo.
+                            </td>
+                          </tr>
+                        ) : (
+                          currentReport.practiceItems.map((item, pIdx) => (
+                            <tr key={item.id} className="hover:bg-slate-50/50">
+                              <td className="py-2 px-3 text-center font-bold text-slate-400">{pIdx + 1}</td>
+                              <td className="py-2 px-4 font-bold text-slate-800">{item.title}</td>
+                              <td className="py-2 px-3">
+                                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
+                                  {item.category || "Luyện đề"}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center text-slate-500 font-medium">{item.completedDate}</td>
+                              <td className="py-2 px-3 text-right font-black text-[#1D4ED8]">{item.score} / 10</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 5. NHẬN XÉT CHI TIẾT */}
                 <div className="space-y-1.5 pt-1">
                   <h4 className="text-xs font-black uppercase text-slate-900 tracking-wider flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 2. Nhận xét chi tiết từ Giáo viên phụ trách
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 3. Nhận xét chi tiết từ Giáo viên phụ trách
                   </h4>
                   <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200 text-xs text-slate-800 leading-relaxed whitespace-pre-line font-medium break-words">
                     {currentReport.evaluation || "Chưa có nhận xét."}
@@ -1030,7 +1449,7 @@ export default function AdminStudentReportPanel({
         </div>
       )}
 
-      {/* POPUP XEM TOÀN CẢNH ẢNH (LIGHTBOX) */}
+      {/* POPUP XEM TOÀN CẢNH ẢNH */}
       {renderedImageUrl && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in zoom-in-95">
           <div className="relative max-w-4xl max-h-[92vh] flex flex-col items-center">
