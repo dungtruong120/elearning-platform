@@ -17,6 +17,7 @@ import StudentsTab from "@/components/admin/tabs/StudentsTab";
 import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
 
+// HÀM CHUẨN HÓA TIÊU ĐỀ KHÔNG BỊ LỖI FONT TIẾNG VIỆT
 function normalizeText(str: any): string {
   if (!str) return "";
   return String(str)
@@ -32,6 +33,7 @@ function sanitizeChaptersPayload(chaptersData: any[]): any[] {
   return chaptersData;
 }
 
+// HÀM CHUẨN HÓA PROFILE HỌC VIÊN CHỐNG NULL VÀ CHỐNG NHẢY SAI HÌNH THỨC
 function normalizeStudentProfile(raw: any): any {
   if (!raw) return raw;
   const rawMode = String(raw.learning_mode || raw.learningMode || raw.study_mode || raw.studyMode || "online").toLowerCase().trim();
@@ -119,7 +121,21 @@ function AdminDashboardContent() {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
+  // TIẾN TRÌNH ĐỒNG BỘ CHO BÀI HỌC
   const [syncStatus, setSyncStatus] = useState<{
+    isSyncing: boolean;
+    progress: number;
+    message: string;
+    type: "idle" | "loading" | "success" | "error";
+  }>({
+    isSyncing: false,
+    progress: 0,
+    message: "",
+    type: "idle",
+  });
+
+  // TIẾN TRÌNH ĐỒNG BỘ CHO KHO LUYỆN ĐỀ
+  const [practiceSyncStatus, setPracticeSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
     message: string;
@@ -370,7 +386,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // NẠP DỮ LIỆU TỪ SERVER: DỮ LIỆU SERVER LÀ NGUỒN DUY NHẤT (GHI ĐÈ HOÀN TOÀN LOCALSTORAGE CŨ)
+  // NẠP DỮ LIỆU TỪ SERVER: SERVER LÀ SINGLE SOURCE OF TRUTH (GHI ĐÈ HOÀN TOÀN LOCALSTORAGE CŨ)
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -380,7 +396,7 @@ function AdminDashboardContent() {
       const apiData = await res.json();
 
       if (res.ok && apiData.success) {
-        // Luôn luôn lấy danh sách từ Server làm nguồn chuẩn duy nhất (Single Source of Truth)
+        // Luôn lấy danh sách từ Server làm nguồn chuẩn duy nhất (Single Source of Truth)
         const serverProfiles = Array.isArray(apiData.profiles) 
           ? apiData.profiles.map(normalizeStudentProfile) 
           : [];
@@ -860,7 +876,6 @@ function AdminDashboardContent() {
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
     const isApproved = status === "approved";
 
-    // 1. Cập nhật state UI
     setRegisteredStudents(prev =>
       prev.map(s => (s.id === studentId ? {
         ...s,
@@ -870,7 +885,6 @@ function AdminDashboardContent() {
       } : s))
     );
 
-    // 2. Lưu vào localStorage
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_registered_students");
@@ -887,7 +901,6 @@ function AdminDashboardContent() {
       } catch (e) {}
     }
 
-    // 3. Gửi request lên API backend (Service Role bypass RLS)
     try {
       const res = await fetch("/api/admin/data", {
         method: "POST",
@@ -908,10 +921,8 @@ function AdminDashboardContent() {
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
 
-    // Cập nhật state UI
     setRegisteredStudents(prev => prev.filter(s => s.id !== studentId));
 
-    // Cập nhật localStorage
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_registered_students");
@@ -1368,25 +1379,28 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
+  // HÀM LƯU ĐỀ THI TỪ AZOTA CONFIG MODAL: OPTIMISTIC UI (0MS) + GỌI API BACKEND CHO KHO LUYỆN ĐỀ
   const handleSaveAzotaExam = (examData: any) => {
     if (uploadMode === "practice") {
       const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
       const newExam = { 
         id: examId, 
-        title: examData.title, 
+        title: examData.title || "Đề luyện thi mới", 
         category: examData.category || "Tự do", 
-        duration_minutes: examData.duration_minutes || 45, 
+        duration_minutes: Number(examData.duration_minutes) || 45, 
+        target_mode: examData.target_mode || "all",
         allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
         allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
         driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
         solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
-        data: examData.sections || examData.data, 
-        sections: examData.sections || examData.data,
+        data: examData.sections || examData.data || [], 
+        sections: examData.sections || examData.data || [],
         media_map: examData.mediaMap || examData.media_map || {},
         mediaMap: examData.mediaMap || examData.media_map || {},
         created_at: editingExamData ? editingExamData.created_at : new Date().toISOString(),
       };
 
+      // 1. CẬP NHẬT GIAO DIỆN LẬP TỨC (0MS - OPTIMISTIC UI)
       let updatedExams: any[];
       if (editingExamData) {
         updatedExams = practiceExams.map(ex => ex.id === examId ? newExam : ex);
@@ -1395,20 +1409,78 @@ function AdminDashboardContent() {
       }
 
       setPracticeExams(updatedExams);
-      try {
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedExams));
-      } catch (e) {}
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedExams));
+        } catch (e) {}
+      }
 
+      // Đóng modal tức thì (< 30ms)
+      setTestFile(null); 
+      setEditingExamData(null);
+      setAzotaTarget(null);
+
+      // Bật thanh tiến trình trạng thái Đang tải
+      setPracticeSyncStatus({
+        isSyncing: true,
+        progress: 35,
+        message: "Đang nạp và tối ưu cấu trúc đề thi... [35%]",
+        type: "loading"
+      });
+
+      // 2. ĐỒNG BỘ NGẦM LÊN SERVER QUA BACKEND API SERVICE ROLE KEY (BYPASS RLS & PAYLOAD LỚN)
       (async () => {
         try {
-          await supabase.from("practice_exams").upsert(newExam);
+          setPracticeSyncStatus(prev => ({
+            ...prev,
+            progress: 75,
+            message: "Đang đồng bộ đề thi lên đám mây... [75%]"
+          }));
+
+          const res = await fetch("/api/admin/data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "save_practice_exam",
+              examData: newExam
+            })
+          });
+
+          const resJson = await res.json();
+          if (!res.ok || !resJson.success) {
+            throw new Error(resJson.error || "Không thể lưu đề thi lên máy chủ");
+          }
+
           if (editingExamData) {
             handleRecalculateExamScores(examId, examData.sections);
           }
-        } catch (e) {}
+
+          // Hoàn tất 100%
+          setPracticeSyncStatus({
+            isSyncing: true,
+            progress: 100,
+            message: "✓ Đã nạp và đồng bộ đề thi thành công! (100%)",
+            type: "success"
+          });
+
+          showToast("Đã lưu đề thi vào kho Luyện đề: " + newExam.category, "success");
+
+          setTimeout(() => {
+            setPracticeSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
+          }, 1500);
+
+        } catch (err: any) {
+          console.error("Lỗi đồng bộ practice_exams:", err);
+          setPracticeSyncStatus({
+            isSyncing: true,
+            progress: 100,
+            message: "✕ Lỗi đồng bộ đám mây, đề thi đang được lưu cục bộ.",
+            type: "error"
+          });
+          showToast("Lỗi đồng bộ đám mây: " + (err.message || "Kiểm tra lại kết nối"), "error");
+        }
       })();
 
-      showToast("Đã thêm vào kho Luyện đề: " + examData.category, "success");
     } else {
       if (!azotaTarget) return;
       const isHw = azotaTarget.type === "homework_files";
@@ -1436,11 +1508,11 @@ function AdminDashboardContent() {
 
       notifyAndSync(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
       showToast("Đã nạp đề vào bài học thành công!", "success");
-    }
 
-    setTestFile(null); 
-    setEditingExamData(null);
-    setAzotaTarget(null);
+      setTestFile(null); 
+      setEditingExamData(null);
+      setAzotaTarget(null);
+    }
   };
 
   if (!mounted) {
@@ -1600,6 +1672,7 @@ function AdminDashboardContent() {
               practiceCategoryFilter={practiceCategoryFilter}
               setPracticeCategoryFilter={setPracticeCategoryFilter}
               examsWithScoresData={examsWithScoresData || []}
+              practiceSyncStatus={practiceSyncStatus}
             />
           )}
 
