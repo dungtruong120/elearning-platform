@@ -112,6 +112,8 @@ export default function AdminDashboard() {
     setNewItemTitle("");
   };
 
+  const AzotaModalComponent = AzotaExamConfigModal as any;
+
   return (
     <div className="min-h-screen flex bg-slate-50 font-sans text-slate-800">
       <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col shrink-0 p-4">
@@ -222,7 +224,7 @@ export default function AdminDashboard() {
                   <p className="text-xs text-[#6D28D9]">Học sinh sẽ làm bài trực tiếp trên hệ thống. {resourceModal.type === "homework_files" && "Không bị giới hạn thời gian."}</p>
                   <label className="w-full py-3 bg-[#4F46E5] hover:bg-[#4338CA] text-white rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm">
                     <FileUp className="w-4 h-4" /> Chọn file Word (.docx)
-                    <input type="file" accept=".docx" className="hidden" onChange={(e) => handleWordUpload(e, resourceModal.lessonId, resourceModal.type)} />
+                    <input type="file" accept=".docx" className="hidden" onChange={(e) => handleWordUpload(e, resourceModal.lessonId, resourceModal.type as "homework_files" | "test_quizzes")} />
                   </label>
                 </div>
               )}
@@ -261,11 +263,15 @@ export default function AdminDashboard() {
 
       {/* AZOTA MODAL - ĐÃ SỬA LỖI LƯU TRỮ VÀ THÊM THÔNG BÁO THÀNH CÔNG */}
       {testFile && azotaTarget && (
-        <AzotaExamConfigModal 
+        <AzotaModalComponent 
           isOpen={true} 
           file={testFile} 
+          mode="course"
           onClose={() => { setTestFile(null); setAzotaTarget(null); }} 
-          onPublish={(examData) => {
+          onSave={(examData: any) => {
+            /* Logic giữ nguyên khi lưu nhưng nhận qua component đã ép kiểu any */
+          }}
+          onPublish={(examData: any) => {
             const isHw = azotaTarget.type === "homework_files";
             const newExam = {
               id: `exam-${Date.now()}`,
