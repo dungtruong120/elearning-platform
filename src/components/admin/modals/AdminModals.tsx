@@ -11,7 +11,7 @@ import {
 import dynamic from "next/dynamic";
 
 // DYNAMIC IMPORT MODAL TRÍCH XUẤT ĐỀ THI WORD & MATHTYPE
-const AzotaExamConfigModal = dynamic(
+const AzotaExamConfigModal = dynamic<any>(
   () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
 );
@@ -1132,10 +1132,10 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA - ĐÃ NỐI THẲNG VÀO CALLBACK onSaveAzotaExam CỦA page.tsx */}
+      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA */}
       {testFile && (
         <AzotaExamConfigModal 
-          isOpen={true} 
+          isOpen={Boolean(testFile)} 
           file={testFile}
           initialData={editingExamData ? {
             title: editingExamData.title,
@@ -1144,7 +1144,7 @@ export default function AdminModals(props: AdminModalsProps) {
             sections: editingExamData.data || editingExamData.sections,
             mediaMap: editingExamData.media_map || editingExamData.mediaMap
           } : undefined}
-          mode={uploadMode} 
+          mode={uploadMode || "course"} 
           onClose={() => { 
             if (setTestFile) setTestFile(null); 
             if (setEditingExamData) setEditingExamData(null); 
