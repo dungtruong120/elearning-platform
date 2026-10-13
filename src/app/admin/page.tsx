@@ -52,7 +52,7 @@ function normalizeStudentProfile(raw: any): any {
     approval_status: raw.approval_status || raw.status || (raw.is_approved ? "approved" : "pending"),
     status: raw.status || raw.approval_status || (raw.is_approved ? "approved" : "pending"),
     is_approved: raw.approval_status === "approved" || raw.status === "approved" || Boolean(raw.is_approved),
-    created_at: raw.created_at || raw.createdAt || new Date().toISOString()
+    created_at: raw.created_at || raw.createdAt || new Date().toISOString(),
   };
 }
 
@@ -130,7 +130,7 @@ function AdminDashboardContent() {
     isSyncing: false,
     progress: 0,
     message: "",
-    type: "idle"
+    type: "idle",
   });
 
   const [isPending, startTransition] = useTransition();
@@ -170,7 +170,7 @@ function AdminDashboardContent() {
   });
 
   const [sessionDates, setSessionDates] = useState<string[]>([
-    "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09"
+    "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09",
   ]);
 
   const [toastNotification, setToastNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -208,7 +208,7 @@ function AdminDashboardContent() {
     timeSlot: "19:30 - 21:00",
     meetingUrl: "",
     guideImagesText: "",
-    audience: "all" as "online" | "offline" | "all"
+    audience: "all" as "online" | "offline" | "all",
   });
 
   const [testFile, setTestFile] = useState<File | null>(null);
@@ -245,7 +245,7 @@ function AdminDashboardContent() {
   const [quickStudentForm, setQuickStudentForm] = useState({
     lastName: "",
     firstName: "",
-    status: "approved" as "approved" | "rejected"
+    status: "approved" as "approved" | "rejected",
   });
 
   const [analyticsModeFilter, setAnalyticsModeFilter] = useState<"all" | "online" | "offline">("all");
@@ -257,7 +257,7 @@ function AdminDashboardContent() {
   }>({
     isOpen: false,
     examTitle: "",
-    attempts: []
+    attempts: [],
   });
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => { 
@@ -302,7 +302,7 @@ function AdminDashboardContent() {
       isSyncing: true,
       progress: 30,
       message: `Đang lưu và nén ${taskName}... [30%]`,
-      type: "loading"
+      type: "loading",
     });
 
     if (syncTimeoutRef.current) {
@@ -315,7 +315,7 @@ function AdminDashboardContent() {
       setSyncStatus(prev => ({
         ...prev,
         progress: 75,
-        message: `Đang đẩy ${taskName} lên đám mây... [75%]`
+        message: `Đang đẩy ${taskName} lên đám mây... [75%]`,
       }));
 
       try {
@@ -341,7 +341,7 @@ function AdminDashboardContent() {
           isSyncing: true,
           progress: 100,
           message: `✓ Đã lưu thành công! (100%)`,
-          type: "success"
+          type: "success",
         });
 
         setTimeout(() => {
@@ -354,7 +354,7 @@ function AdminDashboardContent() {
           isSyncing: true,
           progress: 100,
           message: "✕ Lỗi kết nối đám mây, đang lưu cục bộ.",
-          type: "error"
+          type: "error",
         });
         showToast("Lỗi đồng bộ Supabase: " + (err?.message || "Mất kết nối mạng"), "error");
       }
@@ -372,7 +372,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // NẠP DỮ LIỆU TỪ SERVER: SERVER LÀ SINGLE SOURCE OF TRUTH (GHI ĐÈ TRIỆT ĐỂ LOCALSTORAGE CŨ)
+  // NẠP DỮ LIỆU TỪ SERVER: LUÔN GÁN DỮ LIỆU TỪ SERVER LÀM NGUỒN DUY NHẤT (GHI ĐÈ LOCALSTORAGE)
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -382,13 +382,14 @@ function AdminDashboardContent() {
       const apiData = await res.json();
 
       if (res.ok && apiData.success) {
-        // GHI ĐÈ 100% DANH SÁCH HỌC VIÊN TỪ SERVER - XÓA SẠCH CACHE LOCALSTORAGE BỊ LỖI
-        if (Array.isArray(apiData.profiles)) {
-          const normalizedProfiles = apiData.profiles.map(normalizeStudentProfile);
-          setRegisteredStudents(normalizedProfiles);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("edunexus_registered_students", JSON.stringify(normalizedProfiles));
-          }
+        // GHI ĐÈ 100% DANH SÁCH TỪ SERVER - LOẠI BỎ HỌC SINH ĐÃ XÓA TRÊN DATABASE
+        const serverProfiles = Array.isArray(apiData.profiles) 
+          ? apiData.profiles.map(normalizeStudentProfile) 
+          : [];
+
+        setRegisteredStudents(serverProfiles);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_registered_students", JSON.stringify(serverProfiles));
         }
 
         if (Array.isArray(apiData.practiceExams)) {
@@ -441,7 +442,7 @@ function AdminDashboardContent() {
             timeSpent: item.time_spent || (item.duration_seconds ? `${Math.floor(item.duration_seconds / 60)}p` : "15 phút"),
             createdAt,
             created_at: createdAt,
-            feedback: item.feedback || ""
+            feedback: item.feedback || "",
           };
 
           map.set(normalized.id, normalized);
@@ -479,10 +480,10 @@ function AdminDashboardContent() {
       school: "Chưa cập nhật",
       grade: "Lớp 12",
       role: "student",
-      learning_mode: "online",
-      study_mode: "online",
+      learning_mode: "offline",
+      study_mode: "offline",
       approval_status: quickStudentForm.status,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     });
 
     try {
@@ -498,9 +499,9 @@ function AdminDashboardContent() {
             phone: newStudent.phone,
             school: newStudent.school,
             grade: newStudent.grade,
-            learningMode: newStudent.learning_mode
-          }
-        })
+            learningMode: newStudent.learning_mode,
+          },
+        }),
       });
     } catch {}
 
@@ -519,7 +520,7 @@ function AdminDashboardContent() {
       const [courseRes, sessRes, notifRes] = await Promise.allSettled([
         supabase.from("courses").select("*").limit(1).maybeSingle(),
         supabase.from("sessions").select("*").order("created_at", { ascending: false }),
-        supabase.from("system_notifications").select("*").order("created_at", { ascending: false })
+        supabase.from("system_notifications").select("*").order("created_at", { ascending: false }),
       ]);
 
       if (courseRes.status === "fulfilled" && courseRes.value.data?.chapters) {
@@ -680,7 +681,7 @@ function AdminDashboardContent() {
       id: exam.id,
       title: "[TEST ADMIN] " + exam.title,
       duration: exam.duration_minutes || 45,
-      isHomework: false
+      isHomework: false,
     });
   };
 
@@ -696,7 +697,7 @@ function AdminDashboardContent() {
         id: "chap-" + Date.now(), 
         title: newItemTitle.trim(), 
         target_mode: newItemTargetMode, 
-        lessons: [] 
+        lessons: [], 
       });
     } else if (createModal.type === "lesson" && createModal.chapterId) {
       newChapters = newChapters.map(chap => chap?.id === createModal.chapterId ? {
@@ -713,8 +714,8 @@ function AdminDashboardContent() {
           handwritten_notes: [], 
           video_list: [], 
           test_quizzes: [], 
-          extra_resources: []
-        }]
+          extra_resources: [],
+        }],
       } : chap);
     }
 
@@ -734,7 +735,7 @@ function AdminDashboardContent() {
     e.preventDefault();
     if (!editLessonModal || !editLessonForm.title.trim()) return;
     const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
-      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
+      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les),
     } : chap);
     notifyAndSync(newChapters, "bài học"); 
     setEditLessonModal(null); 
@@ -760,7 +761,7 @@ function AdminDashboardContent() {
       id: "res-" + Date.now(), 
       title: resTitle.trim(), 
       url: resUrl.trim(), 
-      type: resourceModal.type === "video_list" ? vidType : undefined 
+      type: resourceModal.type === "video_list" ? vidType : undefined, 
     };
     const newChapters = (chapters || []).map(chap => ({ 
       ...chap, 
@@ -769,7 +770,7 @@ function AdminDashboardContent() {
           return { ...les, [resourceModal.type]: [...(les[resourceModal.type] || []), newResource] }; 
         } 
         return les; 
-      }) 
+      }), 
     }));
     notifyAndSync(newChapters, "tài nguyên"); 
     setResTitle(""); 
@@ -790,7 +791,7 @@ function AdminDashboardContent() {
           return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] }; 
         } 
         return les; 
-      }) 
+      }), 
     }));
     notifyAndSync(newChapters, "tài liệu tăng cường"); 
     setBoostModal(null); 
@@ -809,7 +810,7 @@ function AdminDashboardContent() {
           return { ...les, [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem] }; 
         } 
         return les; 
-      }) 
+      }), 
     }));
     notifyAndSync(newChapters, "file Google Drive"); 
     setDriveLinkModal(null); 
@@ -826,7 +827,7 @@ function AdminDashboardContent() {
 
     const newChapters = (chapters || []).map(chap => ({ 
       ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les) 
+      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les), 
     }));
     
     notifyAndSync(newChapters, "tài nguyên");
@@ -845,21 +846,20 @@ function AdminDashboardContent() {
               ...r, 
               title: editResourceForm.title, 
               url: editResourceForm.url || r.url,
-              type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type
+              type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type,
             } : r 
           )}; 
         } 
         return les; 
-      }) 
+      }), 
     }));
     notifyAndSync(newChapters, "tài liệu");
     setEditResourceModal(null); 
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
-  // HÀM DUYỆT HỌC VIÊN: OPTIMISTIC UI (0MS) + GỌI API BACKEND TRÁNH BỊ RLS CHẶN
+  // HÀM DUYỆT HỌC VIÊN: OPTIMISTIC UI (0MS) + GỌI API BACKEND QUA ACTION update_status
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
-    // 1. Cập nhật giao diện lập tức (0ms)
     const updated = registeredStudents.map(s => 
       s.id === studentId 
         ? { ...s, approval_status: status, status: status, is_approved: status === "approved" } 
@@ -873,7 +873,6 @@ function AdminDashboardContent() {
     }
     showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!", "success");
 
-    // 2. Đồng bộ lên Server qua API backend (tránh bị RLS chặn từ client)
     try {
       const res = await fetch("/api/admin/data", {
         method: "POST",
@@ -881,15 +880,15 @@ function AdminDashboardContent() {
         body: JSON.stringify({
           action: "update_status",
           studentId,
-          status
-        })
+          status,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
         await supabase.from("profiles").update({ 
           approval_status: status, 
           status: status, 
-          is_approved: status === "approved" 
+          is_approved: status === "approved", 
         }).eq("id", studentId);
       }
     } catch (err) {
@@ -898,12 +897,13 @@ function AdminDashboardContent() {
         await supabase.from("profiles").update({ 
           approval_status: status, 
           status: status, 
-          is_approved: status === "approved" 
+          is_approved: status === "approved", 
         }).eq("id", studentId);
       } catch {}
     }
   };
 
+  // HÀM XÓA HỌC SINH: OPTIMISTIC UI (0MS) + GỌI API BACKEND QUA ACTION delete_student
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
     const updated = registeredStudents.filter(s => s.id !== studentId);
@@ -911,10 +911,26 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
     }
-    try {
-      await supabase.from("profiles").delete().eq("id", studentId);
-    } catch {}
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.", "success");
+
+    try {
+      const res = await fetch("/api/admin/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_student",
+          studentId,
+        }),
+      });
+      if (!res.ok) {
+        await supabase.from("profiles").delete().eq("id", studentId);
+      }
+    } catch (err) {
+      console.warn("Lỗi đồng bộ xóa học sinh:", err);
+      try {
+        await supabase.from("profiles").delete().eq("id", studentId);
+      } catch {}
+    }
   };
 
   const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
@@ -983,7 +999,7 @@ function AdminDashboardContent() {
       room: newDateAudience === "offline" ? "P.201 TCT" : "Zoom / Meet",
       meetingUrl: newDateAudience !== "offline" ? "https://zoom.us/j/1234567890" : "",
       created_at: nowIso,
-      createdAt: nowIso
+      createdAt: nowIso,
     };
     const updatedSessions = [newSessionMeta, ...onlineSessions];
     setOnlineSessions(updatedSessions);
@@ -1018,7 +1034,7 @@ function AdminDashboardContent() {
       room: newSessionForm.audience === "offline" ? "P.201 TCT" : "Zoom / Google Meet",
       guideImages: guideImgs.length > 0 ? guideImgs : ["https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80"],
       created_at: nowIso,
-      createdAt: nowIso
+      createdAt: nowIso,
     };
 
     const updatedSessions = [newSession, ...onlineSessions];
@@ -1041,7 +1057,7 @@ function AdminDashboardContent() {
       timeSlot: "19:30 - 21:00", 
       meetingUrl: "", 
       guideImagesText: "", 
-      audience: "all" 
+      audience: "all", 
     });
     showToast("Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!", "success");
   };
@@ -1059,7 +1075,7 @@ function AdminDashboardContent() {
         studentName,
         sessionDate,
         status: "present",
-        attendedAt: new Date().toISOString()
+        attendedAt: new Date().toISOString(),
       };
       updated = [...attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate)), newRec];
       showToast("Đã tích có mặt cho " + studentName + " ngày " + sessionDate + "!", "success");
@@ -1172,7 +1188,7 @@ function AdminDashboardContent() {
         hwMax: 0,
         testMax: 0,
         hwScores: [] as number[],
-        testScores: [] as number[]
+        testScores: [] as number[],
       };
     });
 
@@ -1258,7 +1274,7 @@ function AdminDashboardContent() {
           ...st,
           hwMax: Number(st.hwMax.toFixed(1)),
           testMax: Number(st.testMax.toFixed(1)),
-          overallAvg: Number(overallAvg.toFixed(1))
+          overallAvg: Number(overallAvg.toFixed(1)),
         };
       })
       .sort((a: any, b: any) => b.overallAvg - a.overallAvg || b.totalAttempts - a.totalAttempts);
@@ -1269,7 +1285,7 @@ function AdminDashboardContent() {
     rankingScope,
     selectedChapterId,
     selectedLessonId,
-    chapters
+    chapters,
   ]);
 
   const getVietnameseLastName = (fullName: string): string => {
@@ -1339,7 +1355,7 @@ function AdminDashboardContent() {
         uniqueStudentCount: studentMap.size,
         avgScore: avgScore.toFixed(2),
         maxScore: maxScore.toFixed(2),
-        attempts
+        attempts,
       };
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
@@ -1361,7 +1377,7 @@ function AdminDashboardContent() {
         sections: examData.sections || examData.data,
         media_map: examData.mediaMap || examData.media_map || {},
         mediaMap: examData.mediaMap || examData.media_map || {},
-        created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
+        created_at: editingExamData ? editingExamData.created_at : new Date().toISOString(),
       };
 
       let updatedExams: any[];
@@ -1398,7 +1414,7 @@ function AdminDashboardContent() {
         data: examData.sections || examData.data, 
         sections: examData.sections || examData.data,
         mediaMap: examData.mediaMap || examData.media_map || {},
-        media_map: examData.mediaMap || examData.media_map || {}
+        media_map: examData.mediaMap || examData.media_map || {},
       };
 
       const newChapters = (chapters || []).map(chap => ({ 
@@ -1408,7 +1424,7 @@ function AdminDashboardContent() {
             return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
           } 
           return les; 
-        }) 
+        }), 
       }));
 
       notifyAndSync(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
