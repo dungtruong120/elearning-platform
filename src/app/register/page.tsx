@@ -51,7 +51,7 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. ĐĂNG KÝ TÀI KHOẢN SUPABASE AUTH KÈM TOÀN BỘ METADATA CHUẨN XÁC
+      // 1. ĐĂNG KÝ QUA SUPABASE AUTH KÈM ĐẦY ĐỦ METADATA
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: emailTrim,
         password: formData.password,
@@ -80,7 +80,7 @@ export default function RegisterPage() {
 
       const userId = authData.user.id;
 
-      // 2. GỌI API BACKEND GHI ĐÈ VÀO BẢNG PROFILES BẤT CHẤP RLS
+      // 2. GỌI POST TỚI /api/admin/data VỚI ACTION register_profile ĐỂ GHI ĐÈ BẤT CHẤP RLS
       const profilePayload = {
         action: "register_profile",
         profileData: {
