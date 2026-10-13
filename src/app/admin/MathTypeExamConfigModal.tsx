@@ -93,7 +93,7 @@ async function extractDocxDirectly(file: File) {
     Array.from(xml.getElementsByTagName("Relationship")).forEach(rel => {
       const id = rel.getAttribute("Id");
       const target = rel.getAttribute("Target");
-      if (id && target) relsMap[id] = target.replace(/^media\//, "word/media/");
+      if (id && target) relsMap[id] = String(target).replace(/^media\//, "word/media/");
     });
   }
 
