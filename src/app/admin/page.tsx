@@ -1379,7 +1379,7 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // HÀM LƯU ĐỀ THI TỪ AZOTA CONFIG MODAL: OPTIMISTIC UI (0MS) + GỌI API BACKEND CHO KHO LUYỆN ĐỀ
+  // HÀM LƯU ĐỀ THI TỪ AZOTA CONFIG MODAL: OPTIMISTIC UI (0MS) + GỌI API BACKEND CHO KHO LUYỆN ĐỀ (BẢO VỆ CHỐNG HTTP 413)
   const handleSaveAzotaExam = (examData: any) => {
     if (uploadMode === "practice") {
       const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
@@ -1388,16 +1388,16 @@ function AdminDashboardContent() {
         title: examData.title || "Đề luyện thi mới", 
         category: examData.category || "Tự do", 
         duration_minutes: Number(examData.duration_minutes) || 45, 
-        target_mode: examData.target_mode || "all",
+        target_mode: examData.target_mode || (editingExamData?.target_mode ?? "all"),
         allowRetake: editingExamData ? (editingExamData.allowRetake ?? true) : true, 
         allowViewFile: editingExamData ? (editingExamData.allowViewFile ?? true) : true, 
         driveUrl: examData.driveUrl || (editingExamData?.driveUrl ?? ""), 
         solutionVideoUrl: examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? ""), 
         data: examData.sections || examData.data || [], 
-        sections: examData.sections || examData.data || [],
-        media_map: examData.mediaMap || examData.media_map || {},
-        mediaMap: examData.mediaMap || examData.media_map || {},
-        created_at: editingExamData ? editingExamData.created_at : new Date().toISOString(),
+        sections: examData.sections || examData.data || [], 
+        media_map: examData.mediaMap || examData.media_map || {}, 
+        mediaMap: examData.mediaMap || examData.media_map || {}, 
+        created_at: editingExamData ? editingExamData.created_at : new Date().toISOString()
       };
 
       // 1. CẬP NHẬT GIAO DIỆN LẬP TỨC (0MS - OPTIMISTIC UI)
@@ -1417,10 +1417,10 @@ function AdminDashboardContent() {
 
       // Đóng modal tức thì (< 30ms)
       setTestFile(null); 
-      setEditingExamData(null);
+      setEditingExamData(null); 
       setAzotaTarget(null);
 
-      // Bật thanh tiến trình trạng thái Đang tải
+      // Kích hoạt thanh tiến trình ở trạng thái Đang tải (35%)
       setPracticeSyncStatus({
         isSyncing: true,
         progress: 35,
@@ -1428,7 +1428,7 @@ function AdminDashboardContent() {
         type: "loading"
       });
 
-      // 2. ĐỒNG BỘ NGẦM LÊN SERVER QUA BACKEND API SERVICE ROLE KEY (BYPASS RLS & PAYLOAD LỚN)
+      // 2. ĐỒNG BỘ NGẦM LÊN SERVER QUA BACKEND API SERVICE ROLE KEY (BẢO VỆ CHỐNG RLS & HTTP 413)
       (async () => {
         try {
           setPracticeSyncStatus(prev => ({
@@ -1446,7 +1446,18 @@ function AdminDashboardContent() {
             })
           });
 
-          const resJson = await res.json();
+          // Đọc dạng text trước để bắt an toàn lỗi non-JSON (HTML/Text lỗi HTTP 413 Request Entity Too Large)
+          const responseText = await res.text();
+          let resJson: any = {};
+          try {
+            resJson = JSON.parse(responseText);
+          } catch (e) {
+            if (res.status === 413 || responseText.includes("Request Entity Too Large")) {
+              throw new Error("Dung lượng đề thi vượt giới hạn (quá nhiều ảnh Base64). Cần restart Next.js server để nhận bodySizeLimit 50mb.");
+            }
+            throw new Error(`Lỗi máy chủ (${res.status}): ${responseText.slice(0, 120)}`);
+          }
+
           if (!res.ok || !resJson.success) {
             throw new Error(resJson.error || "Không thể lưu đề thi lên máy chủ");
           }
@@ -1477,7 +1488,7 @@ function AdminDashboardContent() {
             message: "✕ Lỗi đồng bộ đám mây, đề thi đang được lưu cục bộ.",
             type: "error"
           });
-          showToast("Lỗi đồng bộ đám mây: " + (err.message || "Kiểm tra lại kết nối"), "error");
+          showToast("Lỗi đồng bộ: " + (err.message || "Kiểm tra lại kết nối"), "error");
         }
       })();
 
@@ -1490,10 +1501,10 @@ function AdminDashboardContent() {
         isHomework: isHw, 
         duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
         is_quiz: true, 
-        data: examData.sections || examData.data, 
-        sections: examData.sections || examData.data,
-        mediaMap: examData.mediaMap || examData.media_map || {},
-        media_map: examData.mediaMap || examData.media_map || {},
+        data: examData.sections || examData.data || [], 
+        sections: examData.sections || examData.data || [], 
+        mediaMap: examData.mediaMap || examData.media_map || {}, 
+        media_map: examData.mediaMap || examData.media_map || {} 
       };
 
       const newChapters = (chapters || []).map(chap => ({ 
@@ -1503,14 +1514,14 @@ function AdminDashboardContent() {
             return { ...les, [azotaTarget.type]: [...(les[azotaTarget.type] || []), newExam] }; 
           } 
           return les; 
-        }), 
+        }) 
       }));
 
       notifyAndSync(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
       showToast("Đã nạp đề vào bài học thành công!", "success");
 
       setTestFile(null); 
-      setEditingExamData(null);
+      setEditingExamData(null); 
       setAzotaTarget(null);
     }
   };
