@@ -17,7 +17,6 @@ import StudentsTab from "@/components/admin/tabs/StudentsTab";
 import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
 
-// HÀM CHUẨN HÓA TIÊU ĐỀ KHÔNG BỊ LỖI FONT TIẾNG VIỆT
 function normalizeText(str: any): string {
   if (!str) return "";
   return String(str)
@@ -27,13 +26,12 @@ function normalizeText(str: any): string {
     .trim();
 }
 
-// BẢO TOÀN 100% MEDIAMAP VÀ DATA/SECTIONS - KHÔNG XÓA BASE64 ĐỂ HỌC SINH THẤY ẢNH ĐỀ THI
+// BẢO TOÀN NGUYÊN VẸN MEDIAMAP VÀ DATA/SECTIONS - KHÔNG XÓA BASE64 ĐỂ HỌC SINH THẤY ẢNH ĐỀ THI
 function sanitizeChaptersPayload(chaptersData: any[]): any[] {
   if (!Array.isArray(chaptersData)) return [];
   return chaptersData;
 }
 
-// HÀM CHUẨN HÓA PROFILE HỌC VIÊN CHỐNG NULL VÀ CHỐNG NHẢY SAI HÌNH THỨC
 function normalizeStudentProfile(raw: any): any {
   if (!raw) return raw;
   const rawMode = String(raw.learning_mode || raw.learningMode || raw.study_mode || raw.studyMode || "online").toLowerCase().trim();
@@ -372,7 +370,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // NẠP DỮ LIỆU TỪ SERVER: LUÔN GÁN DỮ LIỆU TỪ SERVER LÀM NGUỒN DUY NHẤT (GHI ĐÈ LOCALSTORAGE)
+  // NẠP DỮ LIỆU TỪ SERVER: DỮ LIỆU SERVER LÀ NGUỒN DUY NHẤT (GHI ĐÈ HOÀN TOÀN LOCALSTORAGE CŨ)
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -382,7 +380,7 @@ function AdminDashboardContent() {
       const apiData = await res.json();
 
       if (res.ok && apiData.success) {
-        // GHI ĐÈ 100% DANH SÁCH TỪ SERVER - LOẠI BỎ HỌC SINH ĐÃ XÓA TRÊN DATABASE
+        // Luôn luôn lấy danh sách từ Server làm nguồn chuẩn duy nhất (Single Source of Truth)
         const serverProfiles = Array.isArray(apiData.profiles) 
           ? apiData.profiles.map(normalizeStudentProfile) 
           : [];
@@ -858,58 +856,71 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
-  // HÀM DUYỆT HỌC VIÊN: OPTIMISTIC UI (0MS) + GỌI API BACKEND QUA ACTION update_status
+  // HÀM DUYỆT HỌC VIÊN: CẬP NHẬT UI NGAY (0MS) + GỬI REQUEST POST LÊN API BACKEND
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
-    const updated = registeredStudents.map(s => 
-      s.id === studentId 
-        ? { ...s, approval_status: status, status: status, is_approved: status === "approved" } 
-        : s
+    const isApproved = status === "approved";
+
+    // 1. Cập nhật state UI
+    setRegisteredStudents(prev =>
+      prev.map(s => (s.id === studentId ? {
+        ...s,
+        approval_status: status,
+        status: status,
+        is_approved: isApproved,
+      } : s))
     );
-    setRegisteredStudents(updated);
+
+    // 2. Lưu vào localStorage
     if (typeof window !== "undefined") {
       try {
-        localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+        const saved = localStorage.getItem("edunexus_registered_students");
+        if (saved) {
+          const list = JSON.parse(saved);
+          const updated = list.map((s: any) => (s.id === studentId ? {
+            ...s,
+            approval_status: status,
+            status: status,
+            is_approved: isApproved,
+          } : s));
+          localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+        }
       } catch (e) {}
     }
-    showToast("Đã " + (status === "approved" ? "duyệt" : "từ chối/khóa") + " học sinh thành công!", "success");
 
+    // 3. Gửi request lên API backend (Service Role bypass RLS)
     try {
       const res = await fetch("/api/admin/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "update_status",
-          studentId,
-          status,
-        }),
+        body: JSON.stringify({ action: "update_status", studentId, status }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        await supabase.from("profiles").update({ 
-          approval_status: status, 
-          status: status, 
-          is_approved: status === "approved", 
-        }).eq("id", studentId);
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        throw new Error(resData.error || "Lỗi cập nhật từ API");
       }
-    } catch (err) {
-      console.warn("Lỗi đồng bộ trạng thái duyệt:", err);
-      try {
-        await supabase.from("profiles").update({ 
-          approval_status: status, 
-          status: status, 
-          is_approved: status === "approved", 
-        }).eq("id", studentId);
-      } catch {}
+      showToast("Đã " + (isApproved ? "duyệt" : "khóa") + " học sinh thành công!", "success");
+    } catch (err: any) {
+      showToast("Lỗi cập nhật lên cơ sở dữ liệu: " + err.message, "error");
     }
   };
 
-  // HÀM XÓA HỌC SINH: OPTIMISTIC UI (0MS) + GỌI API BACKEND QUA ACTION delete_student
+  // HÀM XÓA HỌC SINH: CẬP NHẬT UI NGAY + GỌI API BACKEND XÓA VĨNH VIỄN
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
-    const updated = registeredStudents.filter(s => s.id !== studentId);
-    setRegisteredStudents(updated);
+
+    // Cập nhật state UI
+    setRegisteredStudents(prev => prev.filter(s => s.id !== studentId));
+
+    // Cập nhật localStorage
     if (typeof window !== "undefined") {
-      localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+      try {
+        const saved = localStorage.getItem("edunexus_registered_students");
+        if (saved) {
+          const list = JSON.parse(saved);
+          const updated = list.filter((s: any) => s.id !== studentId);
+          localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
+        }
+      } catch (e) {}
     }
     showToast("Đã xóa học sinh khỏi cơ sở dữ liệu.", "success");
 
@@ -917,10 +928,7 @@ function AdminDashboardContent() {
       const res = await fetch("/api/admin/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "delete_student",
-          studentId,
-        }),
+        body: JSON.stringify({ action: "delete_student", studentId }),
       });
       if (!res.ok) {
         await supabase.from("profiles").delete().eq("id", studentId);
@@ -1360,7 +1368,6 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // HÀM LƯU ĐỀ THI TỪ AZOTA CONFIG MODAL: GIỮ NGUYÊN MEDIAMAP VÀ SECTIONS
   const handleSaveAzotaExam = (examData: any) => {
     if (uploadMode === "practice") {
       const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
