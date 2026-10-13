@@ -16,6 +16,18 @@ import NotificationsTab from "@/components/admin/tabs/NotificationsTab";
 import StudentsTab from "@/components/admin/tabs/StudentsTab";
 import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
+import { 
+  LayoutDashboard, BookOpen, Users, Award, Trophy, 
+  Plus, FileText, Video, PenTool, ClipboardCheck, 
+  Trash2, LinkIcon, X, FileUp, FileSignature, FolderPlus, GraduationCap
+} from "lucide-react";
+import dynamic from "next/dynamic";
+
+// DYNAMIC IMPORT AZOTA MODAL - XỬ LÝ LỖI TS2304
+const AzotaExamConfigModal: any = dynamic(
+  () => import("./AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
+  { ssr: false }
+);
 
 // HÀM CHUẨN HÓA TIÊU ĐỀ KHÔNG BỊ LỖI FONT TIẾNG VIỆT
 function normalizeText(str: any): string {
