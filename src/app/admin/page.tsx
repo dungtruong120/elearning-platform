@@ -33,6 +33,29 @@ function sanitizeChaptersPayload(chaptersData: any[]): any[] {
   return chaptersData;
 }
 
+// HÀM CHUẨN HÓA PROFILE HỌC VIÊN CHỐNG NULL VÀ CHỐNG NHẢY SAI HÌNH THỨC
+function normalizeStudentProfile(raw: any): any {
+  if (!raw) return raw;
+  const rawMode = String(raw.learning_mode || raw.learningMode || raw.study_mode || raw.studyMode || "online").toLowerCase().trim();
+  const isOffline = rawMode === "offline" || rawMode.includes("off");
+
+  return {
+    ...raw,
+    id: String(raw.id || raw.user_id || `stu-${Date.now()}`),
+    full_name: raw.full_name || raw.fullName || raw.name || "Chưa cập nhật",
+    email: raw.email || raw.user_email || raw.userEmail || "",
+    phone: raw.phone || raw.phone_number || raw.phoneNumber || raw.tel || "",
+    school: raw.school || raw.school_name || "THPT",
+    grade: raw.grade || raw.class_name || "Lớp 12",
+    learning_mode: isOffline ? "offline" : "online",
+    study_mode: isOffline ? "offline" : "online",
+    approval_status: raw.approval_status || raw.status || (raw.is_approved ? "approved" : "pending"),
+    status: raw.status || raw.approval_status || (raw.is_approved ? "approved" : "pending"),
+    is_approved: raw.approval_status === "approved" || raw.status === "approved" || Boolean(raw.is_approved),
+    created_at: raw.created_at || raw.createdAt || new Date().toISOString()
+  };
+}
+
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
@@ -74,7 +97,7 @@ function AdminDashboardContent() {
         const saved = localStorage.getItem("edunexus_registered_students");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed)) return parsed.map(normalizeStudentProfile);
         }
       } catch (e) {}
     }
@@ -261,7 +284,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // TRẠM ĐỒNG BỘ TRUNG TÂM (NOTIFY & SYNC - KHÔNG CHẶN GIAO DIỆN)
   const notifyAndSync = useCallback((newChapters: any[], taskName: string = "bài học"): Promise<boolean> => {
     latestChaptersRef.current = newChapters;
 
@@ -350,7 +372,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // NẠP DỮ LIỆU QUA API SERVER ĐỒNG THỜI BẢO VỆ FALLBACK CHỐNG XÓA TRẮNG
+  // NẠP DỮ LIỆU TỪ SERVER: SERVER LÀ SINGLE SOURCE OF TRUTH (GHI ĐÈ TRIỆT ĐỂ LOCALSTORAGE CŨ)
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -360,14 +382,16 @@ function AdminDashboardContent() {
       const apiData = await res.json();
 
       if (res.ok && apiData.success) {
-        if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
-          setRegisteredStudents(apiData.profiles);
+        // GHI ĐÈ 100% DANH SÁCH HỌC VIÊN TỪ SERVER - XÓA SẠCH CACHE LOCALSTORAGE BỊ LỖI
+        if (Array.isArray(apiData.profiles)) {
+          const normalizedProfiles = apiData.profiles.map(normalizeStudentProfile);
+          setRegisteredStudents(normalizedProfiles);
           if (typeof window !== "undefined") {
-            localStorage.setItem("edunexus_registered_students", JSON.stringify(apiData.profiles));
+            localStorage.setItem("edunexus_registered_students", JSON.stringify(normalizedProfiles));
           }
         }
 
-        if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
+        if (Array.isArray(apiData.practiceExams)) {
           setPracticeExams(apiData.practiceExams);
           if (typeof window !== "undefined") {
             localStorage.setItem("edunexus_practice_exams", JSON.stringify(apiData.practiceExams));
@@ -375,7 +399,6 @@ function AdminDashboardContent() {
         }
 
         const map = new Map();
-
         if (typeof window !== "undefined") {
           try {
             const rawLocal = localStorage.getItem("edunexus_attempts");
@@ -424,36 +447,6 @@ function AdminDashboardContent() {
           map.set(normalized.id, normalized);
         });
 
-        (apiData.quizResults || []).forEach((item: any) => {
-          if (!item) return;
-          const recordId = String(item.id);
-          if (!map.has(recordId)) {
-            const quizId = String(item.quiz_id || "").trim();
-            const studentId = String(item.student_id || "").trim();
-            const score = Number(item.score || 0);
-            const createdAt = item.created_at || new Date().toISOString();
-
-            map.set(recordId, {
-              id: recordId,
-              quizId,
-              quiz_id: quizId,
-              studentId,
-              student_id: studentId,
-              studentName: "Học sinh",
-              student_name: "Học sinh",
-              examTitle: "",
-              exam_title: "",
-              score,
-              points: score,
-              type: "practice",
-              timeSpent: "15 phút",
-              createdAt,
-              created_at: createdAt,
-              feedback: ""
-            });
-          }
-        });
-
         const finalAttempts = Array.from(map.values());
         if (finalAttempts.length > 0) {
           setAllAttempts(finalAttempts);
@@ -478,7 +471,7 @@ function AdminDashboardContent() {
     }
 
     const full_name = (quickStudentForm.lastName.trim() + " " + quickStudentForm.firstName.trim()).trim();
-    const newStudent = {
+    const newStudent = normalizeStudentProfile({
       id: "stu-" + Date.now(),
       full_name,
       email: "hocsinh_" + Date.now() + "@dungtruong.tct",
@@ -490,7 +483,7 @@ function AdminDashboardContent() {
       study_mode: "online",
       approval_status: quickStudentForm.status,
       created_at: new Date().toISOString()
-    };
+    });
 
     try {
       await fetch("/api/admin/data", {
@@ -893,7 +886,6 @@ function AdminDashboardContent() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        // Fallback gọi direct qua client SDK
         await supabase.from("profiles").update({ 
           approval_status: status, 
           status: status, 
@@ -1810,6 +1802,7 @@ class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, 
                     localStorage.removeItem("edunexus_course_data");
                     localStorage.removeItem("edunexus_practice_exams");
                     localStorage.removeItem("edunexus_attempts");
+                    localStorage.removeItem("edunexus_registered_students");
                   } catch (e) {}
                   window.location.reload();
                 }}
