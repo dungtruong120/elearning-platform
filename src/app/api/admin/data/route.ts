@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Khởi tạo Supabase Server Client với SERVICE_ROLE_KEY để bypass RLS an toàn
+// Khởi tạo Supabase Server Client với SERVICE_ROLE_KEY để bypass RLS và có quyền quản trị Auth Admin
 const supabaseServer = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
 );
 
 export async function GET() {
@@ -54,7 +60,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action } = body;
 
-    // 1. CẬP NHẬT TRẠNG THÁI DUYỆT HỌC VIÊN ĐỒNG THỜI CẢ 3 TRƯỜNG
+    // ACTION 1: CẬP NHẬT TRẠNG THÁI DUYỆT HỌC VIÊN
     if (action === "update_status") {
       const { studentId, status } = body;
       if (!studentId || !status) {
@@ -79,26 +85,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // 2. XÓA HỌC SINH VĨNH VIỄN KHỎI DATABASE
+    // ACTION 2: XÓA HỌC SINH VĨNH VIỄN Ở CẢ AUTH USERS VÀ PUBLIC PROFILES (GIẢI PHÓNG EMAIL)
     if (action === "delete_student") {
       const { studentId } = body;
       if (!studentId) {
         return NextResponse.json({ success: false, error: "Thiếu studentId" }, { status: 400 });
       }
 
-      const { error } = await supabaseServer
-        .from("profiles")
-        .delete()
-        .eq("id", studentId);
+      try {
+        // 1. Xóa trong hệ thống Supabase Auth (giải phóng email để học sinh có thể đăng ký lại)
+        const { error: authError } = await supabaseServer.auth.admin.deleteUser(studentId);
+        if (authError) {
+          console.warn("[API delete_student] Cảnh báo xóa auth user:", authError.message);
+        }
 
-      if (error) {
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        // 2. Xóa trong bảng public.profiles
+        const { error: profileError } = await supabaseServer
+          .from("profiles")
+          .delete()
+          .eq("id", studentId);
+
+        if (profileError) throw profileError;
+
+        return NextResponse.json({ success: true });
+      } catch (err: any) {
+        console.error("[API delete_student] Lỗi:", err);
+        return NextResponse.json({ success: false, error: err.message }, { status: 500 });
       }
-
-      return NextResponse.json({ success: true });
     }
 
-    // 3. GHI ĐÈ HỒ SƠ HỌC SINH MỚI ĐĂNG KÝ BẤT CHẤP RLS
+    // ACTION 3: GHI ĐÈ HỒ SƠ HỌC SINH MỚI ĐĂNG KÝ BẤT CHẤP RLS
     if (action === "register_profile") {
       const { id, fullName, email, phone, school, grade, learningMode } = body.profileData || {};
       const mode = String(learningMode || "offline").toLowerCase();
