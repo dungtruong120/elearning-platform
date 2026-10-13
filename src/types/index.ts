@@ -16,6 +16,9 @@ export interface Profile {
   approval_status?: ApprovalStatus;
   role?: "student" | "admin" | "teacher";
   created_at?: string;
+  username?: string;
+  student_code?: string;
+  [key: string]: any;
 }
 
 export interface StandardShift {
@@ -122,4 +125,10 @@ export interface Chapter {
   lessons: Lesson[];
 }
 
+export interface QuizItem {
+  id: string;
+  title: string;
+  [key: string]: any;
+}
 
+export type QuizSubCategory = string;
