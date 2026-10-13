@@ -17,7 +17,7 @@ export default function RegisterPage() {
     confirmPassword: "",
     school: "",
     grade: "Lớp 12",
-    learningMode: "online" as "online" | "offline",
+    learningMode: "offline" as "online" | "offline",
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,7 +51,7 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. Đăng ký tài khoản Supabase Auth và ĐẨY ĐẦY ĐỦ METADATA để trigger của Supabase trích xuất tự động
+      // 1. ĐĂNG KÝ TÀI KHOẢN SUPABASE AUTH KÈM TOÀN BỘ METADATA CHUẨN XÁC
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: emailTrim,
         password: formData.password,
@@ -62,10 +62,10 @@ export default function RegisterPage() {
             phone: phoneTrim,
             school: schoolTrim,
             grade: formData.grade,
-            learning_mode: formData.learningMode, // Lấy chính xác "offline" hoặc "online"
+            learning_mode: formData.learningMode,
             study_mode: formData.learningMode,
             role: "student",
-            approval_status: "pending"
+            approval_status: "pending",
           },
         },
       });
@@ -80,26 +80,62 @@ export default function RegisterPage() {
 
       const userId = authData.user.id;
 
-      // 2. GỌI FALLBACK API BACKEND QUA /api/admin/data ĐỂ GHI NHẬN HỒ SƠ BẤT CHẤP RLS
+      // 2. GỌI API BACKEND GHI ĐÈ VÀO BẢNG PROFILES BẤT CHẤP RLS
+      const profilePayload = {
+        action: "register_profile",
+        profileData: {
+          id: userId,
+          fullName: fullNameTrim,
+          email: emailTrim,
+          phone: phoneTrim,
+          school: schoolTrim,
+          grade: formData.grade,
+          learningMode: formData.learningMode,
+        },
+      };
+
       try {
-        await fetch("/api/admin/data", {
+        const res = await fetch("/api/admin/data", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "register_profile",
-            profileData: {
+          body: JSON.stringify(profilePayload),
+        });
+
+        if (!res.ok) {
+          console.warn("API route báo lỗi, thử fallback client trực tiếp");
+          await supabase.from("profiles").upsert([
+            {
               id: userId,
-              fullName: fullNameTrim,
+              full_name: fullNameTrim,
               email: emailTrim,
               phone: phoneTrim,
               school: schoolTrim,
               grade: formData.grade,
-              learningMode: formData.learningMode
-            }
-          })
-        });
+              role: "student",
+              learning_mode: formData.learningMode,
+              study_mode: formData.learningMode,
+              approval_status: "pending",
+              created_at: new Date().toISOString(),
+            },
+          ]);
+        }
       } catch (apiErr) {
-        console.warn("Fallback API ghi nhận profile:", apiErr);
+        console.warn("Lỗi kết nối API register, fallback client:", apiErr);
+        await supabase.from("profiles").upsert([
+          {
+            id: userId,
+            full_name: fullNameTrim,
+            email: emailTrim,
+            phone: phoneTrim,
+            school: schoolTrim,
+            grade: formData.grade,
+            role: "student",
+            learning_mode: formData.learningMode,
+            study_mode: formData.learningMode,
+            approval_status: "pending",
+            created_at: new Date().toISOString(),
+          },
+        ]);
       }
 
       setIsSuccess(true);
@@ -130,8 +166,16 @@ export default function RegisterPage() {
             <p><strong>Email:</strong> {formData.email}</p>
             <p><strong>Số điện thoại:</strong> {formData.phone || "Chưa cập nhật"}</p>
             <p><strong>Trường & Khối:</strong> {formData.school || "THPT"} - {formData.grade}</p>
-            <p><strong>Hình thức:</strong> <span className={formData.learningMode === "offline" ? "text-purple-700 font-bold" : "text-blue-700 font-bold"}>{formData.learningMode === "online" ? "Lớp Online" : "Lớp Offline"}</span></p>
-            <p><strong>Trạng thái:</strong> <span className="text-amber-600 font-bold">Chờ duyệt từ Ban Giám Khảo</span></p>
+            <p>
+              <strong>Hình thức:</strong>{" "}
+              <span className={formData.learningMode === "offline" ? "text-purple-700 font-bold" : "text-blue-700 font-bold"}>
+                {formData.learningMode === "offline" ? "Lớp Offline" : "Lớp Online"}
+              </span>
+            </p>
+            <p>
+              <strong>Trạng thái:</strong>{" "}
+              <span className="text-amber-600 font-bold">Chờ duyệt từ Ban Giám Khảo</span>
+            </p>
           </div>
 
           <Link
@@ -234,7 +278,7 @@ export default function RegisterPage() {
                 <input
                   required
                   type="text"
-                  placeholder="VD: THPT Trần Phú"
+                  placeholder="VD: THPT Lê Quý Đôn"
                   value={formData.school}
                   onChange={e => setFormData({ ...formData, school: e.target.value })}
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] focus:bg-white transition"
@@ -265,24 +309,6 @@ export default function RegisterPage() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setFormData({ ...formData, learningMode: "online" })}
-                className={`p-3 rounded-2xl border text-left transition flex items-center gap-3 cursor-pointer ${
-                  formData.learningMode === "online"
-                    ? "bg-blue-50 border-[#1D4ED8] text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                    : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                <div className={`p-2 rounded-xl ${formData.learningMode === "online" ? "bg-[#1D4ED8] text-white" : "bg-white text-slate-400 border border-slate-200"}`}>
-                  <Globe className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-black text-xs block">Lớp Online</span>
-                  <span className="text-[10px] text-slate-500 block">Zoom & Video</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setFormData({ ...formData, learningMode: "offline" })}
                 className={`p-3 rounded-2xl border text-left transition flex items-center gap-3 cursor-pointer ${
                   formData.learningMode === "offline"
@@ -296,6 +322,24 @@ export default function RegisterPage() {
                 <div>
                   <span className="font-black text-xs block">Lớp Offline</span>
                   <span className="text-[10px] text-slate-500 block">Tại cơ sở TCT</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, learningMode: "online" })}
+                className={`p-3 rounded-2xl border text-left transition flex items-center gap-3 cursor-pointer ${
+                  formData.learningMode === "online"
+                    ? "bg-blue-50 border-[#1D4ED8] text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
+                    : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <div className={`p-2 rounded-xl ${formData.learningMode === "online" ? "bg-[#1D4ED8] text-white" : "bg-white text-slate-400 border border-slate-200"}`}>
+                  <Globe className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="font-black text-xs block">Lớp Online</span>
+                  <span className="text-[10px] text-slate-500 block">Zoom & Video</span>
                 </div>
               </button>
             </div>
