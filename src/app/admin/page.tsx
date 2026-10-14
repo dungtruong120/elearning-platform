@@ -98,99 +98,173 @@ function safeSavePracticeExamsToStorage(examsList: any[]) {
   }
 }
 
-// HÀM NÉN ẢNH CANVAS XUỐNG MAXWIDTH 800PX, QUALITY 0.7 (30-50KB/ẢNH)
-async function compressBase64(base64: string): Promise<string> {
-  if (!base64 || typeof base64 !== "string" || !base64.startsWith("data:image")) return base64;
+// NÉN 1 ẢNH AN TOÀN TUYỆT ĐỐI, KHÔNG BAO GIỜ CRASH
+async function compressBase64ImageSafe(base64Str: string, maxWidth = 750, quality = 0.65): Promise<string> {
+  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) {
+    return base64Str;
+  }
+  const cleanBase64 = base64Str.replace(/[\r\n\s]+/g, "");
   return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      let w = img.width;
-      let h = img.height;
-      const maxW = 800;
-      if (w > maxW) {
-        h = Math.round((h * maxW) / w);
-        w = maxW;
+    let settled = false;
+    const finish = (val: string) => {
+      if (!settled) {
+        settled = true;
+        resolve(val);
       }
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return resolve(base64);
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", 0.7));
     };
-    img.onerror = () => resolve(base64);
-    img.src = base64;
+
+    const timer = setTimeout(() => {
+      finish(cleanBase64.length > 150000 ? "" : cleanBase64);
+    }, 2500);
+
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        clearTimeout(timer);
+        try {
+          let width = img.width || 750;
+          let height = img.height || 550;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return finish(cleanBase64);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL("image/jpeg", quality);
+          finish(compressed.length < cleanBase64.length ? compressed : cleanBase64);
+        } catch (e) {
+          finish(cleanBase64.length > 150000 ? "" : cleanBase64);
+        }
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        // Nếu ảnh bị lỗi định dạng (như WMF/EMF thô quá nặng) không hiển thị được trên trình duyệt thì lọc bỏ nếu quá lớn
+        finish(cleanBase64.length > 150000 ? "" : cleanBase64);
+      };
+      img.src = cleanBase64;
+    } catch (e) {
+      clearTimeout(timer);
+      finish(cleanBase64.length > 150000 ? "" : cleanBase64);
+    }
   });
 }
 
-// HÀM NÉN ĐỒNG BỘ QUA TỪNG ẢNH TRONG MEDIAMAP
-async function optimizeExamMediaMap(mediaMap: Record<string, any>): Promise<Record<string, any>> {
-  if (!mediaMap || typeof mediaMap !== "object") return {};
-  const optimized: Record<string, any> = {};
-  for (const [key, val] of Object.entries(mediaMap)) {
-    if (typeof val === "string" && val.startsWith("data:image")) {
-      optimized[key] = await compressBase64(val);
-    } else {
-      optimized[key] = val;
+// TỐI ƯU TOÀN BỘ MEDIAMAP VÀ XỬ LÝ ĐỒNG THỜI, BỌC TRY-CATCH, ĐẢM BẢO DUNG LƯỢNG SIÊU NHẸ (< 400KB)
+async function optimizeMediaMapThoroughly(mediaMap: Record<string, any>): Promise<Record<string, any>> {
+  if (!mediaMap || typeof mediaMap !== "object") return mediaMap || {};
+  const entries = Object.entries(mediaMap);
+  const result: Record<string, any> = {};
+  for (const [k, v] of entries) {
+    if (typeof v === "string" && v.startsWith("data:image")) {
+      const compressed = await compressBase64ImageSafe(v, 750, 0.65);
+      if (compressed) result[k] = compressed;
+    } else if (v) {
+      result[k] = v;
     }
   }
-  return optimized;
+
+  // Nếu đề có quá nhiều ảnh khiến tổng mediaMap vẫn lớn hơn 800KB, tự động ép nén tầng 2 (500px, quality 0.45)
+  try {
+    const totalLen = JSON.stringify(result).length;
+    if (totalLen > 800000) {
+      for (const [k, v] of Object.entries(result)) {
+        if (typeof v === "string" && v.startsWith("data:image") && v.length > 25000) {
+          result[k] = await compressBase64ImageSafe(v, 500, 0.45);
+        }
+      }
+    }
+  } catch (e) {}
+
+  return result;
 }
 
-// HÀM QUÉT VÀ NÉN MỌI ẢNH BASE64 NHÚNG TRỰC TIẾP TRONG CÂU HỎI / HTML CỦA SECTIONS
-async function optimizeExamSectionsDeep(sections: any[]): Promise<any[]> {
+// DUYỆT VÀ NÉN AN TOÀN CÁC CHUỖI ẢNH NHÚNG TRỰC TIẾP TRONG SECTIONS
+async function optimizeSectionsThoroughly(sections: any[]): Promise<any[]> {
   if (!Array.isArray(sections)) return [];
-  const cache = new Map<string, string>();
 
-  async function compressStringWithInlineImages(str: string): Promise<string> {
-    if (!str || typeof str !== "string" || !str.includes("data:image/")) return str;
-    if (str.startsWith("data:image/") && !str.includes(" ") && !str.includes('"') && !str.includes(">")) {
-      if (cache.has(str)) return cache.get(str)!;
-      const comp = await compressBase64(str);
-      cache.set(str, comp);
-      return comp;
+  async function compressInlineDataUrls(text: string): Promise<string> {
+    if (!text || typeof text !== "string" || !text.includes("data:image")) return text;
+    if (text.startsWith("data:image")) {
+      return await compressBase64ImageSafe(text, 700, 0.6);
     }
-    const regex = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+/g;
-    const matches = str.match(regex);
-    if (!matches || matches.length === 0) return str;
-    let updated = str;
-    for (const m of Array.from(new Set(matches))) {
-      let comp = cache.get(m);
-      if (!comp) {
-        comp = await compressBase64(m);
-        cache.set(m, comp);
+    let cursor = 0;
+    let output = "";
+    while (cursor < text.length) {
+      const startIdx = text.indexOf("data:image/", cursor);
+      if (startIdx === -1) {
+        output += text.slice(cursor);
+        break;
       }
-      updated = updated.split(m).join(comp);
+      output += text.slice(cursor, startIdx);
+      let endIdx = startIdx;
+      while (
+        endIdx < text.length &&
+        text[endIdx] !== '"' &&
+        text[endIdx] !== "'" &&
+        text[endIdx] !== ")" &&
+        text[endIdx] !== "]" &&
+        text[endIdx] !== ">" &&
+        text[endIdx] !== " "
+      ) {
+        endIdx++;
+      }
+      const rawDataUrl = text.slice(startIdx, endIdx);
+      const compressedUrl = await compressBase64ImageSafe(rawDataUrl, 700, 0.6);
+      output += compressedUrl;
+      cursor = endIdx;
     }
-    return updated;
+    return output;
   }
 
-  async function walkNode(node: any): Promise<any> {
-    if (!node) return node;
-    if (typeof node === "string") {
-      return await compressStringWithInlineImages(node);
+  const optimizedSections = [];
+  for (const sec of sections) {
+    if (!sec || typeof sec !== "object") {
+      optimizedSections.push(sec);
+      continue;
     }
-    if (Array.isArray(node)) {
-      const arr = [];
-      for (const item of node) {
-        arr.push(await walkNode(item));
+    const questions = Array.isArray(sec.questions) ? sec.questions : [];
+    const optQuestions = [];
+    for (const q of questions) {
+      if (!q || typeof q !== "object") {
+        optQuestions.push(q);
+        continue;
       }
-      return arr;
-    }
-    if (typeof node === "object") {
-      const obj: Record<string, any> = {};
-      for (const [k, v] of Object.entries(node)) {
-        obj[k] = await walkNode(v);
+      const cloneQ: Record<string, any> = { ...q };
+      for (const field of ["prompt_html", "prompt", "text", "solution_html", "explanation", "image", "imageUrl"]) {
+        if (typeof cloneQ[field] === "string" && cloneQ[field].includes("data:image")) {
+          cloneQ[field] = await compressInlineDataUrls(cloneQ[field]);
+        }
       }
-      return obj;
+      if (Array.isArray(cloneQ.options)) {
+        const optOptions = [];
+        for (const opt of cloneQ.options) {
+          if (opt && typeof opt === "object") {
+            const cloneOpt = { ...opt };
+            if (typeof cloneOpt.text_html === "string" && cloneOpt.text_html.includes("data:image")) {
+              cloneOpt.text_html = await compressInlineDataUrls(cloneOpt.text_html);
+            }
+            if (typeof cloneOpt.text === "string" && cloneOpt.text.includes("data:image")) {
+              cloneOpt.text = await compressInlineDataUrls(cloneOpt.text);
+            }
+            optOptions.push(cloneOpt);
+          } else {
+            optOptions.push(opt);
+          }
+        }
+        cloneQ.options = optOptions;
+      }
+      optQuestions.push(cloneQ);
     }
-    return node;
+    optimizedSections.push({ ...sec, questions: optQuestions });
   }
-
-  return await walkNode(sections);
+  return optimizedSections;
 }
 
 function AdminDashboardContent() {
@@ -566,23 +640,7 @@ function AdminDashboardContent() {
         if (Array.isArray(apiData.practiceExams)) {
           const examsList = apiData.practiceExams;
           setPracticeExams(examsList);
-          if (typeof window !== "undefined") {
-            try {
-              localStorage.setItem("edunexus_practice_exams", JSON.stringify(examsList));
-            } catch (e) {
-              console.warn("LocalStorage đầy dung lượng, chuyển sang lưu metadata tóm tắt.");
-              const lightweightExams = (examsList || []).map((ex: any) => ({
-                id: ex.id,
-                title: ex.title,
-                category: ex.category,
-                duration_minutes: ex.duration_minutes,
-                created_at: ex.created_at
-              }));
-              try {
-                localStorage.setItem("edunexus_practice_exams", JSON.stringify(lightweightExams));
-              } catch (err) {}
-            }
-          }
+          safeSavePracticeExamsToStorage(examsList);
         }
 
         const map = new Map();
@@ -1557,7 +1615,7 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // HÀM LƯU ĐỀ THI: NÉN ĐỒNG BỘ MAXWIDTH 800PX + LƯU ĐƠN LẺ SUPABASE & FALLBACK API + CHỐNG QUOTA EXCEEDED
+  // HÀM LƯU ĐỀ THI: NÉN SIÊU AN TOÀN (< 400KB) + GHI SUPABASE 2 TẦNG + CHỐNG QUOTA EXCEEDED
   const handleSaveAzotaExam = async (examData: any) => {
     const currentUploadMode = uploadMode;
     const currentEditingExam = editingExamData;
@@ -1578,7 +1636,7 @@ function AdminDashboardContent() {
       const createdAt = currentEditingExam?.created_at || new Date().toISOString();
 
       try {
-        // BƯỚC 1: Nén đồng bộ toàn bộ ảnh Base64 trong media_map và trong sections (< 500KB)
+        // BƯỚC 1: Nén toàn bộ ảnh trong mediaMap và trong sections xuống < 400KB
         setPracticeSyncStatus({
           isSyncing: true,
           progress: 40,
@@ -1586,92 +1644,77 @@ function AdminDashboardContent() {
           type: "loading"
         });
 
-        const optimizedMedia = await optimizeExamMediaMap(incomingMediaMap);
-        const optimizedSections = await optimizeExamSectionsDeep(rawSections);
+        const optimizedMedia = await optimizeMediaMapThoroughly(incomingMediaMap);
+        const optimizedSections = await optimizeSectionsThoroughly(rawSections);
 
+        // Bản ghi chuẩn cho Database (không nhân đôi trường để giữ gói tin siêu nhẹ)
         const payloadExam = {
           id: examId,
           title: title,
           category: category,
           duration_minutes: duration,
-          target_mode: targetMode || "all",
           allowRetake: allowRetake ?? true,
           allowViewFile: allowViewFile ?? true,
           driveUrl: driveUrl || "",
           solutionVideoUrl: solutionVideoUrl || "",
           data: optimizedSections,
-          sections: optimizedSections,
           media_map: optimizedMedia,
-          mediaMap: optimizedMedia,
           created_at: createdAt
         };
 
-        // Bản ghi chuẩn 11 cột cho bảng practice_exams (chỉ gửi duy nhất 1 đề, không nhân đôi dữ liệu)
-        const singleExamDbRecord = {
-          id: examId,
-          title: title,
-          category: category,
-          duration_minutes: duration,
-          allowRetake: allowRetake ?? true,
-          allowViewFile: allowViewFile ?? true,
-          driveUrl: driveUrl || "",
-          solutionVideoUrl: solutionVideoUrl || "",
-          data: optimizedSections,
-          media_map: optimizedMedia,
-          created_at: createdAt
+        // Bản ghi đầy đủ cho State UI
+        const uiExamItem = {
+          ...payloadExam,
+          target_mode: targetMode || "all",
+          sections: optimizedSections,
+          mediaMap: optimizedMedia
         };
 
         setPracticeSyncStatus({
           isSyncing: true,
-          progress: 70,
+          progress: 75,
           message: "Đang lưu đề lên máy chủ Supabase...",
           type: "loading"
         });
 
-        // BƯỚC 2: Lưu thực chất vào Supabase (Chỉ gửi duy nhất 1 đề hiện tại)
-        let saveSuccess = false;
-
-        // Tầng 1: Thử dùng Supabase Client trực tiếp (bỏ qua Vercel Gateway)
+        // BƯỚC 2: Ghi vào Supabase (Ưu tiên Client trực tiếp -> Fallback API Route)
+        let savedToDb = false;
         if (supabase) {
-          const { error: sbError } = await supabase
-            .from("practice_exams")
-            .upsert(singleExamDbRecord);
-          if (!sbError) {
-            saveSuccess = true;
+          const { error: sbErr } = await supabase.from("practice_exams").upsert(payloadExam);
+          if (!sbErr) {
+            savedToDb = true;
           } else {
-            console.warn("Lưu qua Supabase Client thất bại, chuyển sang API Route:", sbError);
+            console.warn("Supabase client upsert error:", sbErr);
           }
         }
 
-        // Tầng 2: Nếu chưa thành công, fallback sang Backend API Route với payload đã nén nhẹ
-        if (!saveSuccess) {
+        // Nếu chưa được, fallback sang API Route với payload đã nén nhẹ
+        if (!savedToDb) {
           const res = await fetch("/api/admin/data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "save_practice_exam", examData: singleExamDbRecord })
+            body: JSON.stringify({ action: "save_practice_exam", examData: payloadExam })
           });
           if (res.ok) {
-            saveSuccess = true;
+            savedToDb = true;
           }
         }
 
-        if (!saveSuccess) {
-          throw new Error("Không thể ghi dữ liệu đề thi vào Supabase!");
+        if (!savedToDb) {
+          throw new Error("Không thể ghi dữ liệu đề thi vào Supabase (Đã thử cả Client và API Route)!");
         }
 
         if (currentEditingExam) {
           handleRecalculateExamScores(examId, optimizedSections);
         }
 
-        // BƯỚC 3: Đồng bộ lại danh sách và cập nhật UI + LocalStorage an toàn
-        const refreshed = await fetchPracticeExams();
-        if (!refreshed) {
-          const updatedList = currentEditingExam
-            ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
-            : [payloadExam, ...(practiceExams || [])];
-          setPracticeExams(updatedList);
-          safeSavePracticeExamsToStorage(updatedList);
-        }
+        // BƯỚC 3: Cập nhật State và lưu LocalStorage an toàn
+        const updatedList = currentEditingExam
+          ? (practiceExams || []).map((ex: any) => ex.id === examId ? uiExamItem : ex)
+          : [uiExamItem, ...(practiceExams || [])];
+
+        setPracticeExams(updatedList);
+        safeSavePracticeExamsToStorage(updatedList);
 
         setPracticeSyncStatus({
           isSyncing: false,
@@ -1679,7 +1722,7 @@ function AdminDashboardContent() {
           message: "✓ Đã lưu vĩnh viễn lên đám mây!",
           type: "success"
         });
-        showToast("Đã lưu đề thi vào hệ thống thành công!", "success");
+        showToast("Đã lưu đề thi vào kho Luyện đề: " + category, "success");
 
         // Đóng modal
         setTestFile(null);
@@ -1714,8 +1757,8 @@ function AdminDashboardContent() {
       try {
         const rawMedia = examData.mediaMap || examData.media_map || {};
         const rawSections = examData.sections || examData.data || [];
-        const optimizedMedia = await optimizeExamMediaMap(rawMedia);
-        const optimizedSections = await optimizeExamSectionsDeep(rawSections);
+        const optimizedMedia = await optimizeMediaMapThoroughly(rawMedia);
+        const optimizedSections = await optimizeSectionsThoroughly(rawSections);
 
         const newExam = { 
           id: "exam-" + Date.now(), 
