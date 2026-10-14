@@ -75,8 +75,8 @@ function base64ToBlob(base64: string): Blob {
   return new Blob([uInt8Array], { type: contentType });
 }
 
-// HÀM NÉN DỰ PHÒNG СИÊU NHẸ NẾU MẤT KẾT NỐI STORAGE
-async function compressBase64Emergency(base64Str: string, maxDim = 500, quality = 0.5): Promise<string> {
+// HÀM NÉN KHẨN CẤP SIÊU NHẸ (DÙNG KHI STORAGE GẶP SỰ CỐ MẠNG TẠM THỜI ĐỂ KHÔNG BAO GIỜ BỊ TIMEOUT DB)
+async function compressBase64Emergency(base64Str: string, maxDim = 480, quality = 0.45): Promise<string> {
   if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) return base64Str;
   const cleanB64 = base64Str.replace(/[\r\n\s]+/g, "");
   return new Promise((resolve) => {
@@ -87,15 +87,15 @@ async function compressBase64Emergency(base64Str: string, maxDim = 500, quality 
         resolve(val);
       }
     };
-    const timer = setTimeout(() => finish(cleanB64.length > 50000 ? "" : cleanB64), 1500);
+    const timer = setTimeout(() => finish(cleanB64.length > 40000 ? "" : cleanB64), 1500);
     try {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
         clearTimeout(timer);
         try {
-          let w = img.width || 500;
-          let h = img.height || 350;
+          let w = img.width || 480;
+          let h = img.height || 320;
           if (w > maxDim) {
             h = Math.round((h * maxDim) / w);
             w = maxDim;
@@ -104,68 +104,33 @@ async function compressBase64Emergency(base64Str: string, maxDim = 500, quality 
           canvas.width = w;
           canvas.height = h;
           const ctx = canvas.getContext("2d");
-          if (!ctx) return finish(cleanB64.length > 50000 ? "" : cleanB64);
+          if (!ctx) return finish(cleanB64.length > 40000 ? "" : cleanB64);
           ctx.fillStyle = "#FFFFFF";
           ctx.fillRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
           const out = canvas.toDataURL("image/jpeg", quality);
           finish(out.length < cleanB64.length ? out : cleanB64);
         } catch {
-          finish(cleanB64.length > 50000 ? "" : cleanB64);
+          finish(cleanB64.length > 40000 ? "" : cleanB64);
         }
       };
       img.onerror = () => {
         clearTimeout(timer);
-        finish(cleanB64.length > 50000 ? "" : cleanB64);
+        finish(cleanB64.length > 40000 ? "" : cleanB64);
       };
       img.src = cleanB64;
     } catch {
       clearTimeout(timer);
-      finish(cleanB64.length > 50000 ? "" : cleanB64);
+      finish(cleanB64.length > 40000 ? "" : cleanB64);
     }
   });
 }
 
-// 2. UPLOAD 1 ẢNH BASE64 CỦA BTVN / BÀI HỌC LÊN SUPABASE STORAGE BUCKET 'exam-media'
-async function uploadOneBase64Image(
+// 2. UPLOAD 1 ẢNH BASE64 LÊN SUPABASE STORAGE BUCKET 'exam-media'
+async function uploadSingleImageToStorage(
   supabaseClient: any,
   base64Str: string,
-  folderId: string,
-  prefix = "btvn"
-): Promise<string> {
-  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) return base64Str;
-  try {
-    const blob = base64ToBlob(base64Str);
-    const ext = base64Str.includes("image/jpeg") ? "jpg" : "png";
-    const safePrefix = String(prefix || "btvn").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const safeFolder = String(folderId || "general").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const filePath = `courses/${safeFolder}/${safePrefix}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${ext}`;
-
-    const { error } = await supabaseClient.storage.from("exam-media").upload(filePath, blob, {
-      contentType: blob.type || (ext === "jpg" ? "image/jpeg" : "image/png"),
-      cacheControl: "31536000",
-      upsert: true
-    });
-
-    if (error) {
-      console.warn("Storage upload error (courses):", error);
-      return await compressBase64Emergency(base64Str);
-    }
-
-    const { data } = supabaseClient.storage.from("exam-media").getPublicUrl(filePath);
-    return data?.publicUrl || (await compressBase64Emergency(base64Str));
-  } catch (e) {
-    console.warn("Exception uploadOneBase64Image:", e);
-    return await compressBase64Emergency(base64Str);
-  }
-}
-
-// UPLOAD 1 ẢNH BASE64 CỦA KHO LUYỆN ĐỀ LÊN BUCKET 'exam-media'
-async function uploadBase64ToStorage(
-  supabaseClient: any,
-  base64Str: string,
-  examId: string,
-  prefix = "img"
+  folder = "courses_media"
 ): Promise<string> {
   if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) {
     return base64Str;
@@ -173,280 +138,80 @@ async function uploadBase64ToStorage(
   try {
     const blob = base64ToBlob(base64Str);
     const ext = base64Str.includes("image/jpeg") ? "jpg" : "png";
-    const cleanPrefix = String(prefix || "img").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const filePath = `${examId}/${cleanPrefix}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${ext}`;
-
-    const { error } = await supabaseClient.storage
-      .from("exam-media")
-      .upload(filePath, blob, {
-        contentType: blob.type || (ext === "jpg" ? "image/jpeg" : "image/png"),
-        cacheControl: "31536000",
-        upsert: true,
-      });
-
+    const safeFolder = String(folder || "courses_media").replace(/[^a-zA-Z0-9_/-]/g, "_");
+    const filePath = `${safeFolder}/${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${ext}`;
+    const { error } = await supabaseClient.storage.from("exam-media").upload(filePath, blob, {
+      contentType: blob.type || (ext === "jpg" ? "image/jpeg" : "image/png"),
+      cacheControl: "31536000",
+      upsert: true
+    });
     if (error) {
       console.warn("Storage upload warn:", error);
       return await compressBase64Emergency(base64Str);
     }
-
     const { data } = supabaseClient.storage.from("exam-media").getPublicUrl(filePath);
     return data?.publicUrl || (await compressBase64Emergency(base64Str));
   } catch (err) {
-    console.error("Lỗi upload Storage:", err);
+    console.error("Lỗi upload ảnh:", err);
     return await compressBase64Emergency(base64Str);
   }
 }
 
-// QUÉT SẠCH BASE64 TRONG 1 CHUỖI HTML VÀ THAY BẰNG URL STORAGE
-async function sanitizeHtmlImages(
-  html: string,
+// 3. ĐỆ QUY QUÉT VÀ THAY THẾ TOÀN BỘ BASE64 TRONG BẤT KỲ OBJECT/ARRAY NÀO CỦA COURSES SANG PUBLIC URL
+async function sanitizeAndUploadAllMediaRecursively(
+  target: any,
   supabaseClient: any,
-  folderId: string,
-  urlCache: Map<string, string>,
-  isCourse = false
-): Promise<string> {
-  if (!html || typeof html !== "string" || !html.includes("data:image")) return html;
-  const regex = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=\r\n]+/g;
-  const matches = Array.from(new Set(html.match(regex) || []));
-  let result = html;
-  for (const b64 of matches) {
-    let url = urlCache.get(b64);
-    if (!url) {
-      url = isCourse
-        ? await uploadOneBase64Image(supabaseClient, b64, folderId, "btvn_html")
-        : await uploadBase64ToStorage(supabaseClient, b64, folderId, "html_img");
-      urlCache.set(b64, url);
-    }
-    result = result.split(b64).join(url);
-  }
-  return result;
-}
-
-// QUÉT ĐỆ QUY MỌI TRƯỜNG TEXT/HTML TRONG CÂU HỎI ĐỂ ĐẢM BẢO KHÔNG SÓT BẤT KỲ CHUỖI BASE64 NÀO
-async function sanitizeQuestionNodeDeep(
-  node: any,
-  supabaseClient: any,
-  folderId: string,
-  urlCache: Map<string, string>,
-  isCourse = false
+  urlMap: Map<string, string>,
+  folder = "courses_media",
+  onUploadedOne?: () => void
 ): Promise<any> {
-  if (!node) return node;
-  if (typeof node === "string") {
-    return await sanitizeHtmlImages(node, supabaseClient, folderId, urlCache, isCourse);
-  }
-  if (Array.isArray(node)) {
-    const arr = [];
-    for (const item of node) {
-      arr.push(await sanitizeQuestionNodeDeep(item, supabaseClient, folderId, urlCache, isCourse));
+  if (!target) return target;
+
+  if (typeof target === "string") {
+    // Nếu bản thân là chuỗi Base64
+    if (target.startsWith("data:image")) {
+      if (!urlMap.has(target)) {
+        const url = await uploadSingleImageToStorage(supabaseClient, target, folder);
+        urlMap.set(target, url);
+        if (onUploadedOne) onUploadedOne();
+      }
+      return urlMap.get(target);
     }
-    return arr;
-  }
-  if (typeof node === "object") {
-    const out: Record<string, any> = {};
-    for (const [k, v] of Object.entries(node)) {
-      out[k] = await sanitizeQuestionNodeDeep(v, supabaseClient, folderId, urlCache, isCourse);
-    }
-    return out;
-  }
-  return node;
-}
-
-// HÀM QUÉT VÀ TẢI TOÀN BỘ ẢNH BASE64 TRONG BTVN / ĐỀ KIỂM TRA CỦA BÀI HỌC (COURSES) LÊN SUPABASE STORAGE
-// GIÚP TRIỆT TIÊU HOÀN TOÀN LỖI RangeError: Invalid string length KHI JSON.stringify(courses)
-async function uploadAndSanitizeChaptersData(
-  chaptersData: any[],
-  supabaseClient: any,
-  onProgress?: (msg: string, prog: number) => void
-): Promise<any[]> {
-  if (!Array.isArray(chaptersData)) return [];
-  const urlCache = new Map<string, string>();
-
-  // Đếm tổng số ảnh Base64 cần upload trong toàn bộ chapters để hiển thị tiến trình
-  let totalImagesToUpload = 0;
-  let uploadedCount = 0;
-
-  for (const chap of chaptersData) {
-    for (const les of (chap?.lessons || [])) {
-      for (const field of ["homework_files", "test_quizzes", "lecture_files", "handwritten_notes", "extra_resources"]) {
-        for (const item of (les?.[field] || [])) {
-          const mMap = item?.mediaMap || item?.media_map || {};
-          for (const val of Object.values(mMap)) {
-            if (typeof val === "string" && val.startsWith("data:image")) {
-              totalImagesToUpload++;
-            }
-          }
+    // Nếu là HTML có chứa Base64 bên trong
+    if (target.includes("data:image/")) {
+      const regex = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=\r\n]+/g;
+      const matches = Array.from(new Set(target.match(regex) || []));
+      let updatedString = target;
+      for (const b64 of matches) {
+        if (!urlMap.has(b64)) {
+          const url = await uploadSingleImageToStorage(supabaseClient, b64, folder);
+          urlMap.set(b64, url);
+          if (onUploadedOne) onUploadedOne();
         }
+        updatedString = updatedString.split(b64).join(urlMap.get(b64)!);
       }
+      return updatedString;
     }
+    return target;
   }
 
-  const cleanedChapters = [];
-  for (const chap of chaptersData) {
-    if (!chap || typeof chap !== "object") {
-      cleanedChapters.push(chap);
-      continue;
+  if (Array.isArray(target)) {
+    const newArr = [];
+    for (const item of target) {
+      newArr.push(await sanitizeAndUploadAllMediaRecursively(item, supabaseClient, urlMap, folder, onUploadedOne));
     }
-    const cleanedLessons = [];
-    for (const les of (chap.lessons || [])) {
-      if (!les || typeof les !== "object") {
-        cleanedLessons.push(les);
-        continue;
-      }
-      const cloneLes: Record<string, any> = { ...les };
-      const resourceFields = ["homework_files", "test_quizzes", "lecture_files", "handwritten_notes", "extra_resources"];
-
-      for (const field of resourceFields) {
-        if (!Array.isArray(cloneLes[field])) continue;
-        const cleanedItems = [];
-
-        for (const item of cloneLes[field]) {
-          if (!item || typeof item !== "object") {
-            cleanedItems.push(item);
-            continue;
-          }
-          const folderId = item.id || les.id || "btvn";
-          const rawMediaMap = item.mediaMap || item.media_map || {};
-          const cleanedMediaMap: Record<string, string> = {};
-
-          // 1. Upload toàn bộ ảnh trong mediaMap của BTVN / Đề kiểm tra lên Storage
-          if (rawMediaMap && typeof rawMediaMap === "object") {
-            for (const [k, v] of Object.entries(rawMediaMap)) {
-              if (typeof v === "string" && v.startsWith("data:image")) {
-                uploadedCount++;
-                if (onProgress && totalImagesToUpload > 0) {
-                  const pct = Math.min(72, 30 + Math.round((uploadedCount / totalImagesToUpload) * 42));
-                  onProgress(`Đang tải ảnh BTVN ${uploadedCount}/${totalImagesToUpload} lên Storage... [${pct}%]`, pct);
-                }
-                let pubUrl = urlCache.get(v);
-                if (!pubUrl) {
-                  pubUrl = await uploadOneBase64Image(supabaseClient, v, folderId, k);
-                  urlCache.set(v, pubUrl);
-                }
-                cleanedMediaMap[k] = pubUrl;
-              } else if (v !== undefined && v !== null) {
-                cleanedMediaMap[k] = String(v);
-              }
-            }
-          }
-
-          // 2. Dọn sạch Base64 trong các câu hỏi (prompt_html, options, solution_html)
-          const rawSections = item.sections || item.data || [];
-          const cleanedSections = [];
-          if (Array.isArray(rawSections)) {
-            for (const sec of rawSections) {
-              if (!sec || typeof sec !== "object") {
-                cleanedSections.push(sec);
-                continue;
-              }
-              const cleanedQuestions = [];
-              for (const q of (sec.questions || [])) {
-                if (!q || typeof q !== "object") {
-                  cleanedQuestions.push(q);
-                  continue;
-                }
-                const cleanPrompt = await sanitizeHtmlImages(q.prompt_html || "", supabaseClient, folderId, urlCache, true);
-                const cleanSolution = await sanitizeHtmlImages(q.solution_html || "", supabaseClient, folderId, urlCache, true);
-                const cleanOptions = [];
-                for (const opt of (q.options || [])) {
-                  cleanOptions.push({
-                    ...opt,
-                    text_html: await sanitizeHtmlImages(opt?.text_html || "", supabaseClient, folderId, urlCache, true)
-                  });
-                }
-                const deepCleanedQ = await sanitizeQuestionNodeDeep(
-                  {
-                    ...q,
-                    prompt_html: cleanPrompt,
-                    solution_html: cleanSolution,
-                    options: cleanOptions
-                  },
-                  supabaseClient,
-                  folderId,
-                  urlCache,
-                  true
-                );
-                cleanedQuestions.push(deepCleanedQ);
-              }
-              cleanedSections.push({
-                ...sec,
-                questions: cleanedQuestions
-              });
-            }
-          }
-
-          const cleanedItem: Record<string, any> = {
-            ...item,
-          };
-
-          if (item.is_quiz || Array.isArray(item.sections) || Array.isArray(item.data)) {
-            cleanedItem.data = cleanedSections;
-            cleanedItem.sections = cleanedSections;
-            cleanedItem.media_map = cleanedMediaMap;
-            cleanedItem.mediaMap = cleanedMediaMap;
-          }
-
-          cleanedItems.push(cleanedItem);
-        }
-
-        cloneLes[field] = cleanedItems;
-      }
-
-      cleanedLessons.push(cloneLes);
-    }
-
-    cleanedChapters.push({
-      ...chap,
-      lessons: cleanedLessons
-    });
+    return newArr;
   }
 
-  return cleanedChapters;
-}
-
-// HÀM LƯU LOCALSTORAGE AN TOÀN CHO COURSES (CHỐNG RANGEERROR & QUOTAEXCEEDED)
-function safeSaveCoursesToStorage(coursesData: any[]) {
-  if (typeof window === "undefined") return;
-  try {
-    const serialized = JSON.stringify(coursesData);
-    localStorage.setItem("edunexus_course_data", serialized);
-    localStorage.setItem("edunexus_courses", serialized);
-    window.dispatchEvent(new Event("storage"));
-  } catch (err) {
-    console.warn("Không thể lưu LocalStorage đầy đủ do dung lượng lớn, chuyển sang lưu bản rút gọn:", err);
-    try {
-      const slimCourses = (coursesData || []).map((chap: any) => ({
-        ...chap,
-        lessons: (chap?.lessons || []).map((les: any) => ({
-          ...les,
-          homework_files: (les?.homework_files || []).map((hw: any) => ({
-            id: hw?.id,
-            title: hw?.title,
-            duration_minutes: hw?.duration_minutes,
-            is_quiz: hw?.is_quiz,
-            isHomework: hw?.isHomework,
-            is_drive_file: hw?.is_drive_file,
-            url: hw?.url,
-            created_at: hw?.created_at
-          })),
-          test_quizzes: (les?.test_quizzes || []).map((tq: any) => ({
-            id: tq?.id,
-            title: tq?.title,
-            duration_minutes: tq?.duration_minutes,
-            is_quiz: tq?.is_quiz,
-            isHomework: tq?.isHomework,
-            is_drive_file: tq?.is_drive_file,
-            url: tq?.url,
-            created_at: tq?.created_at
-          }))
-        }))
-      }));
-      const slimStr = JSON.stringify(slimCourses);
-      localStorage.setItem("edunexus_course_data", slimStr);
-      localStorage.setItem("edunexus_courses", slimStr);
-    } catch (e2) {
-      console.warn("Bỏ qua lưu LocalStorage courses:", e2);
+  if (typeof target === "object") {
+    const newObj: Record<string, any> = {};
+    for (const [k, v] of Object.entries(target)) {
+      newObj[k] = await sanitizeAndUploadAllMediaRecursively(v, supabaseClient, urlMap, folder, onUploadedOne);
     }
+    return newObj;
   }
+
+  return target;
 }
 
 // HÀM LƯU LOCALSTORAGE AN TOÀN CHO PRACTICE EXAMS CHỐNG LỖI QUOTA EXCEEDED
@@ -497,7 +262,7 @@ function AdminDashboardContent() {
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("edunexus_course_data") || localStorage.getItem("edunexus_courses");
+        const saved = localStorage.getItem("edunexus_course_data");
         if (saved) return JSON.parse(saved);
       } catch (e) {}
     }
@@ -721,18 +486,19 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM ĐỒNG BỘ BÀI HỌC / BTVN (`courses`): TỰ ĐỘNG TÁCH & TẢI TOÀN BỘ ẢNH BASE64 LÊN SUPABASE STORAGE TRƯỚC KHI JSON.STRINGIFY
-  const notifyAndSync = useCallback((newChapters: any[], taskName: string = "bài học"): Promise<boolean> => {
-    latestChaptersRef.current = newChapters;
+  // HÀM ĐỒNG BỘ BÀI HỌC / BTVN (`syncCoursesToSupabase` / `notifyAndSync`):
+  // QUÉT SẠCH & UPLOAD TOÀN BỘ ẢNH BASE64 TRONG COURSES LÊN SUPABASE STORAGE TRƯỚC KHI LƯU DB & LOCALSTORAGE
+  const syncCoursesToSupabase = useCallback((coursesData: any[], taskName: string = "bài học"): Promise<boolean> => {
+    latestChaptersRef.current = coursesData;
 
     startTransition(() => {
-      setChapters(newChapters);
+      setChapters(coursesData);
     });
 
     setSyncStatus({
       isSyncing: true,
-      progress: 25,
-      message: `Đang xử lý và tải ảnh ${taskName} lên Storage... [25%]`,
+      progress: 30,
+      message: `Đang bóc tách & tải ảnh ${taskName} lên Storage... [30%]`,
       type: "loading",
     });
 
@@ -742,58 +508,80 @@ function AdminDashboardContent() {
 
     syncTimeoutRef.current = setTimeout(async () => {
       try {
-        // BƯỚC 1: Tách và tải toàn bộ ảnh Base64 trong BTVN / Bài học lên Supabase Storage bucket 'exam-media'
-        // Tránh tuyệt đối lỗi RangeError: Invalid string length khi gọi JSON.stringify
-        const cleanedChapters = await uploadAndSanitizeChaptersData(
+        // 1. Quét sạch và upload toàn bộ ảnh Base64 trong courses lên Storage bucket 'exam-media'
+        const mediaUrlMap = new Map<string, string>();
+        let uploadedCount = 0;
+
+        const cleanCoursesData = await sanitizeAndUploadAllMediaRecursively(
           latestChaptersRef.current,
           supabase,
-          (msg, prog) => {
+          mediaUrlMap,
+          "courses_media",
+          () => {
+            uploadedCount++;
+            const prog = Math.min(72, 30 + uploadedCount * 2);
             setSyncStatus({
               isSyncing: true,
               progress: prog,
-              message: msg,
+              message: `Đang tải ảnh #${uploadedCount} của ${taskName} lên Storage... [${prog}%]`,
               type: "loading",
             });
           }
         );
 
-        latestChaptersRef.current = cleanedChapters;
+        // 2. Cập nhật state courses bằng bản đã làm sạch (chỉ chứa Public URL ngắn gọn)
+        latestChaptersRef.current = cleanCoursesData;
         startTransition(() => {
-          setChapters(cleanedChapters);
+          setChapters(cleanCoursesData);
         });
-
-        // BƯỚC 2: Lưu vào LocalStorage sau khi toàn bộ ảnh đã chuyển thành URL ngắn gọn (< 50KB)
-        safeSaveCoursesToStorage(cleanedChapters);
 
         setSyncStatus(prev => ({
           ...prev,
           progress: 80,
-          message: `Đang đồng bộ ${taskName} lên đám mây Supabase... [80%]`,
+          message: `Đang lưu ${taskName} lên đám mây Supabase... [80%]`,
         }));
 
-        // BƯỚC 3: Lưu lên bảng courses của Supabase
-        const { data: existingRows, error: checkError } = await supabase.from("courses").select("id").limit(1);
-        if (checkError) throw new Error(checkError.message);
+        // 3. Ghi vào Supabase (Bản ghi lúc này chỉ toàn URL ngắn, dung lượng cực nhẹ, dưới 100KB)
+        const nowIso = new Date().toISOString();
+        const { error: sbErr } = await supabase
+          .from("courses")
+          .upsert({
+            id: "11111111-1111-1111-1111-111111111111",
+            title: "Toán 12 TCT",
+            chapters: cleanCoursesData,
+            updated_at: nowIso
+          });
 
-        if (existingRows && existingRows.length > 0) {
-          const { error: updateError } = await supabase
+        if (sbErr) {
+          // Fallback: nếu bảng dùng cột data hoặc id khác thì kiểm tra dòng đầu tiên
+          const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+          const targetId = existingRows && existingRows.length > 0
+            ? existingRows[0].id
+            : "11111111-1111-1111-1111-111111111111";
+
+          const { error: fallbackErr } = await supabase
             .from("courses")
-            .update({ chapters: cleanedChapters, updated_at: new Date().toISOString() })
-            .eq("id", existingRows[0].id);
+            .update({ chapters: cleanCoursesData, updated_at: nowIso })
+            .eq("id", targetId);
 
-          if (updateError) throw new Error(updateError.message);
-        } else {
-          const { error: insertError } = await supabase
-            .from("courses")
-            .insert([{ title: "Toán 12 TCT", chapters: cleanedChapters, updated_at: new Date().toISOString() }]);
+          if (fallbackErr) {
+            console.error("Lỗi sync Supabase courses:", fallbackErr);
+            throw fallbackErr;
+          }
+        }
 
-          if (insertError) throw new Error(insertError.message);
+        // 4. Lưu vào LocalStorage an toàn (chỉ lưu bản cleanCoursesData đã bóc ảnh)
+        try {
+          localStorage.setItem("edunexus_course_data", JSON.stringify(cleanCoursesData));
+          window.dispatchEvent(new Event("storage"));
+        } catch (lsErr) {
+          console.warn("LocalStorage đầy, bỏ qua ghi cache trình duyệt:", lsErr);
         }
 
         setSyncStatus({
           isSyncing: true,
           progress: 100,
-          message: `✓ Đã lưu và đồng bộ ${taskName} thành công! (100%)`,
+          message: `✓ Đã lưu thành công! (100%)`,
           type: "success",
         });
 
@@ -811,17 +599,18 @@ function AdminDashboardContent() {
         });
         showToast("Lỗi đồng bộ Supabase: " + (err?.message || "Mất kết nối mạng"), "error");
       }
-    }, 200);
+    }, 250);
 
     return Promise.resolve(true);
   }, [showToast]);
 
-  const handleOptimisticUpdateChapters = notifyAndSync;
-  const saveToStorage = notifyAndSync;
+  const notifyAndSync = syncCoursesToSupabase;
+  const handleOptimisticUpdateChapters = syncCoursesToSupabase;
+  const saveToStorage = syncCoursesToSupabase;
 
   const handleRetrySync = () => {
     if (latestChaptersRef.current) {
-      notifyAndSync(latestChaptersRef.current, "bài học");
+      syncCoursesToSupabase(latestChaptersRef.current, "bài học");
     }
   };
 
@@ -999,9 +788,18 @@ function AdminDashboardContent() {
         supabase.from("system_notifications").select("*").order("created_at", { ascending: false }),
       ]);
 
-      if (courseRes.status === "fulfilled" && courseRes.value.data?.chapters) {
-        setChapters(courseRes.value.data.chapters);
-        safeSaveCoursesToStorage(courseRes.value.data.chapters);
+      if (courseRes.status === "fulfilled" && courseRes.value.data) {
+        const loadedChapters = courseRes.value.data.chapters || courseRes.value.data.data;
+        if (Array.isArray(loadedChapters)) {
+          setChapters(loadedChapters);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_course_data", JSON.stringify(loadedChapters));
+            } catch (lsErr) {
+              console.warn("LocalStorage đầy, bỏ qua ghi cache trình duyệt:", lsErr);
+            }
+          }
+        }
       }
 
       if (sessRes.status === "fulfilled" && sessRes.value.data) {
@@ -1193,7 +991,7 @@ function AdminDashboardContent() {
       } : chap);
     }
 
-    notifyAndSync(newChapters, createModal.type === "chapter" ? "chương" : "bài học");
+    syncCoursesToSupabase(newChapters, createModal.type === "chapter" ? "chương" : "bài học");
     setIsCreatingItem(false);
 
     const itemLabel = createModal.type === "chapter" ? "chương" : "bài học";
@@ -1211,7 +1009,7 @@ function AdminDashboardContent() {
     const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
       ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les),
     } : chap);
-    notifyAndSync(newChapters, "bài học"); 
+    syncCoursesToSupabase(newChapters, "bài học"); 
     setEditLessonModal(null); 
     showToast("Đã cập nhật thông tin bài học!", "success");
   };
@@ -1224,7 +1022,7 @@ function AdminDashboardContent() {
       }
       return chap;
     });
-    notifyAndSync(newChapters, "bài học"); 
+    syncCoursesToSupabase(newChapters, "bài học"); 
     showToast("Đã xóa bài học!", "success");
   };
 
@@ -1246,7 +1044,7 @@ function AdminDashboardContent() {
         return les; 
       }), 
     }));
-    notifyAndSync(newChapters, "tài nguyên"); 
+    syncCoursesToSupabase(newChapters, "tài nguyên"); 
     setResTitle(""); 
     setResUrl(""); 
     setVidType("lecture");
@@ -1267,7 +1065,7 @@ function AdminDashboardContent() {
         return les; 
       }), 
     }));
-    notifyAndSync(newChapters, "tài liệu tăng cường"); 
+    syncCoursesToSupabase(newChapters, "tài liệu tăng cường"); 
     setBoostModal(null); 
     setBoostForm({ title: "", type: "video", url: "", note: "" }); 
     showToast("Đã thêm tài liệu tăng cường!", "success");
@@ -1286,7 +1084,7 @@ function AdminDashboardContent() {
         return les; 
       }), 
     }));
-    notifyAndSync(newChapters, "file Google Drive"); 
+    syncCoursesToSupabase(newChapters, "file Google Drive"); 
     setDriveLinkModal(null); 
     setDriveLinkForm({ title: "", url: "" }); 
     showToast("Đã đính kèm file Drive!", "success");
@@ -1304,7 +1102,7 @@ function AdminDashboardContent() {
       lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les), 
     }));
     
-    notifyAndSync(newChapters, "tài nguyên");
+    syncCoursesToSupabase(newChapters, "tài nguyên");
     showToast("Đã xóa tài nguyên!", "success");
   };
 
@@ -1327,12 +1125,12 @@ function AdminDashboardContent() {
         return les; 
       }), 
     }));
-    notifyAndSync(newChapters, "tài liệu");
+    syncCoursesToSupabase(newChapters, "tài liệu");
     setEditResourceModal(null); 
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
-  // HÀM DUYỆT HỌC VIÊN: CẬP NHẬT UI NGAY (0MS) + GỬI REQUEST POST LÊN API BACKEND
+  // HÀM DUYỆT HỌC VIÊN
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
     const isApproved = status === "approved";
 
@@ -1377,7 +1175,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM XÓA HỌC SINH: CẬP NHẬT UI NGAY + GỌI API BACKEND XÓA VĨNH VIỄN
+  // HÀM XÓA HỌC SINH
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
 
@@ -1839,7 +1637,7 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // HÀM LƯU ĐỀ THI: UPLOAD 100% BASE64 LÊN SUPABASE STORAGE ('exam-media') CHO CẢ KHO LUYỆN ĐỀ VÀ BTVN BÀI HỌC
+  // HÀM LƯU ĐỀ THI: DÙNG ĐỆ QUY sanitizeAndUploadAllMediaRecursively ĐẨY 100% ẢNH LÊN SUPABASE STORAGE
   const handleSaveAzotaExam = async (examData: any) => {
     if (uploadMode === "practice") {
       const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
@@ -1862,67 +1660,42 @@ function AdminDashboardContent() {
           type: "loading"
         });
 
-        const urlCache = new Map<string, string>();
+        const urlMap = new Map<string, string>();
+        let uploadedCount = 0;
 
-        // A. Duyệt và upload toàn bộ ảnh trong incomingMediaMap lên Storage
-        const cleanedMediaMap: Record<string, string> = {};
-        const mediaEntries = Object.entries(incomingMediaMap || {});
-
-        for (let i = 0; i < mediaEntries.length; i++) {
-          const [key, val] = mediaEntries[i];
-          if (typeof val === "string" && val.startsWith("data:image")) {
+        // A. Đệ quy upload toàn bộ ảnh trong mediaMap & sections lên Storage bucket 'exam-media'
+        const cleanedMediaMap = await sanitizeAndUploadAllMediaRecursively(
+          incomingMediaMap,
+          supabase,
+          urlMap,
+          examId,
+          () => {
+            uploadedCount++;
             setPracticeSyncStatus({
               isSyncing: true,
-              progress: 35 + Math.round(((i + 1) / mediaEntries.length) * 35),
-              message: `Đang tải ảnh ${i + 1}/${mediaEntries.length} lên Storage...`,
+              progress: Math.min(75, 35 + uploadedCount * 2),
+              message: `Đang tải ảnh #${uploadedCount} lên Storage...`,
               type: "loading"
             });
-            let publicUrl = urlCache.get(val);
-            if (!publicUrl) {
-              publicUrl = await uploadBase64ToStorage(supabase, val, examId, key);
-              urlCache.set(val, publicUrl);
-            }
-            cleanedMediaMap[key] = publicUrl;
-          } else if (val !== undefined && val !== null) {
-            cleanedMediaMap[key] = String(val);
           }
-        }
+        );
 
-        // B. Quét và dọn sạch nếu có Base64 nằm trong rawSections
-        const sanitizedSections = [];
-        for (const sec of (rawSections || [])) {
-          const newQuestions = [];
-          for (const q of (sec?.questions || [])) {
-            const cleanPrompt = await sanitizeHtmlImages(q?.prompt_html || "", supabase, examId, urlCache, false);
-            const cleanSolution = await sanitizeHtmlImages(q?.solution_html || "", supabase, examId, urlCache, false);
-            const cleanOptions = [];
-            for (const opt of (q?.options || [])) {
-              cleanOptions.push({
-                ...opt,
-                text_html: await sanitizeHtmlImages(opt?.text_html || "", supabase, examId, urlCache, false)
-              });
-            }
-            const cleanedQ = await sanitizeQuestionNodeDeep(
-              {
-                ...q,
-                prompt_html: cleanPrompt,
-                solution_html: cleanSolution,
-                options: cleanOptions
-              },
-              supabase,
-              examId,
-              urlCache,
-              false
-            );
-            newQuestions.push(cleanedQ);
+        const sanitizedSections = await sanitizeAndUploadAllMediaRecursively(
+          rawSections,
+          supabase,
+          urlMap,
+          examId,
+          () => {
+            uploadedCount++;
+            setPracticeSyncStatus({
+              isSyncing: true,
+              progress: Math.min(78, 35 + uploadedCount * 2),
+              message: `Đang tải ảnh #${uploadedCount} lên Storage...`,
+              type: "loading"
+            });
           }
-          sanitizedSections.push({
-            ...sec,
-            questions: newQuestions
-          });
-        }
+        );
 
-        // C. Tạo payload đề thi siêu nhẹ (~30 KB)
         const payloadExam = {
           id: examId,
           title: title,
@@ -1961,7 +1734,6 @@ function AdminDashboardContent() {
           type: "loading"
         });
 
-        // D. Ghi vào database qua Supabase Client
         let saved = false;
         if (supabase) {
           const { error: sbErr } = await supabase.from("practice_exams").upsert(payloadExam);
@@ -1994,7 +1766,6 @@ function AdminDashboardContent() {
           handleRecalculateExamScores(examId, sanitizedSections);
         }
 
-        // E. Đồng bộ state và đóng modal
         const fetched = await fetchPracticeExams();
         if (!fetched) {
           const updatedList = editingExamData
@@ -2032,116 +1803,42 @@ function AdminDashboardContent() {
       }
 
     } else {
-      // NHÁNH LƯU BTVN / ĐỀ KIỂM TRA VÀO BÀI HỌC (`courses`)
+      // NHÁNH NẠP ĐỀ BTVN / ĐỀ KIỂM TRA VÀO BÀI HỌC (COURSES)
       if (!azotaTarget) return;
       const isHw = azotaTarget.type === "homework_files";
       const targetLessonId = azotaTarget.lessonId;
       const targetType = azotaTarget.type;
-      const lessonExamId = "exam-" + Date.now();
 
       setTestFile(null); 
       setEditingExamData(null); 
       setAzotaTarget(null);
 
-      try {
-        setSyncStatus({
-          isSyncing: true,
-          progress: 25,
-          message: "Đang tải toàn bộ ảnh BTVN lên Supabase Storage...",
-          type: "loading"
-        });
+      const newExam = { 
+        id: "exam-" + Date.now(), 
+        title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
+        isHomework: isHw, 
+        duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
+        is_quiz: true, 
+        data: examData.sections || examData.data || [], 
+        sections: examData.sections || examData.data || [], 
+        mediaMap: examData.mediaMap || examData.media_map || {}, 
+        media_map: examData.mediaMap || examData.media_map || {} 
+      };
 
-        const rawMedia = examData.mediaMap || examData.media_map || {};
-        const rawSections = examData.sections || examData.data || [];
-        const urlCache = new Map<string, string>();
-        const cleanedMediaMap: Record<string, string> = {};
-        const mediaEntries = Object.entries(rawMedia);
+      const newChapters = (latestChaptersRef.current || []).map(chap => ({ 
+        ...chap, 
+        lessons: (chap?.lessons || []).map((les: any) => { 
+          if (les?.id === targetLessonId) { 
+            return { ...les, [targetType]: [...(les[targetType] || []), newExam] }; 
+          } 
+          return les; 
+        }) 
+      }));
 
-        for (let i = 0; i < mediaEntries.length; i++) {
-          const [key, val] = mediaEntries[i];
-          if (typeof val === "string" && val.startsWith("data:image")) {
-            const pct = 25 + Math.round(((i + 1) / mediaEntries.length) * 40);
-            setSyncStatus({
-              isSyncing: true,
-              progress: pct,
-              message: `Đang tải ảnh BTVN ${i + 1}/${mediaEntries.length} lên Storage... [${pct}%]`,
-              type: "loading"
-            });
-            let publicUrl = urlCache.get(val);
-            if (!publicUrl) {
-              publicUrl = await uploadOneBase64Image(supabase, val, lessonExamId, key);
-              urlCache.set(val, publicUrl);
-            }
-            cleanedMediaMap[key] = publicUrl;
-          } else if (val !== undefined && val !== null) {
-            cleanedMediaMap[key] = String(val);
-          }
-        }
-
-        const sanitizedSections = [];
-        for (const sec of (rawSections || [])) {
-          const newQuestions = [];
-          for (const q of (sec?.questions || [])) {
-            const cleanPrompt = await sanitizeHtmlImages(q?.prompt_html || "", supabase, lessonExamId, urlCache, true);
-            const cleanSolution = await sanitizeHtmlImages(q?.solution_html || "", supabase, lessonExamId, urlCache, true);
-            const cleanOptions = [];
-            for (const opt of (q?.options || [])) {
-              cleanOptions.push({
-                ...opt,
-                text_html: await sanitizeHtmlImages(opt?.text_html || "", supabase, lessonExamId, urlCache, true)
-              });
-            }
-            const cleanedQ = await sanitizeQuestionNodeDeep(
-              {
-                ...q,
-                prompt_html: cleanPrompt,
-                solution_html: cleanSolution,
-                options: cleanOptions
-              },
-              supabase,
-              lessonExamId,
-              urlCache,
-              true
-            );
-            newQuestions.push(cleanedQ);
-          }
-          sanitizedSections.push({
-            ...sec,
-            questions: newQuestions
-          });
-        }
-
-        const newExam = { 
-          id: lessonExamId, 
-          title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
-          isHomework: isHw, 
-          duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
-          is_quiz: true, 
-          data: sanitizedSections, 
-          sections: sanitizedSections, 
-          mediaMap: cleanedMediaMap, 
-          media_map: cleanedMediaMap 
-        };
-
-        const newChapters = (latestChaptersRef.current || []).map(chap => ({ 
-          ...chap, 
-          lessons: (chap?.lessons || []).map((les: any) => { 
-            if (les?.id === targetLessonId) { 
-              return { ...les, [targetType]: [...(les[targetType] || []), newExam] }; 
-            } 
-            return les; 
-          }) 
-        }));
-
-        await notifyAndSync(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
-        showToast("Đã nạp đề vào bài học thành công!", "success");
-      } catch (err: any) {
-        showToast("Lỗi khi nạp đề vào bài học: " + err.message, "error");
-      }
+      await syncCoursesToSupabase(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
+      showToast("Đã nạp đề vào bài học thành công!", "success");
     }
   };
-
-  const SafeAzotaModal = AzotaExamConfigModal as React.ComponentType<any>;
 
   if (!mounted) {
     return (
@@ -2261,8 +1958,8 @@ function AdminDashboardContent() {
               <LessonsTab
                 chapters={chapters}
                 setChapters={setChapters}
-                onUpdateChapters={notifyAndSync}
-                saveToStorage={notifyAndSync}
+                onUpdateChapters={syncCoursesToSupabase}
+                saveToStorage={syncCoursesToSupabase}
                 lessonModeTab={lessonModeTab}
                 setLessonModeTab={setLessonModeTab}
                 setCreateModal={setCreateModal}
@@ -2416,8 +2113,8 @@ function AdminDashboardContent() {
         setCreateModal={setCreateModal}
         chapters={chapters || []}
         setChapters={setChapters}
-        onUpdateChapters={notifyAndSync}
-        saveToStorage={notifyAndSync}
+        onUpdateChapters={syncCoursesToSupabase}
+        saveToStorage={syncCoursesToSupabase}
         newItemTitle={newItemTitle}
         setNewItemTitle={setNewItemTitle}
         newItemTargetMode={newItemTargetMode}
