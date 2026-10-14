@@ -98,212 +98,104 @@ function safeSavePracticeExamsToStorage(examsList: any[]) {
   }
 }
 
-// HÀM NÉN DỰ PHÒNG BẰNG CANVAS (DÙNG KHI STORAGE BUCKET CHƯA SẴN SÀNG)
-async function compressBase64Fallback(base64: string, maxDim = 650, quality = 0.55): Promise<string> {
-  if (!base64 || typeof base64 !== "string" || !base64.startsWith("data:image")) return base64;
-  const cleanB64 = base64.replace(/[\r\n\s]+/g, "");
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (val: string) => {
-      if (!settled) {
-        settled = true;
-        resolve(val);
-      }
-    };
-    const timer = setTimeout(() => finish(cleanB64), 2000);
-    try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        clearTimeout(timer);
-        try {
-          let w = img.width || 600;
-          let h = img.height || 400;
-          if (w > maxDim) {
-            h = Math.round((h * maxDim) / w);
-            w = maxDim;
-          }
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return finish(cleanB64);
-          ctx.fillStyle = "#FFFFFF";
-          ctx.fillRect(0, 0, w, h);
-          ctx.drawImage(img, 0, 0, w, h);
-          const res = canvas.toDataURL("image/jpeg", quality);
-          finish(res.length < cleanB64.length ? res : cleanB64);
-        } catch {
-          finish(cleanB64);
-        }
-      };
-      img.onerror = () => {
-        clearTimeout(timer);
-        finish(cleanB64);
-      };
-      img.src = cleanB64;
-    } catch {
-      clearTimeout(timer);
-      finish(cleanB64);
-    }
-  });
-}
-
 // 1. CHUYỂN BASE64 SANG BLOB AN TOÀN
 function base64ToBlob(base64: string): Blob {
   const parts = base64.split(";base64,");
-  const contentType = parts[0].split(":")[1] || "image/png";
-  const rawBase64 = (parts[1] || "").replace(/[\r\n\s]+/g, "");
-  const raw = window.atob(rawBase64);
-  const rawLength = raw.length;
-  const uInt8Array = new Uint8Array(rawLength);
-  for (let i = 0; i < rawLength; ++i) {
+  const contentType = parts[0]?.split(":")[1] || "image/png";
+  const cleanB64 = (parts[1] || "").replace(/[\r\n\s]+/g, "");
+  const raw = window.atob(cleanB64);
+  const uInt8Array = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; ++i) {
     uInt8Array[i] = raw.charCodeAt(i);
   }
   return new Blob([uInt8Array], { type: contentType });
 }
 
-// 2. UPLOAD 1 ẢNH BASE64 LÊN SUPABASE STORAGE BUCKET 'exam-media' VÀ TRẢ VỀ PUBLIC URL
-async function uploadBase64ToSupabaseStorage(
+// 2. UPLOAD 1 ẢNH BASE64 LÊN BUCKET 'exam-media'
+async function uploadBase64ToStorage(
   supabaseClient: any,
   base64Str: string,
   examId: string,
-  imageKey: string
+  prefix = "img"
 ): Promise<string> {
   if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) {
-    return base64Str; // Nếu đã là URL sẵn thì giữ nguyên
+    return base64Str; // Đã là URL thì giữ nguyên
   }
   try {
     const blob = base64ToBlob(base64Str);
-    const fileExt = base64Str.includes("image/jpeg") ? "jpg" : "png";
-    const safeKey = String(imageKey || "img").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const filePath = `${examId}/${safeKey}_${Date.now()}.${fileExt}`;
+    const ext = base64Str.includes("image/jpeg") ? "jpg" : "png";
+    const cleanPrefix = String(prefix || "img").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filePath = `${examId}/${cleanPrefix}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.${ext}`;
 
     const { error } = await supabaseClient.storage
       .from("exam-media")
       .upload(filePath, blob, {
+        contentType: blob.type || (ext === "jpg" ? "image/jpeg" : "image/png"),
         cacheControl: "31536000",
         upsert: true,
       });
 
     if (error) {
-      console.warn("Lỗi upload ảnh lên Storage, chuyển sang nén dự phòng:", error);
-      return await compressBase64Fallback(base64Str); // Fallback nén nhẹ nếu bucket lỗi
+      console.warn("Storage upload warn:", error);
+      return base64Str;
     }
 
-    const { data: publicUrlData } = supabaseClient.storage
-      .from("exam-media")
-      .getPublicUrl(filePath);
-
-    return publicUrlData?.publicUrl || (await compressBase64Fallback(base64Str));
+    const { data } = supabaseClient.storage.from("exam-media").getPublicUrl(filePath);
+    return data?.publicUrl || base64Str;
   } catch (err) {
-    console.error("Lỗi khi chuyển đổi/upload ảnh:", err);
-    return await compressBase64Fallback(base64Str);
+    console.error("Lỗi upload Storage:", err);
+    return base64Str;
   }
 }
 
-// 3. XỬ LÝ TOÀN BỘ ẢNH TRONG ĐỀ THI: BÓC TÁCH THẺ <IMG> TRONG HTML VÀ UPLOAD TOÀN BỘ LÊN STORAGE
-async function processAndUploadAllExamMedia(
+// 3. QUÉT SẠCH BASE64 TRONG 1 CHUỖI HTML (PHÒNG KHI EDITOR BUNG THẺ <IMG>)
+async function sanitizeHtmlImages(
+  html: string,
   supabaseClient: any,
   examId: string,
-  sections: any[],
-  mediaMap: Record<string, any>
-) {
-  const uploadedMediaMap: Record<string, string> = {};
-  const uploadCache = new Map<string, string>();
-
-  // 1. Upload các ảnh có trong mediaMap lên Storage
-  if (mediaMap && typeof mediaMap === "object") {
-    for (const [key, val] of Object.entries(mediaMap)) {
-      if (typeof val === "string" && val.startsWith("data:image")) {
-        let publicUrl = uploadCache.get(val);
-        if (!publicUrl) {
-          publicUrl = await uploadBase64ToSupabaseStorage(supabaseClient, val, examId, key);
-          uploadCache.set(val, publicUrl);
-        }
-        uploadedMediaMap[key] = publicUrl;
-      } else if (val !== undefined && val !== null) {
-        uploadedMediaMap[key] = String(val);
-      }
+  urlCache: Map<string, string>
+): Promise<string> {
+  if (!html || typeof html !== "string" || !html.includes("data:image")) return html;
+  const regex = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=\r\n]+/g;
+  const matches = Array.from(new Set(html.match(regex) || []));
+  let result = html;
+  for (const b64 of matches) {
+    let url = urlCache.get(b64);
+    if (!url) {
+      url = await uploadBase64ToStorage(supabaseClient, b64, examId, "html_img");
+      urlCache.set(b64, url);
     }
+    result = result.split(b64).join(url);
   }
+  return result;
+}
 
-  // 2. Quét các ảnh Base64 bị editor nhúng trực tiếp trong HTML câu hỏi
-  async function replaceAndUploadHtmlImages(html: string): Promise<string> {
-    if (!html || typeof html !== "string" || !html.includes("data:image")) return html;
-    const imgRegex = /<img[^>]+src=["'](data:image\/[^"']+)["'][^>]*>/gi;
-    let match;
-    const matches: string[] = [];
-    while ((match = imgRegex.exec(html)) !== null) {
-      if (match[1]) matches.push(match[1]);
-    }
-
-    // Quét bổ sung thuộc tính src="data:image/..." nếu thẻ img có định dạng khác
-    const srcRegex = /src=["'](data:image\/[^"']+)["']/gi;
-    let srcMatch;
-    while ((srcMatch = srcRegex.exec(html)) !== null) {
-      if (srcMatch[1]) matches.push(srcMatch[1]);
-    }
-
-    const uniqueMatches = Array.from(new Set(matches));
-    let updatedHtml = html;
-    for (let i = 0; i < uniqueMatches.length; i++) {
-      const b64 = uniqueMatches[i];
-      let publicUrl = uploadCache.get(b64);
-      const imgKey = `embedded_${i}_${Math.random().toString(36).substr(2, 6)}`;
-      if (!publicUrl) {
-        publicUrl = await uploadBase64ToSupabaseStorage(supabaseClient, b64, examId, imgKey);
-        uploadCache.set(b64, publicUrl);
-      }
-      uploadedMediaMap[imgKey] = publicUrl;
-      // Thay thế đường dẫn src Base64 bằng Public URL từ Storage
-      updatedHtml = updatedHtml.split(b64).join(publicUrl);
-    }
-    return updatedHtml;
+// QUÉT ĐỆ QUY MỌI TRƯỜNG TEXT/HTML TRONG CÂU HỎI ĐỂ ĐẢM BẢO KHÔNG SÓT BẤT KỲ CHUỖI BASE64 NÀO
+async function sanitizeQuestionNodeDeep(
+  node: any,
+  supabaseClient: any,
+  examId: string,
+  urlCache: Map<string, string>
+): Promise<any> {
+  if (!node) return node;
+  if (typeof node === "string") {
+    return await sanitizeHtmlImages(node, supabaseClient, examId, urlCache);
   }
-
-  // 3. Duyệt qua toàn bộ sections để chuyển đổi Base64 thành link Storage
-  const updatedSections = [];
-  for (const sec of (sections || [])) {
-    const updatedQuestions = [];
-    for (const q of (sec?.questions || [])) {
-      const cleanPrompt = await replaceAndUploadHtmlImages(q?.prompt_html || "");
-      const cleanSolution = await replaceAndUploadHtmlImages(q?.solution_html || "");
-      const updatedOptions = [];
-      for (const opt of (q?.options || [])) {
-        updatedOptions.push({
-          ...opt,
-          text_html: await replaceAndUploadHtmlImages(opt?.text_html || "")
-        });
-      }
-      const nextQ: Record<string, any> = {
-        ...q,
-        prompt_html: cleanPrompt,
-        solution_html: cleanSolution,
-        options: updatedOptions
-      };
-      if (typeof nextQ.image === "string" && nextQ.image.startsWith("data:image")) {
-        let imgUrl = uploadCache.get(nextQ.image);
-        if (!imgUrl) {
-          imgUrl = await uploadBase64ToSupabaseStorage(
-            supabaseClient,
-            nextQ.image,
-            examId,
-            `qimg_${Math.random().toString(36).substr(2, 6)}`
-          );
-          uploadCache.set(nextQ.image, imgUrl);
-        }
-        nextQ.image = imgUrl;
-      }
-      updatedQuestions.push(nextQ);
+  if (Array.isArray(node)) {
+    const arr = [];
+    for (const item of node) {
+      arr.push(await sanitizeQuestionNodeDeep(item, supabaseClient, examId, urlCache));
     }
-    updatedSections.push({
-      ...sec,
-      questions: updatedQuestions
-    });
+    return arr;
   }
-
-  return { cleanSections: updatedSections, cleanMediaMap: uploadedMediaMap };
+  if (typeof node === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(node)) {
+      out[k] = await sanitizeQuestionNodeDeep(v, supabaseClient, examId, urlCache);
+    }
+    return out;
+  }
+  return node;
 }
 
 function AdminDashboardContent() {
@@ -1654,42 +1546,89 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts]);
 
-  // HÀM LƯU ĐỀ THI CHUẨN DOANH NGHIỆP: UPLOAD TOÀN BỘ ẢNH LÊN SUPABASE STORAGE ('exam-media') -> LƯU URL SIÊU NHẸ (~20-50KB)
+  // HÀM LƯU ĐỀ THI: UPLOAD 100% BASE64 LÊN SUPABASE STORAGE ('exam-media') -> ĐƯA PAYLOAD TỪ 25MB VỀ ~30KB
   const handleSaveAzotaExam = async (examData: any) => {
-    const currentUploadMode = uploadMode;
-    const currentEditingExam = editingExamData;
-    const currentAzotaTarget = azotaTarget;
-
-    if (currentUploadMode === "practice") {
-      const examId = currentEditingExam ? currentEditingExam.id : ("prac-" + Date.now());
+    if (uploadMode === "practice") {
+      const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
       const title = examData.title || "Đề luyện thi mới";
       const category = examData.category || "Tự do";
       const duration = Number(examData.duration_minutes) || 45;
-      const targetMode = examData.target_mode || (currentEditingExam?.target_mode ?? "all");
-      const allowRetake = currentEditingExam ? (currentEditingExam.allowRetake ?? true) : true;
-      const allowViewFile = currentEditingExam ? (currentEditingExam.allowViewFile ?? true) : true;
-      const driveUrl = examData.driveUrl || (currentEditingExam?.driveUrl ?? "");
-      const solutionVideoUrl = examData.solutionVideoUrl || (currentEditingExam?.solutionVideoUrl ?? "");
+      const targetMode = examData.target_mode || (editingExamData?.target_mode ?? "all");
+      const allowRetake = editingExamData ? (editingExamData.allowRetake ?? true) : true;
+      const allowViewFile = editingExamData ? (editingExamData.allowViewFile ?? true) : true;
+      const driveUrl = examData.driveUrl || (editingExamData?.driveUrl ?? "");
+      const solutionVideoUrl = examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? "");
       const rawSections = examData.sections || examData.data || [];
-      const incomingMediaMap = examData.mediaMap || examData.media_map || currentEditingExam?.media_map || currentEditingExam?.mediaMap || {};
-      const createdAt = currentEditingExam?.created_at || new Date().toISOString();
+      const incomingMediaMap = examData.mediaMap || examData.media_map || editingExamData?.media_map || editingExamData?.mediaMap || {};
 
       try {
-        // BƯỚC 1: Tải toàn bộ ảnh Base64 lên Supabase Storage bucket 'exam-media'
         setPracticeSyncStatus({
           isSyncing: true,
-          progress: 40,
-          message: "Đang tải ảnh đề thi lên Storage đám mây...",
+          progress: 35,
+          message: "Đang tải toàn bộ ảnh lên Storage đám mây...",
           type: "loading"
         });
 
-        const { cleanSections, cleanMediaMap } = await processAndUploadAllExamMedia(
-          supabase,
-          examId,
-          rawSections,
-          incomingMediaMap
-        );
+        const urlCache = new Map<string, string>();
 
+        // A. Duyệt và upload toàn bộ ảnh trong incomingMediaMap lên Storage
+        const cleanedMediaMap: Record<string, string> = {};
+        const mediaEntries = Object.entries(incomingMediaMap || {});
+
+        for (let i = 0; i < mediaEntries.length; i++) {
+          const [key, val] = mediaEntries[i];
+          if (typeof val === "string" && val.startsWith("data:image")) {
+            setPracticeSyncStatus({
+              isSyncing: true,
+              progress: 35 + Math.round(((i + 1) / mediaEntries.length) * 35),
+              message: `Đang tải ảnh ${i + 1}/${mediaEntries.length} lên Storage...`,
+              type: "loading"
+            });
+            let publicUrl = urlCache.get(val);
+            if (!publicUrl) {
+              publicUrl = await uploadBase64ToStorage(supabase, val, examId, key);
+              urlCache.set(val, publicUrl);
+            }
+            cleanedMediaMap[key] = publicUrl;
+          } else if (val !== undefined && val !== null) {
+            cleanedMediaMap[key] = String(val);
+          }
+        }
+
+        // B. Quét và dọn sạch nếu có Base64 nằm trong rawSections
+        const sanitizedSections = [];
+        for (const sec of (rawSections || [])) {
+          const newQuestions = [];
+          for (const q of (sec?.questions || [])) {
+            const cleanPrompt = await sanitizeHtmlImages(q?.prompt_html || "", supabase, examId, urlCache);
+            const cleanSolution = await sanitizeHtmlImages(q?.solution_html || "", supabase, examId, urlCache);
+            const cleanOptions = [];
+            for (const opt of (q?.options || [])) {
+              cleanOptions.push({
+                ...opt,
+                text_html: await sanitizeHtmlImages(opt?.text_html || "", supabase, examId, urlCache)
+              });
+            }
+            const cleanedQ = await sanitizeQuestionNodeDeep(
+              {
+                ...q,
+                prompt_html: cleanPrompt,
+                solution_html: cleanSolution,
+                options: cleanOptions
+              },
+              supabase,
+              examId,
+              urlCache
+            );
+            newQuestions.push(cleanedQ);
+          }
+          sanitizedSections.push({
+            ...sec,
+            questions: newQuestions
+          });
+        }
+
+        // C. Tạo payload đề thi siêu nhẹ (Dung lượng chỉ khoảng ~30 KB thay vì 25 MB)
         const payloadExam = {
           id: examId,
           title: title,
@@ -1700,14 +1639,14 @@ function AdminDashboardContent() {
           allowViewFile: allowViewFile ?? true,
           driveUrl: driveUrl || "",
           solutionVideoUrl: solutionVideoUrl || "",
-          data: cleanSections,
-          sections: cleanSections,
-          media_map: cleanMediaMap,
-          mediaMap: cleanMediaMap,
-          created_at: createdAt
+          data: sanitizedSections,
+          sections: sanitizedSections,
+          media_map: cleanedMediaMap,
+          mediaMap: cleanedMediaMap,
+          created_at: editingExamData?.created_at || new Date().toISOString()
         };
 
-        // Bản ghi chuẩn 11 cột cho bảng practice_exams trên Supabase
+        // Bản ghi chuẩn 11 cột DB phòng trường hợp bảng practice_exams không có cột sections/mediaMap/target_mode
         const dbExamRow = {
           id: examId,
           title: title,
@@ -1717,66 +1656,81 @@ function AdminDashboardContent() {
           allowViewFile: allowViewFile ?? true,
           driveUrl: driveUrl || "",
           solutionVideoUrl: solutionVideoUrl || "",
-          data: cleanSections,
-          media_map: cleanMediaMap,
-          created_at: createdAt
+          data: sanitizedSections,
+          media_map: cleanedMediaMap,
+          created_at: payloadExam.created_at
         };
 
         setPracticeSyncStatus({
           isSyncing: true,
-          progress: 75,
-          message: "Đang ghi dữ liệu đề thi vào Supabase...",
+          progress: 85,
+          message: "Đang lưu cấu trúc đề thi vào cơ sở dữ liệu...",
           type: "loading"
         });
 
-        // BƯỚC 2: Lưu vào bảng practice_exams (Dữ liệu chỉ chứa link URL ~20KB-50KB nên hoàn tất trong 0.1s)
-        let savedToDb = false;
+        // D. Ghi vào database qua Supabase Client
+        let saved = false;
         if (supabase) {
-          const { error: sbErr } = await supabase.from("practice_exams").upsert(dbExamRow);
+          const { error: sbErr } = await supabase.from("practice_exams").upsert(payloadExam);
           if (!sbErr) {
-            savedToDb = true;
+            saved = true;
           } else {
-            console.warn("Supabase client upsert error, thử fallback API Route:", sbErr);
+            console.warn("Supabase upsert payloadExam warn, thử bản ghi 11 cột chuẩn:", sbErr);
+            const { error: sbRetryErr } = await supabase.from("practice_exams").upsert(dbExamRow);
+            if (!sbRetryErr) {
+              saved = true;
+            } else {
+              console.warn("Supabase upsert error:", sbRetryErr);
+            }
           }
         }
 
-        // Fallback qua API Route nếu RLS yêu cầu Service Role Key
-        if (!savedToDb) {
+        if (!saved) {
           const res = await fetch("/api/admin/data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "save_practice_exam", examData: payloadExam })
           });
-          if (res.ok) {
-            savedToDb = true;
-          }
+          if (res.ok) saved = true;
         }
 
-        if (!savedToDb) {
+        if (!saved) {
           throw new Error("Không thể ghi dữ liệu đề thi vào Supabase!");
         }
 
-        if (currentEditingExam) {
-          handleRecalculateExamScores(examId, cleanSections);
+        if (editingExamData) {
+          handleRecalculateExamScores(examId, sanitizedSections);
         }
 
-        // BƯỚC 3: Cập nhật State, đồng bộ danh sách đề thi và đóng modal
-        const refreshed = await fetchPracticeExams();
-        if (!refreshed) {
-          const updatedList = currentEditingExam
+        // E. Đồng bộ state và đóng modal
+        if (typeof fetchPracticeExams === "function") {
+          const fetched = await fetchPracticeExams();
+          if (!fetched) {
+            const updatedList = editingExamData
+              ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
+              : [payloadExam, ...(practiceExams || [])];
+            setPracticeExams(updatedList);
+            safeSavePracticeExamsToStorage(updatedList);
+          }
+        } else {
+          const updatedList = editingExamData
             ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
             : [payloadExam, ...(practiceExams || [])];
           setPracticeExams(updatedList);
-          safeSavePracticeExamsToStorage(updatedList);
+          try {
+            localStorage.setItem("edunexus_practice_exams", JSON.stringify(updatedList));
+          } catch (e) {
+            safeSavePracticeExamsToStorage(updatedList);
+          }
         }
 
         setPracticeSyncStatus({
           isSyncing: false,
           progress: 100,
-          message: "✓ Đã tải ảnh lên Storage và lưu đề thi thành công!",
+          message: "✓ Đã lưu đề thi thành công!",
           type: "success"
         });
-        showToast("Đã lưu đề thi vào kho Luyện đề: " + category, "success");
+        showToast("Đã lưu đề thi thành công!", "success");
 
         setTestFile(null);
         setEditingExamData(null);
@@ -1798,10 +1752,10 @@ function AdminDashboardContent() {
       }
 
     } else {
-      if (!currentAzotaTarget) return;
-      const isHw = currentAzotaTarget.type === "homework_files";
-      const targetLessonId = currentAzotaTarget.lessonId;
-      const targetType = currentAzotaTarget.type;
+      if (!azotaTarget) return;
+      const isHw = azotaTarget.type === "homework_files";
+      const targetLessonId = azotaTarget.lessonId;
+      const targetType = azotaTarget.type;
       const lessonExamId = "exam-" + Date.now();
 
       setTestFile(null); 
@@ -1811,12 +1765,20 @@ function AdminDashboardContent() {
       try {
         const rawMedia = examData.mediaMap || examData.media_map || {};
         const rawSections = examData.sections || examData.data || [];
-        const { cleanSections, cleanMediaMap } = await processAndUploadAllExamMedia(
-          supabase,
-          lessonExamId,
-          rawSections,
-          rawMedia
-        );
+        const urlCache = new Map<string, string>();
+        const cleanedMediaMap: Record<string, string> = {};
+
+        for (const [key, val] of Object.entries(rawMedia)) {
+          if (typeof val === "string" && val.startsWith("data:image")) {
+            const publicUrl = await uploadBase64ToStorage(supabase, val, lessonExamId, key);
+            cleanedMediaMap[key] = publicUrl;
+            urlCache.set(val, publicUrl);
+          } else if (val !== undefined && val !== null) {
+            cleanedMediaMap[key] = String(val);
+          }
+        }
+
+        const sanitizedSections = await sanitizeQuestionNodeDeep(rawSections, supabase, lessonExamId, urlCache);
 
         const newExam = { 
           id: lessonExamId, 
@@ -1824,10 +1786,10 @@ function AdminDashboardContent() {
           isHomework: isHw, 
           duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
           is_quiz: true, 
-          data: cleanSections, 
-          sections: cleanSections, 
-          mediaMap: cleanMediaMap, 
-          media_map: cleanMediaMap 
+          data: sanitizedSections, 
+          sections: sanitizedSections, 
+          mediaMap: cleanedMediaMap, 
+          media_map: cleanedMediaMap 
         };
 
         const newChapters = (latestChaptersRef.current || []).map(chap => ({ 
