@@ -102,6 +102,10 @@
   font-weight: 400;
   text-rendering: optimizeLegibility;
 }
+html {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
 
 .math-content .katex-display {
   margin: 0.5em 0;
