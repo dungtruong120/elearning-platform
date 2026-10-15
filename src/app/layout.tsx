@@ -2,8 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { Be_Vietnam_Pro } from "next/font/google";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+import AppSplashScreen from "@/components/AppSplashScreen";
 
-// Tải font Be Vietnam Pro tối ưu cho tiếng Việt với các trọng số từ thường đến cực đậm
+// Tải font Be Vietnam Pro tối ưu cho tiếng Việt
 const beVietnamPro = Be_Vietnam_Pro({
   subsets: ["latin", "vietnamese"],
   weight: ["400", "500", "600", "700", "800", "900"],
@@ -12,7 +13,7 @@ const beVietnamPro = Be_Vietnam_Pro({
   preload: true,
 });
 
-// Cấu hình Viewport cho thiết bị di động, tràn viền và màu theme thanh trạng thái
+// Cấu hình Viewport tràn viền và màu nền status bar cho di động
 export const viewport: Viewport = {
   themeColor: "#ffffff",
   width: "device-width",
@@ -21,14 +22,14 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-// Cấu hình Metadata, Favicon và PWA
+// Cấu hình Metadata, Favicon và PWA Standalone
 export const metadata: Metadata = {
   title: "TCT study",
   description: "Học trực tuyến TCT",
   manifest: "/manifest.json",
   icons: {
-    icon: "/icon.png", // Giữ nguyên favicon cũ của bạn
-    apple: "/tct-logo.png", // Icon hiển thị ngoài màn hình chính khi học sinh dùng iPhone
+    icon: "/icon.png",
+    apple: "/tct-logo.png",
   },
   appleWebApp: {
     capable: true,
@@ -45,6 +46,7 @@ export default function RootLayout({
   return (
     <html lang="vi" className={beVietnamPro.variable}>
       <body className="antialiased bg-slate-50 text-slate-800 selection:bg-blue-600 selection:text-white font-sans">
+        <AppSplashScreen />
         {children}
       </body>
     </html>
