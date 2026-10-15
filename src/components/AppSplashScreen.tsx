@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 
 export default function AppSplashScreen() {
   const [mounted, setMounted] = useState(false);
   const [fade, setFade] = useState(false);
 
   useEffect(() => {
-    // Hiển thị logo chờ trong 600ms để app tải dữ liệu ngầm
+    // Giảm thời gian chờ xuống để app vào nhanh hơn, không bị giam màn hình
     const timer = setTimeout(() => {
       setFade(true);
-      setTimeout(() => setMounted(true), 400); // Ẩn hoàn toàn component sau khi mờ dần
-    }, 600);
+      setTimeout(() => setMounted(true), 300);
+    }, 450);
 
     return () => clearTimeout(timer);
   }, []);
@@ -21,18 +20,17 @@ export default function AppSplashScreen() {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-white transition-opacity duration-300 ease-out ${
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white transition-opacity duration-300 ease-out ${
         fade ? "opacity-0 pointer-events-none" : "opacity-100"
       }`}
     >
       <div className="flex flex-col items-center select-none">
-        <Image
+        {/* Dùng thẻ img thuần để render ngay lập tức từ bộ nhớ cache */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
           src="/tct-logo.png"
           alt="TCT Logo"
-          width={88}
-          height={88}
-          className="rounded-2xl shadow-sm mb-4 object-contain"
-          priority
+          className="w-20 h-20 rounded-2xl shadow-sm mb-4 object-contain"
         />
         <div className="flex items-center space-x-2">
           <div className="w-2.5 h-2.5 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
