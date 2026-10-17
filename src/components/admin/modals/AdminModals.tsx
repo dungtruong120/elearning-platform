@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { 
   X, Pencil, Trash2, Plus, Upload, Link as LinkIcon, 
   ExternalLink, Video, FileText, PenTool, CheckSquare, 
   Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, 
   Save, FileUp, Edit3, UploadCloud, CheckCircle2, FileSignature, 
-  Sparkles, RefreshCw, Loader2, Zap 
+  Sparkles, RefreshCw, Loader2, Zap, Eye, RotateCcw, Calendar,
+  Check, HelpCircle, UserPlus
 } from "lucide-react";
 import dynamic from "next/dynamic";
+import katex from "katex";
+import { STANDARD_SHIFTS } from "@/types";
 
 // DYNAMIC IMPORT MODAL TRÍCH XUẤT ĐỀ THI WORD & MATHTYPE
 const AzotaExamConfigModal: any = dynamic<any>(
@@ -21,11 +24,116 @@ function cleanResourceMediaPayload(item: any): any {
   return { ...item };
 }
 
+function normalizeText(str: any): string {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// HÀM GIẢI MÃ ĐƯỜNG DẪN ẢNH TRONG ĐỀ THI (TỪ MEDIAMAP HOẶC URL STORAGE)
+function resolveSubmissionImageSrc(rawKey: string, mediaMap: Record<string, any> = {}): string {
+  if (!rawKey) return "";
+  const trimmed = String(rawKey || "").trim();
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("blob:")
+  ) {
+    return trimmed;
+  }
+  if (!mediaMap || typeof mediaMap !== "object") return "";
+  const cleanKey = trimmed.replace(/^\$+|\$+$/g, "").trim();
+  if (mediaMap[cleanKey]) return String(mediaMap[cleanKey]);
+  if (mediaMap[`$${cleanKey}$`]) return String(mediaMap[`$${cleanKey}$`]);
+  for (const [k, v] of Object.entries(mediaMap)) {
+    if (!v) continue;
+    const cleanK = k.replace(/^\$+|\$+$/g, "").trim().toLowerCase();
+    if (cleanK === cleanKey.toLowerCase()) return String(v);
+  }
+  return "";
+}
+
+// COMPONENT HIỂN THỊ NỘI DUNG CÂU HỎI / ĐÁP ÁN / LỜI GIẢI (HỖ TRỢ KATEX + TOKEN ẢNH + HTML)
+function SubmissionRichContent({
+  content,
+  mediaMap = {},
+  className = "",
+}: {
+  content?: string;
+  mediaMap?: Record<string, any>;
+  className?: string;
+}) {
+  const renderedHtml = useMemo(() => {
+    if (!content) return "";
+    let str = String(content);
+
+    // 1. Thay thế token ảnh [img:key] hoặc [img:$img_1$]
+    str = str.replace(/\[img:([^\]]+)\]/gi, (_, rawKey) => {
+      const src = resolveSubmissionImageSrc(rawKey, mediaMap);
+      if (!src) {
+        return `<span class="inline-flex items-center px-2 py-0.5 text-[11px] bg-slate-100 text-slate-500 rounded border border-slate-200">[Hình: ${rawKey}]</span>`;
+      }
+      return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-64 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+    });
+
+    // 2. Render công thức toán học $$...$$ (Display Mode)
+    str = str.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
+      try {
+        return katex.renderToString(tex.trim(), { displayMode: true, throwOnError: false });
+      } catch {
+        return `$$${tex}$$`;
+      }
+    });
+
+    // 3. Render công thức toán học $...$ (Inline Mode)
+    str = str.replace(/\$([^$\n]+?)\$/g, (fullMatch, tex) => {
+      const cleaned = tex.trim();
+      if (/^img_\d+$/i.test(cleaned) && mediaMap[cleaned]) {
+        const src = resolveSubmissionImageSrc(cleaned, mediaMap);
+        return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-64 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+      }
+      try {
+        return katex.renderToString(cleaned, { displayMode: false, throwOnError: false });
+      } catch {
+        return fullMatch;
+      }
+    });
+
+    // 4. Chuyển đổi xuống dòng nếu chuỗi chưa phải HTML phức tạp
+    if (!/<(p|div|table|ul|ol|br|img)/i.test(str)) {
+      str = str.replace(/\n/g, "<br/>");
+    }
+
+    return str;
+  }, [content, mediaMap]);
+
+  if (!content) return null;
+  return (
+    <div
+      className={`leading-relaxed break-words ${className}`}
+      dangerouslySetInnerHTML={{ __html: renderedHtml }}
+    />
+  );
+}
+
+interface DeletionItemState {
+  step: "confirm" | "deleting" | "deleted";
+  progress: number;
+  countdown: number;
+  studentName: string;
+  attemptObj: any;
+}
+
 interface AdminModalsProps {
   azotaScoreViewModal?: {
     isOpen: boolean;
     examTitle: string;
     attempts: any[];
+    examId?: string;
   };
   setAzotaScoreViewModal?: (modal: any) => void;
   registeredStudents?: any[];
@@ -35,8 +143,8 @@ interface AdminModalsProps {
   // CÁC PROPS KẾT NỐI VỚI LESSONS TAB VÀ DASHBOARD GỐC
   chapters?: any[];
   setChapters?: (chapters: any[]) => void;
-  onUpdateChapters?: (newChapters: any[]) => Promise<any> | void;
-  saveToStorage?: (newChapters: any[]) => Promise<any> | void;
+  onUpdateChapters?: (newChapters: any[], taskName?: string) => Promise<any> | void;
+  saveToStorage?: (newChapters: any[], taskName?: string) => Promise<any> | void;
   createModal?: { type: "chapter" | "lesson"; chapterId?: string } | null;
   setCreateModal?: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
   resourceModal?: any;
@@ -63,6 +171,9 @@ interface AdminModalsProps {
   practiceExams?: any[];
   savePracticeExams?: (exams: any[]) => Promise<void>;
   handleRecalculateExamScores?: (examId: string, sections: any[]) => Promise<void>;
+  allAttempts?: any[];
+  setAllAttempts?: React.Dispatch<React.SetStateAction<any[]>> | ((attempts: any[]) => void);
+  onDeleteAttemptPermanent?: (attempt: any) => Promise<void> | void;
   [key: string]: any;
 }
 
@@ -102,7 +213,10 @@ export default function AdminModals(props: AdminModalsProps) {
     onSaveAzotaExam,
     practiceExams = [],
     savePracticeExams,
-    handleRecalculateExamScores
+    handleRecalculateExamScores,
+    allAttempts = [],
+    setAllAttempts,
+    onDeleteAttemptPermanent,
   } = props;
 
   const [filterMode, setFilterMode] = useState<"all" | "online" | "offline">("all");
@@ -123,6 +237,38 @@ export default function AdminModals(props: AdminModalsProps) {
 
   const [editResourceModal, setEditResourceModal] = useState<{ lessonId: string; type: string; item: any } | null>(null);
   const [editResourceForm, setEditResourceForm] = useState({ title: "", url: "", type: "lecture" });
+
+  // STATE QUẢN LÝ LUỒNG XÓA AN TOÀN 3 BƯỚC (CONFIRM -> DELETING PROGRESS -> DELETED UNDO 6S)
+  const [deletionStateMap, setDeletionStateMap] = useState<Record<string, DeletionItemState>>({});
+  const deletionTimersRef = useRef<Record<string, { progressInterval?: any; countdownInterval?: any; commitTimeout?: any }>>({});
+
+  // STATE QUẢN LÝ MODAL XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH
+  const [viewingSubmission, setViewingSubmission] = useState<{
+    attempt: any;
+    examObj: any | null;
+    isLoadingExam: boolean;
+  } | null>(null);
+
+  // Dọn dẹp timers khi unmount
+  useEffect(() => {
+    return () => {
+      Object.values(deletionTimersRef.current).forEach((t) => {
+        if (t.progressInterval) clearInterval(t.progressInterval);
+        if (t.countdownInterval) clearInterval(t.countdownInterval);
+        if (t.commitTimeout) clearTimeout(t.commitTimeout);
+      });
+    };
+  }, []);
+
+  const clearTimersForAttempt = (attemptId: string) => {
+    const t = deletionTimersRef.current[attemptId];
+    if (t) {
+      if (t.progressInterval) clearInterval(t.progressInterval);
+      if (t.countdownInterval) clearInterval(t.countdownInterval);
+      if (t.commitTimeout) clearTimeout(t.commitTimeout);
+      delete deletionTimersRef.current[attemptId];
+    }
+  };
 
   const dispatchOptimisticUpdate = (newChapters: any[]) => {
     if (typeof onUpdateChapters === "function") {
@@ -202,7 +348,7 @@ export default function AdminModals(props: AdminModalsProps) {
         ...att,
         resolvedName: displayName,
         resolvedMode: isOffline ? "offline" : "online",
-        resolvedAvatar: avatarInitials
+        resolvedAvatar: avatarInitials,
       };
     });
   }, [azotaScoreViewModal.attempts, profileMap]);
@@ -212,42 +358,498 @@ export default function AdminModals(props: AdminModalsProps) {
     return enhancedAttempts.filter((att: any) => att.resolvedMode === filterMode);
   }, [enhancedAttempts, filterMode]);
 
-  const handleDeleteAttempt = (attemptId: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa vĩnh viễn lượt làm bài này?")) return;
+  // THỰC THI XÓA VĨNH VIỄN SAU KHI HẾT 6 GIÂY HOÀN TÁC (XÓA CẢ 3 TẦNG: BACKEND API + CLIENT STATE + CHẶN RE-HYDRATION)
+  const commitPermanentDeleteAttempt = async (att: any) => {
+    const attemptId = String(att?.id || "");
+    const studentId = String(att?.studentId || att?.student_id || att?.user_id || "");
+    const quizId = String(att?.quizId || att?.quiz_id || att?.exam_id || "");
+    const examTitle = String(att?.examTitle || att?.exam_title || azotaScoreViewModal?.examTitle || "");
+    const createdAt = att?.createdAt || att?.created_at || "";
 
+    clearTimersForAttempt(attemptId);
+
+    // 1. Lưu ID đã xóa vào danh sách chặn Re-hydration (localStorage + sessionStorage)
+    if (typeof window !== "undefined") {
+      try {
+        const rawDeleted = localStorage.getItem("edunexus_deleted_attempt_ids");
+        const deletedList: string[] = rawDeleted ? JSON.parse(rawDeleted) : [];
+        const keysToBlock = [
+          attemptId,
+          `${quizId}_${studentId}_${createdAt}`,
+          createdAt ? `${studentId}_${createdAt}` : "",
+        ].filter(Boolean);
+
+        const mergedDeleted = Array.from(new Set([...deletedList, ...keysToBlock]));
+        localStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(mergedDeleted));
+        sessionStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(mergedDeleted));
+      } catch (e) {}
+    }
+
+    // 2. Xóa khỏi state của Modal hiện tại
     if (setAzotaScoreViewModal) {
       setAzotaScoreViewModal((prev: any) => ({
         ...prev,
-        attempts: (prev.attempts || []).filter((a: any) => a?.id !== attemptId)
+        attempts: (prev.attempts || []).filter((a: any) => {
+          if (String(a?.id || "") === attemptId) return false;
+          if (createdAt && studentId && (a?.createdAt === createdAt || a?.created_at === createdAt) && (a?.studentId === studentId || a?.student_id === studentId)) {
+            return false;
+          }
+          return true;
+        }),
       }));
     }
 
-    if (showToast) showToast("Đã xóa lượt làm bài!", "success");
-
-    (async () => {
-      try {
-        if (supabase) {
-          await Promise.allSettled([
-            supabase.from("exam_attempts").delete().eq("id", attemptId),
-            supabase.from("quiz_results").delete().eq("id", attemptId)
-          ]);
-        }
-
+    // 3. Xóa khỏi state gốc `allAttempts` của `page.tsx` và cập nhật `localStorage.edunexus_attempts`
+    if (typeof setAllAttempts === "function") {
+      setAllAttempts((prev: any[]) => {
+        const updated = (prev || []).filter((a: any) => {
+          if (String(a?.id || "") === attemptId) return false;
+          if (createdAt && studentId && (a?.createdAt === createdAt || a?.created_at === createdAt) && (a?.studentId === studentId || a?.student_id === studentId)) {
+            return false;
+          }
+          return true;
+        });
         if (typeof window !== "undefined") {
-          const rawLocal = localStorage.getItem("edunexus_attempts");
-          if (rawLocal) {
-            const list = JSON.parse(rawLocal);
-            if (Array.isArray(list)) {
-              const updated = list.filter((a: any) => a?.id !== attemptId);
-              localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
-            }
+          try {
+            localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
+          } catch (e) {}
+        }
+        return updated;
+      });
+    } else if (typeof window !== "undefined") {
+      try {
+        const rawLocal = localStorage.getItem("edunexus_attempts");
+        if (rawLocal) {
+          const parsed = JSON.parse(rawLocal);
+          if (Array.isArray(parsed)) {
+            const updated = parsed.filter((a: any) => String(a?.id || "") !== attemptId);
+            localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
           }
         }
-      } catch (err) {
-        console.error("Lỗi khi xóa lượt làm bài:", err);
+      } catch (e) {}
+    }
+
+    if (typeof onDeleteAttemptPermanent === "function") {
+      onDeleteAttemptPermanent(att);
+    }
+
+    // Xóa trạng thái tạm khỏi deletionStateMap
+    setDeletionStateMap((prev) => {
+      const next = { ...prev };
+      delete next[attemptId];
+      return next;
+    });
+
+    // 4. Gọi API Backend `/api/admin/data` (action: "delete_attempt") dùng SERVICE_ROLE_KEY + kết hợp xóa Supabase Client
+    try {
+      await fetch("/api/admin/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_attempt",
+          attemptId,
+          studentId,
+          quizId,
+          examTitle,
+          createdAt,
+        }),
+      });
+
+      if (supabase) {
+        const tasks: Promise<any>[] = [
+          Promise.resolve(supabase.from("exam_attempts").delete().eq("id", attemptId)),
+          Promise.resolve(supabase.from("quiz_results").delete().eq("id", attemptId)),
+          Promise.resolve(supabase.from("exam_submissions").delete().eq("id", attemptId)),
+        ];
+        if (createdAt && studentId) {
+          tasks.push(
+            Promise.resolve(supabase.from("exam_attempts").delete().eq("created_at", createdAt).eq("student_id", studentId)),
+            Promise.resolve(supabase.from("quiz_results").delete().eq("created_at", createdAt).eq("student_id", studentId))
+          );
+        }
+        await Promise.allSettled(tasks);
       }
-    })();
+
+      if (showToast) {
+        showToast(`Đã xóa vĩnh viễn bài thi của ${att.resolvedName || "học sinh"}!`, "success");
+      }
+    } catch (err) {
+      console.error("Lỗi khi xóa vĩnh viễn lượt làm bài:", err);
+    }
   };
+
+  // BƯỚC 1: MỞ POPOVER XÁC NHẬN XÓA
+  const handleAskDeleteAttempt = (att: any) => {
+    const attemptId = String(att?.id || "");
+    if (!attemptId) return;
+    clearTimersForAttempt(attemptId);
+    setDeletionStateMap((prev) => ({
+      ...prev,
+      [attemptId]: {
+        step: "confirm",
+        progress: 0,
+        countdown: 6,
+        studentName: att.resolvedName || "Học sinh",
+        attemptObj: att,
+      },
+    }));
+  };
+
+  // HỦY POPOVER XÁC NHẬN
+  const handleCancelDeleteConfirm = (attemptId: string) => {
+    clearTimersForAttempt(attemptId);
+    setDeletionStateMap((prev) => {
+      const next = { ...prev };
+      delete next[attemptId];
+      return next;
+    });
+  };
+
+  // BƯỚC 2: BẤM [XÓA] -> CHẠY PROGRESS BAR 1.5S -> CHUYỂN SANG BƯỚC 3 (CHỜ HOÀN TÁC 6 GIÂY)
+  const handleConfirmStartDelete = (att: any) => {
+    const attemptId = String(att?.id || "");
+    if (!attemptId) return;
+    clearTimersForAttempt(attemptId);
+
+    setDeletionStateMap((prev) => ({
+      ...prev,
+      [attemptId]: {
+        step: "deleting",
+        progress: 12,
+        countdown: 6,
+        studentName: att.resolvedName || "Học sinh",
+        attemptObj: att,
+      },
+    }));
+
+    let currentProg = 12;
+    const progressInterval = setInterval(() => {
+      currentProg += 18;
+      if (currentProg >= 100) {
+        clearInterval(progressInterval);
+        // Chuyển sang Bước 3: Trạng thái chờ Hoàn tác 6 giây
+        setDeletionStateMap((prev) => ({
+          ...prev,
+          [attemptId]: {
+            step: "deleted",
+            progress: 100,
+            countdown: 6,
+            studentName: att.resolvedName || "Học sinh",
+            attemptObj: att,
+          },
+        }));
+
+        let secondsLeft = 6;
+        const countdownInterval = setInterval(() => {
+          secondsLeft -= 1;
+          if (secondsLeft > 0) {
+            setDeletionStateMap((prev) => {
+              if (!prev[attemptId]) return prev;
+              return {
+                ...prev,
+                [attemptId]: {
+                  ...prev[attemptId],
+                  countdown: secondsLeft,
+                },
+              };
+            });
+          } else {
+            clearInterval(countdownInterval);
+          }
+        }, 1000);
+
+        const commitTimeout = setTimeout(() => {
+          clearInterval(countdownInterval);
+          commitPermanentDeleteAttempt(att);
+        }, 6000);
+
+        deletionTimersRef.current[attemptId] = {
+          countdownInterval,
+          commitTimeout,
+        };
+      } else {
+        setDeletionStateMap((prev) => {
+          if (!prev[attemptId]) return prev;
+          return {
+            ...prev,
+            [attemptId]: {
+              ...prev[attemptId],
+              progress: Math.min(95, currentProg),
+            },
+          };
+        });
+      }
+    }, 220);
+
+    deletionTimersRef.current[attemptId] = { progressInterval };
+  };
+
+  // BƯỚC 3 (NHÁNH HOÀN TÁC): BẤM [↺ HOÀN TÁC] TRONG 6 GIÂY -> HỦY XÓA NGAY LẬP TỨC
+  const handleUndoDeleteAttempt = (attemptId: string) => {
+    clearTimersForAttempt(attemptId);
+    setDeletionStateMap((prev) => {
+      const next = { ...prev };
+      delete next[attemptId];
+      return next;
+    });
+    if (showToast) {
+      showToast("Đã hoàn tác! Bài thi của học sinh được giữ nguyên.", "success");
+    }
+  };
+
+  // MỞ MODAL XEM CHI TIẾT BÀI LÀM CỦA HỌC SINH
+  const handleOpenSubmissionDetail = async (att: any) => {
+    const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
+    const attTitleNorm = normalizeText(att.examTitle || att.exam_title || azotaScoreViewModal.examTitle);
+
+    // 1. Tìm trong danh sách practiceExams hiện có
+    let foundExam = (practiceExams || []).find((ex: any) => {
+      if (!ex) return false;
+      const exId = String(ex.id || "").trim();
+      const exTitleNorm = normalizeText(ex.title);
+      return (attQuizId && exId && attQuizId === exId) || (attTitleNorm && exTitleNorm && attTitleNorm === exTitleNorm);
+    });
+
+    // 2. Nếu không thấy trong practiceExams, tìm trong chapters (BTVN / Đề kiểm tra bài học)
+    if (!foundExam && Array.isArray(chapters)) {
+      for (const chap of chapters) {
+        for (const les of chap?.lessons || []) {
+          const allQuizzes = [...(les?.homework_files || []), ...(les?.test_quizzes || [])];
+          const matched = allQuizzes.find((q: any) => {
+            const qId = String(q?.id || "").trim();
+            const qTitleNorm = normalizeText(q?.title);
+            return (attQuizId && qId && attQuizId === qId) || (attTitleNorm && qTitleNorm && attTitleNorm === qTitleNorm);
+          });
+          if (matched) {
+            foundExam = matched;
+            break;
+          }
+        }
+        if (foundExam) break;
+      }
+    }
+
+    const hasQuestionsLoaded =
+      foundExam &&
+      ((Array.isArray(foundExam.data) && foundExam.data.length > 0) ||
+        (Array.isArray(foundExam.sections) && foundExam.sections.length > 0));
+
+    if (hasQuestionsLoaded) {
+      setViewingSubmission({
+        attempt: att,
+        examObj: foundExam,
+        isLoadingExam: false,
+      });
+      return;
+    }
+
+    // 3. Nếu đề thi chỉ mới có metadata nhẹ, tải chi tiết câu hỏi từ Supabase
+    setViewingSubmission({
+      attempt: att,
+      examObj: foundExam || null,
+      isLoadingExam: true,
+    });
+
+    try {
+      if (supabase) {
+        let query = supabase.from("practice_exams").select("*");
+        if (attQuizId) {
+          query = query.eq("id", attQuizId);
+        } else if (azotaScoreViewModal.examTitle) {
+          query = query.eq("title", azotaScoreViewModal.examTitle);
+        }
+        const { data } = await query.limit(1).maybeSingle();
+        if (data) {
+          setViewingSubmission({
+            attempt: att,
+            examObj: data,
+            isLoadingExam: false,
+          });
+          return;
+        }
+      }
+    } catch (e) {}
+
+    setViewingSubmission((prev) => (prev ? { ...prev, isLoadingExam: false } : null));
+  };
+
+  // TÍNH TOÁN DỮ LIỆU ĐỐI CHIẾU CÂU HỎI CHO MODAL XEM CHI TIẾT BÀI LÀM
+  const submissionReviewData = useMemo(() => {
+    if (!viewingSubmission) return null;
+    const { attempt, examObj } = viewingSubmission;
+    const rawUserAnswers =
+      attempt?.userAnswers ||
+      attempt?.user_answers ||
+      attempt?.answers ||
+      attempt?.student_answers ||
+      attempt?.selected_answers ||
+      attempt?.detail ||
+      {};
+
+    const sections =
+      examObj?.data ||
+      examObj?.sections ||
+      attempt?.exam_data ||
+      attempt?.sections ||
+      [];
+
+    const mediaMap =
+      examObj?.media_map ||
+      examObj?.mediaMap ||
+      attempt?.media_map ||
+      attempt?.mediaMap ||
+      {};
+
+    const questionsList: any[] = [];
+    let globalOrder = 0;
+
+    if (Array.isArray(sections)) {
+      sections.forEach((sec: any, secIdx: number) => {
+        const secQuestions = Array.isArray(sec?.questions) ? sec.questions : [];
+        secQuestions.forEach((q: any, qIdx: number) => {
+          globalOrder++;
+          const qId = String(q?.id || `q_${globalOrder}`);
+          const qType = q?.type || sec?.section_type || "multiple_choice";
+
+          // Tìm câu trả lời của học sinh theo nhiều khóa khả dĩ
+          let stuAns =
+            rawUserAnswers[qId] ??
+            rawUserAnswers[String(q?.order_index)] ??
+            rawUserAnswers[String(globalOrder)] ??
+            rawUserAnswers[`q_${globalOrder}`] ??
+            rawUserAnswers[`${secIdx}_${qIdx}`] ??
+            undefined;
+
+          const correctRaw = String(q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "").trim();
+
+          let status: "correct" | "wrong" | "skipped" = "skipped";
+          let stuDisplay = "";
+          let correctDisplay = correctRaw;
+
+          if (qType === "true_false") {
+            const options = Array.isArray(q?.options) ? q.options : [];
+            // Chuẩn hóa đáp án đúng của câu Đúng/Sai
+            const expectedMap: Record<string, boolean> = {};
+            options.forEach((opt: any, i: number) => {
+              const k = String(opt?.key || ["a", "b", "c", "d"][i] || i).toLowerCase().replace(/[^a-d]/g, "");
+              if (typeof opt?.is_true_false_ans === "boolean") {
+                expectedMap[k] = opt.is_true_false_ans;
+              }
+            });
+            if (Object.keys(expectedMap).length === 0 && correctRaw) {
+              // Ví dụ correctRaw = "Đ-S-Đ-S" hoặc "a:Đ,b:S..."
+              const parts = correctRaw.split(/[,;-]+/).map((s) => s.trim().toUpperCase());
+              ["a", "b", "c", "d"].forEach((k, i) => {
+                if (parts[i]) {
+                  expectedMap[k] = parts[i].startsWith("Đ") || parts[i] === "T" || parts[i] === "TRUE";
+                }
+              });
+            }
+
+            let stuTfObj: Record<string, any> = {};
+            if (stuAns && typeof stuAns === "object") {
+              stuTfObj = stuAns;
+            } else if (typeof stuAns === "string" && stuAns.trim()) {
+              try {
+                stuTfObj = JSON.parse(stuAns);
+              } catch {
+                const parts = stuAns.split(/[,;-]+/).map((s) => s.trim());
+                ["a", "b", "c", "d"].forEach((k, i) => {
+                  if (parts[i] !== undefined) stuTfObj[k] = parts[i];
+                });
+              }
+            }
+
+            const answeredKeys = Object.keys(stuTfObj).filter(
+              (k) => stuTfObj[k] !== undefined && stuTfObj[k] !== null && stuTfObj[k] !== ""
+            );
+
+            if (answeredKeys.length === 0) {
+              status = "skipped";
+              stuDisplay = "Chưa làm";
+            } else {
+              let allMatch = true;
+              const stuParts: string[] = [];
+              ["a", "b", "c", "d"].forEach((k) => {
+                const rawVal = stuTfObj[k] ?? stuTfObj[k.toUpperCase()];
+                const isStuTrue =
+                  rawVal === true ||
+                  String(rawVal).toUpperCase() === "Đ" ||
+                  String(rawVal).toUpperCase() === "T" ||
+                  String(rawVal).toUpperCase() === "TRUE";
+                const hasStuVal = rawVal !== undefined && rawVal !== null && rawVal !== "";
+                stuParts.push(`${k}) ${hasStuVal ? (isStuTrue ? "Đ" : "S") : "_"}`);
+                if (expectedMap[k] !== undefined) {
+                  if (!hasStuVal || isStuTrue !== expectedMap[k]) {
+                    allMatch = false;
+                  }
+                }
+              });
+              stuDisplay = stuParts.join(" • ");
+              status = allMatch ? "correct" : "wrong";
+            }
+
+            const corrParts: string[] = [];
+            ["a", "b", "c", "d"].forEach((k) => {
+              if (expectedMap[k] !== undefined) {
+                corrParts.push(`${k}) ${expectedMap[k] ? "Đ" : "S"}`);
+              }
+            });
+            if (corrParts.length > 0) {
+              correctDisplay = corrParts.join(" • ");
+            }
+          } else if (qType === "short_answer") {
+            const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim() : "";
+            stuDisplay = stuStr || "Bỏ trống";
+            if (!stuStr) {
+              status = "skipped";
+            } else {
+              const normStu = stuStr.replace(/\s+/g, "").replace(/,/g, ".").toLowerCase();
+              const normCorr = correctRaw.replace(/\s+/g, "").replace(/,/g, ".").toLowerCase();
+              status = normStu === normCorr ? "correct" : "wrong";
+            }
+          } else {
+            // Multiple choice
+            const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
+            const corrStr = correctRaw.toUpperCase();
+            stuDisplay = stuStr || "Bỏ trống";
+            correctDisplay = corrStr || "Chưa cấu hình";
+            if (!stuStr) {
+              status = "skipped";
+            } else {
+              status = stuStr === corrStr ? "correct" : "wrong";
+            }
+          }
+
+          questionsList.push({
+            ...q,
+            qId,
+            globalOrder,
+            sectionTitle: sec?.section_title || "",
+            qType,
+            stuAns,
+            stuDisplay,
+            correctDisplay,
+            status,
+          });
+        });
+      });
+    }
+
+    const correctCount = questionsList.filter((q) => q.status === "correct").length;
+    const wrongCount = questionsList.filter((q) => q.status === "wrong").length;
+    const skippedCount = questionsList.filter((q) => q.status === "skipped").length;
+
+    return {
+      questionsList,
+      mediaMap,
+      rawUserAnswers,
+      correctCount,
+      wrongCount,
+      skippedCount,
+      totalCount: questionsList.length,
+    };
+  }, [viewingSubmission]);
 
   const handleAddResource = (e: React.FormEvent) => {
     e.preventDefault();
@@ -439,7 +1041,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
   return (
     <>
-      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA */}
+      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA (COMPACT HIGH-DENSITY CARD + LUỒNG XÓA 3 BƯỚC + XEM BÀI LÀM CHI TIẾT) */}
       {azotaScoreViewModal?.isOpen && (
         <div
           onClick={(e) => {
@@ -450,12 +1052,12 @@ export default function AdminModals(props: AdminModalsProps) {
           className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs cursor-pointer font-sans"
         >
           <div className="bg-white rounded-[24px] max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] cursor-default animate-in zoom-in-95 duration-150 text-left">
-            <div className="p-5 sm:p-6 pb-3.5 border-b border-slate-100 flex items-start justify-between relative bg-white">
+            <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-100 flex items-start justify-between relative bg-white">
               <div>
                 <span className="px-2.5 py-0.5 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-bold uppercase tracking-wider border border-blue-100">
                   GIAO DIỆN CHẤM THI & QUẢN LÝ ĐIỂM AZOTA
                 </span>
-                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 mt-1.5 tracking-tight">
+                <h2 className="text-base sm:text-lg font-extrabold text-slate-900 mt-1 tracking-tight">
                   {azotaScoreViewModal.examTitle}
                 </h2>
               </div>
@@ -468,7 +1070,7 @@ export default function AdminModals(props: AdminModalsProps) {
               </button>
             </div>
 
-            <div className="px-5 sm:p-6 py-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="px-4 sm:px-6 py-2.5 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-800">
                   Danh sách lượt nộp bài ({filteredAttempts.length} lượt)
@@ -506,102 +1108,503 @@ export default function AdminModals(props: AdminModalsProps) {
               </div>
             </div>
 
-            <div className="p-5 sm:p-6 overflow-y-auto custom-scrollbar flex-1 bg-white">
+            <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
               {filteredAttempts.length === 0 ? (
-                <div className="py-20 text-center text-slate-400 text-xs font-semibold italic">
+                <div className="py-16 text-center text-slate-400 text-xs font-semibold italic">
                   Chưa có lượt nộp bài nào trong phân hệ này.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   {filteredAttempts.map((att: any, idx: number) => {
+                    const attemptId = String(att.id || `att_${idx}`);
+                    const delState = deletionStateMap[attemptId];
                     const displayName = att.resolvedName;
                     const isOffline = att.resolvedMode === "offline";
                     const avatarText = att.resolvedAvatar;
                     const scoreVal = Number(att.score ?? att.points ?? 0);
                     const submitDate = att.createdAt || att.created_at || att.submittedAt;
-                    const formattedDate = submitDate ? new Date(submitDate).toLocaleDateString("vi-VN") : "08/10/2026";
-                    const formattedTime = submitDate ? new Date(submitDate).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "10:40";
+                    const formattedDate = submitDate
+                      ? new Date(submitDate).toLocaleDateString("vi-VN", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "2-digit",
+                        })
+                      : "08/10/26";
+                    const formattedTime = submitDate
+                      ? new Date(submitDate).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+                      : "10:40";
 
+                    // TRẠNG THÁI BƯỚC 3: ĐÃ XÓA - HIỂN THỊ DẢI BANNER XANH LÁ CHỜ HOÀN TÁC (UNDO 6S)
+                    if (delState?.step === "deleted") {
+                      return (
+                        <div
+                          key={attemptId}
+                          className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-2.5 rounded-xl flex items-center justify-between gap-2 shadow-2xs animate-in fade-in duration-150"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span className="font-semibold truncate">
+                              ✓ Đã xóa bài của <strong>{displayName}</strong> — Chờ hoàn tất...
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleUndoDeleteAttempt(attemptId)}
+                            className="px-2.5 py-1 bg-white hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-300 rounded-lg font-bold text-[11px] transition flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Hoàn tác ({delState.countdown}s)</span>
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    // TRẠNG THÁI BƯỚC 2: ĐANG CHẠY THANH TIẾN TRÌNH XÓA (~1.5S)
+                    if (delState?.step === "deleting") {
+                      return (
+                        <div
+                          key={attemptId}
+                          className="p-3 rounded-xl border border-rose-200 bg-rose-50/60 flex flex-col justify-center gap-2 shadow-2xs animate-in fade-in duration-150"
+                        >
+                          <div className="flex items-center justify-between text-xs font-bold text-rose-800">
+                            <span className="flex items-center gap-1.5 truncate">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600 shrink-0" />
+                              Đang xóa bài thi của {displayName}...
+                            </span>
+                            <span className="font-mono text-[11px]">{delState.progress}%</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-rose-200/70 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-rose-600 transition-all duration-200 rounded-full"
+                              style={{ width: `${delState.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // TRẠNG THÁI CARD COMPACT MẶC ĐỊNH (KÈM POPOVER XÁC NHẬN Ở BƯỚC 1)
                     return (
                       <div
-                        key={att.id || idx}
-                        className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs hover:border-slate-300 transition flex flex-col justify-between text-left"
+                        key={attemptId}
+                        className="relative p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow hover:border-slate-300 transition-all flex flex-col justify-between text-left gap-2"
                       >
-                        <div>
-                          <div className="flex items-start gap-3 mb-3">
-                            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-extrabold text-xs text-slate-700 shrink-0 uppercase tracking-tight">
-                              {avatarText}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <h4 className="text-sm font-bold text-slate-800 truncate max-w-[130px]">
-                                  {displayName}
-                                </h4>
-                                <span className={`text-[10px] px-2 py-0.5 font-bold tracking-wider rounded-md uppercase border ${
-                                  isOffline ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                }`}>
-                                  {isOffline ? "OFFLINE" : "ONLINE"}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-sm font-extrabold text-rose-600">
-                                  Điểm: {scoreVal.toFixed(2)}
-                                </span>
-                                <span className="text-[11px] font-medium text-slate-400">
-                                  (Lần thi: {att.attemptIndex || 1})
-                                </span>
-                              </div>
-                            </div>
-
+                        {/* POPOVER XÁC NHẬN XÓA AN TOÀN (BƯỚC 1) */}
+                        {delState?.step === "confirm" && (
+                          <div className="absolute top-2 right-2 z-20 bg-white border border-rose-200 shadow-lg rounded-xl p-2.5 flex items-center gap-2 animate-in zoom-in-95 duration-100">
+                            <span className="text-[11px] font-bold text-slate-800 whitespace-nowrap">
+                              Xóa bài thi này?
+                            </span>
                             <button
                               type="button"
-                              onClick={() => handleDeleteAttempt(att.id)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
-                              title="Xóa vĩnh viễn lượt làm bài này"
+                              onClick={() => handleCancelDeleteConfirm(attemptId)}
+                              className="px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-[11px] transition cursor-pointer"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              Hủy
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleConfirmStartDelete(att)}
+                              className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] transition cursor-pointer shadow-2xs"
+                            >
+                              Xóa
                             </button>
                           </div>
+                        )}
 
-                          <div className="space-y-1.5 text-xs text-slate-500 font-medium pt-1 border-t border-slate-100/80">
-                            <div className="flex items-center justify-between">
-                              <span>Thời gian làm bài:</span>
-                              <span className="text-slate-800 font-semibold">{att.timeSpent || att.time_spent || "15 phút"}</span>
+                        {/* HÀNG 1: AVATAR NHỎ (32x32) + TÊN HS + BADGE MINI + ĐIỂM SỐ NỔI BẬT BÊN PHẢI */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center shrink-0 uppercase">
+                              {avatarText}
                             </div>
-                            <div className="flex items-center justify-between">
-                              <span>Thời gian nộp bài:</span>
-                              <span className="text-slate-800 font-semibold">{formattedTime} {formattedDate}</span>
+                            <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                              <h4
+                                className="font-semibold text-xs text-slate-800 truncate max-w-[120px]"
+                                title={displayName}
+                              >
+                                {displayName}
+                              </h4>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.5 font-bold tracking-wider rounded uppercase border ${
+                                  isOffline
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                }`}
+                              >
+                                {isOffline ? "OFFLINE" : "ONLINE"}
+                              </span>
                             </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                              {scoreVal.toFixed(2)}đ
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleAskDeleteAttempt(att)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
+                              title="Xóa lượt làm bài này"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
 
-                        <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
-                          <span className="text-slate-400 italic truncate max-w-[200px]">
-                            {att.feedback || "Chưa có nhận xét"}
+                        {/* HÀNG 2: METADATA GỌN TRÊN 1 HÀNG */}
+                        <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap py-1 border-y border-slate-100">
+                          <span className="inline-flex items-center gap-1">
+                            <span>⏱</span>
+                            <strong className="text-slate-700 font-semibold">
+                              {att.timeSpent || att.time_spent || "15 phút"}
+                            </strong>
                           </span>
+                          <span className="text-slate-300">•</span>
+                          <span className="inline-flex items-center gap-1">
+                            <span>📅</span>
+                            <strong className="text-slate-700 font-semibold">
+                              {formattedTime} {formattedDate}
+                            </strong>
+                          </span>
+                          <span className="text-slate-300">•</span>
+                          <span className="font-semibold text-slate-600">
+                            Lần {att.attemptIndex || 1}
+                          </span>
+                        </div>
+
+                        {/* HÀNG 3: GHI CHÚ NHẬN XÉT + NÚT XEM BÀI LÀM CHI TIẾT */}
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          <div className="flex items-center gap-1 min-w-0 flex-1">
+                            <span
+                              className="text-[11px] text-slate-400 italic truncate"
+                              title={att.feedback || "Chưa có nhận xét"}
+                            >
+                              {att.feedback || "Chưa có nhận xét"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const note = prompt("Nhập nhận xét cho học sinh:", att.feedback || "");
+                                if (note !== null) {
+                                  att.feedback = note;
+                                  if (setAzotaScoreViewModal) {
+                                    setAzotaScoreViewModal((prev: any) => ({
+                                      ...prev,
+                                      attempts: (prev.attempts || []).map((a: any) =>
+                                        a?.id === att.id ? { ...a, feedback: note } : a
+                                      ),
+                                    }));
+                                  }
+                                  try {
+                                    await fetch("/api/admin/data", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        action: "update_attempt_feedback",
+                                        attemptId: att.id,
+                                        feedback: note,
+                                      }),
+                                    });
+                                  } catch (e) {}
+                                  if (showToast) showToast("Đã lưu nhận xét!", "success");
+                                }
+                              }}
+                              className="p-1 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded transition cursor-pointer shrink-0"
+                              title="Sửa nhận xét"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          </div>
+
                           <button
                             type="button"
-                            onClick={() => {
-                              const note = prompt("Nhập nhận xét cho học sinh:", att.feedback || "");
-                              if (note !== null) {
-                                att.feedback = note;
-                                if (supabase) {
-                                  supabase.from("exam_attempts").update({ feedback: note }).eq("id", att.id).then(() => {
-                                    if (showToast) showToast("Đã lưu nhận xét!", "success");
-                                  });
-                                }
-                              }
-                            }}
-                            className="p-1 text-[#1D4ED8] hover:bg-blue-50 rounded-md transition cursor-pointer"
-                            title="Sửa nhận xét"
+                            onClick={() => handleOpenSubmissionDetail(att)}
+                            className="bg-blue-50 text-[#1D4ED8] hover:bg-[#1D4ED8] hover:text-white transition-all text-xs font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 cursor-pointer border border-blue-200/70"
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Xem bài làm</span>
                           </button>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1B. MODAL CON: XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH (STUDENT SUBMISSION DETAIL MODAL) */}
+      {viewingSubmission && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setViewingSubmission(null);
+          }}
+          className="fixed inset-0 z-[550] flex items-center justify-center p-3 sm:p-5 bg-slate-900/70 backdrop-blur-xs cursor-pointer font-sans"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-[24px] max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] cursor-default animate-in zoom-in-95 duration-150 text-left"
+          >
+            {/* HEADER THỐNG KÊ TỔNG QUAN */}
+            <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between gap-4 bg-white">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-[10px] font-extrabold uppercase tracking-wider">
+                    CHI TIẾT BÀI LÀM HỌC SINH
+                  </span>
+                  <span className="text-xs font-bold text-slate-500 truncate">
+                    • {azotaScoreViewModal.examTitle}
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-lg font-extrabold text-slate-900 mt-1 flex items-center gap-2 flex-wrap">
+                  <span>{viewingSubmission.attempt.resolvedName || "Học sinh"}</span>
+                  <span className="text-sm font-black text-rose-600 bg-rose-50 border border-rose-200 px-2.5 py-0.5 rounded-lg">
+                    Điểm: {Number(viewingSubmission.attempt.score ?? viewingSubmission.attempt.points ?? 0).toFixed(2)}
+                  </span>
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewingSubmission(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* THANH THỐNG KÊ ĐÚNG / SAI / BỎ TRỐNG / THỜI GIAN */}
+            <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                  ✓ Đúng: {submissionReviewData?.correctCount ?? 0} câu
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                  ✕ Sai: {submissionReviewData?.wrongCount ?? 0} câu
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 font-bold">
+                  ○ Chưa làm: {submissionReviewData?.skippedCount ?? 0} câu
+                </span>
+              </div>
+              <div className="text-slate-500 font-semibold flex items-center gap-3">
+                <span>⏱ Thời gian làm: {viewingSubmission.attempt.timeSpent || viewingSubmission.attempt.time_spent || "15 phút"}</span>
+              </div>
+            </div>
+
+            {/* NỘI DUNG TỪNG CÂU HỎI VÀ ĐỐI CHIẾU ĐÁP ÁN */}
+            <div className="p-4 sm:p-6 overflow-y-auto custom-scrollbar flex-1 space-y-4 bg-slate-50/40">
+              {viewingSubmission.isLoadingExam ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs font-bold">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#1D4ED8]" />
+                  <span>Đang tải cấu trúc đề thi và bài làm chi tiết...</span>
+                </div>
+              ) : !submissionReviewData || submissionReviewData.questionsList.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+                  <p className="text-xs font-bold text-slate-700">
+                    Bảng đáp án học sinh đã chọn (Đề thi gốc chưa có dữ liệu câu hỏi chi tiết):
+                  </p>
+                  {Object.keys(submissionReviewData?.rawUserAnswers || {}).length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">
+                      Lượt nộp bài này chỉ lưu điểm tổng kết ({Number(viewingSubmission.attempt.score ?? 0).toFixed(2)} điểm), không có dữ liệu chi tiết từng câu.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                      {Object.entries(submissionReviewData?.rawUserAnswers || {}).map(([k, v], i) => (
+                        <div
+                          key={k || i}
+                          className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
+                        >
+                          <span className="font-bold text-slate-500">Câu {i + 1}:</span>
+                          <span className="font-black text-[#1D4ED8]">
+                            {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                submissionReviewData.questionsList.map((q: any, index: number) => {
+                  const isCorrect = q.status === "correct";
+                  const isWrong = q.status === "wrong";
+                  const mediaMap = submissionReviewData.mediaMap;
+
+                  return (
+                    <div
+                      key={q.qId || index}
+                      className={`p-4 rounded-2xl border bg-white shadow-2xs transition ${
+                        isCorrect
+                          ? "border-emerald-200"
+                          : isWrong
+                          ? "border-rose-200"
+                          : "border-slate-200"
+                      }`}
+                    >
+                      {/* Tiêu đề câu & Badge trạng thái */}
+                      <div className="flex items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-0.5 rounded-lg bg-blue-50 text-[#1D4ED8] font-black text-xs border border-blue-200">
+                            {q.original_label || `Câu ${q.globalOrder}`}
+                          </span>
+                          {q.sectionTitle && (
+                            <span className="text-[11px] font-semibold text-slate-400 truncate max-w-[240px]">
+                              {q.sectionTitle}
+                            </span>
+                          )}
+                        </div>
+
+                        <span
+                          className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold uppercase border ${
+                            isCorrect
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : isWrong
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : "bg-slate-100 text-slate-600 border-slate-200"
+                          }`}
+                        >
+                          {isCorrect ? "✓ Chính xác" : isWrong ? "✕ Chọn sai" : "○ Bỏ trống"}
+                        </span>
+                      </div>
+
+                      {/* Nội dung câu hỏi */}
+                      <SubmissionRichContent
+                        content={q.prompt_html || q.prompt || q.text || ""}
+                        mediaMap={mediaMap}
+                        className="text-xs sm:text-[13px] text-slate-800 font-medium mb-3"
+                      />
+
+                      {/* Hình ảnh đính kèm trực tiếp trong câu hỏi (nếu có) */}
+                      {q.image && (
+                        <div className="my-2 flex justify-center">
+                          <img
+                            src={resolveSubmissionImageSrc(q.image, mediaMap)}
+                            alt="Hình câu hỏi"
+                            className="max-h-60 rounded-xl border border-slate-200 object-contain bg-white p-1"
+                          />
+                        </div>
+                      )}
+
+                      {/* Danh sách các phương án lựa chọn (Nếu là Trắc nghiệm 4 lựa chọn) */}
+                      {q.qType === "multiple_choice" && Array.isArray(q.options) && q.options.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2.5">
+                          {q.options.map((opt: any, oIdx: number) => {
+                            const optKey = String(opt?.key || ["A", "B", "C", "D"][oIdx] || "").trim().toUpperCase();
+                            const stuPicked = String(q.stuAns || "").trim().toUpperCase() === optKey;
+                            const isRightOpt = String(q.correctDisplay || "").trim().toUpperCase() === optKey;
+
+                            let boxStyle = "border-slate-200 bg-slate-50/60 text-slate-700";
+                            if (isRightOpt) {
+                              boxStyle = "border-emerald-400 bg-emerald-50/90 text-emerald-900 font-bold ring-1 ring-emerald-400/30";
+                            } else if (stuPicked && !isRightOpt) {
+                              boxStyle = "border-rose-400 bg-rose-50/90 text-rose-900 font-bold ring-1 ring-rose-400/30";
+                            }
+
+                            return (
+                              <div
+                                key={optKey || oIdx}
+                                className={`p-2.5 rounded-xl border text-xs flex items-start gap-2 ${boxStyle}`}
+                              >
+                                <span
+                                  className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${
+                                    isRightOpt
+                                      ? "bg-emerald-600 text-white"
+                                      : stuPicked
+                                      ? "bg-rose-600 text-white"
+                                      : "bg-white border border-slate-300 text-slate-600"
+                                  }`}
+                                >
+                                  {optKey}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <SubmissionRichContent
+                                    content={opt?.text_html || opt?.text || ""}
+                                    mediaMap={mediaMap}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Bảng mệnh đề (Nếu là Đúng / Sai) */}
+                      {q.qType === "true_false" && Array.isArray(q.options) && q.options.length > 0 && (
+                        <div className="space-y-1.5 my-2.5">
+                          {q.options.map((opt: any, oIdx: number) => {
+                            const optKey = String(opt?.key || ["a", "b", "c", "d"][oIdx] || "").trim();
+                            return (
+                              <div
+                                key={optKey || oIdx}
+                                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs flex items-start justify-between gap-3"
+                              >
+                                <div className="flex items-start gap-2 min-w-0">
+                                  <span className="font-black text-slate-700 shrink-0">{optKey})</span>
+                                  <SubmissionRichContent
+                                    content={opt?.text_html || opt?.text || ""}
+                                    mediaMap={mediaMap}
+                                  />
+                                </div>
+                                {typeof opt?.is_true_false_ans === "boolean" && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-black shrink-0 ${
+                                      opt.is_true_false_ans
+                                        ? "bg-emerald-100 text-emerald-800"
+                                        : "bg-amber-100 text-amber-800"
+                                    }`}
+                                  >
+                                    Đáp án: {opt.is_true_false_ans ? "Đúng" : "Sai"}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Dải đối chiếu Đáp án Học sinh chọn vs Đáp án đúng */}
+                      <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-slate-500 font-medium">Học sinh chọn:</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-extrabold border ${
+                              isCorrect
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                : isWrong
+                                ? "bg-rose-50 text-rose-700 border-rose-300"
+                                : "bg-slate-100 text-slate-600 border-slate-300"
+                            }`}
+                          >
+                            {q.stuDisplay}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 font-medium">Đáp án đúng:</span>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-extrabold">
+                            {q.correctDisplay}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Lời giải chi tiết (solution_html) */}
+                      {(q.solution_html || q.explanation) && (
+                        <div className="mt-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700">
+                          <div className="font-extrabold text-amber-800 mb-1 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Lời giải chi tiết:</span>
+                          </div>
+                          <SubmissionRichContent
+                            content={q.solution_html || q.explanation}
+                            mediaMap={mediaMap}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -1132,7 +2135,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-     {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA */}
+      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA */}
       {testFile && (
         <AzotaExamConfigModal 
           isOpen={Boolean(testFile)} 
