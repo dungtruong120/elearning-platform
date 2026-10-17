@@ -401,8 +401,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
     // 3. Xóa khỏi state gốc `allAttempts` của `page.tsx` và cập nhật `localStorage.edunexus_attempts`
     if (typeof setAllAttempts === "function") {
-      const updatedAttempts = attempts.filter((item: any) => item.id !== targetId);
-setAttempts(updatedAttempts);
+      setAllAttempts((prev: any) => {
         const updated = (prev || []).filter((a: any) => {
           if (String(a?.id || "") === attemptId) return false;
           if (createdAt && studentId && (a?.createdAt === createdAt || a?.created_at === createdAt) && (a?.studentId === studentId || a?.student_id === studentId)) {
@@ -738,7 +737,6 @@ setAttempts(updatedAttempts);
               }
             });
             if (Object.keys(expectedMap).length === 0 && correctRaw) {
-              // Ví dụ correctRaw = "Đ-S-Đ-S" hoặc "a:Đ,b:S..."
               const parts = correctRaw.split(/[,;-]+/).map((s) => s.trim().toUpperCase());
               ["a", "b", "c", "d"].forEach((k, i) => {
                 if (parts[i]) {
@@ -1009,7 +1007,7 @@ setAttempts(updatedAttempts);
           description: newItemDescription.trim(), 
           duration: 45, 
           format: newItemFormat, 
-          target_mode: newItemTargetMode,
+          target_mode: newItemTargetMode, 
           lecture_files: [], 
           homework_files: [], 
           handwritten_notes: [], 
