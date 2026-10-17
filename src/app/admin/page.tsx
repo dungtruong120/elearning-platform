@@ -247,6 +247,38 @@ function safeSavePracticeExamsToStorage(examsList: any[]) {
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
+  // DANH SÁCH ĐEN CHẶN TÁI NẠP CÁC LƯỢT NỘP BÀI ĐÃ XÓA (GIỮ TRẠNG THÁI QUA F5 & REALTIME SYNC)
+  const deletedAttemptIdsRef = useRef<Set<string>>(new Set());
+
+  const loadDeletedBlacklistFromStorage = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const fromLocal = JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+      const fromSession = JSON.parse(sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+      if (Array.isArray(fromLocal)) {
+        fromLocal.forEach((id: string) => id && deletedAttemptIdsRef.current.add(String(id)));
+      }
+      if (Array.isArray(fromSession)) {
+        fromSession.forEach((id: string) => id && deletedAttemptIdsRef.current.add(String(id)));
+      }
+    } catch (e) {}
+  }, []);
+
+  const isAttemptBlacklisted = useCallback((att: any): boolean => {
+    if (!att) return true;
+    const rawId = String(att.id || "").trim();
+    const quizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
+    const studentId = String(att.studentId || att.student_id || att.user_id || "").trim();
+    const createdAt = String(att.createdAt || att.created_at || "").trim();
+    const syntheticId = `${quizId}_${studentId}_${createdAt}`;
+    const stuTimeKey = createdAt && studentId ? `${studentId}_${createdAt}` : "";
+
+    if (rawId && deletedAttemptIdsRef.current.has(rawId)) return true;
+    if (syntheticId && deletedAttemptIdsRef.current.has(syntheticId)) return true;
+    if (stuTimeKey && deletedAttemptIdsRef.current.has(stuTimeKey)) return true;
+    return false;
+  }, []);
+
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "") as AdminTab;
@@ -295,10 +327,21 @@ function AdminDashboardContent() {
   const [allAttempts, setAllAttempts] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
+        const delLocal = JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+        const delSession = JSON.parse(sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+        const delSet = new Set<string>([
+          ...(Array.isArray(delLocal) ? delLocal : []),
+          ...(Array.isArray(delSession) ? delSession : []),
+        ]);
         const saved = localStorage.getItem("edunexus_attempts");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.filter((a: any) => {
+              const id = String(a?.id || `${a?.quizId}_${a?.studentId}_${a?.createdAt}`);
+              return !delSet.has(id);
+            });
+          }
         }
       } catch (e) {}
     }
@@ -486,6 +529,72 @@ function AdminDashboardContent() {
     }
   };
 
+  // HÀM XỬ LÝ KHI XÓA VĨNH VIỄN 1 LƯỢT NỘP BÀI TỪ MODAL CHẤM ĐIỂM
+  const handleAttemptDeleted = useCallback((deletedAttemptOrId: any) => {
+    const deletedAttemptId =
+      typeof deletedAttemptOrId === "string"
+        ? deletedAttemptOrId
+        : String(
+            deletedAttemptOrId?.id ||
+              `${deletedAttemptOrId?.quizId || deletedAttemptOrId?.quiz_id || ""}_${
+                deletedAttemptOrId?.studentId || deletedAttemptOrId?.student_id || ""
+              }_${deletedAttemptOrId?.createdAt || deletedAttemptOrId?.created_at || ""}`
+          );
+
+    const quizId = typeof deletedAttemptOrId === "object"
+      ? String(deletedAttemptOrId?.quizId || deletedAttemptOrId?.quiz_id || deletedAttemptOrId?.exam_id || "")
+      : "";
+    const studentId = typeof deletedAttemptOrId === "object"
+      ? String(deletedAttemptOrId?.studentId || deletedAttemptOrId?.student_id || deletedAttemptOrId?.user_id || "")
+      : "";
+    const createdAt = typeof deletedAttemptOrId === "object"
+      ? String(deletedAttemptOrId?.createdAt || deletedAttemptOrId?.created_at || "")
+      : "";
+
+    const keysToBlock = [
+      deletedAttemptId,
+      quizId && studentId && createdAt ? `${quizId}_${studentId}_${createdAt}` : "",
+      studentId && createdAt ? `${studentId}_${createdAt}` : "",
+    ].filter(Boolean);
+
+    // 1. Thêm vào danh sách đen chặn sync tái nạp
+    keysToBlock.forEach((k) => deletedAttemptIdsRef.current.add(k));
+
+    if (typeof window !== "undefined") {
+      try {
+        const currentSession = JSON.parse(sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+        const currentLocal = JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+        const merged = Array.from(
+          new Set([
+            ...(Array.isArray(currentSession) ? currentSession : []),
+            ...(Array.isArray(currentLocal) ? currentLocal : []),
+            ...keysToBlock,
+          ])
+        );
+        sessionStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(merged));
+        localStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(merged));
+      } catch (e) {}
+    }
+
+    // 2. Lọc bỏ ngay lập tức khỏi State gốc allAttempts
+    setAllAttempts((prev: any[]) => {
+      const updated = (prev || []).filter((item: any) => {
+        if (!item) return false;
+        const itemId = String(item.id || `${item.quizId || item.quiz_id}_${item.studentId || item.student_id}_${item.createdAt || item.created_at}`);
+        if (itemId === deletedAttemptId) return false;
+        if (isAttemptBlacklisted(item)) return false;
+        return true;
+      });
+      // 3. Cập nhật đè ngay vào localStorage để F5 không bao giờ lôi bản ghi cũ lên
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
+  }, [isAttemptBlacklisted]);
+
   // HÀM ĐỒNG BỘ BÀI HỌC / BTVN (`syncCoursesToSupabase` / `notifyAndSync`):
   // QUÉT SẠCH & UPLOAD TOÀN BỘ ẢNH BASE64 TRONG COURSES LÊN SUPABASE STORAGE TRƯỚC KHI LƯU DB & LOCALSTORAGE
   const syncCoursesToSupabase = useCallback((coursesData: any[], taskName: string = "bài học"): Promise<boolean> => {
@@ -633,10 +742,12 @@ function AdminDashboardContent() {
     return null;
   }, []);
 
-  // NẠP DỮ LIỆU TỪ SERVER
+  // NẠP DỮ LIỆU TỪ SERVER (KÈM LỌC BLACKLIST CHẶN TÁI NẠP CÁC LƯỢT NỘP ĐÃ XÓA)
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
+
+    loadDeletedBlacklistFromStorage();
 
     try {
       const res = await fetch("/api/admin/data", { cache: "no-store" });
@@ -661,21 +772,14 @@ function AdminDashboardContent() {
         }
 
         const map = new Map();
-        if (typeof window !== "undefined") {
-          try {
-            const rawLocal = localStorage.getItem("edunexus_attempts");
-            if (rawLocal) {
-              const localParsed = JSON.parse(rawLocal);
-              if (Array.isArray(localParsed)) {
-                localParsed.forEach((locItem: any) => {
-                  if (locItem?.id) map.set(locItem.id, locItem);
-                });
-              }
-            }
-          } catch (e) {}
-        }
 
-        (apiData.examAttempts || []).forEach((item: any) => {
+        // Chỉ lấy dữ liệu chuẩn từ Server (examAttempts + quizResults) và lọc qua Blacklist đã xóa
+        const combinedServerAttempts = [
+          ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
+          ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : []),
+        ];
+
+        combinedServerAttempts.forEach((item: any) => {
           if (!item) return;
           const quizId = String(item.quiz_id || item.exam_id || "").trim();
           const studentId = String(item.student_id || item.user_id || "").trim();
@@ -706,17 +810,22 @@ function AdminDashboardContent() {
             feedback: item.feedback || "",
           };
 
-          map.set(normalized.id, normalized);
+          if (!isAttemptBlacklisted(normalized)) {
+            map.set(normalized.id, normalized);
+          }
         });
 
-        const finalAttempts = Array.from(map.values());
-        if (finalAttempts.length > 0) {
-          setAllAttempts(finalAttempts);
-          if (typeof window !== "undefined") {
-            try {
-              localStorage.setItem("edunexus_attempts", JSON.stringify(finalAttempts));
-            } catch (e) {}
-          }
+        const fetchedAttempts = Array.from(map.values());
+        const validAttempts = fetchedAttempts.filter((att: any) => {
+          const id = String(att.id || `${att.quizId}_${att.studentId}_${att.createdAt}`);
+          return !deletedAttemptIdsRef.current.has(id) && !isAttemptBlacklisted(att);
+        });
+
+        setAllAttempts(validAttempts);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("edunexus_attempts", JSON.stringify(validAttempts));
+          } catch (e) {}
         }
       }
     } catch (err) {
@@ -725,7 +834,7 @@ function AdminDashboardContent() {
       setIsLoadingAnalytics(false);
       setIsLoadingExams(false);
     }
-  }, []);
+  }, [isAttemptBlacklisted, loadDeletedBlacklistFromStorage]);
 
   const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -781,6 +890,8 @@ function AdminDashboardContent() {
   };
 
   const loadStorageData = useCallback(async () => {
+    loadDeletedBlacklistFromStorage();
+
     try {
       const [courseRes, sessRes, notifRes] = await Promise.allSettled([
         supabase.from("courses").select("*").limit(1).maybeSingle(),
@@ -829,10 +940,11 @@ function AdminDashboardContent() {
       const savedAtt = localStorage.getItem("edunexus_attendance");
       if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
     } catch (e) {}
-  }, [syncAdminGlobalData]);
+  }, [loadDeletedBlacklistFromStorage, syncAdminGlobalData]);
 
   useEffect(() => {
     setMounted(true);
+    loadDeletedBlacklistFromStorage();
     loadStorageData();
 
     const handlePopState = () => {
@@ -865,7 +977,7 @@ function AdminDashboardContent() {
       supabase.removeChannel(channel);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [loadStorageData, syncAdminGlobalData, showToast]);
+  }, [loadDeletedBlacklistFromStorage, loadStorageData, syncAdminGlobalData, showToast]);
 
   const savePracticeExams = async (newExams: any[]) => {
     setPracticeExams(newExams);
@@ -1470,7 +1582,7 @@ function AdminDashboardContent() {
     });
 
     (allAttempts || []).forEach(att => {
-      if (!att) return;
+      if (!att || isAttemptBlacklisted(att)) return;
 
       const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
       const attTitle = normalizeText(att.examTitle || att.quizTitle || att.title || "");
@@ -1563,6 +1675,7 @@ function AdminDashboardContent() {
     selectedChapterId,
     selectedLessonId,
     chapters,
+    isAttemptBlacklisted,
   ]);
 
   const getVietnameseLastName = (fullName: string): string => {
@@ -1607,7 +1720,7 @@ function AdminDashboardContent() {
       const exTitleNorm = normalizeText(ex?.title);
 
       const attempts = (allAttempts || []).filter(a => {
-        if (!a) return false;
+        if (!a || isAttemptBlacklisted(a)) return false;
         const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "").trim();
         const aTitleNorm = normalizeText(a.examTitle || a.exam_title || a.title);
         return (aQuizId && exId && aQuizId === exId) || (exTitleNorm && aTitleNorm && exTitleNorm === aTitleNorm);
@@ -1635,7 +1748,7 @@ function AdminDashboardContent() {
         attempts,
       };
     });
-  }, [practiceExams, practiceCategoryFilter, allAttempts]);
+  }, [practiceExams, practiceCategoryFilter, allAttempts, isAttemptBlacklisted]);
 
   // HÀM LƯU ĐỀ THI: DÙNG ĐỆ QUY sanitizeAndUploadAllMediaRecursively ĐẨY 100% ẢNH LÊN SUPABASE STORAGE
   const handleSaveAzotaExam = async (examData: any) => {
@@ -2091,6 +2204,10 @@ function AdminDashboardContent() {
         azotaScoreViewModal={azotaScoreViewModal}
         setAzotaScoreViewModal={setAzotaScoreViewModal}
         registeredStudents={registeredStudents || []}
+        practiceExams={practiceExams || []}
+        allAttempts={allAttempts || []}
+        setAllAttempts={setAllAttempts}
+        onDeleteAttemptPermanent={handleAttemptDeleted}
         supabase={supabase}
         showToast={showToast}
         isAddStudentModalOpen={isAddStudentModalOpen}
