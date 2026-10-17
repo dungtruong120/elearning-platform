@@ -401,7 +401,8 @@ export default function AdminModals(props: AdminModalsProps) {
 
     // 3. Xóa khỏi state gốc `allAttempts` của `page.tsx` và cập nhật `localStorage.edunexus_attempts`
     if (typeof setAllAttempts === "function") {
-      setAllAttempts((prev: any[]) => {
+      const updatedAttempts = attempts.filter((item: any) => item.id !== targetId);
+setAttempts(updatedAttempts);
         const updated = (prev || []).filter((a: any) => {
           if (String(a?.id || "") === attemptId) return false;
           if (createdAt && studentId && (a?.createdAt === createdAt || a?.created_at === createdAt) && (a?.studentId === studentId || a?.student_id === studentId)) {
