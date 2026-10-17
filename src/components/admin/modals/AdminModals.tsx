@@ -172,7 +172,7 @@ interface AdminModalsProps {
   savePracticeExams?: (exams: any[]) => Promise<void>;
   handleRecalculateExamScores?: (examId: string, sections: any[]) => Promise<void>;
   allAttempts?: any[];
-  setAllAttempts?: React.Dispatch<React.SetStateAction<any[]>> | ((attempts: any[]) => void);
+  setAllAttempts?: any;
   onDeleteAttemptPermanent?: (attempt: any) => Promise<void> | void;
   [key: string]: any;
 }
@@ -358,7 +358,7 @@ export default function AdminModals(props: AdminModalsProps) {
     return enhancedAttempts.filter((att: any) => att.resolvedMode === filterMode);
   }, [enhancedAttempts, filterMode]);
 
-  // THỰC THI XÓA VĨNH VIỄN SAU KHI HẾT 6 GIÂY HOÀN TÁC (XÓA CẢ 3 TẦNG: BACKEND API + CLIENT STATE + CHẶN RE-HYDRATION)
+  // THỰC THI XÓA VĨNH VIỄN SAU KHI HẾT 6 GIÂY HOÀN TÁC
   const commitPermanentDeleteAttempt = async (att: any) => {
     const attemptId = String(att?.id || "");
     const studentId = String(att?.studentId || att?.student_id || att?.user_id || "");
@@ -368,7 +368,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
     clearTimersForAttempt(attemptId);
 
-    // 1. Lưu ID đã xóa vào danh sách chặn Re-hydration (localStorage + sessionStorage)
+    // 1. Lưu ID đã xóa vào danh sách chặn Re-hydration
     if (typeof window !== "undefined") {
       try {
         const rawDeleted = localStorage.getItem("edunexus_deleted_attempt_ids");
@@ -399,9 +399,9 @@ export default function AdminModals(props: AdminModalsProps) {
       }));
     }
 
-    // 3. Xóa khỏi state gốc `allAttempts` của `page.tsx` và cập nhật `localStorage.edunexus_attempts`
+    // 3. Xóa khỏi state gốc allAttempts của page.tsx và cập nhật localStorage
     if (typeof setAllAttempts === "function") {
-      setAllAttempts((prev: any) => {
+      (setAllAttempts as any)((prev: any) => {
         const updated = (prev || []).filter((a: any) => {
           if (String(a?.id || "") === attemptId) return false;
           if (createdAt && studentId && (a?.createdAt === createdAt || a?.created_at === createdAt) && (a?.studentId === studentId || a?.student_id === studentId)) {
@@ -440,7 +440,7 @@ export default function AdminModals(props: AdminModalsProps) {
       return next;
     });
 
-    // 4. Gọi API Backend `/api/admin/data` (action: "delete_attempt") dùng SERVICE_ROLE_KEY + kết hợp xóa Supabase Client
+    // 4. Gọi API Backend xóa Supabase
     try {
       await fetch("/api/admin/data", {
         method: "POST",
@@ -505,7 +505,7 @@ export default function AdminModals(props: AdminModalsProps) {
     });
   };
 
-  // BƯỚC 2: BẤM [XÓA] -> CHẠY PROGRESS BAR 1.5S -> CHUYỂN SANG BƯỚC 3 (CHỜ HOÀN TÁC 6 GIÂY)
+  // BƯỚC 2: TIẾN TRÌNH XÓA
   const handleConfirmStartDelete = (att: any) => {
     const attemptId = String(att?.id || "");
     if (!attemptId) return;
@@ -527,7 +527,6 @@ export default function AdminModals(props: AdminModalsProps) {
       currentProg += 18;
       if (currentProg >= 100) {
         clearInterval(progressInterval);
-        // Chuyển sang Bước 3: Trạng thái chờ Hoàn tác 6 giây
         setDeletionStateMap((prev) => ({
           ...prev,
           [attemptId]: {
@@ -584,7 +583,7 @@ export default function AdminModals(props: AdminModalsProps) {
     deletionTimersRef.current[attemptId] = { progressInterval };
   };
 
-  // BƯỚC 3 (NHÁNH HOÀN TÁC): BẤM [↺ HOÀN TÁC] TRONG 6 GIÂY -> HỦY XÓA NGAY LẬP TỨC
+  // BƯỚC 3: HOÀN TÁC
   const handleUndoDeleteAttempt = (attemptId: string) => {
     clearTimersForAttempt(attemptId);
     setDeletionStateMap((prev) => {
@@ -602,7 +601,6 @@ export default function AdminModals(props: AdminModalsProps) {
     const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
     const attTitleNorm = normalizeText(att.examTitle || att.exam_title || azotaScoreViewModal.examTitle);
 
-    // 1. Tìm trong danh sách practiceExams hiện có
     let foundExam = (practiceExams || []).find((ex: any) => {
       if (!ex) return false;
       const exId = String(ex.id || "").trim();
@@ -610,7 +608,6 @@ export default function AdminModals(props: AdminModalsProps) {
       return (attQuizId && exId && attQuizId === exId) || (attTitleNorm && exTitleNorm && attTitleNorm === exTitleNorm);
     });
 
-    // 2. Nếu không thấy trong practiceExams, tìm trong chapters (BTVN / Đề kiểm tra bài học)
     if (!foundExam && Array.isArray(chapters)) {
       for (const chap of chapters) {
         for (const les of chap?.lessons || []) {
@@ -643,7 +640,6 @@ export default function AdminModals(props: AdminModalsProps) {
       return;
     }
 
-    // 3. Nếu đề thi chỉ mới có metadata nhẹ, tải chi tiết câu hỏi từ Supabase
     setViewingSubmission({
       attempt: att,
       examObj: foundExam || null,
@@ -673,7 +669,7 @@ export default function AdminModals(props: AdminModalsProps) {
     setViewingSubmission((prev) => (prev ? { ...prev, isLoadingExam: false } : null));
   };
 
-  // TÍNH TOÁN DỮ LIỆU ĐỐI CHIẾU CÂU HỎI CHO MODAL XEM CHI TIẾT BÀI LÀM
+  // TÍNH TOÁN DỮ LIỆU ĐỐI CHIẾU CÂU HỎI
   const submissionReviewData = useMemo(() => {
     if (!viewingSubmission) return null;
     const { attempt, examObj } = viewingSubmission;
@@ -711,7 +707,6 @@ export default function AdminModals(props: AdminModalsProps) {
           const qId = String(q?.id || `q_${globalOrder}`);
           const qType = q?.type || sec?.section_type || "multiple_choice";
 
-          // Tìm câu trả lời của học sinh theo nhiều khóa khả dĩ
           let stuAns =
             rawUserAnswers[qId] ??
             rawUserAnswers[String(q?.order_index)] ??
@@ -728,7 +723,6 @@ export default function AdminModals(props: AdminModalsProps) {
 
           if (qType === "true_false") {
             const options = Array.isArray(q?.options) ? q.options : [];
-            // Chuẩn hóa đáp án đúng của câu Đúng/Sai
             const expectedMap: Record<string, boolean> = {};
             options.forEach((opt: any, i: number) => {
               const k = String(opt?.key || ["a", "b", "c", "d"][i] || i).toLowerCase().replace(/[^a-d]/g, "");
@@ -808,7 +802,6 @@ export default function AdminModals(props: AdminModalsProps) {
               status = normStu === normCorr ? "correct" : "wrong";
             }
           } else {
-            // Multiple choice
             const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
             const corrStr = correctRaw.toUpperCase();
             stuDisplay = stuStr || "Bỏ trống";
@@ -1040,7 +1033,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
   return (
     <>
-      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA (COMPACT HIGH-DENSITY CARD + LUỒNG XÓA 3 BƯỚC + XEM BÀI LÀM CHI TIẾT) */}
+      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA */}
       {azotaScoreViewModal?.isOpen && (
         <div
           onClick={(e) => {
@@ -1133,7 +1126,6 @@ export default function AdminModals(props: AdminModalsProps) {
                       ? new Date(submitDate).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
                       : "10:40";
 
-                    // TRẠNG THÁI BƯỚC 3: ĐÃ XÓA - HIỂN THỊ DẢI BANNER XANH LÁ CHỜ HOÀN TÁC (UNDO 6S)
                     if (delState?.step === "deleted") {
                       return (
                         <div
@@ -1158,7 +1150,6 @@ export default function AdminModals(props: AdminModalsProps) {
                       );
                     }
 
-                    // TRẠNG THÁI BƯỚC 2: ĐANG CHẠY THANH TIẾN TRÌNH XÓA (~1.5S)
                     if (delState?.step === "deleting") {
                       return (
                         <div
@@ -1182,13 +1173,11 @@ export default function AdminModals(props: AdminModalsProps) {
                       );
                     }
 
-                    // TRẠNG THÁI CARD COMPACT MẶC ĐỊNH (KÈM POPOVER XÁC NHẬN Ở BƯỚC 1)
                     return (
                       <div
                         key={attemptId}
                         className="relative p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow hover:border-slate-300 transition-all flex flex-col justify-between text-left gap-2"
                       >
-                        {/* POPOVER XÁC NHẬN XÓA AN TOÀN (BƯỚC 1) */}
                         {delState?.step === "confirm" && (
                           <div className="absolute top-2 right-2 z-20 bg-white border border-rose-200 shadow-lg rounded-xl p-2.5 flex items-center gap-2 animate-in zoom-in-95 duration-100">
                             <span className="text-[11px] font-bold text-slate-800 whitespace-nowrap">
@@ -1211,7 +1200,6 @@ export default function AdminModals(props: AdminModalsProps) {
                           </div>
                         )}
 
-                        {/* HÀNG 1: AVATAR NHỎ (32x32) + TÊN HS + BADGE MINI + ĐIỂM SỐ NỔI BẬT BÊN PHẢI */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center shrink-0 uppercase">
@@ -1251,7 +1239,6 @@ export default function AdminModals(props: AdminModalsProps) {
                           </div>
                         </div>
 
-                        {/* HÀNG 2: METADATA GỌN TRÊN 1 HÀNG */}
                         <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap py-1 border-y border-slate-100">
                           <span className="inline-flex items-center gap-1">
                             <span>⏱</span>
@@ -1272,7 +1259,6 @@ export default function AdminModals(props: AdminModalsProps) {
                           </span>
                         </div>
 
-                        {/* HÀNG 3: GHI CHÚ NHẬN XÉT + NÚT XEM BÀI LÀM CHI TIẾT */}
                         <div className="flex items-center justify-between gap-2 pt-0.5">
                           <div className="flex items-center gap-1 min-w-0 flex-1">
                             <span
@@ -1335,7 +1321,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 1B. MODAL CON: XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH (STUDENT SUBMISSION DETAIL MODAL) */}
+      {/* 1B. MODAL CON: XEM BÀI LÀM CHI TIẾT */}
       {viewingSubmission && (
         <div
           onClick={(e) => {
@@ -1347,7 +1333,6 @@ export default function AdminModals(props: AdminModalsProps) {
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-[24px] max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] cursor-default animate-in zoom-in-95 duration-150 text-left"
           >
-            {/* HEADER THỐNG KÊ TỔNG QUAN */}
             <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between gap-4 bg-white">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1375,7 +1360,6 @@ export default function AdminModals(props: AdminModalsProps) {
               </button>
             </div>
 
-            {/* THANH THỐNG KÊ ĐÚNG / SAI / BỎ TRỐNG / THỜI GIAN */}
             <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
@@ -1393,7 +1377,6 @@ export default function AdminModals(props: AdminModalsProps) {
               </div>
             </div>
 
-            {/* NỘI DUNG TỪNG CÂU HỎI VÀ ĐỐI CHIẾU ĐÁP ÁN */}
             <div className="p-4 sm:p-6 overflow-y-auto custom-scrollbar flex-1 space-y-4 bg-slate-50/40">
               {viewingSubmission.isLoadingExam ? (
                 <div className="py-16 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs font-bold">
@@ -1442,7 +1425,6 @@ export default function AdminModals(props: AdminModalsProps) {
                           : "border-slate-200"
                       }`}
                     >
-                      {/* Tiêu đề câu & Badge trạng thái */}
                       <div className="flex items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-100">
                         <div className="flex items-center gap-2">
                           <span className="px-2.5 py-0.5 rounded-lg bg-blue-50 text-[#1D4ED8] font-black text-xs border border-blue-200">
@@ -1468,14 +1450,12 @@ export default function AdminModals(props: AdminModalsProps) {
                         </span>
                       </div>
 
-                      {/* Nội dung câu hỏi */}
                       <SubmissionRichContent
                         content={q.prompt_html || q.prompt || q.text || ""}
                         mediaMap={mediaMap}
                         className="text-xs sm:text-[13px] text-slate-800 font-medium mb-3"
                       />
 
-                      {/* Hình ảnh đính kèm trực tiếp trong câu hỏi (nếu có) */}
                       {q.image && (
                         <div className="my-2 flex justify-center">
                           <img
@@ -1486,7 +1466,6 @@ export default function AdminModals(props: AdminModalsProps) {
                         </div>
                       )}
 
-                      {/* Danh sách các phương án lựa chọn (Nếu là Trắc nghiệm 4 lựa chọn) */}
                       {q.qType === "multiple_choice" && Array.isArray(q.options) && q.options.length > 0 && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2.5">
                           {q.options.map((opt: any, oIdx: number) => {
@@ -1529,7 +1508,6 @@ export default function AdminModals(props: AdminModalsProps) {
                         </div>
                       )}
 
-                      {/* Bảng mệnh đề (Nếu là Đúng / Sai) */}
                       {q.qType === "true_false" && Array.isArray(q.options) && q.options.length > 0 && (
                         <div className="space-y-1.5 my-2.5">
                           {q.options.map((opt: any, oIdx: number) => {
@@ -1563,7 +1541,6 @@ export default function AdminModals(props: AdminModalsProps) {
                         </div>
                       )}
 
-                      {/* Dải đối chiếu Đáp án Học sinh chọn vs Đáp án đúng */}
                       <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-slate-500 font-medium">Học sinh chọn:</span>
@@ -1588,7 +1565,6 @@ export default function AdminModals(props: AdminModalsProps) {
                         </div>
                       </div>
 
-                      {/* Lời giải chi tiết (solution_html) */}
                       {(q.solution_html || q.explanation) && (
                         <div className="mt-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700">
                           <div className="font-extrabold text-amber-800 mb-1 flex items-center gap-1.5">
