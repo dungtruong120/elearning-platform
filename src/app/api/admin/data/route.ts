@@ -44,13 +44,20 @@ export async function GET() {
     const examAttempts = attemptsRes.status === "fulfilled" && attemptsRes.value.data ? attemptsRes.value.data : [];
     const quizResults = resultsRes.status === "fulfilled" && resultsRes.value.data ? resultsRes.value.data : [];
 
-    return NextResponse.json({
-      success: true,
-      profiles,
-      practiceExams,
-      examAttempts,
-      quizResults,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        profiles,
+        practiceExams,
+        examAttempts,
+        quizResults,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        },
+      }
+    );
   } catch (error: any) {
     console.error("[API /api/admin/data GET] Lỗi:", error);
     return NextResponse.json(
@@ -136,22 +143,24 @@ export async function POST(req: Request) {
 
       const { error } = await supabaseServer
         .from("profiles")
-        .upsert([{
-          id,
-          full_name: fullName || "",
-          email: (email || "").toLowerCase().trim(),
-          phone: (phone || "").trim(),
-          school: (school || "THPT").trim(),
-          grade: grade || "Lớp 12",
-          learning_mode: mode,
-          study_mode: mode,
-          role: "student",
-          approval_status: "pending",
-          status: "pending",
-          is_approved: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }]);
+        .upsert([
+          {
+            id,
+            full_name: fullName || "",
+            email: (email || "").toLowerCase().trim(),
+            phone: (phone || "").trim(),
+            school: (school || "THPT").trim(),
+            grade: grade || "Lớp 12",
+            learning_mode: mode,
+            study_mode: mode,
+            role: "student",
+            approval_status: "pending",
+            status: "pending",
+            is_approved: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ]);
 
       if (error) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -190,11 +199,154 @@ export async function POST(req: Request) {
         .upsert([examPayload]);
 
       if (error) {
-        console.error("[API save_practice_exam] Lỗi Supabase upsert:", error);
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        // Fallback 11 cột chuẩn nếu bảng practice_exams không có cột phụ
+        const slimExamPayload = {
+          id: examPayload.id,
+          title: examPayload.title,
+          category: examPayload.category,
+          duration_minutes: examPayload.duration_minutes,
+          allowRetake: examPayload.allowRetake,
+          allowViewFile: examPayload.allowViewFile,
+          driveUrl: examPayload.driveUrl,
+          solutionVideoUrl: examPayload.solutionVideoUrl,
+          data: examPayload.data,
+          media_map: examPayload.media_map,
+          created_at: examPayload.created_at,
+        };
+
+        const { error: retryErr } = await supabaseServer
+          .from("practice_exams")
+          .upsert([slimExamPayload]);
+
+        if (retryErr) {
+          console.error("[API save_practice_exam] Lỗi Supabase upsert:", retryErr);
+          return NextResponse.json({ success: false, error: retryErr.message }, { status: 500 });
+        }
       }
 
       return NextResponse.json({ success: true, examId: examPayload.id });
+    }
+
+    // 5. XÓA VĨNH VIỄN LƯỢT NỘP BÀI CỦA HỌC SINH BẰNG SERVICE_ROLE_KEY (BYPASS RLS 100%)
+    if (action === "delete_attempt") {
+      const { attemptId, studentId, quizId, examTitle, createdAt } = body;
+      if (!attemptId && !studentId && !createdAt) {
+        return NextResponse.json({ success: false, error: "Thiếu thông tin định danh lượt nộp bài" }, { status: 400 });
+      }
+
+      const targetTables = ["exam_attempts", "quiz_results", "exam_submissions"];
+      const deleteTasks: Promise<any>[] = [];
+
+      for (const tableName of targetTables) {
+        // 5.1. Xóa trực tiếp theo cột id
+        if (attemptId) {
+          deleteTasks.push(
+            Promise.resolve(supabaseServer.from(tableName).delete().eq("id", String(attemptId).trim()))
+          );
+        }
+
+        // 5.2. Nếu có createdAt + studentId, xóa khớp chính xác theo thời điểm nộp và học sinh (phòng trường hợp synthetic ID)
+        if (createdAt && studentId) {
+          deleteTasks.push(
+            Promise.resolve(
+              supabaseServer
+                .from(tableName)
+                .delete()
+                .eq("created_at", createdAt)
+                .eq("student_id", String(studentId).trim())
+            ),
+            Promise.resolve(
+              supabaseServer
+                .from(tableName)
+                .delete()
+                .eq("created_at", createdAt)
+                .eq("user_id", String(studentId).trim())
+            )
+          );
+        }
+
+        // 5.3. Nếu attemptId là synthetic ID dạng `${quizId}_${studentId}_${createdAt}` nhưng chỉ có createdAt
+        if (createdAt && quizId) {
+          deleteTasks.push(
+            Promise.resolve(
+              supabaseServer
+                .from(tableName)
+                .delete()
+                .eq("created_at", createdAt)
+                .eq("quiz_id", String(quizId).trim())
+            ),
+            Promise.resolve(
+              supabaseServer
+                .from(tableName)
+                .delete()
+                .eq("created_at", createdAt)
+                .eq("exam_id", String(quizId).trim())
+            )
+          );
+        }
+
+        // 5.4. Nếu không có ID thực mà khớp theo studentId + quizId + examTitle (khi chỉ có 1 lượt nộp trùng khớp)
+        if (studentId && quizId && !createdAt) {
+          deleteTasks.push(
+            Promise.resolve(
+              supabaseServer
+                .from(tableName)
+                .delete()
+                .eq("student_id", String(studentId).trim())
+                .eq("quiz_id", String(quizId).trim())
+            ),
+            Promise.resolve(
+              supabaseServer
+                .from(tableName)
+                .delete()
+                .eq("user_id", String(studentId).trim())
+                .eq("exam_id", String(quizId).trim())
+            )
+          );
+        }
+
+        if (studentId && examTitle && createdAt) {
+          deleteTasks.push(
+            Promise.resolve(
+              supabaseServer
+                .from(tableName)
+                .delete()
+                .eq("student_id", String(studentId).trim())
+                .eq("exam_title", String(examTitle).trim())
+                .eq("created_at", createdAt)
+            )
+          );
+        }
+      }
+
+      await Promise.allSettled(deleteTasks);
+
+      return NextResponse.json({
+        success: true,
+        deletedAttemptId: attemptId,
+      });
+    }
+
+    // 6. CẬP NHẬT NHẬN XÉT (FEEDBACK) CHO LƯỢT NỘP BÀI QUA SERVICE_ROLE_KEY
+    if (action === "update_attempt_feedback") {
+      const { attemptId, feedback } = body;
+      if (!attemptId) {
+        return NextResponse.json({ success: false, error: "Thiếu attemptId" }, { status: 400 });
+      }
+
+      const targetTables = ["exam_attempts", "quiz_results", "exam_submissions"];
+      await Promise.allSettled(
+        targetTables.map((table) =>
+          Promise.resolve(
+            supabaseServer
+              .from(table)
+              .update({ feedback: String(feedback ?? "") })
+              .eq("id", String(attemptId).trim())
+          )
+        )
+      );
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ success: false, error: "Action không hợp lệ" }, { status: 400 });
