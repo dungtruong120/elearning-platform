@@ -182,7 +182,10 @@ export default function PracticeExamWorkspace({
                 {bestAttempt && onReviewAttempt && (
                   <button
                     type="button"
-                    onClick={() => onReviewAttempt(bestAttempt)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReviewAttempt(bestAttempt);
+                    }}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-bold transition cursor-pointer"
                   >
                     <Eye className="w-3.5 h-3.5" />
@@ -194,7 +197,7 @@ export default function PracticeExamWorkspace({
                 {"Hướng dẫn chữa chi tiết: " + exam.title}
               </h1>
               <p className="text-xs text-slate-500 leading-relaxed font-normal">
-                Hãy theo dõi video chữa bài chi tiết để rút kinh nghiệm các câu hỏi sai. Bạn có thể bấm nút <strong>Xem lại bài làm</strong> ở khung bên phải để kiểm tra chi tiết từng câu Đúng / Sai và lời giải.
+                Hãy theo dõi video chữa bài chi tiết để rút kinh nghiệm các câu hỏi sai. Bạn có thể bấm nút <strong>Xem lại bài làm của bạn</strong> ở khung bên phải để kiểm tra chi tiết từng câu Đúng / Sai và lời giải.
               </p>
             </div>
           </div>
@@ -239,7 +242,10 @@ export default function PracticeExamWorkspace({
                 {attempts.length > 0 && bestAttempt && (
                   <button
                     type="button"
-                    onClick={() => onReviewAttempt?.(bestAttempt)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReviewAttempt?.(bestAttempt);
+                    }}
                     className="bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all font-semibold rounded-xl text-xs py-2.5 px-4 flex items-center justify-center gap-2 w-full cursor-pointer shadow-2xs"
                   >
                     <Eye className="w-4 h-4 text-blue-600" />
@@ -310,7 +316,10 @@ export default function PracticeExamWorkspace({
 
                           <button
                             type="button"
-                            onClick={() => onReviewAttempt?.(att)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onReviewAttempt?.(att);
+                            }}
                             className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded-lg transition text-xs font-semibold flex items-center gap-1 border border-blue-200/70 bg-white shadow-2xs cursor-pointer"
                             title="Xem lại bài làm lần này"
                           >
