@@ -5,7 +5,7 @@ import {
   User, Award, Copy, Printer, Sparkles, PlusCircle, 
   UserCheck, Check, Eye, X, Plus, Trash2, BookOpen, 
   Download, ImageIcon, Search, ChevronRight, ShieldCheck,
-  Filter, CheckSquare, Square, FileText, Layers
+  Filter, CheckSquare, Square, FileText, Layers, CheckCircle2
 } from "lucide-react";
 
 interface Props {
@@ -33,6 +33,68 @@ function normalizeText(str: any): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// HÀM VẼ KHUNG BO GÓC TRÊN HTML5 CANVAS (MODERN MINIMALIST CARD)
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  fillColor?: string,
+  strokeColor?: string,
+  lineWidth: number = 1
+) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+
+  if (fillColor) {
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+  }
+  if (strokeColor) {
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+}
+
+// HÀM PHÂN TÁCH ĐOẠN NHẬN XÉT THÀNH CÁC MỤC BULLET CHUYÊN NGHIỆP
+function parseEvaluationBullets(rawEval: string): { title: string; body: string }[] {
+  if (!rawEval || !rawEval.trim()) {
+    return [{ title: "Nhận xét chung", body: "Chưa có nhận xét chi tiết cho kỳ báo cáo này." }];
+  }
+  const paragraphs = rawEval
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  return paragraphs.map((p) => {
+    const cleaned = p.replace(/^[-•+*]\s*/, "").trim();
+    const colonIdx = cleaned.indexOf(":");
+    if (colonIdx > 0 && colonIdx < 45) {
+      return {
+        title: cleaned.slice(0, colonIdx).trim(),
+        body: cleaned.slice(colonIdx + 1).trim(),
+      };
+    }
+    return {
+      title: "",
+      body: cleaned,
+    };
+  });
 }
 
 export default function AdminStudentReportPanel({
@@ -69,7 +131,7 @@ export default function AdminStudentReportPanel({
   const [autoTeacherEvaluation, setAutoTeacherEvaluation] = useState<string>(
     "- Chuyên cần & Thái độ: Con đi học đầy đủ và luôn đúng giờ. Trong giờ học, con ngoan, tập trung và có tinh thần tự giác tốt.\n\n" +
     "- Khả năng tiếp thu: Con nắm được các dạng toán cơ bản và hiểu bài ổn định. Tuy nhiên, ở một số dạng bài mới hoặc nâng cao, con vẫn còn phản xạ hơi chậm.\n\n" +
-    "- Em đã tiến hành thu điện thoại của con trong giờ học và đề nghị con nghiêm túc chấp hành nội quy này.\n\n" +
+    "- Nội quy lớp học: Em đã tiến hành thu điện thoại của con trong giờ học và đề nghị con nghiêm túc chấp hành nội quy này.\n\n" +
     "- Kết quả kiểm tra tháng: Con đã có nhiều tiến bộ, cần lưu ý cẩn thận hơn ở khâu biến đổi tính toán và trình bày để tránh mất điểm đáng tiếc.\n\n" +
     "- Định hướng giai đoạn tới: Gia đình cùng nhắc nhở con duy trì làm bài tập về nhà và luyện đề bấm giờ đều đặn. Thầy luôn sẵn sàng hỗ trợ giải đáp bất cứ khi nào con gặp khó khăn."
   );
@@ -86,7 +148,7 @@ export default function AdminStudentReportPanel({
     evaluation: 
       "- Chuyên cần & Thái độ: Con đi học đầy đủ và luôn đúng giờ. Trong giờ học, con ngoan, tập trung và có tinh thần tự giác tốt.\n\n" +
       "- Khả năng tiếp thu: Con nắm được các dạng toán cơ bản và hiểu bài ổn định. Tuy nhiên, ở một số dạng bài mới hoặc nâng cao, con vẫn còn phản xạ hơi chậm.\n\n" +
-      "- Em đã tiến hành thu điện thoại của con trong giờ học và đề nghị con nghiêm túc chấp hành nội quy này.\n\n" +
+      "- Nội quy lớp học: Em đã tiến hành thu điện thoại của con trong giờ học và đề nghị con nghiêm túc chấp hành nội quy này.\n\n" +
       "- Kết quả kiểm tra tháng: Con đã có nhiều tiến bộ, cần lưu ý cẩn thận hơn ở khâu biến đổi tính toán và trình bày để tránh mất điểm đáng tiếc.\n\n" +
       "- Định hướng giai đoạn tới: Gia đình cùng nhắc nhở con duy trì làm bài tập về nhà và luyện đề bấm giờ đều đặn. Thầy luôn sẵn sàng hỗ trợ giải đáp bất cứ khi nào con gặp khó khăn."
   });
@@ -107,7 +169,7 @@ export default function AdminStudentReportPanel({
     5: ""
   });
 
-  // Bản đồ tra cứu assigned_month và assigned_week từ Chapters (Lessons -> BTVN / Đề KT) và PracticeExams
+  // Bản đồ tra cứu assigned_month và assigned_week từ Chapters và PracticeExams
   const quizAssignmentMap = useMemo(() => {
     const byId = new Map<string, { month?: number; week?: number; isHw?: boolean; isTest?: boolean; category?: string }>();
     const byTitle = new Map<string, { month?: number; week?: number; isHw?: boolean; isTest?: boolean; category?: string }>();
@@ -152,7 +214,6 @@ export default function AdminStudentReportPanel({
     return { byId, byTitle };
   }, [chapters, practiceExams]);
 
-  // Hàm xác định chính xác Tháng và Tuần của một lượt nộp bài
   const resolveAttemptMonthAndWeek = (att: any): { month: number; week: number; category?: string } => {
     const qId = String(att?.quizId || att?.quiz_id || att?.exam_id || "").trim().toLowerCase();
     const qTitle = normalizeText(att?.examTitle || att?.quizTitle || att?.quiz_title || att?.title || "");
@@ -197,7 +258,6 @@ export default function AdminStudentReportPanel({
     return registeredStudents.find(s => s.id === selectedStudentId) || registeredStudents[0] || null;
   }, [registeredStudents, selectedStudentId]);
 
-  // Toàn bộ lịch sử làm bài của học sinh đang chọn
   const studentAllAttempts = useMemo(() => {
     if (!currentStudent) return [];
     return allAttempts.filter(att => 
@@ -206,7 +266,6 @@ export default function AdminStudentReportPanel({
     );
   }, [allAttempts, currentStudent]);
 
-  // Danh sách các lượt nộp thuộc kho "Luyện đề thực chiến"
   const studentPracticeAttempts = useMemo(() => {
     return studentAllAttempts.filter(a => {
       const qId = String(a?.quizId || a?.quiz_id || a?.exam_id || "").trim().toLowerCase();
@@ -220,7 +279,7 @@ export default function AdminStudentReportPanel({
     });
   }, [studentAllAttempts, quizAssignmentMap]);
 
-  // Tự động gán đề luyện thi đúng theo Tháng được chọn (KHÔNG lấy nhầm đề của tháng khác)
+  // Tự động gán đề luyện thi đúng theo Tháng được chọn (Lọc trùng đề theo điểm cao nhất MAX)
   useEffect(() => {
     if (reportMode !== "auto") return;
     if (studentPracticeAttempts.length > 0) {
@@ -229,7 +288,18 @@ export default function AdminStudentReportPanel({
         return month === reportMonth;
       });
 
-      const mapped: SelectedPracticeExamItem[] = inSelectedMonth.map((a, idx) => {
+      const dedupByExamMap = new Map<string, any>();
+      inSelectedMonth.forEach((a) => {
+        const key = normalizeText(a.examTitle || a.quizTitle || a.quiz_title || a.title || a.quizId || a.id);
+        const prev = dedupByExamMap.get(key);
+        const curScore = Number(a.score ?? a.points ?? 0);
+        const prevScore = prev ? Number(prev.score ?? prev.points ?? 0) : -1;
+        if (!prev || curScore >= prevScore) {
+          dedupByExamMap.set(key, a);
+        }
+      });
+
+      const mapped: SelectedPracticeExamItem[] = Array.from(dedupByExamMap.values()).map((a, idx) => {
         const d = new Date(a.createdAt || a.created_at || Date.now());
         const dateStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
         const { month, category } = resolveAttemptMonthAndWeek(a);
@@ -250,8 +320,6 @@ export default function AdminStudentReportPanel({
     }
   }, [currentStudent?.id, reportMonth, studentPracticeAttempts, reportMode]);
 
-  // Bóc tách điểm theo đúng Tháng (`reportMonth`) và đúng Tuần (`assigned_week` 1 -> 5) cho BTVN và Kiểm tra định kỳ
-  // TUYỆT ĐỐI KHÔNG LẤY NHẦM ĐIỂM THÁNG 10 SANG HIỂN THỊ Ở THÁNG 11
   const autoData = useMemo(() => {
     const emptyWeeks: { [key: number]: string } = { 1: "", 2: "", 3: "", 4: "", 5: "" };
     if (!currentStudent) {
@@ -281,7 +349,6 @@ export default function AdminStudentReportPanel({
       if (!isHw && !isTest) return;
 
       const { month, week } = resolveAttemptMonthAndWeek(att);
-      // CHỈ LẤY CÁC BÀI THUỘC ĐÚNG THÁNG ĐANG CHỌN (reportMonth)
       if (month !== reportMonth) return;
 
       const sc = Number(att.score ?? att.points ?? 0);
@@ -323,7 +390,7 @@ export default function AdminStudentReportPanel({
       : "--";
 
     return {
-      totalHwTest: monthHwScores.length + monthTestScores.length,
+      totalHwTest: validWeekHw.length + validWeekTest.length,
       hwAvg,
       testAvg,
       hwByWeek,
@@ -331,7 +398,6 @@ export default function AdminStudentReportPanel({
     };
   }, [studentAllAttempts, currentStudent, reportMonth, quizAssignmentMap]);
 
-  // Điểm trung bình của các đề thi được chọn trong bảng động
   const practiceStats = useMemo(() => {
     const parseScore = (val: any) => Number(String(val ?? "").replace(",", ".").trim());
     const validScores = selectedPracticeExams
@@ -349,7 +415,6 @@ export default function AdminStudentReportPanel({
     };
   }, [selectedPracticeExams]);
 
-  // Tính điểm thủ công tự động
   const manualStats = useMemo(() => {
     const parseScore = (val: string) => Number(val.replace(",", ".").trim());
     const validHw = Object.values(manualHWScores).filter(val => val && val.trim() !== "" && !isNaN(parseScore(val))).map(parseScore);
@@ -365,7 +430,6 @@ export default function AdminStudentReportPanel({
     };
   }, [manualHWScores, manualTestScores]);
 
-  // Tổng hợp thông tin báo cáo
   const currentReport = useMemo(() => {
     if (reportMode === "auto") {
       const month = reportMonth;
@@ -406,17 +470,20 @@ export default function AdminStudentReportPanel({
     }
   }, [reportMode, currentStudent, reportMonth, autoData, practiceStats, autoTeacherEvaluation, manualForm, manualStats, manualHWScores, manualTestScores, selectedPracticeExams]);
 
+  const parsedEvalBullets = useMemo(
+    () => parseEvaluationBullets(currentReport.evaluation),
+    [currentReport.evaluation]
+  );
+
   const hasWeek5Data = useMemo(() => {
     return Boolean(currentReport.hwScores[5] || currentReport.testScores[5]);
   }, [currentReport.hwScores, currentReport.testScores]);
 
-  // Xác định xem có cần tách sang Trang 2 khi xuất ảnh PNG không (Khi > 4 đề hoặc nhận xét dài)
   const needsSecondPage = useMemo(() => {
     const evalLines = (currentReport.evaluation || "").split("\n").length;
-    return currentReport.practiceItems.length > 4 || evalLines > 10 || (currentReport.evaluation || "").length > 650;
+    return currentReport.practiceItems.length > 4 || evalLines > 8 || (currentReport.evaluation || "").length > 450;
   }, [currentReport.practiceItems.length, currentReport.evaluation]);
 
-  // Toggle chọn đề từ Modal Picker (Hỗ trợ cả danh sách lượt nộp của HS lẫn kho đề chung khi ở chế độ Tự tạo đánh giá)
   const handleToggleSelectPracticeExam = (attOrExam: any) => {
     const targetId = String(attOrExam.id);
     const existing = selectedPracticeExams.find(item => item.id === targetId);
@@ -438,7 +505,6 @@ export default function AdminStudentReportPanel({
     }
   };
 
-  // Thêm 1 dòng đề thi thủ công (ngoài hệ thống)
   const handleAddManualPracticeExam = () => {
     const now = new Date();
     const dateStr = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
@@ -452,7 +518,6 @@ export default function AdminStudentReportPanel({
     setSelectedPracticeExams(prev => [...prev, newItem]);
   };
 
-  // Cập nhật trực tiếp thông tin / điểm số của từng đề luyện thi trong bảng
   const handleUpdatePracticeExamItem = (id: string, field: keyof SelectedPracticeExamItem, value: any) => {
     setSelectedPracticeExams(prev =>
       prev.map(item => (item.id === id ? { ...item, [field]: value } : item))
@@ -463,62 +528,65 @@ export default function AdminStudentReportPanel({
     setSelectedPracticeExams(prev => prev.filter(item => item.id !== id));
   };
 
-  // HÀM VẼ CANVAS CHUẨN SẮC NÉT 860PX (HỖ TRỢ XUẤT ĐƠN TRANG HOẶC TỰ ĐỘNG TÁCH 2 TRANG PNG)
+  // ============================================================================
+  // HÀM VẼ CANVAS HIỆN ĐẠI (MODERN MINIMALIST EDUCATIONAL REPORT - RETINA 2X)
+  // ============================================================================
   const renderCanvasPage = (pageMode: "single" | "page1" | "page2"): string | null => {
     const canvas = document.createElement("canvas");
-    const scale = 2; // Retina 2x sắc nét
-    const logicalWidth = 860;
-    const padding = 36;
-    const contentWidth = logicalWidth - padding * 2;
-    const FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    const scale = 2; // Độ phân giải Retina 2x siêu nét
+    const logicalWidth = 880;
+    const outerPad = 32;
+    const innerPad = 28;
+    const contentX = outerPad + innerPad;
+    const contentWidth = logicalWidth - (outerPad + innerPad) * 2;
+    const FONT_SANS = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
     const testCanvas = document.createElement("canvas");
     const testCtx = testCanvas.getContext("2d");
     if (!testCtx) return null;
 
-    // Bóc tách dòng cho phần nhận xét
-    testCtx.font = "normal 13.5px " + FONT_FAMILY;
-    const evalMaxWidth = contentWidth - 36;
-    const paragraphs = (currentReport.evaluation || "Chưa có nhận xét.").split("\n");
-    const wrappedLines: { text: string; isHeader: boolean }[] = [];
+    // Tính toán các khối bullet cho phần Nhận xét của Giáo viên
+    const bulletTextMaxWidth = contentWidth - 68;
+    const renderedBullets: { title: string; lines: string[]; blockHeight: number }[] = [];
 
-    paragraphs.forEach(para => {
-      const trimmed = para.trim();
-      if (!trimmed) {
-        wrappedLines.push({ text: "", isHeader: false });
-        return;
-      }
+    parsedEvalBullets.forEach((b) => {
+      testCtx.font = "400 13.5px " + FONT_SANS;
+      const fullWords = b.body.split(/\s+/);
+      const lines: string[] = [];
+      let curLine = "";
 
-      const isHeader = trimmed.startsWith("-") || trimmed.startsWith("1.") || trimmed.startsWith("2.") || trimmed.startsWith("3.") || trimmed.startsWith("+");
-      const words = trimmed.split(" ");
-      let currentLine = "";
-
-      for (let i = 0; i < words.length; i++) {
-        const testLine = currentLine ? currentLine + " " + words[i] : words[i];
-        const testWidth = testCtx.measureText(testLine).width;
-
-        if (testWidth > evalMaxWidth && currentLine) {
-          wrappedLines.push({ text: currentLine, isHeader });
-          currentLine = words[i];
+      for (let i = 0; i < fullWords.length; i++) {
+        const candidate = curLine ? curLine + " " + fullWords[i] : fullWords[i];
+        if (testCtx.measureText(candidate).width > bulletTextMaxWidth && curLine) {
+          lines.push(curLine);
+          curLine = fullWords[i];
         } else {
-          currentLine = testLine;
+          curLine = candidate;
         }
       }
-      if (currentLine) {
-        wrappedLines.push({ text: currentLine, isHeader });
-      }
+      if (curLine) lines.push(curLine);
+
+      const titleH = b.title ? 20 : 0;
+      const bodyH = Math.max(1, lines.length) * 21;
+      const blockHeight = titleH + bodyH + 20;
+      renderedBullets.push({ title: b.title, lines, blockHeight });
     });
 
-    const weekCols = hasWeek5Data ? [1, 2, 3, 4, 5] : [1, 2, 3, 4];
-    const evalBoxH = Math.max(150, wrappedLines.length * 22 + 36);
-    const pracRowH = 32;
-    const pracTableH = currentReport.practiceItems.length > 0 ? currentReport.practiceItems.length * pracRowH + 36 : 52;
+    const totalEvalCardHeight =
+      renderedBullets.reduce((acc, item) => acc + item.blockHeight + 10, 0) + 32;
 
-    let logicalHeight = 520 + pracTableH + evalBoxH;
+    const weekCols = hasWeek5Data ? [1, 2, 3, 4, 5] : [1, 2, 3, 4];
+    const pracRowH = 38;
+    const pracTableH =
+      currentReport.practiceItems.length > 0
+        ? currentReport.practiceItems.length * pracRowH + 42
+        : 68;
+
+    let logicalHeight = 560 + pracTableH + totalEvalCardHeight + 130;
     if (pageMode === "page1") {
-      logicalHeight = 460 + pracTableH;
+      logicalHeight = 490 + pracTableH + 75;
     } else if (pageMode === "page2") {
-      logicalHeight = 250 + evalBoxH;
+      logicalHeight = 220 + totalEvalCardHeight + 135;
     }
 
     canvas.width = logicalWidth * scale;
@@ -527,250 +595,545 @@ export default function AdminStudentReportPanel({
     if (!ctx) return null;
     ctx.scale(scale, scale);
 
-    // Nền trắng
-    ctx.fillStyle = "#ffffff";
+    // 1. NỀN CANVAS TỔNG THỂ MÀU XÁM RẤT NHẠT (#F8FAFC) + THẺ TRẮNG BO GÓC NỔI BẬT
+    ctx.fillStyle = "#F8FAFC";
     ctx.fillRect(0, 0, logicalWidth, logicalHeight);
 
-    // Viền ngoài
-    ctx.strokeStyle = "#e2e8f0";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(12, 12, logicalWidth - 24, logicalHeight - 24);
-
-    // HEADER CHUNG
-    const headerH = pageMode === "page2" ? 72 : 92;
-    ctx.fillStyle = "#eff6ff";
-    ctx.fillRect(padding, padding, contentWidth, headerH);
-    ctx.strokeStyle = "#bfdbfe";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(padding, padding, contentWidth, headerH);
-
-    ctx.fillStyle = "#1d4ed8";
-    ctx.font = "bold 11px " + FONT_FAMILY;
-    ctx.fillText(
-      pageMode === "page2"
-        ? "PHIẾU BÁO CÁO KẾT QUẢ HỌC TẬP (TRANG 2/2 - NHẬN XÉT GIÁO VIÊN)"
-        : pageMode === "page1"
-        ? "PHIẾU BÁO CÁO KẾT QUẢ HỌC TẬP (TRANG 1/2 - TỔNG HỢP ĐIỂM SỐ)"
-        : "PHIẾU BÁO CÁO KẾT QUẢ HỌC TẬP",
-      padding + 20,
-      padding + 24
+    drawRoundedRect(
+      ctx,
+      outerPad,
+      outerPad,
+      logicalWidth - outerPad * 2,
+      logicalHeight - outerPad * 2,
+      20,
+      "#FFFFFF",
+      "#E2E8F0",
+      1.5
     );
 
-    ctx.fillStyle = "#0f172a";
-    ctx.font = "900 22px " + FONT_FAMILY;
-    ctx.fillText(currentReport.fullName, padding + 20, padding + 54);
+    // Thanh accent màu xanh đậm trên đỉnh phiếu
+    drawRoundedRect(
+      ctx,
+      outerPad + 24,
+      outerPad,
+      logicalWidth - (outerPad + 24) * 2,
+      4,
+      2,
+      "#1D4ED8"
+    );
+
+    // 2. HEADER HIỆN ĐẠI (MINIMALIST HEADER CARD)
+    let cursorY = outerPad + 24;
+    const headerH = pageMode === "page2" ? 78 : 96;
+
+    drawRoundedRect(
+      ctx,
+      contentX,
+      cursorY,
+      contentWidth,
+      headerH,
+      16,
+      "#F8FAFC",
+      "#E2E8F0",
+      1
+    );
+
+    // Thanh chỉ báo bên trái Header
+    drawRoundedRect(ctx, contentX, cursorY + 14, 4, headerH - 28, 2, "#1D4ED8");
+
+    ctx.fillStyle = "#1D4ED8";
+    ctx.font = "700 10.5px " + FONT_SANS;
+    const subHeaderTitle =
+      pageMode === "page2"
+        ? "TÂM CHÍ TÀI EDUNEXUS  •  TRANG 2/2: ĐÁNH GIÁ CHUYÊN MÔN & ĐỊNH HƯỚNG"
+        : pageMode === "page1"
+        ? "TÂM CHÍ TÀI EDUNEXUS  •  TRANG 1/2: TỔNG HỢP KẾT QUẢ HỌC TẬP"
+        : "TÂM CHÍ TÀI EDUNEXUS  •  PHIẾU BÁO CÁO KẾT QUẢ HỌC TẬP ĐỊNH KỲ";
+    ctx.fillText(subHeaderTitle, contentX + 20, cursorY + 25);
+
+    ctx.fillStyle = "#0F172A";
+    ctx.font = "800 22px " + FONT_SANS;
+    ctx.fillText(currentReport.fullName, contentX + 20, cursorY + 54);
+
+    if (pageMode !== "page2") {
+      ctx.fillStyle = "#64748B";
+      ctx.font = "500 12.5px " + FONT_SANS;
+      ctx.fillText(
+        `${currentReport.school}   •   ${currentReport.grade}`,
+        contentX + 20,
+        cursorY + 76
+      );
+    }
+
+    // Badge Tháng bo tròn bên phải
+    const badgeW = 136;
+    const badgeH = 30;
+    const badgeX = contentX + contentWidth - badgeW - 18;
+    const badgeY = cursorY + 16;
+    drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 10, "#1D4ED8");
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "700 11.5px " + FONT_SANS;
+    ctx.textAlign = "center";
+    ctx.fillText(currentReport.timeframeText.toUpperCase(), badgeX + badgeW / 2, badgeY + 19);
 
     if (pageMode !== "page2") {
       ctx.fillStyle = "#475569";
-      ctx.font = "600 13px " + FONT_FAMILY;
-      ctx.fillText(currentReport.school + " • " + currentReport.grade, padding + 20, padding + 76);
-    }
-
-    ctx.fillStyle = "#2563eb";
-    ctx.fillRect(logicalWidth - padding - 150, padding + 16, 132, 28);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 12px " + FONT_FAMILY;
-    ctx.textAlign = "center";
-    ctx.fillText(currentReport.timeframeText.toUpperCase(), logicalWidth - padding - 150 + 66, padding + 34);
-
-    if (pageMode !== "page2") {
-      ctx.fillStyle = "#334155";
-      ctx.font = "bold 12.5px " + FONT_FAMILY;
+      ctx.font = "600 12px " + FONT_SANS;
       ctx.textAlign = "right";
-      ctx.fillText("Hoàn thành: " + currentReport.total + " bài", logicalWidth - padding - 18, padding + 72);
+      ctx.fillText(
+        `Đã hoàn thành: ${currentReport.total} bài`,
+        contentX + contentWidth - 18,
+        cursorY + 74
+      );
     }
     ctx.textAlign = "left";
 
-    let cursorY = padding + headerH + 22;
+    cursorY += headerH + 22;
 
-    // NẾU LÀ SINGLE HOẶC TRANG 1: VẼ 4 THẺ TỔNG QUAN + BẢNG TUẦN + BẢNG LUYỆN ĐỀ
+    // 3. NỘI DUNG TRANG 1 (HOẶC BẢN ĐƠN): 4 THẺ METRIC COMPACT + BẢNG TUẦN + BẢNG LUYỆN ĐỀ
     if (pageMode === "single" || pageMode === "page1") {
-      const cardW = (contentWidth - 36) / 4;
-      const cardH = 74;
+      const gap = 14;
+      const cardW = (contentWidth - gap * 3) / 4;
+      const cardH = 76;
 
       const summaryCards = [
-        { label: "TỔNG BÀI NỘP", val: currentReport.total + " bài", bg: "#f8fafc", border: "#e2e8f0", labelColor: "#64748b", valColor: "#0f172a" },
-        { label: "Đ.TB BTVN", val: currentReport.hwAvg + " / 10", bg: "#ecfdf5", border: "#a7f3d0", labelColor: "#065f46", valColor: "#047857" },
-        { label: "Đ.TB KIỂM TRA", val: currentReport.testAvg + " / 10", bg: "#eef2ff", border: "#c7d2fe", labelColor: "#3730a3", valColor: "#4338ca" },
-        { label: "Đ.TB LUYỆN ĐỀ", val: currentReport.practiceAvg + " / 10", bg: "#eff6ff", border: "#bfdbfe", labelColor: "#1e40af", valColor: "#1d4ed8" },
+        {
+          label: "TỔNG BÀI NỘP",
+          val: `${currentReport.total} bài`,
+          bg: "#F8FAFC",
+          border: "#E2E8F0",
+          accent: "#64748B",
+          labelColor: "#64748B",
+          valColor: "#0F172A",
+        },
+        {
+          label: "ĐIỂM TB BTVN",
+          val: `${currentReport.hwAvg} / 10`,
+          bg: "#F0FDF4",
+          border: "#BBF7D0",
+          accent: "#10B981",
+          labelColor: "#047857",
+          valColor: "#065F46",
+        },
+        {
+          label: "ĐIỂM TB KIỂM TRA",
+          val: `${currentReport.testAvg} / 10`,
+          bg: "#EEF2FF",
+          border: "#C7D2FE",
+          accent: "#6366F1",
+          labelColor: "#4338CA",
+          valColor: "#312E81",
+        },
+        {
+          label: "ĐIỂM TB LUYỆN ĐỀ",
+          val: `${currentReport.practiceAvg} / 10`,
+          bg: "#EFF6FF",
+          border: "#BFDBFE",
+          accent: "#2563EB",
+          labelColor: "#1D4ED8",
+          valColor: "#1E3A8A",
+        },
       ];
 
       summaryCards.forEach((c, idx) => {
-        const cx = padding + idx * (cardW + 12);
-        ctx.fillStyle = c.bg;
-        ctx.fillRect(cx, cursorY, cardW, cardH);
-        ctx.strokeStyle = c.border;
-        ctx.strokeRect(cx, cursorY, cardW, cardH);
+        const cx = contentX + idx * (cardW + gap);
+        drawRoundedRect(ctx, cx, cursorY, cardW, cardH, 14, c.bg, c.border, 1);
+        // Điểm nhấn thanh ngang mảnh trên thẻ
+        drawRoundedRect(ctx, cx + 14, cursorY, 36, 3, 1.5, c.accent);
 
         ctx.fillStyle = c.labelColor;
-        ctx.font = "bold 10px " + FONT_FAMILY;
-        ctx.fillText(c.label, cx + 14, cursorY + 24);
+        ctx.font = "700 10px " + FONT_SANS;
+        ctx.fillText(c.label, cx + 16, cursorY + 25);
 
         ctx.fillStyle = c.valColor;
-        ctx.font = "900 20px " + FONT_FAMILY;
-        ctx.fillText(c.val, cx + 14, cursorY + 54);
+        ctx.font = "800 20px " + FONT_SANS;
+        ctx.fillText(c.val, cx + 16, cursorY + 54);
       });
 
       cursorY += cardH + 26;
 
-      // 1. BẢNG THEO DÕI ĐIỂM SỐ TUẦN
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 13px " + FONT_FAMILY;
-      ctx.fillText(`1. BẢNG THEO DÕI ĐIỂM SỐ ${weekCols.length} TUẦN (BTVN & KIỂM TRA ĐỊNH KỲ)`, padding, cursorY);
+      // MỤC 1: BẢNG THEO DÕI ĐIỂM SỐ TUẦN (BO TRÒN, CĂN GIỮA CHUẨN XÁC)
+      ctx.fillStyle = "#0F172A";
+      ctx.font = "700 12.5px " + FONT_SANS;
+      ctx.fillText(
+        `1. BẢNG THEO DÕI ĐIỂM SỐ ${weekCols.length} TUẦN (BTVN & KIỂM TRA ĐỊNH KỲ)`,
+        contentX,
+        cursorY
+      );
 
       const tblTop = cursorY + 10;
-      const tblH = 98;
-      ctx.strokeStyle = "#cbd5e1";
-      ctx.strokeRect(padding, tblTop, contentWidth, tblH);
+      const tblH = 108;
+      drawRoundedRect(ctx, contentX, tblTop, contentWidth, tblH, 14, "#FFFFFF", "#E2E8F0", 1);
 
-      ctx.fillStyle = "#f1f5f9";
-      ctx.fillRect(padding, tblTop, contentWidth, 32);
-      ctx.fillStyle = "#334155";
-      ctx.font = "bold 12px " + FONT_FAMILY;
-      ctx.fillText("Hạng mục điểm", padding + 16, tblTop + 21);
+      // Header bảng tuần
+      drawRoundedRect(ctx, contentX, tblTop, contentWidth, 34, 14, "#F1F5F9");
+      ctx.fillStyle = "#F1F5F9";
+      ctx.fillRect(contentX, tblTop + 20, contentWidth, 14);
 
-      const weekColStart = padding + 230;
-      const weekColStep = hasWeek5Data ? 92 : 115;
+      ctx.fillStyle = "#475569";
+      ctx.font = "700 11.5px " + FONT_SANS;
+      ctx.fillText("Hạng mục đánh giá", contentX + 18, tblTop + 22);
 
+      const weekZoneStart = contentX + 240;
+      const weekZoneEnd = contentX + contentWidth - 115;
+      const weekStep = (weekZoneEnd - weekZoneStart) / weekCols.length;
+
+      ctx.textAlign = "center";
       weekCols.forEach((w, idx) => {
-        ctx.fillText(`T${w}.${currentReport.month}`, weekColStart + idx * weekColStep, tblTop + 21);
+        const colCenterX = weekZoneStart + idx * weekStep + weekStep / 2;
+        ctx.fillText(`Tuần ${w} (T${w}.${currentReport.month})`, colCenterX, tblTop + 22);
       });
-      ctx.fillText("Trung bình", logicalWidth - padding - 95, tblTop + 21);
 
-      // Hàng BTVN
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "600 12.5px " + FONT_FAMILY;
-      ctx.fillText("Bài tập về nhà (BTVN)", padding + 16, tblTop + 54);
-      ctx.fillStyle = "#047857";
-      ctx.font = "bold 13px " + FONT_FAMILY;
+      ctx.textAlign = "right";
+      ctx.fillText("Trung bình", contentX + contentWidth - 18, tblTop + 22);
+      ctx.textAlign = "left";
+
+      // Dòng 1: BTVN
+      const row1Y = tblTop + 58;
+      ctx.fillStyle = "#1E293B";
+      ctx.font = "600 12.5px " + FONT_SANS;
+      ctx.fillText("Bài tập về nhà (BTVN)", contentX + 18, row1Y);
+
+      ctx.textAlign = "center";
       weekCols.forEach((w, idx) => {
+        const colCenterX = weekZoneStart + idx * weekStep + weekStep / 2;
         const sc = currentReport.hwScores[w];
-        ctx.fillText(sc ? sc + " đ" : "--", weekColStart + idx * weekColStep, tblTop + 54);
+        if (sc) {
+          drawRoundedRect(ctx, colCenterX - 26, row1Y - 15, 52, 22, 6, "#ECFDF5", "#A7F3D0", 1);
+          ctx.fillStyle = "#047857";
+          ctx.font = "700 12px " + FONT_SANS;
+          ctx.fillText(`${sc}đ`, colCenterX, row1Y);
+        } else {
+          ctx.fillStyle = "#94A3B8";
+          ctx.font = "500 12px " + FONT_SANS;
+          ctx.fillText("--", colCenterX, row1Y);
+        }
       });
-      ctx.fillText(currentReport.hwAvg !== "--" ? currentReport.hwAvg + " / 10" : "--", logicalWidth - padding - 95, tblTop + 54);
 
-      ctx.strokeStyle = "#e2e8f0";
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#047857";
+      ctx.font = "800 13px " + FONT_SANS;
+      ctx.fillText(
+        currentReport.hwAvg !== "--" ? `${currentReport.hwAvg} / 10` : "--",
+        contentX + contentWidth - 18,
+        row1Y
+      );
+      ctx.textAlign = "left";
+
+      // Đường kẻ mảnh phân cách 2 hàng
+      ctx.strokeStyle = "#F1F5F9";
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(padding, tblTop + 65);
-      ctx.lineTo(logicalWidth - padding, tblTop + 65);
+      ctx.moveTo(contentX + 12, tblTop + 71);
+      ctx.lineTo(contentX + contentWidth - 12, tblTop + 71);
       ctx.stroke();
 
-      // Hàng Kiểm tra
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "600 12.5px " + FONT_FAMILY;
-      ctx.fillText("Kiểm tra định kỳ", padding + 16, tblTop + 86);
-      ctx.fillStyle = "#4338ca";
-      ctx.font = "bold 13px " + FONT_FAMILY;
+      // Dòng 2: Kiểm tra định kỳ
+      const row2Y = tblTop + 94;
+      ctx.fillStyle = "#1E293B";
+      ctx.font = "600 12.5px " + FONT_SANS;
+      ctx.fillText("Kiểm tra định kỳ", contentX + 18, row2Y);
+
+      ctx.textAlign = "center";
       weekCols.forEach((w, idx) => {
+        const colCenterX = weekZoneStart + idx * weekStep + weekStep / 2;
         const sc = currentReport.testScores[w];
-        ctx.fillText(sc ? sc + " đ" : "--", weekColStart + idx * weekColStep, tblTop + 86);
+        if (sc) {
+          drawRoundedRect(ctx, colCenterX - 26, row2Y - 15, 52, 22, 6, "#EEF2FF", "#C7D2FE", 1);
+          ctx.fillStyle = "#4338CA";
+          ctx.font = "700 12px " + FONT_SANS;
+          ctx.fillText(`${sc}đ`, colCenterX, row2Y);
+        } else {
+          ctx.fillStyle = "#94A3B8";
+          ctx.font = "500 12px " + FONT_SANS;
+          ctx.fillText("--", colCenterX, row2Y);
+        }
       });
-      ctx.fillText(currentReport.testAvg !== "--" ? currentReport.testAvg + " / 10" : "--", logicalWidth - padding - 95, tblTop + 86);
+
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#4338CA";
+      ctx.font = "800 13px " + FONT_SANS;
+      ctx.fillText(
+        currentReport.testAvg !== "--" ? `${currentReport.testAvg} / 10` : "--",
+        contentX + contentWidth - 18,
+        row2Y
+      );
+      ctx.textAlign = "left";
 
       cursorY = tblTop + tblH + 26;
 
-      // 2. BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 13px " + FONT_FAMILY;
-      ctx.fillText("2. BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN (TÙY CHỌN GỬI PHỤ HUYNH)", padding, cursorY);
+      // MỤC 2: BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN
+      ctx.fillStyle = "#0F172A";
+      ctx.font = "700 12.5px " + FONT_SANS;
+      ctx.fillText(
+        `2. BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN (${currentReport.practiceItems.length} ĐỀ)`,
+        contentX,
+        cursorY
+      );
 
       const pracTableTop = cursorY + 10;
-      ctx.strokeStyle = "#cbd5e1";
-      ctx.strokeRect(padding, pracTableTop, contentWidth, pracTableH);
+      drawRoundedRect(
+        ctx,
+        contentX,
+        pracTableTop,
+        contentWidth,
+        pracTableH,
+        14,
+        "#FFFFFF",
+        "#E2E8F0",
+        1
+      );
 
-      ctx.fillStyle = "#eff6ff";
-      ctx.fillRect(padding, pracTableTop, contentWidth, 32);
-      ctx.fillStyle = "#1e40af";
-      ctx.font = "bold 12px " + FONT_FAMILY;
-      ctx.fillText("STT", padding + 14, pracTableTop + 21);
-      ctx.fillText("Tên đề thi", padding + 56, pracTableTop + 21);
-      ctx.fillText("Phân loại", padding + 430, pracTableTop + 21);
-      ctx.fillText("Ngày nộp", padding + 575, pracTableTop + 21);
-      ctx.fillText("Điểm số", logicalWidth - padding - 85, pracTableTop + 21);
+      drawRoundedRect(ctx, contentX, pracTableTop, contentWidth, 34, 14, "#EFF6FF");
+      ctx.fillStyle = "#EFF6FF";
+      ctx.fillRect(contentX, pracTableTop + 20, contentWidth, 14);
 
-      let curPracY = pracTableTop + 32;
+      ctx.fillStyle = "#1E40AF";
+      ctx.font = "700 11.5px " + FONT_SANS;
+      ctx.fillText("STT", contentX + 18, pracTableTop + 22);
+      ctx.fillText("Tên đề thi thực chiến", contentX + 64, pracTableTop + 22);
+      ctx.textAlign = "center";
+      ctx.fillText("Kỳ thi / Phân loại", contentX + 465, pracTableTop + 22);
+      ctx.fillText("Ngày hoàn thành", contentX + 610, pracTableTop + 22);
+      ctx.textAlign = "right";
+      ctx.fillText("Kết quả", contentX + contentWidth - 18, pracTableTop + 22);
+      ctx.textAlign = "left";
+
+      let curPracY = pracTableTop + 34;
       if (currentReport.practiceItems.length === 0) {
-        ctx.fillStyle = "#94a3b8";
-        ctx.font = "normal 12px " + FONT_FAMILY;
-        ctx.fillText("Chưa có đề luyện thi nào được chọn vào báo cáo tháng này.", padding + 16, curPracY + 20);
+        ctx.fillStyle = "#94A3B8";
+        ctx.font = "500 12px " + FONT_SANS;
+        ctx.fillText(
+          "Chưa có đề luyện thi nào được chọn trong kỳ báo cáo này.",
+          contentX + 18,
+          curPracY + 22
+        );
       } else {
         currentReport.practiceItems.forEach((item, pIdx) => {
-          ctx.fillStyle = pIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
-          ctx.fillRect(padding, curPracY, contentWidth, pracRowH);
+          if (pIdx % 2 === 1) {
+            ctx.fillStyle = "#F8FAFC";
+            ctx.fillRect(contentX + 2, curPracY, contentWidth - 4, pracRowH);
+          }
 
-          ctx.strokeStyle = "#f1f5f9";
-          ctx.strokeRect(padding, curPracY, contentWidth, pracRowH);
+          if (pIdx > 0) {
+            ctx.strokeStyle = "#F1F5F9";
+            ctx.beginPath();
+            ctx.moveTo(contentX + 12, curPracY);
+            ctx.lineTo(contentX + contentWidth - 12, curPracY);
+            ctx.stroke();
+          }
 
-          ctx.fillStyle = "#64748b";
-          ctx.font = "bold 12px " + FONT_FAMILY;
-          ctx.fillText(String(pIdx + 1), padding + 16, curPracY + 21);
+          const rowTextY = curPracY + 24;
 
-          ctx.fillStyle = "#0f172a";
-          ctx.font = "bold 12.5px " + FONT_FAMILY;
-          const cleanTitle = item.title.length > 48 ? item.title.slice(0, 45) + "..." : item.title;
-          ctx.fillText(cleanTitle, padding + 56, curPracY + 21);
+          ctx.fillStyle = "#64748B";
+          ctx.font = "600 12px " + FONT_SANS;
+          ctx.fillText(String(pIdx + 1).padStart(2, "0"), contentX + 18, rowTextY);
 
-          ctx.fillStyle = "#2563eb";
-          ctx.font = "bold 11.5px " + FONT_FAMILY;
-          ctx.fillText(item.category || "Luyện đề", padding + 430, curPracY + 21);
+          ctx.fillStyle = "#0F172A";
+          ctx.font = "600 12.5px " + FONT_SANS;
+          const cleanTitle =
+            item.title.length > 46 ? item.title.slice(0, 43) + "..." : item.title;
+          ctx.fillText(cleanTitle, contentX + 64, rowTextY);
 
+          // Badge Phân loại căn giữa
+          const catText = (item.category || "Luyện đề").toUpperCase();
+          ctx.font = "700 10px " + FONT_SANS;
+          const catW = Math.max(76, ctx.measureText(catText).width + 20);
+          drawRoundedRect(
+            ctx,
+            contentX + 465 - catW / 2,
+            rowTextY - 14,
+            catW,
+            20,
+            6,
+            "#EFF6FF",
+            "#BFDBFE",
+            1
+          );
+          ctx.fillStyle = "#1D4ED8";
+          ctx.textAlign = "center";
+          ctx.fillText(catText, contentX + 465, rowTextY - 1);
+
+          // Ngày hoàn thành
           ctx.fillStyle = "#475569";
-          ctx.font = "normal 12px " + FONT_FAMILY;
-          ctx.fillText(item.completedDate, padding + 575, curPracY + 21);
+          ctx.font = "500 12px " + FONT_SANS;
+          ctx.fillText(item.completedDate, contentX + 610, rowTextY);
 
-          ctx.fillStyle = "#1d4ed8";
-          ctx.font = "bold 13px " + FONT_FAMILY;
-          ctx.fillText(`${item.score} / 10`, logicalWidth - padding - 85, curPracY + 21);
+          // Badge Điểm số bên phải
+          const scoreBadgeW = 68;
+          const scoreBadgeX = contentX + contentWidth - scoreBadgeW - 16;
+          drawRoundedRect(
+            ctx,
+            scoreBadgeX,
+            rowTextY - 15,
+            scoreBadgeW,
+            22,
+            7,
+            "#FEF2F2",
+            "#FECACA",
+            1
+          );
+          ctx.fillStyle = "#E11D48";
+          ctx.font = "800 12px " + FONT_SANS;
+          ctx.fillText(`${item.score} / 10`, scoreBadgeX + scoreBadgeW / 2, rowTextY);
 
+          ctx.textAlign = "left";
           curPracY += pracRowH;
         });
       }
 
-      cursorY = pracTableTop + pracTableH + 26;
+      cursorY = pracTableTop + pracTableH + 24;
     }
 
-    // NẾU LÀ SINGLE HOẶC TRANG 2: VẼ PHẦN NHẬN XÉT CHI TIẾT & CHỮ KÝ
+    // 4. NỘI DUNG TRANG 2 (HOẶC BẢN ĐƠN): NHẬN XÉT CHI TIẾT DẠNG BULLET CARDS + WATERMARK + CHỮ KÝ
     if (pageMode === "single" || pageMode === "page2") {
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 13px " + FONT_FAMILY;
-      ctx.fillText("3. NHẬN XÉT CHI TIẾT TỪ GIÁO VIÊN PHỤ TRÁCH", padding, cursorY);
+      ctx.fillStyle = "#0F172A";
+      ctx.font = "700 12.5px " + FONT_SANS;
+      ctx.fillText("3. NHẬN XÉT CHI TIẾT & ĐỊNH HƯỚNG TỪ GIÁO VIÊN PHỤ TRÁCH", contentX, cursorY);
 
-      const boxY = cursorY + 10;
-      ctx.fillStyle = "#f8fafc";
-      ctx.fillRect(padding, boxY, contentWidth, evalBoxH);
-      ctx.strokeStyle = "#cbd5e1";
-      ctx.strokeRect(padding, boxY, contentWidth, evalBoxH);
+      const evalCardTop = cursorY + 10;
+      drawRoundedRect(
+        ctx,
+        contentX,
+        evalCardTop,
+        contentWidth,
+        totalEvalCardHeight,
+        16,
+        "#F8FAFC",
+        "#E2E8F0",
+        1
+      );
 
-      let curY = boxY + 26;
-      wrappedLines.forEach(lineObj => {
-        if (!lineObj.text) {
-          curY += 10;
-          return;
+      // Watermark chìm chính giữa khung nhận xét
+      ctx.save();
+      ctx.fillStyle = "rgba(29, 78, 216, 0.035)";
+      ctx.font = "900 44px " + FONT_SANS;
+      ctx.textAlign = "center";
+      ctx.fillText(
+        "TCT  •  EDUNEXUS",
+        contentX + contentWidth / 2,
+        evalCardTop + totalEvalCardHeight / 2 + 12
+      );
+      ctx.restore();
+
+      let curBulletY = evalCardTop + 16;
+      renderedBullets.forEach((bItem) => {
+        drawRoundedRect(
+          ctx,
+          contentX + 16,
+          curBulletY,
+          contentWidth - 32,
+          bItem.blockHeight,
+          12,
+          "#FFFFFF",
+          "#E2E8F0",
+          1
+        );
+
+        // Vẽ icon Checkmark tròn màu xanh bên trái mỗi mục nhận xét
+        const iconCenterX = contentX + 36;
+        const iconCenterY = curBulletY + 21;
+        ctx.beginPath();
+        ctx.arc(iconCenterX, iconCenterY, 9, 0, Math.PI * 2);
+        ctx.fillStyle = "#EFF6FF";
+        ctx.fill();
+        ctx.strokeStyle = "#BFDBFE";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.fillStyle = "#1D4ED8";
+        ctx.font = "800 10px " + FONT_SANS;
+        ctx.textAlign = "center";
+        ctx.fillText("✓", iconCenterX, iconCenterY + 3.5);
+        ctx.textAlign = "left";
+
+        let textY = curBulletY + 22;
+        if (bItem.title) {
+          ctx.fillStyle = "#1E3A8A";
+          ctx.font = "700 13px " + FONT_SANS;
+          ctx.fillText(bItem.title + ":", contentX + 54, textY);
+          textY += 20;
         }
-        if (lineObj.isHeader) {
-          ctx.font = "bold 13px " + FONT_FAMILY;
-          ctx.fillStyle = "#0f172a";
-        } else {
-          ctx.font = "normal 13px " + FONT_FAMILY;
-          ctx.fillStyle = "#334155";
-        }
-        ctx.fillText(lineObj.text, padding + 18, curY);
-        curY += 21;
+
+        ctx.fillStyle = "#334155";
+        ctx.font = "400 13.5px " + FONT_SANS;
+        bItem.lines.forEach((lineStr) => {
+          ctx.fillText(lineStr, contentX + 54, textY);
+          textY += 21;
+        });
+
+        curBulletY += bItem.blockHeight + 10;
       });
 
-      // Chữ ký xác nhận ở góc phải dưới
-      const footerY = boxY + evalBoxH + 24;
-      if (footerY + 25 < logicalHeight) {
-        ctx.fillStyle = "#64748b";
-        ctx.font = "italic 11.5px " + FONT_FAMILY;
-        ctx.fillText("Hệ thống Quản lý Học tập & Luyện thi Toán TCT - EduNexus", padding, footerY);
+      cursorY = evalCardTop + totalEvalCardHeight + 22;
 
-        ctx.fillStyle = "#1e40af";
-        ctx.font = "bold 12px " + FONT_FAMILY;
-        ctx.textAlign = "right";
-        ctx.fillText("Giáo viên phụ trách: Trương Ngọc Dũng", logicalWidth - padding, footerY);
-        ctx.textAlign = "left";
-      }
+      // KHỐI CHỮ KÝ & XÁC NHẬN (SIGNATURE BLOCK) CÂN ĐỐI Ở ĐÁY TRANG
+      drawRoundedRect(
+        ctx,
+        contentX,
+        cursorY,
+        contentWidth,
+        74,
+        14,
+        "#FFFFFF",
+        "#F1F5F9",
+        1
+      );
+
+      ctx.fillStyle = "#64748B";
+      ctx.font = "500 11.5px " + FONT_SANS;
+      ctx.fillText("Hệ thống Quản lý Học tập & Luyện thi Toán TCT - EduNexus", contentX + 18, cursorY + 28);
+      ctx.fillStyle = "#94A3B8";
+      ctx.font = "400 11px " + FONT_SANS;
+      ctx.fillText(
+        `Ngày xuất phiếu: ${new Date().toLocaleDateString("vi-VN")}  •  Bản báo cáo xác thực điện tử`,
+        contentX + 18,
+        cursorY + 50
+      );
+
+      // Khung con dấu & Tên Giáo viên phụ trách căn phải
+      const sigBoxW = 245;
+      const sigBoxX = contentX + contentWidth - sigBoxW - 14;
+      drawRoundedRect(
+        ctx,
+        sigBoxX,
+        cursorY + 10,
+        sigBoxW,
+        54,
+        10,
+        "#EFF6FF",
+        "#BFDBFE",
+        1
+      );
+
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#1E40AF";
+      ctx.font = "700 10px " + FONT_SANS;
+      ctx.fillText("GIÁO VIÊN PHỤ TRÁCH CHUYÊN MÔN", sigBoxX + sigBoxW - 14, cursorY + 28);
+
+      ctx.fillStyle = "#1D4ED8";
+      ctx.font = "800 14px " + FONT_SANS;
+      ctx.fillText("Thầy Trương Ngọc Dũng", sigBoxX + sigBoxW - 14, cursorY + 50);
+      ctx.textAlign = "left";
+    } else if (pageMode === "page1") {
+      // Footer nhỏ gọn cho Trang 1
+      ctx.fillStyle = "#94A3B8";
+      ctx.font = "500 11px " + FONT_SANS;
+      ctx.fillText(
+        "Hệ thống Quản lý Học tập & Luyện thi Toán TCT - EduNexus",
+        contentX,
+        logicalHeight - outerPad - 18
+      );
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#1D4ED8";
+      ctx.font = "700 11px " + FONT_SANS;
+      ctx.fillText(
+        "Trang 1/2  •  Xem tiếp nhận xét chi tiết ở Trang 2 →",
+        contentX + contentWidth,
+        logicalHeight - outerPad - 18
+      );
+      ctx.textAlign = "left";
     }
 
     return canvas.toDataURL("image/png");
@@ -865,8 +1228,6 @@ export default function AdminStudentReportPanel({
     }
   };
 
-  // Danh sách đề hiển thị trong Modal Picker:
-  // Nếu ở chế độ Auto: lấy các lượt nộp của học sinh đang chọn; nếu ở chế độ Manual (học sinh mới): cho phép chọn từ cả kho practiceExams chung
   const pickerSourceList = useMemo(() => {
     if (reportMode === "auto") {
       return studentPracticeAttempts;
@@ -1041,7 +1402,7 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* 1. BẢNG THEO DÕI ĐIỂM SỐ TUẦN (CHUẨN XÁC THEO ASSIGNED_MONTH & ASSIGNED_WEEK) */}
+                {/* 1. BẢNG THEO DÕI ĐIỂM SỐ TUẦN */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-black uppercase text-slate-900 tracking-wider flex items-center gap-1.5">
@@ -1210,7 +1571,7 @@ export default function AdminStudentReportPanel({
           </div>
         </div>
       ) : (
-        /* CHẾ ĐỘ 2: TỰ TẠO ĐÁNH GIÁ (HỌC SINH MỚI) - CHO PHÉP SỬA ĐIỂM TRỰC TIẾP & THÊM ĐỀ THỦ CÔNG */
+        /* CHẾ ĐỘ 2: TỰ TẠO ĐÁNH GIÁ (HỌC SINH MỚI) */
         <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-5">
           <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
             <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
@@ -1268,7 +1629,7 @@ export default function AdminStudentReportPanel({
             </div>
           </div>
 
-          {/* BẢNG TUẦN THỦ CÔNG (HỖ TRỢ T1 -> T5) */}
+          {/* BẢNG TUẦN THỦ CÔNG */}
           <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50">
             <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
               <span className="font-black text-xs text-slate-800">
@@ -1325,7 +1686,7 @@ export default function AdminStudentReportPanel({
             </table>
           </div>
 
-          {/* 2. BẢNG ĐỘNG LUYỆN ĐỀ (CHO PHÉP NHẬP / SỬA ĐIỂM TÙY Ý & THÊM ĐỀ THỦ CÔNG) */}
+          {/* 2. BẢNG ĐỘNG LUYỆN ĐỀ */}
           <div className="space-y-2 pt-1">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -1475,7 +1836,6 @@ export default function AdminStudentReportPanel({
               </button>
             </div>
 
-            {/* THANH LỌC NHANH THEO THÁNG */}
             <div className="p-3 bg-slate-100/70 border-b border-slate-200/80 flex items-center gap-2 overflow-x-auto shrink-0 custom-scrollbar">
               <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1 shrink-0 ml-1">
                 <Filter className="w-3.5 h-3.5" /> Lọc tháng:
@@ -1503,7 +1863,6 @@ export default function AdminStudentReportPanel({
               ))}
             </div>
 
-            {/* DANH SÁCH CÁC ĐỀ THI */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
               {filteredModalPracticeAttempts.length === 0 ? (
                 <div className="py-16 text-center text-slate-400 text-xs">
@@ -1595,7 +1954,7 @@ export default function AdminStudentReportPanel({
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL BẢN CHÍNH THỨC: CHUẨN 860PX + HỖ TRỢ TÁCH 2 TRANG ẢNH (.PNG) */}
+      {/* MODAL BẢN CHÍNH THỨC: REDESIGN MODERN MINIMALIST EDUCATIONAL REPORT */}
       {/* ========================================================================= */}
       {showOfficialModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
@@ -1604,13 +1963,11 @@ export default function AdminStudentReportPanel({
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-blue-400" />
                 <span className="text-xs font-black uppercase tracking-wider text-slate-200">
-                  Phiếu báo cáo chính thức (Chuẩn 860px)
+                  Phiếu báo cáo học tập (Modern Minimalist Design)
                 </span>
-                {needsSecondPage && (
-                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded-md text-[10px] font-bold">
-                    Tự động chia 2 trang
-                  </span>
-                )}
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded-md text-[10px] font-bold">
+                  Retina 2x • 880px
+                </span>
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5">
@@ -1683,98 +2040,118 @@ export default function AdminStudentReportPanel({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar bg-slate-100 flex flex-col items-center gap-6">
-              {/* TRANG 1: THÔNG TIN TỔNG QUAN + BẢNG ĐIỂM TUẦN + BẢNG LUYỆN ĐỀ */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar bg-slate-100/90 flex flex-col items-center gap-6">
+              {/* =============================================================== */}
+              {/* TRANG 1: TỔNG HỢP ĐIỂM SỐ & LUYỆN ĐỀ (MODERN MINIMALIST CARD) */}
+              {/* =============================================================== */}
               <div
                 ref={reportPage1Ref}
-                className="w-full max-w-[860px] bg-white p-6 rounded-2xl border border-slate-200/90 shadow-sm space-y-4 text-slate-800"
+                className="w-full max-w-[860px] bg-white p-7 rounded-[24px] border border-slate-200/90 shadow-md space-y-5 text-slate-800 relative overflow-hidden"
               >
-                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1.5">
-                  <span>Trang 1 / 2 • Tổng hợp Điểm số & Luyện đề</span>
-                  <span>Chuẩn 860px</span>
-                </div>
+                <div className="absolute top-0 left-8 right-8 h-1 bg-[#1D4ED8] rounded-b-full" />
 
-                {/* 1. HEADER COMPACT */}
-                <div className="p-3.5 bg-gradient-to-r from-blue-50/90 via-indigo-50/50 to-white rounded-xl border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                {/* 1. HEADER COMPACT THANH LỊCH */}
+                <div className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative pl-5">
+                  <div className="w-1 bg-[#1D4ED8] rounded-full absolute left-1.5 top-3.5 bottom-3.5" />
                   <div>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-[#1D4ED8] block">
-                      Phiếu báo cáo kết quả học tập
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#1D4ED8] block">
+                      Tâm Chí Tài EduNexus • Trang 1/2: Tổng hợp kết quả học tập
                     </span>
-                    <h2 className="text-lg font-black text-slate-900 tracking-tight mt-0.5">
+                    <h2 className="text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
                       {currentReport.fullName}
                     </h2>
-                    <p className="text-xs text-slate-600 font-semibold">
-                      {currentReport.school} • {currentReport.grade}
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      {currentReport.school} &nbsp;•&nbsp; {currentReport.grade}
                     </p>
                   </div>
 
-                  <div className="sm:text-right flex sm:flex-col items-center sm:items-end justify-between gap-1">
-                    <span className="px-2.5 py-1 bg-blue-600 text-white text-[11px] font-black rounded-lg shadow-xs uppercase tracking-wider">
+                  <div className="sm:text-right flex sm:flex-col items-center sm:items-end justify-between gap-1.5">
+                    <span className="px-3 py-1 bg-[#1D4ED8] text-white text-[11px] font-bold rounded-xl shadow-2xs uppercase tracking-wider">
                       {currentReport.timeframeText}
                     </span>
-                    <span className="text-xs font-bold text-slate-700 mt-0.5 block">
-                      Đã hoàn thành: <strong className="text-[#1D4ED8]">{currentReport.total} bài</strong>
+                    <span className="text-xs font-semibold text-slate-600">
+                      Đã hoàn thành: <strong className="text-[#1D4ED8] font-extrabold">{currentReport.total} bài</strong>
                     </span>
                   </div>
                 </div>
 
-                {/* 2. 4 THẺ ĐIỂM SỐ THU GỌN */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-center">
+                {/* 2. DẢI 4 THẺ ĐIỂM SỐ COMPACT VIỀN MỎNG PASTEL */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200/80 relative overflow-hidden">
+                    <div className="w-8 h-0.5 bg-slate-400 rounded-full mb-2" />
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Tổng bài nộp</span>
-                    <span className="text-base font-black text-slate-900 mt-0.5 block">{currentReport.total} bài</span>
+                    <span className="text-lg font-extrabold text-slate-900 mt-0.5 block">{currentReport.total} bài</span>
                   </div>
-                  <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
-                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Đ.TB BTVN</span>
-                    <span className="text-base font-black text-emerald-700 mt-0.5 block">{currentReport.hwAvg} / 10</span>
+                  <div className="p-3.5 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 relative overflow-hidden">
+                    <div className="w-8 h-0.5 bg-emerald-500 rounded-full mb-2" />
+                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Điểm TB BTVN</span>
+                    <span className="text-lg font-extrabold text-emerald-800 mt-0.5 block">{currentReport.hwAvg} / 10</span>
                   </div>
-                  <div className="p-2.5 bg-indigo-50 rounded-xl border border-indigo-200 text-center">
-                    <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider block">Đ.TB Kiểm tra</span>
-                    <span className="text-base font-black text-indigo-700 mt-0.5 block">{currentReport.testAvg} / 10</span>
+                  <div className="p-3.5 bg-indigo-50/60 rounded-2xl border border-indigo-200/80 relative overflow-hidden">
+                    <div className="w-8 h-0.5 bg-indigo-500 rounded-full mb-2" />
+                    <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">Điểm TB Kiểm tra</span>
+                    <span className="text-lg font-extrabold text-indigo-900 mt-0.5 block">{currentReport.testAvg} / 10</span>
                   </div>
-                  <div className="p-2.5 bg-blue-50 rounded-xl border border-blue-200 text-center">
-                    <span className="text-[10px] font-bold text-[#1D4ED8] uppercase tracking-wider block">Đ.TB Luyện đề</span>
-                    <span className="text-base font-black text-[#1D4ED8] mt-0.5 block">{currentReport.practiceAvg} / 10</span>
+                  <div className="p-3.5 bg-blue-50/60 rounded-2xl border border-blue-200/80 relative overflow-hidden">
+                    <div className="w-8 h-0.5 bg-blue-600 rounded-full mb-2" />
+                    <span className="text-[10px] font-bold text-[#1D4ED8] uppercase tracking-wider block">Điểm TB Luyện đề</span>
+                    <span className="text-lg font-extrabold text-blue-950 mt-0.5 block">{currentReport.practiceAvg} / 10</span>
                   </div>
                 </div>
 
-                {/* 3. BẢNG ĐIỂM TUẦN */}
-                <div className="space-y-1">
-                  <h4 className="text-[11px] font-black uppercase text-slate-900 tracking-wider flex items-center gap-1.5">
+                {/* 3. BẢNG ĐIỂM TUẦN CĂN GIỮA TINH TẾ */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
                     <BookOpen className="w-3.5 h-3.5 text-[#1D4ED8]" /> 1. Bảng theo dõi điểm số theo tuần (BTVN & Kiểm tra định kỳ)
                   </h4>
 
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <div className="border border-slate-200/90 rounded-2xl overflow-hidden">
                     <table className="w-full text-center text-xs border-collapse">
                       <thead>
-                        <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
-                          <th className="py-2 px-3 text-left w-44">Hạng mục</th>
-                          <th className="py-2 px-2">T1.{currentReport.month}</th>
-                          <th className="py-2 px-2">T2.{currentReport.month}</th>
-                          <th className="py-2 px-2">T3.{currentReport.month}</th>
-                          <th className="py-2 px-2">T4.{currentReport.month}</th>
-                          {hasWeek5Data && <th className="py-2 px-2">T5.{currentReport.month}</th>}
-                          <th className="py-2 px-3 text-right">Trung bình</th>
+                        <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold text-[11px]">
+                          <th className="py-2.5 px-4 text-left w-52">Hạng mục đánh giá</th>
+                          <th className="py-2.5 px-2">Tuần 1 (T1.{currentReport.month})</th>
+                          <th className="py-2.5 px-2">Tuần 2 (T2.{currentReport.month})</th>
+                          <th className="py-2.5 px-2">Tuần 3 (T3.{currentReport.month})</th>
+                          <th className="py-2.5 px-2">Tuần 4 (T4.{currentReport.month})</th>
+                          {hasWeek5Data && <th className="py-2.5 px-2">Tuần 5 (T5.{currentReport.month})</th>}
+                          <th className="py-2.5 px-4 text-right">Trung bình</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white font-semibold">
+                      <tbody className="divide-y divide-slate-100 bg-white">
                         <tr>
-                          <td className="py-2 px-3 text-left font-bold text-slate-800">Bài tập về nhà (BTVN)</td>
-                          <td className="py-2 px-2 text-emerald-700 font-black">{currentReport.hwScores[1] ? (currentReport.hwScores[1] + " đ") : "--"}</td>
-                          <td className="py-2 px-2 text-emerald-700 font-black">{currentReport.hwScores[2] ? (currentReport.hwScores[2] + " đ") : "--"}</td>
-                          <td className="py-2 px-2 text-emerald-700 font-black">{currentReport.hwScores[3] ? (currentReport.hwScores[3] + " đ") : "--"}</td>
-                          <td className="py-2 px-2 text-emerald-700 font-black">{currentReport.hwScores[4] ? (currentReport.hwScores[4] + " đ") : "--"}</td>
-                          {hasWeek5Data && <td className="py-2 px-2 text-emerald-700 font-black">{currentReport.hwScores[5] ? (currentReport.hwScores[5] + " đ") : "--"}</td>}
-                          <td className="py-2 px-3 text-right font-black text-emerald-700">{currentReport.hwAvg !== "--" ? (currentReport.hwAvg + " / 10") : "--"}</td>
+                          <td className="py-3 px-4 text-left font-semibold text-slate-800">Bài tập về nhà (BTVN)</td>
+                          {[1, 2, 3, 4, ...(hasWeek5Data ? [5] : [])].map((w) => (
+                            <td key={w} className="py-3 px-2">
+                              {currentReport.hwScores[w] ? (
+                                <span className="inline-block px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                                  {currentReport.hwScores[w]}đ
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">--</span>
+                              )}
+                            </td>
+                          ))}
+                          <td className="py-3 px-4 text-right font-extrabold text-emerald-700">
+                            {currentReport.hwAvg !== "--" ? `${currentReport.hwAvg} / 10` : "--"}
+                          </td>
                         </tr>
                         <tr>
-                          <td className="py-2 px-3 text-left font-bold text-slate-800">Kiểm tra định kỳ</td>
-                          <td className="py-2 px-2 text-indigo-700 font-black">{currentReport.testScores[1] ? (currentReport.testScores[1] + " đ") : "--"}</td>
-                          <td className="py-2 px-2 text-indigo-700 font-black">{currentReport.testScores[2] ? (currentReport.testScores[2] + " đ") : "--"}</td>
-                          <td className="py-2 px-2 text-indigo-700 font-black">{currentReport.testScores[3] ? (currentReport.testScores[3] + " đ") : "--"}</td>
-                          <td className="py-2 px-2 text-indigo-700 font-black">{currentReport.testScores[4] ? (currentReport.testScores[4] + " đ") : "--"}</td>
-                          {hasWeek5Data && <td className="py-2 px-2 text-indigo-700 font-black">{currentReport.testScores[5] ? (currentReport.testScores[5] + " đ") : "--"}</td>}
-                          <td className="py-2 px-3 text-right font-black text-indigo-700">{currentReport.testAvg !== "--" ? (currentReport.testAvg + " / 10") : "--"}</td>
+                          <td className="py-3 px-4 text-left font-semibold text-slate-800">Kiểm tra định kỳ</td>
+                          {[1, 2, 3, 4, ...(hasWeek5Data ? [5] : [])].map((w) => (
+                            <td key={w} className="py-3 px-2">
+                              {currentReport.testScores[w] ? (
+                                <span className="inline-block px-2.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold">
+                                  {currentReport.testScores[w]}đ
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">--</span>
+                              )}
+                            </td>
+                          ))}
+                          <td className="py-3 px-4 text-right font-extrabold text-indigo-700">
+                            {currentReport.testAvg !== "--" ? `${currentReport.testAvg} / 10` : "--"}
+                          </td>
                         </tr>
                       </tbody>
                     </table>
@@ -1782,41 +2159,47 @@ export default function AdminStudentReportPanel({
                 </div>
 
                 {/* 4. BẢNG ĐỘNG LUYỆN ĐỀ THỰC CHIẾN */}
-                <div className="space-y-1 pt-0.5">
-                  <h4 className="text-[11px] font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
                     <Award className="w-3.5 h-3.5 text-[#1D4ED8]" /> 2. Bảng điểm Luyện đề Thực chiến ({currentReport.practiceItems.length} đề)
                   </h4>
 
-                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <div className="border border-slate-200/90 rounded-2xl overflow-hidden">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className="bg-blue-50/70 border-b border-blue-200 text-blue-900 font-bold">
-                          <th className="py-1.5 px-2.5 text-center w-10">STT</th>
-                          <th className="py-1.5 px-3">Tên đề thi</th>
-                          <th className="py-1.5 px-2.5">Phân loại</th>
-                          <th className="py-1.5 px-2.5 text-center">Ngày nộp</th>
-                          <th className="py-1.5 px-3 text-right">Điểm số</th>
+                        <tr className="bg-blue-50/70 border-b border-blue-100 text-blue-900 font-bold text-[11px]">
+                          <th className="py-2.5 px-3 text-center w-12">STT</th>
+                          <th className="py-2.5 px-4">Tên đề thi thực chiến</th>
+                          <th className="py-2.5 px-3 text-center">Kỳ thi / Phân loại</th>
+                          <th className="py-2.5 px-3 text-center">Ngày hoàn thành</th>
+                          <th className="py-2.5 px-4 text-right">Kết quả</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white font-semibold">
+                      <tbody className="divide-y divide-slate-100 bg-white">
                         {currentReport.practiceItems.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-3.5 text-center text-slate-400 italic">
-                              Chưa có đề luyện thi nào được chọn vào báo cáo.
+                            <td colSpan={5} className="py-4 text-center text-slate-400 italic">
+                              Chưa có đề luyện thi nào được chọn trong kỳ báo cáo này.
                             </td>
                           </tr>
                         ) : (
                           currentReport.practiceItems.map((item, pIdx) => (
-                            <tr key={item.id} className="hover:bg-slate-50/50">
-                              <td className="py-1.5 px-2.5 text-center font-bold text-slate-400">{pIdx + 1}</td>
-                              <td className="py-1.5 px-3 font-bold text-slate-800">{item.title}</td>
-                              <td className="py-1.5 px-2.5">
-                                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
+                            <tr key={item.id} className={pIdx % 2 === 1 ? "bg-slate-50/50" : "bg-white"}>
+                              <td className="py-2.5 px-3 text-center font-semibold text-slate-400">
+                                {String(pIdx + 1).padStart(2, "0")}
+                              </td>
+                              <td className="py-2.5 px-4 font-semibold text-slate-800">{item.title}</td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="inline-block px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase bg-blue-50 text-[#1D4ED8] border border-blue-200">
                                   {item.category || "Luyện đề"}
                                 </span>
                               </td>
-                              <td className="py-1.5 px-2.5 text-center text-slate-500 font-medium">{item.completedDate}</td>
-                              <td className="py-1.5 px-3 text-right font-black text-[#1D4ED8]">{item.score} / 10</td>
+                              <td className="py-2.5 px-3 text-center text-slate-500 font-medium">{item.completedDate}</td>
+                              <td className="py-2.5 px-4 text-right">
+                                <span className="inline-block px-2.5 py-0.5 rounded-md bg-rose-50 text-rose-600 border border-rose-200 font-extrabold">
+                                  {item.score} / 10
+                                </span>
+                              </td>
                             </tr>
                           ))
                         )}
@@ -1826,28 +2209,84 @@ export default function AdminStudentReportPanel({
                 </div>
               </div>
 
-              {/* TRANG 2: NHẬN XÉT CHI TIẾT TỪ GIÁO VIÊN PHỤ TRÁCH & CHỮ KÝ */}
+              {/* =============================================================== */}
+              {/* TRANG 2: NHẬN XÉT CHUYÊN MÔN & CHỮ KÝ (MODERN BULLET CARDS) */}
+              {/* =============================================================== */}
               <div
                 ref={reportPage2Ref}
-                className="w-full max-w-[860px] bg-white p-6 rounded-2xl border border-slate-200/90 shadow-sm space-y-4 text-slate-800"
+                className="w-full max-w-[860px] bg-white p-7 rounded-[24px] border border-slate-200/90 shadow-md space-y-5 text-slate-800 relative overflow-hidden"
               >
-                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1.5">
-                  <span>Trang 2 / 2 • Đánh giá chuyên môn & Định hướng học tập</span>
-                  <span> Học sinh: {currentReport.fullName} ({currentReport.timeframeText})</span>
+                <div className="absolute top-0 left-8 right-8 h-1 bg-[#1D4ED8] rounded-b-full" />
+
+                {/* Header rút gọn Trang 2 */}
+                <div className="p-3.5 bg-slate-50/90 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3 relative pl-5">
+                  <div className="w-1 bg-[#1D4ED8] rounded-full absolute left-1.5 top-3 bottom-3" />
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#1D4ED8] block">
+                      Tâm Chí Tài EduNexus • Trang 2/2: Đánh giá chuyên môn & Định hướng
+                    </span>
+                    <h3 className="text-base font-extrabold text-slate-900 mt-0.5">
+                      {currentReport.fullName}
+                    </h3>
+                  </div>
+                  <span className="px-3 py-1 bg-[#1D4ED8] text-white text-[11px] font-bold rounded-xl uppercase tracking-wider">
+                    {currentReport.timeframeText}
+                  </span>
                 </div>
 
-                <div className="space-y-2">
-                  <h4 className="text-[11px] font-black uppercase text-slate-900 tracking-wider flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 3. Nhận xét chi tiết từ Giáo viên phụ trách
+                {/* Khung nhận xét có Watermark chìm & Bullet Cards */}
+                <div className="space-y-2.5">
+                  <h4 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 3. Nhận xét chi tiết & Định hướng từ Giáo viên phụ trách
                   </h4>
-                  <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 text-xs text-slate-800 leading-relaxed whitespace-pre-line font-medium break-words">
-                    {currentReport.evaluation || "Chưa có nhận xét."}
+
+                  <div className="p-4 sm:p-5 bg-slate-50/70 rounded-2xl border border-slate-200/90 space-y-2.5 relative overflow-hidden">
+                    <div className="pointer-events-none select-none absolute inset-0 flex items-center justify-center opacity-[0.035]">
+                      <span className="text-4xl sm:text-5xl font-black tracking-widest text-[#1D4ED8]">
+                        TCT • EDUNEXUS
+                      </span>
+                    </div>
+
+                    {parsedEvalBullets.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="relative z-10 p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-2xs flex items-start gap-3"
+                      >
+                        <div className="w-5 h-5 rounded-full bg-blue-50 border border-blue-200 text-[#1D4ED8] flex items-center justify-center shrink-0 mt-0.5">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                        </div>
+                        <div className="text-[13px] leading-[1.65] text-slate-700 font-normal">
+                          {item.title && (
+                            <strong className="font-bold text-blue-950 mr-1.5">
+                              {item.title}:
+                            </strong>
+                          )}
+                          <span>{item.body}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                  <span className="italic">Hệ thống Quản lý Học tập & Luyện thi Toán TCT - EduNexus</span>
-                  <span className="font-bold text-[#1D4ED8]">Giáo viên phụ trách: Trương Ngọc Dũng</span>
+                {/* Khối chữ ký điện tử & Xác nhận căn phải */}
+                <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-50/60 border border-slate-100">
+                  <div className="text-[11px] text-slate-500 space-y-0.5">
+                    <p className="font-semibold text-slate-600">
+                      Hệ thống Quản lý Học tập & Luyện thi Toán TCT - EduNexus
+                    </p>
+                    <p className="text-slate-400">
+                      Ngày xuất phiếu: {new Date().toLocaleDateString("vi-VN")} • Bản báo cáo xác thực điện tử
+                    </p>
+                  </div>
+
+                  <div className="px-4 py-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-right shrink-0">
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-blue-800 block">
+                      Giáo viên phụ trách chuyên môn
+                    </span>
+                    <span className="text-sm font-extrabold text-[#1D4ED8] mt-0.5 block">
+                      Thầy Trương Ngọc Dũng
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1855,7 +2294,7 @@ export default function AdminStudentReportPanel({
         </div>
       )}
 
-      {/* POPUP XEM TOÀN CẢNH ẢNH PNG (1 HOẶC 2 TRANG) */}
+      {/* POPUP XEM TOÀN CẢNH ẢNH PNG */}
       {(renderedImageUrls.page1 || renderedImageUrls.page2) && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in zoom-in-95 overflow-y-auto">
           <div className="relative max-w-4xl w-full max-h-[92vh] flex flex-col items-center gap-4 overflow-y-auto py-6 custom-scrollbar">
