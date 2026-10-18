@@ -144,12 +144,16 @@ export default function LessonsTab({
     }, 0);
   }, [chapters]);
 
-  // 2. TỰ ĐỘNG TÍNH TOÁN DANH SÁCH BÀI HỌC PHẲNG (FLATTENED LESSONS) NỘI BỘ
+  // 2. TỰ ĐỘNG TÍNH TOÁN & SẮP XẾP ĐA TẦNG DANH SÁCH BÀI HỌC PHẲNG (MULTI-LEVEL SORT: THÁNG -> TUẦN -> THỨ TỰ GỐC)
   const computedFlattenedLessons = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return [];
     const list: any[] = [];
+    let runningOriginalIndex = 0;
+
     chapters.forEach((chap: any) => {
       (chap?.lessons || []).forEach((les: any) => {
+        runningOriginalIndex++;
+
         if (lessonModeTab === "offline" && les?.target_mode !== "offline" && les?.target_mode !== "all") {
           return;
         }
@@ -167,15 +171,55 @@ export default function LessonsTab({
           ...les,
           assigned_month: lesMonth,
           assigned_week: lesWeek,
+          originalIndex: runningOriginalIndex,
           chapterId: chap?.id || "chap-default",
           chapterTitle: (chap?.title || "").split(":")[0] || chap?.title || "Chương"
         });
       });
     });
+
+    // THUẬT TOÁN SẮP XẾP ĐA TẦNG (MULTI-LEVEL SORT):
+    // Tầng 1: So sánh assigned_month (Tháng nhỏ đứng trước tháng lớn)
+    // Tầng 2: Trong cùng 1 tháng, so sánh assigned_week (Tuần 1 -> Tuần 2 -> Tuần 3 -> Tuần 4 -> Tuần 5)
+    // Tầng 3: Nếu cùng Tuần & Tháng, giữ nguyên thứ tự tạo bài (hoặc theo trường order nếu có)
+    list.sort((a, b) => {
+      const monthA = Number(a.assigned_month) || currentRealtimeMonth;
+      const monthB = Number(b.assigned_month) || currentRealtimeMonth;
+      if (monthA !== monthB) {
+        return monthA - monthB;
+      }
+
+      const weekA = Number(a.assigned_week) || 1;
+      const weekB = Number(b.assigned_week) || 1;
+      if (weekA !== weekB) {
+        return weekA - weekB;
+      }
+
+      const orderA = a.order !== undefined ? Number(a.order) : a.originalIndex;
+      const orderB = b.order !== undefined ? Number(b.order) : b.originalIndex;
+      return orderA - orderB;
+    });
+
     return list;
   }, [chapters, lessonModeTab, selectedMonthFilter, currentRealtimeMonth]);
 
-  const flattenedLessons = restProps.flattenedLessons || computedFlattenedLessons;
+  // Luôn đảm bảo nếu có truyền flattenedLessons từ ngoài vào thì cũng được sort chuẩn theo Tháng -> Tuần
+  const flattenedLessons = useMemo(() => {
+    if (!restProps.flattenedLessons || !Array.isArray(restProps.flattenedLessons)) {
+      return computedFlattenedLessons;
+    }
+    return [...restProps.flattenedLessons].sort((a: any, b: any) => {
+      const monthA = Number(a?.assigned_month) || currentRealtimeMonth;
+      const monthB = Number(b?.assigned_month) || currentRealtimeMonth;
+      if (monthA !== monthB) return monthA - monthB;
+
+      const weekA = Number(a?.assigned_week) || 1;
+      const weekB = Number(b?.assigned_week) || 1;
+      if (weekA !== weekB) return weekA - weekB;
+
+      return 0;
+    });
+  }, [restProps.flattenedLessons, computedFlattenedLessons, currentRealtimeMonth]);
 
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE) kèm chọn Tuần & Tháng
   const [internalUploadModal, setInternalUploadModal] = useState<{
@@ -522,7 +566,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (KÈM CỘT TUẦN / THÁNG TRỰC QUAN) */}
+      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (ĐÃ TỰ ĐỘNG SẮP XẾP THEO THÁNG -> TUẦN 1..5) */}
       <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full min-w-[1180px] text-left border-collapse">
@@ -569,7 +613,7 @@ export default function LessonsTab({
                       <h4 className="font-bold text-[#1D4ED8] text-[13px] uppercase leading-snug">{lesTitle}</h4>
                     </td>
 
-                    {/* CỘT CHỌN NHANH TUẦN & THÁNG REALTIME */}
+                    {/* CỘT CHỌN NHANH TUẦN & THÁNG REALTIME (ĐỔI XONG TỰ ĐỘNG SẮP XẾP LẠI DÒNG THỜI GIAN) */}
                     <td className="py-3.5 px-3 text-center border-r border-slate-100">
                       <div className="flex items-center justify-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/90">
                         <select
