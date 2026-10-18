@@ -7,7 +7,7 @@ import {
   Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, 
   Save, FileUp, Edit3, UploadCloud, CheckCircle2, FileSignature, 
   Sparkles, RefreshCw, Loader2, Zap, Eye, RotateCcw, Calendar,
-  Check, HelpCircle, UserPlus
+  Check, HelpCircle, UserPlus, ChevronDown, ChevronUp, History
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import katex from "katex";
@@ -34,14 +34,19 @@ function normalizeText(str: any): string {
 }
 
 // HÀM SỬA LỖI DÍNH LỆNH LATEX (\inftyminus, \inftyplus, v.v.) TRƯỚC KHI RENDER KATEX
+// ĐẶC BIỆT: Dùng (?![a-zA-Z]) để KHÔNG BAO GIỜ tách nhầm \infty thành \in fty
 function sanitizeLatexString(tex: string): string {
   if (!tex) return "";
   return String(tex)
+    .replace(/\\in\s+fty/gi, "\\infty")
     .replace(/\\inftyminus/gi, "\\infty -")
     .replace(/\\inftyplus/gi, "\\infty +")
     .replace(/\\pmminus/gi, "\\pm -")
     .replace(/\\mpplus/gi, "\\mp +")
-    .replace(/(\\infty|\\cup|\\cap|\\in|\\notin|\\subset|\\subseteq|\\forall|\\exists|\\rightarrow|\\Rightarrow|\\Leftrightarrow|\\perp|\\parallel)([a-zA-Z])/g, "$1 $2")
+    .replace(
+      /(\\infty|\\cup|\\cap|\\notin|\\subseteq|\\subset(?![a-zA-Z])|\\in(?![a-zA-Z])|\\forall|\\exists|\\rightarrow|\\Rightarrow|\\Leftrightarrow|\\perp|\\parallel)([a-zA-Z])/g,
+      "$1 $2"
+    )
     .replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/gi, "[img:$1]");
 }
 
@@ -98,7 +103,7 @@ function SubmissionRichContent({
       return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
     });
 
-    // 2. Чуẩn hóa \[...\] và \(...\)
+    // 2. Chuẩn hóa \[...\] và \(...\)
     str = str.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
     str = str.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math + "$");
 
@@ -154,6 +159,17 @@ interface DeletionItemState {
   countdown: number;
   studentName: string;
   attemptObj: any;
+}
+
+interface GroupedStudentAttemptCard {
+  studentKey: string;
+  bestAttempt: any;
+  historyAttempts: any[];
+  totalCount: number;
+  maxScore: number;
+  resolvedName: string;
+  resolvedMode: "online" | "offline";
+  resolvedAvatar: string;
 }
 
 interface AdminModalsProps {
@@ -251,6 +267,8 @@ export default function AdminModals(props: AdminModalsProps) {
   const currentRealtimeWeek = useMemo(() => Math.min(5, Math.max(1, Math.ceil(new Date().getDate() / 7))), []);
 
   const [filterMode, setFilterMode] = useState<"all" | "online" | "offline">("all");
+  // State lưu các học sinh đang mở rộng xem lịch sử các lần thi
+  const [expandedHistoryMap, setExpandedHistoryMap] = useState<Record<string, boolean>>({});
 
   const [resTitle, setResTitle] = useState<string>("");
   const [resUrl, setResUrl] = useState<string>("");
@@ -275,14 +293,14 @@ export default function AdminModals(props: AdminModalsProps) {
   const [deletionStateMap, setDeletionStateMap] = useState<Record<string, DeletionItemState>>({});
   const deletionTimersRef = useRef<Record<string, { progressInterval?: any; countdownInterval?: any; commitTimeout?: any }>>({});
 
-  // STATE QUẢN LÝ MODAL XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH
+  // STATE QUẢN LÝ MODAL XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH (HỖ TRỢ CHUYỂN ĐỔI GIỮA CÁC LẦN NỘP)
   const [viewingSubmission, setViewingSubmission] = useState<{
     attempt: any;
+    historyList?: any[];
     examObj: any | null;
     isLoadingExam: boolean;
   } | null>(null);
 
-  // Khi mở modal Tạo mới Bài học, tự động đặt mặc định về Tháng và Tuần hiện tại theo thời gian thực
   useEffect(() => {
     if (createModal) {
       setNewItemAssignedMonth(new Date().getMonth() + 1);
@@ -290,7 +308,6 @@ export default function AdminModals(props: AdminModalsProps) {
     }
   }, [createModal]);
 
-  // Dọn dẹp timers khi unmount
   useEffect(() => {
     return () => {
       Object.values(deletionTimersRef.current).forEach((t) => {
@@ -385,8 +402,14 @@ export default function AdminModals(props: AdminModalsProps) {
         avatarInitials = displayName.substring(0, 2).toUpperCase();
       }
 
+      // Khóa định danh chuẩn hóa của học sinh để Group By
+      const canonicalStudentKey = matchedProfile?.id
+        ? String(matchedProfile.id).trim().toLowerCase()
+        : normalizeText(displayName) || stuId || `anon_${att.id}`;
+
       return {
         ...att,
+        canonicalStudentKey,
         resolvedName: displayName,
         resolvedMode: isOffline ? "offline" : "online",
         resolvedAvatar: avatarInitials,
@@ -394,10 +417,86 @@ export default function AdminModals(props: AdminModalsProps) {
     });
   }, [azotaScoreViewModal.attempts, profileMap]);
 
-  const filteredAttempts = useMemo(() => {
-    if (filterMode === "all") return enhancedAttempts;
-    return enhancedAttempts.filter((att: any) => att.resolvedMode === filterMode);
-  }, [enhancedAttempts, filterMode]);
+  // THUẬT TOÁN GROUP BY STUDENT: MỖI HỌC SINH CHỈ HIỂN THỊ 1 CARD DUY NHẤT VỚI ĐIỂM CAO NHẤT (MAX)
+  // CÁC LẦN NỘP KHÁC ĐƯỢC ĐƯA VÀO MẢNG historyAttempts ĐỂ XEM QUA DROPDOWN / ACCORDION
+  const groupedStudentCards = useMemo<GroupedStudentAttemptCard[]>(() => {
+    const groupMap = new Map<string, any[]>();
+
+    enhancedAttempts.forEach((att: any) => {
+      const key = att.canonicalStudentKey || normalizeText(att.resolvedName);
+      if (!groupMap.has(key)) {
+        groupMap.set(key, []);
+      }
+      groupMap.get(key)!.push(att);
+    });
+
+    const result: GroupedStudentAttemptCard[] = [];
+
+    groupMap.forEach((attList, studentKey) => {
+      // Sắp xếp theo thời gian nộp từ cũ -> mới để đánh số Lần 1, Lần 2... chính xác
+      const chronological = [...attList].sort((a, b) => {
+        const tA = new Date(a.createdAt || a.created_at || a.submittedAt || 0).getTime();
+        const tB = new Date(b.createdAt || b.created_at || b.submittedAt || 0).getTime();
+        return tA - tB;
+      });
+
+      const withAttemptIndex = chronological.map((item, idx) => ({
+        ...item,
+        attemptNumber: idx + 1,
+      }));
+
+      // Chọn lượt thi có Điểm cao nhất (MAX) làm đại diện; nếu bằng điểm thì ưu tiên lượt mới nhất
+      let bestAttempt = withAttemptIndex[0];
+      for (const candidate of withAttemptIndex) {
+        const candScore = Number(candidate.score ?? candidate.points ?? 0);
+        const bestScore = Number(bestAttempt.score ?? bestAttempt.points ?? 0);
+        if (candScore > bestScore) {
+          bestAttempt = candidate;
+        } else if (candScore === bestScore) {
+          const candHasAnswers = Boolean(
+            candidate.answers && Object.keys(candidate.answers).length > 0
+          );
+          const bestHasAnswers = Boolean(
+            bestAttempt.answers && Object.keys(bestAttempt.answers).length > 0
+          );
+          if (candHasAnswers && !bestHasAnswers) {
+            bestAttempt = candidate;
+          } else {
+            bestAttempt = candidate;
+          }
+        }
+      }
+
+      // Danh sách lịch sử sắp xếp từ mới nhất -> cũ nhất để giáo viên dễ tra cứu
+      const historyDescending = [...withAttemptIndex].reverse();
+
+      result.push({
+        studentKey,
+        bestAttempt,
+        historyAttempts: historyDescending,
+        totalCount: withAttemptIndex.length,
+        maxScore: Number(bestAttempt.score ?? bestAttempt.points ?? 0),
+        resolvedName: bestAttempt.resolvedName,
+        resolvedMode: bestAttempt.resolvedMode,
+        resolvedAvatar: bestAttempt.resolvedAvatar,
+      });
+    });
+
+    // Sắp xếp các thẻ học sinh theo Điểm cao nhất giảm dần
+    return result.sort((a, b) => b.maxScore - a.maxScore);
+  }, [enhancedAttempts]);
+
+  const filteredGroupedCards = useMemo(() => {
+    if (filterMode === "all") return groupedStudentCards;
+    return groupedStudentCards.filter((card) => card.resolvedMode === filterMode);
+  }, [groupedStudentCards, filterMode]);
+
+  const toggleExpandStudentHistory = (studentKey: string) => {
+    setExpandedHistoryMap((prev) => ({
+      ...prev,
+      [studentKey]: !prev[studentKey],
+    }));
+  };
 
   // THỰC THI XÓA VĨNH VIỄN SAU KHI HẾT 6 GIÂY HOÀN TÁC
   const commitPermanentDeleteAttempt = async (att: any) => {
@@ -409,7 +508,6 @@ export default function AdminModals(props: AdminModalsProps) {
 
     clearTimersForAttempt(attemptId);
 
-    // 1. Lưu ID đã xóa vào danh sách chặn Re-hydration
     if (typeof window !== "undefined") {
       try {
         const rawDeleted = localStorage.getItem("edunexus_deleted_attempt_ids");
@@ -426,7 +524,6 @@ export default function AdminModals(props: AdminModalsProps) {
       } catch (e) {}
     }
 
-    // 2. Xóa khỏi state của Modal hiện tại
     if (setAzotaScoreViewModal) {
       setAzotaScoreViewModal((prev: any) => ({
         ...prev,
@@ -440,7 +537,6 @@ export default function AdminModals(props: AdminModalsProps) {
       }));
     }
 
-    // 3. Xóa khỏi state gốc allAttempts của page.tsx và cập nhật localStorage
     if (typeof setAllAttempts === "function") {
       (setAllAttempts as any)((prev: any) => {
         const updated = (prev || []).filter((a: any) => {
@@ -480,7 +576,6 @@ export default function AdminModals(props: AdminModalsProps) {
       return next;
     });
 
-    // 4. Gọi API Backend xóa Supabase
     try {
       await fetch("/api/admin/data", {
         method: "POST",
@@ -635,8 +730,8 @@ export default function AdminModals(props: AdminModalsProps) {
     }
   };
 
-  // MỞ MODAL XEM CHI TIẾT BÀI LÀM CỦA HỌC SINH
-  const handleOpenSubmissionDetail = async (att: any) => {
+  // MỞ MODAL XEM CHI TIẾT BÀI LÀM CỦA HỌC SINH (KÈM DANH SÁCH LỊCH SỬ CÁC LẦN NỘP NẾU CÓ)
+  const handleOpenSubmissionDetail = async (att: any, historyList?: any[]) => {
     const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
     const attTitleNorm = normalizeText(att.examTitle || att.exam_title || azotaScoreViewModal.examTitle);
 
@@ -668,11 +763,13 @@ export default function AdminModals(props: AdminModalsProps) {
     const hasQuestionsLoaded =
       foundExam &&
       ((Array.isArray(foundExam.data) && foundExam.data.length > 0) ||
-        (Array.isArray(foundExam.sections) && foundExam.sections.length > 0));
+        (Array.isArray(foundExam.sections) && foundExam.sections.length > 0) ||
+        (Array.isArray(foundExam.questions) && foundExam.questions.length > 0));
 
     if (hasQuestionsLoaded) {
       setViewingSubmission({
         attempt: att,
+        historyList: historyList || [att],
         examObj: foundExam,
         isLoadingExam: false,
       });
@@ -681,6 +778,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
     setViewingSubmission({
       attempt: att,
+      historyList: historyList || [att],
       examObj: foundExam || null,
       isLoadingExam: true,
     });
@@ -697,6 +795,7 @@ export default function AdminModals(props: AdminModalsProps) {
         if (data) {
           setViewingSubmission({
             attempt: att,
+            historyList: historyList || [att],
             examObj: data,
             isLoadingExam: false,
           });
@@ -708,7 +807,7 @@ export default function AdminModals(props: AdminModalsProps) {
     setViewingSubmission((prev) => (prev ? { ...prev, isLoadingExam: false } : null));
   };
 
-  // THUẬT TOÁN ĐỐI CHIẾU ĐÁP ÁN ĐA TẦNG + KHÔI PHỤC THÔNG MINH CHO BÀI NỘP CŨ BỊ THIẾU ANSWERS
+  // THUẬT TOÁN ABSOLUTE ID MAPPING (ĐỐI CHIẾU CHÍNH XÁC 100% GIỮA EXAMROOMVIEW VÀ ADMINMODALS - KHÔNG BAO GIỜ LỆCH CÂU)
   const submissionReviewData = useMemo(() => {
     if (!viewingSubmission) return null;
     const { attempt, examObj } = viewingSubmission;
@@ -733,104 +832,139 @@ export default function AdminModals(props: AdminModalsProps) {
       rawUserAnswers = {};
     }
 
-    const sections =
+    const rawSections =
       examObj?.data ||
       examObj?.sections ||
       attempt?.exam_data ||
       attempt?.sections ||
       [];
 
-    const mediaMap =
-      examObj?.media_map ||
-      examObj?.mediaMap ||
-      attempt?.media_map ||
-      attempt?.mediaMap ||
-      {};
+    const mediaMap: Record<string, any> = {
+      ...(examObj?.media_map || {}),
+      ...(examObj?.mediaMap || {}),
+      ...(attempt?.media_map || {}),
+      ...(attempt?.mediaMap || {}),
+    };
 
-    const questionsList: any[] = [];
-    let globalOrder = 0;
+    // 1. Xây dựng danh sách phẳng (Flat List) theo đúng 100% logic của ExamRoomView.tsx
+    const flatQuestions: any[] = [];
+    let absoluteIndex = 0;
 
-    // Xây dựng bảng tra cứu không phân biệt hoa thường cho rawUserAnswers
-    const lowerKeyAnswerMap: Record<string, any> = {};
-    const orderedAnswerValues = Object.values(rawUserAnswers);
-    Object.entries(rawUserAnswers).forEach(([k, v]) => {
-      lowerKeyAnswerMap[String(k).trim().toLowerCase()] = v;
-      // Chuẩn hóa q-1 <-> q_1
-      const hyphenNorm = String(k).trim().toLowerCase().replace(/-/g, "_");
-      lowerKeyAnswerMap[hyphenNorm] = v;
-      const dashNorm = String(k).trim().toLowerCase().replace(/_/g, "-");
-      lowerKeyAnswerMap[dashNorm] = v;
-    });
+    if (Array.isArray(rawSections) && rawSections.length > 0) {
+      rawSections.forEach((sec: any, secIdx: number) => {
+        if (sec?.mediaMap && typeof sec.mediaMap === "object") Object.assign(mediaMap, sec.mediaMap);
+        if (sec?.media_map && typeof sec.media_map === "object") Object.assign(mediaMap, sec.media_map);
 
-    if (Array.isArray(sections)) {
-      sections.forEach((sec: any, secIdx: number) => {
+        const secType =
+          sec?.section_type ||
+          sec?.type ||
+          (sec?.section_title && /đúng\s*sai/i.test(sec.section_title)
+            ? "true_false"
+            : sec?.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
+            ? "short_answer"
+            : "multiple_choice");
+
         const secQuestions = Array.isArray(sec?.questions) ? sec.questions : [];
-        secQuestions.forEach((q: any, qIdx: number) => {
-          globalOrder++;
-          const rawQId = String(q?.id || "").trim();
-          const qId = rawQId || `q-${globalOrder}`;
-          const qType =
-            q?.type ||
-            sec?.section_type ||
-            (sec?.section_title && /đúng\s*sai/i.test(sec.section_title)
-              ? "true_false"
-              : sec?.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
-              ? "short_answer"
-              : "multiple_choice");
+        secQuestions.forEach((q: any, qIdxInSec: number) => {
+          absoluteIndex++;
+          if (q?.mediaMap && typeof q.mediaMap === "object") Object.assign(mediaMap, q.mediaMap);
+          if (q?.media_map && typeof q.media_map === "object") Object.assign(mediaMap, q.media_map);
 
-          // Tra cứu đa tầng theo mọi định dạng key khả dĩ: q.id, q-1, q_1, 1, 0, order_index, secIdx_qIdx
-          const candidateKeys = [
-            rawQId,
-            rawQId.toLowerCase(),
-            `q-${globalOrder}`,
-            `q_${globalOrder}`,
-            `question_${globalOrder}`,
-            `question-${globalOrder}`,
-            `cau_${globalOrder}`,
-            `cau-${globalOrder}`,
-            String(globalOrder),
-            String(globalOrder - 1),
-            q?.order_index !== undefined ? String(q.order_index) : "",
-            q?.order !== undefined ? String(q.order) : "",
-            `${secIdx}_${qIdx}`,
-            `${secIdx}-${qIdx}`,
-          ].filter(Boolean);
+          const qType = q?.type || secType || "multiple_choice";
+          const effectiveId = String(q?.id || `q-${absoluteIndex}`).trim();
 
-          let stuAns: any = undefined;
-          for (const ck of candidateKeys) {
-            if (rawUserAnswers[ck] !== undefined) {
-              stuAns = rawUserAnswers[ck];
-              break;
-            }
-            if (lowerKeyAnswerMap[ck.toLowerCase()] !== undefined) {
-              stuAns = lowerKeyAnswerMap[ck.toLowerCase()];
-              break;
-            }
-          }
-
-          // Nếu rawUserAnswers là mảng tuần tự [ans1, ans2, ...]
-          if (stuAns === undefined && Array.isArray(rawUserAnswers) && rawUserAnswers[globalOrder - 1] !== undefined) {
-            stuAns = rawUserAnswers[globalOrder - 1];
-          }
-
-          const correctRaw = String(q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A").trim();
-
-          questionsList.push({
+          flatQuestions.push({
             ...q,
-            qId,
-            globalOrder,
+            effectiveId,
+            rawQId: String(q?.id || "").trim(),
+            absoluteIndex,
+            secIdx,
+            qIdxInSec,
             sectionTitle: sec?.section_title || "",
             qType,
-            stuAns,
-            correctRaw,
           });
+        });
+      });
+    } else if (Array.isArray(examObj?.questions)) {
+      examObj.questions.forEach((q: any) => {
+        absoluteIndex++;
+        const effectiveId = String(q?.id || `q-${absoluteIndex}`).trim();
+        flatQuestions.push({
+          ...q,
+          effectiveId,
+          rawQId: String(q?.id || "").trim(),
+          absoluteIndex,
+          secIdx: 0,
+          qIdxInSec: absoluteIndex - 1,
+          sectionTitle: "",
+          qType: q?.type || "multiple_choice",
         });
       });
     }
 
-    // KIỂM TRA XEM LƯỢT NỘP CŨ CÓ BỊ THIẾU TRƯỜNG ANSWERS TRONG DB KHÔNG:
-    // Nếu tổng số câu trả lời tìm thấy = 0 NHƯNG học sinh có điểm số > 0 (hoặc có correct_count > 0),
-    // tự động tái tạo trạng thái Đúng / Sai khớp chính xác với số điểm để giáo viên theo dõi đầy đủ!
+    // 2. Tạo bảng tra cứu key chuẩn hóa (chỉ tra cứu theo Key định danh, KHÔNG lấy bừa theo vị trí mảng Object.values)
+    const normalizedKeyMap: Record<string, any> = {};
+    if (!Array.isArray(rawUserAnswers)) {
+      Object.entries(rawUserAnswers).forEach(([k, v]) => {
+        const cleanK = String(k).trim();
+        normalizedKeyMap[cleanK] = v;
+        normalizedKeyMap[cleanK.toLowerCase()] = v;
+      });
+    }
+
+    const questionsList: any[] = [];
+
+    flatQuestions.forEach((q) => {
+      const idx = q.absoluteIndex; // 1..N (Khớp tuyệt đối với qIdx của ExamRoomView)
+
+      // Thứ tự ưu tiên khóa tuyệt đối khớp 100% với ExamRoomView:
+      // 1) ID thực của câu hỏi trong ExamRoomView (q.id hoặc "q-" + idx)
+      // 2) "q-" + idx và "q_" + idx
+      // 3) Chỉ số câu dạng chuỗi String(idx) ("1", "2", ..., "N")
+      // 4) Chỉ khi không có các khóa trên mới xét đến `${secIdx}_${qIdxInSec}`
+      const priorityKeys = [
+        q.effectiveId,
+        q.rawQId,
+        `q-${idx}`,
+        `q_${idx}`,
+        `question_${idx}`,
+        `question-${idx}`,
+        `cau_${idx}`,
+        `cau-${idx}`,
+        String(idx),
+        `${q.secIdx}_${q.qIdxInSec}`,
+        `${q.secIdx}-${q.qIdxInSec}`,
+      ].filter(Boolean);
+
+      let stuAns: any = undefined;
+
+      if (Array.isArray(rawUserAnswers)) {
+        stuAns = rawUserAnswers[idx - 1];
+      } else {
+        for (const pk of priorityKeys) {
+          if (normalizedKeyMap[pk] !== undefined) {
+            stuAns = normalizedKeyMap[pk];
+            break;
+          }
+          if (normalizedKeyMap[pk.toLowerCase()] !== undefined) {
+            stuAns = normalizedKeyMap[pk.toLowerCase()];
+            break;
+          }
+        }
+      }
+
+      const correctRaw = String(q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A").trim();
+
+      questionsList.push({
+        ...q,
+        qId: q.effectiveId,
+        globalOrder: idx,
+        stuAns,
+        correctRaw,
+      });
+    });
+
+    // 3. Fallback thông minh cho các lượt nộp cũ trước đây bị thiếu trường answers trong DB
     const hasAnyRecordedAnswer = questionsList.some(
       (q) => q.stuAns !== undefined && q.stuAns !== null && q.stuAns !== ""
     );
@@ -865,14 +999,26 @@ export default function AdminModals(props: AdminModalsProps) {
       });
     }
 
-    // Đánh giá trạng thái Đúng / Sai / Bỏ trống cho từng câu
+    // 4. Đánh giá trạng thái Đúng / Sai / Bỏ trống cho từng câu
     questionsList.forEach((q) => {
       const { qType, stuAns, correctRaw } = q;
       let status: "correct" | "wrong" | "skipped" = "skipped";
       let stuDisplay = "";
       let correctDisplay = correctRaw;
 
-      if (qType === "true_false") {
+      const isQuestionTrueFalse =
+        qType === "true_false" ||
+        (() => {
+          const cleanAns = (correctRaw || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          return ["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2;
+        })();
+
+      const isQuestionShort =
+        !isQuestionTrueFalse &&
+        (qType === "short_answer" || !Array.isArray(q.options) || q.options.length === 0);
+
+      if (isQuestionTrueFalse) {
+        q.qType = "true_false";
         const options = Array.isArray(q?.options) ? q.options : [];
         const expectedMap: Record<string, boolean> = {};
         options.forEach((opt: any, i: number) => {
@@ -951,17 +1097,19 @@ export default function AdminModals(props: AdminModalsProps) {
         if (corrParts.length > 0) {
           correctDisplay = corrParts.join(" • ");
         }
-      } else if (qType === "short_answer") {
+      } else if (isQuestionShort) {
+        q.qType = "short_answer";
         const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim() : "";
         stuDisplay = stuStr || "Bỏ trống";
         if (!stuStr) {
           status = "skipped";
         } else {
-          const normStu = stuStr.replace(/\s+/g, "").replace(/,/g, ".").toLowerCase();
-          const normCorr = correctRaw.replace(/\s+/g, "").replace(/,/g, ".").toLowerCase();
+          const normStu = stuStr.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
+          const normCorr = correctRaw.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
           status = normStu === normCorr ? "correct" : "wrong";
         }
       } else {
+        q.qType = "multiple_choice";
         const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
         const corrStr = correctRaw.toUpperCase();
         stuDisplay = stuStr || "Bỏ trống";
@@ -986,7 +1134,6 @@ export default function AdminModals(props: AdminModalsProps) {
       questionsList,
       mediaMap,
       rawUserAnswers,
-      orderedAnswerValues,
       correctCount,
       wrongCount,
       skippedCount,
@@ -1190,7 +1337,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
   return (
     <>
-      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA */}
+      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA (GROUP BY HỌC SINH - 1 CARD / 1 HỌC SINH VỚI ĐIỂM MAX + XEM LỊCH SỬ N LẦN) */}
       {azotaScoreViewModal?.isOpen && (
         <div
           onClick={(e) => {
@@ -1222,7 +1369,7 @@ export default function AdminModals(props: AdminModalsProps) {
             <div className="px-4 sm:px-6 py-2.5 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-800">
-                  Danh sách lượt nộp bài ({filteredAttempts.length} lượt)
+                  Danh sách học sinh nộp bài ({filteredGroupedCards.length} học sinh • {enhancedAttempts.length} lượt nộp)
                 </span>
               </div>
 
@@ -1234,7 +1381,7 @@ export default function AdminModals(props: AdminModalsProps) {
                     filterMode === "all" ? "bg-[#1D4ED8] text-white shadow-2xs" : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
-                  Tất cả ({enhancedAttempts.length})
+                  Tất cả ({groupedStudentCards.length})
                 </button>
                 <button
                   type="button"
@@ -1243,7 +1390,7 @@ export default function AdminModals(props: AdminModalsProps) {
                     filterMode === "online" ? "bg-indigo-600 text-white shadow-2xs" : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
-                  Online ({enhancedAttempts.filter((a: any) => a.resolvedMode === "online").length})
+                  Online ({groupedStudentCards.filter((c) => c.resolvedMode === "online").length})
                 </button>
                 <button
                   type="button"
@@ -1252,25 +1399,26 @@ export default function AdminModals(props: AdminModalsProps) {
                     filterMode === "offline" ? "bg-emerald-600 text-white shadow-2xs" : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
-                  Offline ({enhancedAttempts.filter((a: any) => a.resolvedMode === "offline").length})
+                  Offline ({groupedStudentCards.filter((c) => c.resolvedMode === "offline").length})
                 </button>
               </div>
             </div>
 
             <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
-              {filteredAttempts.length === 0 ? (
+              {filteredGroupedCards.length === 0 ? (
                 <div className="py-16 text-center text-slate-400 text-xs font-semibold italic">
-                  Chưa có lượt nộp bài nào trong phân hệ này.
+                  Chưa có học sinh nào nộp bài trong phân hệ này.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {filteredAttempts.map((att: any, idx: number) => {
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 items-start">
+                  {filteredGroupedCards.map((card, idx) => {
+                    const att = card.bestAttempt;
                     const attemptId = String(att.id || `att_${idx}`);
                     const delState = deletionStateMap[attemptId];
-                    const displayName = att.resolvedName;
-                    const isOffline = att.resolvedMode === "offline";
-                    const avatarText = att.resolvedAvatar;
-                    const scoreVal = Number(att.score ?? att.points ?? 0);
+                    const displayName = card.resolvedName;
+                    const isOffline = card.resolvedMode === "offline";
+                    const avatarText = card.resolvedAvatar;
+                    const scoreVal = card.maxScore;
                     const submitDate = att.createdAt || att.created_at || att.submittedAt;
                     const formattedDate = submitDate
                       ? new Date(submitDate).toLocaleDateString("vi-VN", {
@@ -1282,6 +1430,8 @@ export default function AdminModals(props: AdminModalsProps) {
                     const formattedTime = submitDate
                       ? new Date(submitDate).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
                       : "10:40";
+
+                    const isHistoryExpanded = Boolean(expandedHistoryMap[card.studentKey]);
 
                     if (delState?.step === "deleted") {
                       return (
@@ -1332,7 +1482,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
                     return (
                       <div
-                        key={attemptId}
+                        key={card.studentKey || attemptId}
                         className="relative p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow hover:border-slate-300 transition-all flex flex-col justify-between text-left gap-2"
                       >
                         {delState?.step === "confirm" && (
@@ -1357,6 +1507,7 @@ export default function AdminModals(props: AdminModalsProps) {
                           </div>
                         )}
 
+                        {/* HÀNG 1: AVATAR + TÊN HỌC SINH + BADGE + ĐIỂM CAO NHẤT (MAX) */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center shrink-0 uppercase">
@@ -1364,7 +1515,7 @@ export default function AdminModals(props: AdminModalsProps) {
                             </div>
                             <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
                               <h4
-                                className="font-semibold text-xs text-slate-800 truncate max-w-[120px]"
+                                className="font-semibold text-xs text-slate-800 truncate max-w-[125px]"
                                 title={displayName}
                               >
                                 {displayName}
@@ -1382,8 +1533,14 @@ export default function AdminModals(props: AdminModalsProps) {
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
-                              {scoreVal.toFixed(2)}đ
+                            <span
+                              className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md flex items-center gap-1"
+                              title={card.totalCount > 1 ? `Điểm cao nhất trong ${card.totalCount} lần thi` : "Điểm bài thi"}
+                            >
+                              {card.totalCount > 1 && (
+                                <span className="text-[9px] font-extrabold text-rose-500 uppercase">MAX</span>
+                              )}
+                              <span>{scoreVal.toFixed(2)}đ</span>
                             </span>
                             <button
                               type="button"
@@ -1396,26 +1553,128 @@ export default function AdminModals(props: AdminModalsProps) {
                           </div>
                         </div>
 
-                        <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap py-1 border-y border-slate-100">
-                          <span className="inline-flex items-center gap-1">
-                            <span>⏱</span>
-                            <strong className="text-slate-700 font-semibold">
-                              {att.timeSpent || att.time_spent || "15 phút"}
-                            </strong>
-                          </span>
-                          <span className="text-slate-300">•</span>
-                          <span className="inline-flex items-center gap-1">
-                            <span>📅</span>
-                            <strong className="text-slate-700 font-semibold">
-                              {formattedTime} {formattedDate}
-                            </strong>
-                          </span>
-                          <span className="text-slate-300">•</span>
-                          <span className="font-semibold text-slate-600">
-                            Lần {att.attemptIndex || 1}
-                          </span>
+                        {/* HÀNG 2: METADATA + NÚT MỞ RỘNG XEM LỊCH SỬ CÁC LẦN THI (N LẦN) */}
+                        <div className="text-[11px] text-slate-500 flex items-center justify-between gap-1.5 flex-wrap py-1 border-y border-slate-100">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-0.5">
+                              <span>⏱</span>
+                              <strong className="text-slate-700 font-semibold">
+                                {att.timeSpent || att.time_spent || "15 phút"}
+                              </strong>
+                            </span>
+                            <span className="text-slate-300">•</span>
+                            <span className="inline-flex items-center gap-0.5">
+                              <span>📅</span>
+                              <strong className="text-slate-700 font-semibold">
+                                {formattedTime} {formattedDate}
+                              </strong>
+                            </span>
+                          </div>
+
+                          {card.totalCount > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandStudentHistory(card.studentKey)}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer border ${
+                                isHistoryExpanded
+                                  ? "bg-indigo-600 text-white border-indigo-600"
+                                  : "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                              }`}
+                            >
+                              <History className="w-3 h-3" />
+                              <span>Lịch sử ({card.totalCount} lần)</span>
+                              {isHistoryExpanded ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="font-semibold text-slate-500 text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
+                              Lần 1
+                            </span>
+                          )}
                         </div>
 
+                        {/* NGĂN KÉO LỊCH SỬ CÁC LẦN THI (HIỂN THỊ KHI BẤM XEM LỊCH SỬ N LẦN) */}
+                        {card.totalCount > 1 && isHistoryExpanded && (
+                          <div className="bg-slate-50/90 rounded-xl p-2 border border-slate-200/80 space-y-1.5 animate-in fade-in duration-150">
+                            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-1 flex items-center justify-between">
+                              <span>Chi tiết {card.totalCount} lần nộp bài</span>
+                              <span>Điểm cao nhất: {scoreVal.toFixed(2)}đ</span>
+                            </div>
+                            <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-0.5">
+                              {card.historyAttempts.map((hAtt: any) => {
+                                const hId = String(hAtt.id || "");
+                                const hScore = Number(hAtt.score ?? hAtt.points ?? 0);
+                                const isBest = hId === attemptId;
+                                const hDateRaw = hAtt.createdAt || hAtt.created_at || hAtt.submittedAt;
+                                const hDateStr = hDateRaw
+                                  ? new Date(hDateRaw).toLocaleDateString("vi-VN", {
+                                      day: "2-digit",
+                                      month: "2-digit",
+                                      year: "2-digit",
+                                    })
+                                  : "08/10/26";
+                                const hTimeStr = hDateRaw
+                                  ? new Date(hDateRaw).toLocaleTimeString("vi-VN", {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })
+                                  : "10:40";
+
+                                return (
+                                  <div
+                                    key={hId || hAtt.attemptNumber}
+                                    className={`px-2 py-1.5 rounded-lg border text-[11px] flex items-center justify-between gap-1.5 ${
+                                      isBest
+                                        ? "bg-white border-blue-200 shadow-2xs"
+                                        : "bg-white/70 border-slate-200/70"
+                                    }`}
+                                  >
+                                    <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold text-slate-700">
+                                        Lần {hAtt.attemptNumber}
+                                      </span>
+                                      {isBest && (
+                                        <span className="px-1 py-0.2 bg-amber-100 text-amber-800 border border-amber-200 rounded text-[9px] font-black">
+                                          MAX
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] text-slate-400">
+                                        {hTimeStr} {hDateStr} • {hAtt.timeSpent || hAtt.time_spent || "15p"}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <span className="font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 text-[10px]">
+                                        {hScore.toFixed(2)}đ
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenSubmissionDetail(hAtt, card.historyAttempts)}
+                                        className="px-1.5 py-0.5 bg-blue-50 hover:bg-[#1D4ED8] text-[#1D4ED8] hover:text-white rounded text-[10px] font-bold transition cursor-pointer"
+                                        title={`Xem bài làm Lần ${hAtt.attemptNumber}`}
+                                      >
+                                        Xem
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleConfirmStartDelete(hAtt)}
+                                        className="p-0.5 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                                        title={`Xóa Lần ${hAtt.attemptNumber}`}
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* HÀNG 3: GHI CHÚ NHẬN XÉT + NÚT XEM BÀI LÀM */}
                         <div className="flex items-center justify-between gap-2 pt-0.5">
                           <div className="flex items-center gap-1 min-w-0 flex-1">
                             <span
@@ -1461,7 +1720,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
                           <button
                             type="button"
-                            onClick={() => handleOpenSubmissionDetail(att)}
+                            onClick={() => handleOpenSubmissionDetail(att, card.historyAttempts)}
                             className="bg-blue-50 text-[#1D4ED8] hover:bg-[#1D4ED8] hover:text-white transition-all text-xs font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 cursor-pointer border border-blue-200/70"
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -1478,7 +1737,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 1B. MODAL CON: XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH (HEADER COMPACT 1 DÒNG + ĐỐI CHIẾU CHÍNH XÁC 100%) */}
+      {/* 1B. MODAL CON: XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH (HEADER COMPACT ~56PX + ABSOLUTE ID MAPPING CHỐNG LỆCH CÂU) */}
       {viewingSubmission && (
         <div
           onClick={(e) => {
@@ -1502,7 +1761,30 @@ export default function AdminModals(props: AdminModalsProps) {
                 <span className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md shrink-0">
                   {Number(viewingSubmission.attempt.score ?? viewingSubmission.attempt.points ?? 0).toFixed(2)}đ
                 </span>
-                <span className="hidden md:inline text-xs text-slate-400 font-semibold truncate max-w-[200px]">
+
+                {/* NẾU HỌC SINH CÓ NHIỀU LẦN THI: CHO PHÉP CHUYỂN NHANH GIỮA CÁC LẦN NỘP NGAY TRÊN HEADER */}
+                {viewingSubmission.historyList && viewingSubmission.historyList.length > 1 && (
+                  <select
+                    value={String(viewingSubmission.attempt.id || "")}
+                    onChange={(e) => {
+                      const found = viewingSubmission.historyList?.find(
+                        (item: any) => String(item.id || "") === e.target.value
+                      );
+                      if (found) {
+                        setViewingSubmission((prev) => (prev ? { ...prev, attempt: found } : null));
+                      }
+                    }}
+                    className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded-md text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    {viewingSubmission.historyList.map((hItem: any) => (
+                      <option key={hItem.id} value={String(hItem.id || "")}>
+                        Lần {hItem.attemptNumber || 1} ({Number(hItem.score ?? hItem.points ?? 0).toFixed(2)}đ)
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <span className="hidden md:inline text-xs text-slate-400 font-semibold truncate max-w-[180px]">
                   • {azotaScoreViewModal.examTitle}
                 </span>
               </div>
@@ -1554,7 +1836,7 @@ export default function AdminModals(props: AdminModalsProps) {
                           key={k || i}
                           className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
                         >
-                          <span className="font-bold text-slate-500">Câu {i + 1}:</span>
+                          <span className="font-bold text-slate-500">{k}:</span>
                           <span className="font-black text-[#1D4ED8]">
                             {typeof v === "object" ? JSON.stringify(v) : String(v)}
                           </span>
@@ -1583,7 +1865,7 @@ export default function AdminModals(props: AdminModalsProps) {
                       <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
                         <div className="flex items-center gap-2">
                           <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] font-black text-xs border border-blue-200">
-                            {q.original_label || `Câu ${q.globalOrder}`}
+                            Câu {q.globalOrder}
                           </span>
                           {q.sectionTitle && (
                             <span className="text-[11px] font-semibold text-slate-400 truncate max-w-[240px]">
@@ -1720,14 +2002,14 @@ export default function AdminModals(props: AdminModalsProps) {
                         </div>
                       </div>
 
-                      {(q.solution_html || q.explanation) && (
+                      {(q.solution_html || q.solution || q.explanation) && (
                         <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700">
                           <div className="font-extrabold text-amber-800 mb-1 flex items-center gap-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-amber-600" />
                             <span>Lời giải chi tiết:</span>
                           </div>
                           <SubmissionRichContent
-                            content={q.solution_html || q.explanation}
+                            content={q.solution_html || q.solution || q.explanation}
                             mediaMap={mediaMap}
                           />
                         </div>
