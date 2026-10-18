@@ -41,6 +41,18 @@ interface ExamRoomViewProps {
   onBackToDashboard: () => void;
 }
 
+// HÀM SỬA LỖI DÍNH LỆNH LATEX (\inftyminus, \inftyplus, v.v.) TRƯỚC KHI RENDER KATEX
+function sanitizeLatexString(tex: string): string {
+  if (!tex) return "";
+  return String(tex)
+    .replace(/\\inftyminus/gi, "\\infty -")
+    .replace(/\\inftyplus/gi, "\\infty +")
+    .replace(/\\pmminus/gi, "\\pm -")
+    .replace(/\\mpplus/gi, "\\mp +")
+    .replace(/(\\infty|\\cup|\\cap|\\in|\\notin|\\subset|\\subseteq|\\forall|\\exists|\\rightarrow|\\Rightarrow|\\Leftrightarrow|\\perp|\\parallel)([a-zA-Z])/g, "$1 $2")
+    .replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/:]+)\$?\s*\]/gi, "[img:$1]");
+}
+
 // BỘ TRA CỨU ẢNH ĐỘC LẬP CHO TỪNG TOKEN [img:key] - TUYỆT ĐỐI KHÔNG GHI ĐÈ BẰNG ẢNH ĐẦU TIÊN
 function resolveImageSrc(tokenKey: string, mediaMap?: Record<string, string>): string | null {
   if (!tokenKey) return null;
@@ -86,7 +98,7 @@ function resolveImageSrc(tokenKey: string, mediaMap?: Record<string, string>): s
     }
   }
 
-  // 5. Nếu key có dạng img_X hoặc image_X thì khớp chính xác chỉ số X đó (không lấy nhầm số của ảnh khác)
+  // 5. Nếu key có dạng img_X hoặc image_X thì khớp chính xác chỉ số X đó
   const exactImgNumMatch = lowerCleanKey.match(/^(?:img|image)_(\d+)$/i);
   if (exactImgNumMatch) {
     const num = exactImgNumMatch[1];
@@ -99,7 +111,6 @@ function resolveImageSrc(tokenKey: string, mediaMap?: Record<string, string>): s
     }
   }
 
-  // TUYỆT ĐỐI KHÔNG FALLBACK LẤY ẢNH ĐẦU TIÊN (fallbackImg hay Object.values(mediaMap)[0])
   return null;
 }
 
@@ -116,14 +127,11 @@ function MathRenderer({
   onImageClick?: (url: string) => void;
 }) {
   if (!content) return null;
-  let text = String(content).normalize("NFC");
+  let text = sanitizeLatexString(String(content).normalize("NFC"));
 
-  // BƯỚC 1: CHỈ CHUẨN HÓA TOKEN ẢNH KHI CÓ TIỀN TỐ TƯỜNG MINH [img:...] HOẶC [image:...] HOẶC {{img:...}}
-  // TUYỆT ĐỐI KHÔNG ĐỤNG CHẠM VÀO DẤU NGOẶC NHỌN {{384}} HAY {3072} CỦA CÔNG THỨC TOÁN LATEX (\frac)
+  // BƯỚC 1: CHUẨN HÓA TOKEN ẢNH VÀ THẺ <IMG>
   text = text.replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/:]+)\$?\s*\]/gi, "[img:$1]");
   text = text.replace(/\{\{\s*(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/:]+)\$?\s*\}\}/gi, "[img:$1]");
-
-  // Hỗ trợ trường hợp thẻ <img src="..."> đã được nhúng sẵn trong HTML
   text = text.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_, srcUrl) => `[img_url:${srcUrl}]`);
 
   // BƯỚC 2: CHUẨN HÓA CÁC MÔI TRƯỜNG CÔNG THỨC TOÁN LATEX
@@ -136,7 +144,7 @@ function MathRenderer({
   text = text.replace(/(\\right\.)([a-zA-Z\\])/g, "$1 $2");
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}/g, "");
 
-  // BƯỚC 3: TÁCH CHUỖI THEO THỨ TỰ CÔ LẬP: TOKEN ẢNH [img:...] / [img_url:...] -> KHỐI TOÁN $$...$$ -> TOÁN INLINE $...$
+  // BƯỚC 3: TÁCH CHUỖI CÔ LẬP TOKEN ẢNH VÀ CÔNG THỨC TOÁN
   const parts = text.split(/(\[img:[^\]]+\]|\[img_url:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[^\$]+?\$)/g);
 
   const renderSingleImage = (src: string, keyIdx: number) => {
@@ -177,7 +185,6 @@ function MathRenderer({
       {parts.map((part, i) => {
         if (!part) return null;
 
-        // 1. Xử lý thẻ [img_url:...] (từ thẻ <img src="...">)
         const directUrlMatch = part.match(/^\[img_url:([^\]]+)\]$/i);
         if (directUrlMatch && directUrlMatch[1]) {
           const directSrc = directUrlMatch[1].trim();
@@ -185,7 +192,6 @@ function MathRenderer({
           return renderSingleImage(resolvedDirect, i);
         }
 
-        // 2. Xử lý từng token ảnh [img:key] ĐỘC LẬP
         const imgMatch = part.match(/^\[img:([^\]]+)\]$/i);
         if (imgMatch && imgMatch[1]) {
           const rawKey = imgMatch[1].trim();
@@ -204,13 +210,11 @@ function MathRenderer({
           return renderSingleImage(src, i);
         }
 
-        // 3. Xử lý khối toán học $$...$$ hoặc $...$
         if (part.startsWith("$")) {
           const isBlock = part.startsWith("$$");
-          const math = isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim();
+          const math = sanitizeLatexString(isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim());
           if (!math) return null;
 
-          // Nếu bên trong dấu $...$ vô tình là biến ảnh đơn lẻ dạng $img_5$ thì tra cứu ảnh
           if (/^(?:img|image)_\d+$/i.test(math)) {
             const imgFromMathToken = resolveImageSrc(math, mediaMap);
             if (imgFromMathToken) {
@@ -236,7 +240,6 @@ function MathRenderer({
           }
         }
 
-        // 4. Văn bản thường (Hỗ trợ xuống dòng)
         return (
           <span key={i} className="whitespace-pre-line">
             {part}
@@ -334,7 +337,7 @@ export function ExamRoomView({
     }
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted]);
 
-  // TẢI CÂU HỎI VÀ GIỮ NGUYÊN BẢN ĐỒ MEDIAMAP CHÍNH XÁC (KHÔNG GHI ĐÈ KEY ẢNH)
+  // TẢI CÂU HỎI VÀ MEDIAMAP
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
@@ -342,7 +345,6 @@ export function ExamRoomView({
       let mappedImages: Record<string, string> = {};
 
       try {
-        // 1. Tìm trong bảng practice_exams
         const { data: dbExam } = await supabase
           .from("practice_exams")
           .select("*")
@@ -351,7 +353,6 @@ export function ExamRoomView({
 
         let targetExam = dbExam;
 
-        // 2. Tìm trong localStorage practice_exams
         if (!targetExam && typeof window !== "undefined") {
           const savedPractice = localStorage.getItem("edunexus_practice_exams");
           if (savedPractice) {
@@ -362,7 +363,6 @@ export function ExamRoomView({
           }
         }
 
-        // 3. Tìm trong bảng courses (bài học BTVN hoặc Đề KT)
         if (!targetExam) {
           const { data: courseRow } = await supabase.from("courses").select("chapters").limit(1).maybeSingle();
           let allChapters = courseRow?.chapters;
@@ -387,7 +387,6 @@ export function ExamRoomView({
         }
 
         if (targetExam) {
-          // Trích xuất mediaMap từ cấp cao nhất của đề thi
           if (targetExam.media_map && typeof targetExam.media_map === "object") {
             Object.assign(mappedImages, targetExam.media_map);
           }
@@ -426,7 +425,6 @@ export function ExamRoomView({
                   Object.assign(questionSpecificMedia, q.media_map);
                 }
 
-                // Chỉ bổ sung key còn thiếu vào mappedImages, TUYỆT ĐỐI KHÔNG ghi đè key đã có sẵn trong mediaMap gốc
                 for (const [mk, mv] of Object.entries(questionSpecificMedia)) {
                   if (mv && !mappedImages[mk]) {
                     mappedImages[mk] = mv;
@@ -436,8 +434,11 @@ export function ExamRoomView({
                 const promptStr = q.prompt_html || q.prompt || "";
                 const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
 
+                // Lưu song song ID gốc để đồng bộ với phía Admin
+                const qRealId = q.id || ("q-" + qIdx);
+
                 loaded.push({
-                  id: q.id || ("q-" + qIdx),
+                  id: qRealId,
                   order: qIdx++,
                   type: qType,
                   prompt: promptStr,
@@ -447,7 +448,6 @@ export function ExamRoomView({
                   })),
                   correctAnswer: q.correct_answer || q.correctAnswer || "A",
                   explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
-                  // Chỉ giữ standalone image nếu trong prompt chưa có token [img:...] để tránh render trùng ảnh
                   image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
                   mediaMap: { ...mappedImages, ...questionSpecificMedia }
                 });
@@ -457,8 +457,9 @@ export function ExamRoomView({
             loaded = targetExam.questions.map((q: any, idx: number) => {
               const promptStr = q.prompt_html || q.prompt || ("Câu " + (idx + 1));
               const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
+              const qRealId = q.id || ("q-" + (idx + 1));
               return {
-                id: q.id || ("q-" + (idx + 1)),
+                id: qRealId,
                 order: idx + 1,
                 type: q.type || "multiple_choice",
                 prompt: promptStr,
@@ -554,12 +555,31 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   };
 
-  // NỘP BÀI THI
+  // NỘP BÀI THI - ĐÍNH KÈM ĐẦY ĐỦ ANSWERS VÀO MỌI TẦNG LƯU TRỮ CHỐNG LỖI 0/21 CÂU BỎ TRỐNG
   const handleSubmitExam = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setIsMobileDrawerOpen(false);
-    const answers = userAnswersRef.current;
+    const rawAnswers = userAnswersRef.current;
+
+    // Chuẩn hóa đồng nhất key trong object answers lưu song song cả q.id, q-1, q_1, thứ tự số
+    const normalizedAnswers: Record<string, any> = { ...rawAnswers };
+    questions.forEach((q, idx) => {
+      const gOrder = idx + 1;
+      const val =
+        rawAnswers[q.id] ??
+        rawAnswers[`q-${gOrder}`] ??
+        rawAnswers[`q_${gOrder}`] ??
+        rawAnswers[String(gOrder)] ??
+        undefined;
+
+      if (val !== undefined) {
+        normalizedAnswers[q.id] = val;
+        normalizedAnswers[`q-${gOrder}`] = val;
+        normalizedAnswers[`q_${gOrder}`] = val;
+        normalizedAnswers[String(gOrder)] = val;
+      }
+    });
 
     let totalPoints = 0;
     let fullCorrectCount = 0;
@@ -567,21 +587,22 @@ export function ExamRoomView({
     questions.forEach(q => {
       const isTF = isQuestionTrueFalse(q);
       const isShort = isQuestionShortAnswer(q);
+      const stuAns = normalizedAnswers[q.id];
 
       if (isShort) {
-        const userVal = normalizeShortAnswer(answers[q.id] || "");
+        const userVal = normalizeShortAnswer(stuAns || "");
         const correctVal = normalizeShortAnswer(q.correctAnswer || "");
         if (userVal && correctVal && userVal === correctVal) {
           totalPoints += 1.0;
           fullCorrectCount += 1;
         }
       } else if (!isTF) {
-        if (answers[q.id] === q.correctAnswer) {
+        if (stuAns === q.correctAnswer) {
           totalPoints += 1.0;
           fullCorrectCount += 1;
         }
       } else {
-        const userTF = answers[q.id] || {};
+        const userTF = stuAns || {};
         const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
         let correctSubItems = 0;
 
@@ -624,35 +645,7 @@ export function ExamRoomView({
     const studentName = String(profile?.full_name || (profile as any)?.username || "Học sinh");
     const learningMode = String(profile?.learning_mode || profile?.study_mode || "offline");
 
-    const attemptPayload = {
-      id: "att-" + Date.now(),
-      quizId: String(quizId),
-      quizTitle: String(quizTitle),
-      studentId: studentId,
-      studentName: studentName,
-      username: String((profile as any)?.username || studentId),
-      learningMode: learningMode,
-      school: profile?.school || "THPT",
-      score: calculatedScore,
-      totalQuestions: questions.length,
-      correctCount: fullCorrectCount,
-      timeSpent: durationText,
-      durationSeconds: timeSpentSeconds,
-      isHomework: Boolean(isHomework),
-      answers,
-      createdAt: nowIso
-    };
-
-    try {
-      await fetch("/api/student/submit-quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(attemptPayload)
-      });
-    } catch (apiErr) {
-      console.warn("Không kết nối được API Route, dùng client fallback:", apiErr);
-    }
-
+    // ĐỐI TƯỢNG BẢN GHI LƯU TRỮ CHUẨN XÁC GỒM ĐẦY ĐỦ ANSWERS / USER_ANSWERS
     const clientRecord: any = {
       id: "att-" + Date.now(),
       quiz_id: String(quizId),
@@ -682,9 +675,22 @@ export function ExamRoomView({
       is_homework: Boolean(isHomework),
       isHomework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
+      answers: normalizedAnswers,
+      userAnswers: normalizedAnswers,
+      user_answers: normalizedAnswers,
       created_at: nowIso,
       createdAt: nowIso
     };
+
+    try {
+      await fetch("/api/student/submit-quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clientRecord)
+      });
+    } catch (apiErr) {
+      console.warn("Không kết nối được API Route, dùng client fallback:", apiErr);
+    }
 
     try {
       await Promise.allSettled([
@@ -783,7 +789,6 @@ export function ExamRoomView({
     const isShort = isQuestionShortAnswer(q);
     const effectiveMediaMap = q.mediaMap || mediaMap || {};
 
-    // DẠNG TRẢ LỜI NGẮN
     if (isShort) {
       const currentAns = userAnswers[q.id] || "";
       const isCorrect = isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
@@ -841,7 +846,6 @@ export function ExamRoomView({
       );
     }
 
-    // DẠNG ĐÚNG / SAI
     if (isTF) {
       const userTF = (typeof userAnswers[q.id] === "object" && userAnswers[q.id]) ? userAnswers[q.id] : {};
       const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
@@ -934,7 +938,6 @@ export function ExamRoomView({
       );
     }
 
-    // DẠNG TRẮC NGHIỆM ĐƠN A, B, C, D
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5 pt-1">
         {q.options.map(opt => {
@@ -993,7 +996,6 @@ export function ExamRoomView({
       }}
       className="fixed inset-0 z-[120] bg-[#F8FAFC] text-slate-800 flex flex-col overflow-hidden"
     >
-      {/* 1. THANH HEADER TRÊN CÙNG */}
       <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white border-b border-slate-200 shadow-2xs flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
@@ -1026,7 +1028,6 @@ export function ExamRoomView({
           </div>
         </div>
 
-        {/* CỤM ĐIỀU KHIỂN GIỮA */}
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
             <button
@@ -1063,7 +1064,6 @@ export function ExamRoomView({
           </div>
         </div>
 
-        {/* NÚT THAO TÁC NỘP BÀI */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           {!isSubmitted ? (
             <button
@@ -1096,11 +1096,9 @@ export function ExamRoomView({
         </div>
       </header>
 
-      {/* 2. VÙNG LÀM BÀI CHÍNH */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
         <main className="lg:col-span-9 flex flex-col justify-between overflow-hidden relative bg-[#F8FAFC]">
           
-          {/* NỘI DUNG CUỘN CÂU HỎI */}
           <div className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar">
             <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-6">
               
@@ -1116,7 +1114,6 @@ export function ExamRoomView({
                 </div>
               )}
 
-              {/* CHẾ ĐỘ 1: TỪNG CÂU */}
               {layoutMode === "single" ? (
                 <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs space-y-3 text-left relative">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -1190,7 +1187,6 @@ export function ExamRoomView({
                   )}
                 </div>
               ) : (
-                /* CHẾ ĐỘ 2: CUỘN DANH SÁCH */
                 <div className="space-y-3.5 pb-16">
                   {questions.map((q, qIndex) => (
                     <div
@@ -1274,7 +1270,6 @@ export function ExamRoomView({
             </div>
           </div>
 
-          {/* THANH ĐIỀU HƯỚNG ĐÁY CHO CHẾ ĐỘ TỪNG CÂU */}
           {layoutMode === "single" && (
             <div className="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200/80 py-2.5 px-4 flex items-center justify-center gap-3 sm:gap-4 shadow-sm">
               <button
@@ -1326,7 +1321,6 @@ export function ExamRoomView({
           )}
         </main>
 
-        {/* 3. SIDEBAR MA TRẬN TRÊN DESKTOP */}
         <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200 bg-white p-4.5 flex-col justify-between overflow-y-auto custom-scrollbar">
           <div className="space-y-3.5">
             <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200 shadow-2xs space-y-1 text-left">
@@ -1432,7 +1426,6 @@ export function ExamRoomView({
         </aside>
       </div>
 
-      {/* 4. NÚT NỔI MA TRẬN CHO MOBILE */}
       <div className="lg:hidden fixed bottom-4 right-4 z-40">
         <button
           type="button"
@@ -1444,7 +1437,6 @@ export function ExamRoomView({
         </button>
       </div>
 
-      {/* 5. DRAWER MOBILE */}
       <AnimatePresence>
         {isMobileDrawerOpen && (
           <div
@@ -1581,7 +1573,6 @@ export function ExamRoomView({
         )}
       </AnimatePresence>
 
-      {/* 6. MODAL KẾT QUẢ THI */}
       <AnimatePresence>
         {showResultModal && (
           <div
@@ -1648,7 +1639,6 @@ export function ExamRoomView({
                 </div>
               </div>
 
-              {/* BẢNG XẾP HẠNG */}
               <div className="md:col-span-6 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-200 md:pl-6 space-y-3">
                 <div>
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-100 mb-2">
@@ -1701,7 +1691,6 @@ export function ExamRoomView({
         )}
       </AnimatePresence>
 
-      {/* 7. MODAL LIGHTBOX PHÓNG TO HÌNH ẢNH TOÁN HỌC */}
       <AnimatePresence>
         {previewImage && (
           <div
