@@ -645,10 +645,10 @@ export default function AdminStudentReportPanel({
     ctx.font = "700 10.5px " + FONT_SANS;
     const subHeaderTitle =
       pageMode === "page2"
-        ? "TÂM CHÍ TÀI EDUNEXUS  •  TRANG 2/2: ĐÁNH GIÁ CHUYÊN MÔN & ĐỊNH HƯỚNG"
+        ? "TRANG 2/2: NHẬN XÉT"
         : pageMode === "page1"
-        ? "TÂM CHÍ TÀI EDUNEXUS  •  TRANG 1/2: TỔNG HỢP KẾT QUẢ HỌC TẬP"
-        : "TÂM CHÍ TÀI EDUNEXUS  •  PHIẾU BÁO CÁO KẾT QUẢ HỌC TẬP ĐỊNH KỲ";
+        ? "TRANG 1/2: TỔNG HỢP KẾT QUẢ HỌC TẬP"
+        : "PHIẾU BÁO CÁO KẾT QUẢ HỌC TẬP ĐỊNH KỲ";
     ctx.fillText(subHeaderTitle, contentX + 20, cursorY + 25);
 
     ctx.fillStyle = "#0F172A";
@@ -1068,60 +1068,18 @@ export default function AdminStudentReportPanel({
 
       cursorY = evalCardTop + totalEvalCardHeight + 22;
 
-      // KHỐI CHỮ KÝ & XÁC NHẬN (SIGNATURE BLOCK) CÂN ĐỐI Ở ĐÁY TRANG
-      drawRoundedRect(
-        ctx,
-        contentX,
-        cursorY,
-        contentWidth,
-        74,
-        14,
-        "#FFFFFF",
-        "#F1F5F9",
-        1
-      );
 
       ctx.fillStyle = "#64748B";
       ctx.font = "500 11.5px " + FONT_SANS;
-      ctx.fillText("Hệ thống Quản lý Học tập & Luyện thi Toán TCT - EduNexus", contentX + 18, cursorY + 28);
       ctx.fillStyle = "#94A3B8";
       ctx.font = "400 11px " + FONT_SANS;
-      ctx.fillText(
-        `Ngày xuất phiếu: ${new Date().toLocaleDateString("vi-VN")}  •  Bản báo cáo xác thực điện tử`,
-        contentX + 18,
-        cursorY + 50
-      );
 
-      // Khung con dấu & Tên Giáo viên phụ trách căn phải
-      const sigBoxW = 245;
-      const sigBoxX = contentX + contentWidth - sigBoxW - 14;
-      drawRoundedRect(
-        ctx,
-        sigBoxX,
-        cursorY + 10,
-        sigBoxW,
-        54,
-        10,
-        "#EFF6FF",
-        "#BFDBFE",
-        1
-      );
-
-      ctx.textAlign = "right";
-      ctx.fillStyle = "#1E40AF";
-      ctx.font = "700 10px " + FONT_SANS;
-      ctx.fillText("GIÁO VIÊN PHỤ TRÁCH CHUYÊN MÔN", sigBoxX + sigBoxW - 14, cursorY + 28);
-
-      ctx.fillStyle = "#1D4ED8";
-      ctx.font = "800 14px " + FONT_SANS;
-      ctx.fillText("Thầy Trương Ngọc Dũng", sigBoxX + sigBoxW - 14, cursorY + 50);
-      ctx.textAlign = "left";
     } else if (pageMode === "page1") {
       // Footer nhỏ gọn cho Trang 1
       ctx.fillStyle = "#94A3B8";
       ctx.font = "500 11px " + FONT_SANS;
       ctx.fillText(
-        "Hệ thống Quản lý Học tập & Luyện thi Toán TCT - EduNexus",
+        "Trung tâm TCT-Tâm Chí Tài",
         contentX,
         logicalHeight - outerPad - 18
       );
