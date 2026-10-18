@@ -239,7 +239,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [reviewAttemptData, setReviewAttemptData] = useState<{ exam: any; attempt: any } | null>(null);
   const [offlineToast, setOfflineToast] = useState<string>("");
 
-  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
+  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (GỘP CẢ EXAM_ATTEMPTS TỪ SUPABASE ĐỂ BẢNG XẾP HẠNG & LỊCH SỬ LUÔN ĐẦY ĐỦ)
   const fetchAuthAndData = useCallback(async () => {
     try {
       const { data: courseRow } = await supabase
@@ -287,12 +287,47 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       }
     } catch (e) {}
 
+    // Đồng bộ lịch sử thi từ cả localStorage lẫn Supabase exam_attempts
+    let mergedAttempts: any[] = [];
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
-        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+        if (savedAttempts) {
+          const parsed = JSON.parse(savedAttempts);
+          if (Array.isArray(parsed)) mergedAttempts.push(...parsed);
+        }
       } catch (e) {}
+    }
 
+    try {
+      const { data: cloudAttempts } = await supabase
+        .from("exam_attempts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (cloudAttempts && Array.isArray(cloudAttempts)) {
+        const seenIds = new Set(mergedAttempts.map((a: any) => String(a?.id || "")));
+        cloudAttempts.forEach((ca: any) => {
+          const cid = String(ca?.id || "");
+          if (cid && !seenIds.has(cid)) {
+            seenIds.add(cid);
+            mergedAttempts.push(ca);
+          }
+        });
+      }
+    } catch (e) {}
+
+    if (mergedAttempts.length > 0) {
+      setAllAttempts(mergedAttempts);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("edunexus_attempts", JSON.stringify(mergedAttempts));
+        } catch (e) {}
+      }
+    }
+
+    if (typeof window !== "undefined") {
       const studySecs = parseInt(localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0", 10);
       setTotalStudySeconds(studySecs);
 
@@ -766,11 +801,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     });
   }, [workspacePracticeExam, myAttempts]);
 
-  // 1. ƯU TIÊN RENDER CHẾ ĐỘ XEM LẠI BÀI LÀM (REVIEW MODE) KHI HỌC SINH BẤM [XEM LẠI BÀI LÀM]
+  // 1. ƯU TIÊN RENDER CHẾ ĐỘ XEM LẠI BÀI LÀM (REVIEW MODE ĐỘC LẬP - GẮN KEY RIÊNG ĐỂ KHÔNG BỊ RESET ĐỀ)
   if (reviewAttemptData) {
-    const ExamRoomAny = ExamRoomView as any;
     return (
-      <ExamRoomAny
+      <ExamRoomView
+        key={"review-room-" + (reviewAttemptData.attempt?.id || reviewAttemptData.exam?.id || Date.now())}
         quizId={reviewAttemptData.exam.id}
         quizTitle={reviewAttemptData.exam.title}
         durationMinutes={reviewAttemptData.exam.duration_minutes || 45}
@@ -789,11 +824,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   if (examRoom) {
     return (
       <ExamRoomView 
+        key={"active-exam-" + examRoom.id}
         quizId={examRoom.id} 
         quizTitle={examRoom.title} 
         durationMinutes={examRoom.duration} 
         profile={profile!} 
         isHomework={examRoom.isHomework} 
+        isReviewMode={false}
         onBackToDashboard={() => { 
           setExamRoom(null); 
           fetchAuthAndData(); 
@@ -844,17 +881,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           }}
           onViewFile={() => setPreviewExam(workspacePracticeExam)}
           onReviewAttempt={(att) => {
-            if (typeof window !== "undefined" && profile?.id) {
-              try {
-                const rawAns = att?.answers || att?.userAnswers || att?.user_answers;
-                if (rawAns && typeof rawAns === "object") {
-                  localStorage.setItem(
-                    "tct_hw_draft_" + profile.id + "_" + workspacePracticeExam.id,
-                    JSON.stringify(rawAns)
-                  );
-                }
-              } catch (e) {}
-            }
             setReviewAttemptData({
               exam: workspacePracticeExam,
               attempt: att
