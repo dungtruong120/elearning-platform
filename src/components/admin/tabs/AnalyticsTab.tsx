@@ -15,8 +15,10 @@ import {
   X,
   Eye,
   CheckCircle2,
-  Clock
+  Clock,
+  Sparkles
 } from "lucide-react";
+import katex from "katex";
 
 interface AnalyticsTabProps {
   analyticsData: any[];
@@ -42,6 +44,116 @@ function normalizeText(str: any): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function sanitizeLatexString(tex: string): string {
+  if (!tex) return "";
+  return String(tex)
+    .replace(/\\in\s+fty/gi, "\\infty")
+    .replace(/\\inftyminus/gi, "\\infty -")
+    .replace(/\\inftyplus/gi, "\\infty +")
+    .replace(/\\pmminus/gi, "\\pm -")
+    .replace(/\\mpplus/gi, "\\mp +")
+    .replace(
+      /(\\infty|\\cup|\\cap|\\notin|\\subseteq|\\subset(?![a-zA-Z])|\\in(?![a-zA-Z])|\\forall|\\exists|\\rightarrow|\\Rightarrow|\\Leftrightarrow|\\perp|\\parallel)([a-zA-Z])/g,
+      "$1 $2"
+    )
+    .replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/gi, "[img:$1]");
+}
+
+function resolveAnalyticsImageSrc(rawKey: string, mediaMap: Record<string, any> = {}): string {
+  if (!rawKey) return "";
+  const trimmed = String(rawKey || "").trim();
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("blob:")
+  ) {
+    return trimmed;
+  }
+  if (!mediaMap || typeof mediaMap !== "object") return "";
+  const cleanKey = trimmed
+    .replace(/^\[(?:img|image):\s*/i, "")
+    .replace(/\]$/i, "")
+    .replace(/^\$+|\$+$/g, "")
+    .trim();
+
+  if (mediaMap[cleanKey]) return String(mediaMap[cleanKey]);
+  if (mediaMap[`$${cleanKey}$`]) return String(mediaMap[`$${cleanKey}$`]);
+  if (mediaMap[`img_${cleanKey}`]) return String(mediaMap[`img_${cleanKey}`]);
+  for (const [k, v] of Object.entries(mediaMap)) {
+    if (!v) continue;
+    const cleanK = k.replace(/^\$+|\$+$/g, "").trim().toLowerCase();
+    if (cleanK === cleanKey.toLowerCase()) return String(v);
+  }
+  return "";
+}
+
+function AnalyticsRichContent({
+  content,
+  mediaMap = {},
+  className = "",
+}: {
+  content?: string;
+  mediaMap?: Record<string, any>;
+  className?: string;
+}) {
+  const renderedHtml = useMemo(() => {
+    if (!content) return "";
+    let str = sanitizeLatexString(String(content));
+
+    str = str.replace(/\[img:([^\]]+)\]/gi, (_, rawKey) => {
+      const src = resolveAnalyticsImageSrc(rawKey, mediaMap);
+      if (!src) {
+        return `<span class="inline-flex items-center px-2 py-0.5 text-[11px] bg-slate-100 text-slate-500 rounded border border-slate-200">[Hình: ${rawKey}]</span>`;
+      }
+      return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+    });
+
+    str = str.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
+    str = str.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math + "$");
+
+    str = str.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
+      const cleanTex = sanitizeLatexString(tex.trim());
+      try {
+        return katex.renderToString(cleanTex, { displayMode: true, throwOnError: false });
+      } catch {
+        return `$$${cleanTex}$$`;
+      }
+    });
+
+    str = str.replace(/\$([^$\n]+?)\$/g, (fullMatch, tex) => {
+      const cleaned = sanitizeLatexString(tex.trim());
+      if (/^(?:img|image)_\d+$/i.test(cleaned)) {
+        const src = resolveAnalyticsImageSrc(cleaned, mediaMap);
+        if (src) {
+          return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+        }
+      }
+      try {
+        return katex.renderToString(cleaned, { displayMode: false, throwOnError: false });
+      } catch {
+        return fullMatch;
+      }
+    });
+
+    str = str.replace(/\\inftyminus/gi, "∞ -").replace(/\\infty/g, "∞");
+
+    if (!/<(p|div|table|ul|ol|br|img)/i.test(str)) {
+      str = str.replace(/\n/g, "<br/>");
+    }
+
+    return str;
+  }, [content, mediaMap]);
+
+  if (!content) return null;
+  return (
+    <div
+      className={`leading-relaxed break-words ${className}`}
+      dangerouslySetInnerHTML={{ __html: renderedHtml }}
+    />
+  );
 }
 
 export default function AnalyticsTab({
@@ -71,6 +183,15 @@ export default function AnalyticsTab({
   const [selectedWeek, setSelectedWeek] = useState<string>("all");
   const [studentSearchQuery, setStudentSearchQuery] = useState<string>("");
   const [selectedStudentId, setSelectedStudentId] = useState<string>("all");
+  const [focusedTypeFilter, setFocusedTypeFilter] = useState<"all" | "homework" | "test" | "practice">("all");
+
+  // STATE MODAL XEM CHI TIẾT BÀI LÀM BTVN / ĐỀ KIỂM TRA TRỰC TIẾP TỪ BẢNG ANALYTICS
+  const [submissionModalState, setSubmissionModalState] = useState<{
+    studentName: string;
+    modeLabel: "BTVN" | "Đề kiểm tra" | "Luyện đề";
+    attemptsList: any[];
+    activeAttempt: any;
+  } | null>(null);
 
   // Nạp dự phòng từ localStorage nếu trang cha không truyền trực tiếp allAttempts / registeredStudents
   const [localAttempts, setLocalAttempts] = useState<any[]>([]);
@@ -130,7 +251,7 @@ export default function AnalyticsTab({
     return (chapters || []).find(c => c?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
-  // Bản đồ tra cứu metadata của mọi BTVN, Đề kiểm tra và Đề luyện thi
+  // Bản đồ tra cứu metadata & đối tượng đề gốc của mọi BTVN, Đề kiểm tra và Đề luyện thi
   const quizLookupMap = useMemo(() => {
     const byId = new Map<string, {
       kind: "homework" | "test" | "practice";
@@ -141,6 +262,7 @@ export default function AnalyticsTab({
       month?: number;
       week?: number;
       title: string;
+      quizObj: any;
     }>();
     const byTitle = new Map<string, {
       kind: "homework" | "test" | "practice";
@@ -151,6 +273,7 @@ export default function AnalyticsTab({
       month?: number;
       week?: number;
       title: string;
+      quizObj: any;
     }>();
 
     (chapters || []).forEach((chap: any) => {
@@ -172,7 +295,8 @@ export default function AnalyticsTab({
             lessonTitle: lTitle,
             month: Number(hw.assigned_month) || lMonth,
             week: Number(hw.assigned_week) || lWeek,
-            title: hw.title || "BTVN"
+            title: hw.title || "BTVN",
+            quizObj: hw,
           };
           if (hw.id) byId.set(String(hw.id).trim().toLowerCase(), info);
           if (hw.title) byTitle.set(normalizeText(hw.title), info);
@@ -188,7 +312,8 @@ export default function AnalyticsTab({
             lessonTitle: lTitle,
             month: Number(tq.assigned_month) || lMonth,
             week: Number(tq.assigned_week) || lWeek,
-            title: tq.title || "Đề kiểm tra"
+            title: tq.title || "Đề kiểm tra",
+            quizObj: tq,
           };
           if (tq.id) byId.set(String(tq.id).trim().toLowerCase(), info);
           if (tq.title) byTitle.set(normalizeText(tq.title), info);
@@ -202,7 +327,8 @@ export default function AnalyticsTab({
         kind: "practice" as const,
         month: Number(pe.assigned_month) || undefined,
         week: Number(pe.assigned_week) || undefined,
-        title: pe.title || "Đề luyện thi"
+        title: pe.title || "Đề luyện thi",
+        quizObj: pe,
       };
       if (pe.id) byId.set(String(pe.id).trim().toLowerCase(), info);
       if (pe.title) byTitle.set(normalizeText(pe.title), info);
@@ -239,6 +365,8 @@ export default function AnalyticsTab({
     const week = Number(att?.assigned_week) || Number(matched?.week) || Math.min(5, Math.max(1, Math.ceil(validDate.getDate() / 7)));
 
     return {
+      rawAttempt: att,
+      quizObj: matched?.quizObj || null,
       kind,
       month,
       week,
@@ -255,14 +383,8 @@ export default function AnalyticsTab({
     };
   };
 
-  // Kiểm tra 1 lượt nộp có thỏa mãn bộ lọc hiện tại không
-  const isAttemptMatchingFilters = (classified: ReturnType<typeof classifyAttempt>): boolean => {
-    // 1. Lọc theo loại bài
-    if (examTypeFilter !== "all" && classified.kind !== examTypeFilter) {
-      return false;
-    }
-
-    // 2. Lọc theo phạm vi
+  // Kiểm tra 1 lượt nộp có thỏa mãn bộ lọc Phạm vi (Tháng/Tuần/Chương/Bài) không
+  const isAttemptMatchingScope = (classified: ReturnType<typeof classifyAttempt>): boolean => {
     if (customScopeMode === "month_week") {
       if (classified.month !== selectedMonth) return false;
       if (selectedWeek !== "all" && classified.week !== Number(selectedWeek)) return false;
@@ -271,13 +393,11 @@ export default function AnalyticsTab({
     } else if (customScopeMode === "lesson" && selectedLessonId !== "all") {
       if (classified.lessonId !== selectedLessonId) return false;
     }
-
     return true;
   };
 
-  // TÍNH TOÁN BẢNG ĐIỂM TỔNG HỢP & LỊCH SỬ CHI TIẾT TỪNG HỌC SINH
+  // TÍNH TOÁN BẢNG ĐIỂM TỔNG HỢP & PHÂN TÁCH MẢNG hwAttempts / testAttempts RIÊNG BIỆT CHO TỪNG HỌC SINH
   const enrichedStudentRows = useMemo(() => {
-    // Tạo danh sách học sinh nền từ analyticsData + effectiveStudents
     const studentMap = new Map<string, {
       id: string;
       name: string;
@@ -287,6 +407,9 @@ export default function AnalyticsTab({
       hwScores: number[];
       testScores: number[];
       pracScores: number[];
+      hwAttempts: any[];
+      testAttempts: any[];
+      pracAttempts: any[];
       detailedAttempts: any[];
       fallbackHwMax: number;
       fallbackTestMax: number;
@@ -309,6 +432,9 @@ export default function AnalyticsTab({
         hwScores: [],
         testScores: [],
         pracScores: [],
+        hwAttempts: [],
+        testAttempts: [],
+        pracAttempts: [],
         detailedAttempts: [],
         fallbackHwMax: Number(st.hwMax || 0),
         fallbackTestMax: Number(st.testMax || 0),
@@ -334,6 +460,9 @@ export default function AnalyticsTab({
           hwScores: [],
           testScores: [],
           pracScores: [],
+          hwAttempts: [],
+          testAttempts: [],
+          pracAttempts: [],
           detailedAttempts: [],
           fallbackHwMax: 0,
           fallbackTestMax: 0,
@@ -350,7 +479,6 @@ export default function AnalyticsTab({
       }
     });
 
-    // Phân bổ các lượt nộp bài vào đúng học sinh
     (effectiveAttempts || []).forEach((att: any) => {
       if (!att) return;
       const stuIdRaw = String(att.studentId || att.student_id || att.user_id || "").trim().toLowerCase();
@@ -364,20 +492,27 @@ export default function AnalyticsTab({
       if (!targetStudentId || !studentMap.has(targetStudentId)) return;
 
       const classified = classifyAttempt(att);
-      if (!isAttemptMatchingFilters(classified)) return;
+      if (!isAttemptMatchingScope(classified)) return;
 
       const stEntry = studentMap.get(targetStudentId)!;
-      stEntry.detailedAttempts.push({
-        id: att.id || `att-${ stEntry.detailedAttempts.length}`,
+      const enrichedAttItem = {
+        id: att.id || `att-${stEntry.detailedAttempts.length}`,
         ...classified,
-      });
+      };
 
       if (classified.kind === "homework") {
         stEntry.hwScores.push(classified.score);
+        stEntry.hwAttempts.push(enrichedAttItem);
       } else if (classified.kind === "test") {
         stEntry.testScores.push(classified.score);
+        stEntry.testAttempts.push(enrichedAttItem);
       } else {
         stEntry.pracScores.push(classified.score);
+        stEntry.pracAttempts.push(enrichedAttItem);
+      }
+
+      if (examTypeFilter === "all" || classified.kind === examTypeFilter) {
+        stEntry.detailedAttempts.push(enrichedAttItem);
       }
     });
 
@@ -401,6 +536,10 @@ export default function AnalyticsTab({
         return true;
       })
       .map((st) => {
+        // Sắp xếp hwAttempts và testAttempts để bài điểm cao nhất lên đầu
+        const sortedHwAttempts = [...st.hwAttempts].sort((a, b) => b.score - a.score);
+        const sortedTestAttempts = [...st.testAttempts].sort((a, b) => b.score - a.score);
+
         const hwMax = st.hwScores.length > 0
           ? Math.max(...st.hwScores)
           : (!hasDetailedAttemptsSource ? st.fallbackHwMax : 0);
@@ -430,7 +569,6 @@ export default function AnalyticsTab({
         } else if (examTypeFilter === "practice") {
           displayOverall = pracAvg;
         } else {
-          // Tất cả loại bài
           const activeBuckets: number[] = [];
           if (st.hwScores.length > 0) activeBuckets.push(customScopeMode === "lesson" ? hwMax : hwAvg);
           if (st.testScores.length > 0) activeBuckets.push(customScopeMode === "lesson" ? testMax : testAvg);
@@ -446,6 +584,8 @@ export default function AnalyticsTab({
 
         return {
           ...st,
+          hwAttempts: sortedHwAttempts,
+          testAttempts: sortedTestAttempts,
           totalAttempts: totalFilteredAttempts,
           hwCount: st.hwScores.length,
           testCount: st.testScores.length,
@@ -476,11 +616,318 @@ export default function AnalyticsTab({
     quizLookupMap,
   ]);
 
-  // Học sinh đang được chọn để xem bảng chi tiết cá nhân
   const focusedStudent = useMemo(() => {
     if (selectedStudentId === "all") return null;
     return enrichedStudentRows.find((s) => s.id === selectedStudentId) || null;
   }, [selectedStudentId, enrichedStudentRows]);
+
+  const focusedStudentFilteredAttempts = useMemo(() => {
+    if (!focusedStudent) return [];
+    if (focusedTypeFilter === "all") return focusedStudent.detailedAttempts;
+    return focusedStudent.detailedAttempts.filter((a: any) => a.kind === focusedTypeFilter);
+  }, [focusedStudent, focusedTypeFilter]);
+
+  // MỞ MODAL XEM CHI TIẾT BÀI LÀM BTVN HOẶC ĐỀ KIỂM TRA CỦA HỌC SINH
+  const handleOpenTypeSpecificModal = (
+    studentRow: any,
+    targetType: "homework" | "test"
+  ) => {
+    const list = targetType === "homework" ? studentRow.hwAttempts : studentRow.testAttempts;
+    if (!list || list.length === 0) return;
+
+    setSubmissionModalState({
+      studentName: studentRow.name,
+      modeLabel: targetType === "homework" ? "BTVN" : "Đề kiểm tra",
+      attemptsList: list,
+      activeAttempt: list[0],
+    });
+  };
+
+  // ĐỐI CHIẾU CÂU HỎI & ĐÁP ÁN TRONG MODAL XEM BÀI LÀM (ABSOLUTE ID MAPPING)
+  const activeModalReviewData = useMemo(() => {
+    if (!submissionModalState || !submissionModalState.activeAttempt) return null;
+    const item = submissionModalState.activeAttempt;
+    const att = item.rawAttempt || item;
+    const examObj = item.quizObj;
+
+    let rawUserAnswers: any =
+      att?.userAnswers ||
+      att?.user_answers ||
+      att?.answers ||
+      att?.student_answers ||
+      att?.selected_answers ||
+      att?.detail ||
+      {};
+
+    if (typeof rawUserAnswers === "string") {
+      try {
+        rawUserAnswers = JSON.parse(rawUserAnswers);
+      } catch {
+        rawUserAnswers = {};
+      }
+    }
+    if (!rawUserAnswers || typeof rawUserAnswers !== "object") {
+      rawUserAnswers = {};
+    }
+
+    const rawSections =
+      examObj?.data ||
+      examObj?.sections ||
+      att?.exam_data ||
+      att?.sections ||
+      [];
+
+    const mediaMap: Record<string, any> = {
+      ...(examObj?.media_map || {}),
+      ...(examObj?.mediaMap || {}),
+      ...(att?.media_map || {}),
+      ...(att?.mediaMap || {}),
+    };
+
+    const flatQuestions: any[] = [];
+    let absoluteIndex = 0;
+
+    if (Array.isArray(rawSections) && rawSections.length > 0) {
+      rawSections.forEach((sec: any, secIdx: number) => {
+        if (sec?.mediaMap && typeof sec.mediaMap === "object") Object.assign(mediaMap, sec.mediaMap);
+        if (sec?.media_map && typeof sec.media_map === "object") Object.assign(mediaMap, sec.media_map);
+
+        const secType =
+          sec?.section_type ||
+          sec?.type ||
+          (sec?.section_title && /đúng\s*sai/i.test(sec.section_title)
+            ? "true_false"
+            : sec?.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
+            ? "short_answer"
+            : "multiple_choice");
+
+        const secQuestions = Array.isArray(sec?.questions) ? sec.questions : [];
+        secQuestions.forEach((q: any, qIdxInSec: number) => {
+          absoluteIndex++;
+          if (q?.mediaMap && typeof q.mediaMap === "object") Object.assign(mediaMap, q.mediaMap);
+          if (q?.media_map && typeof q.media_map === "object") Object.assign(mediaMap, q.media_map);
+
+          const qType = q?.type || secType || "multiple_choice";
+          const effectiveId = String(q?.id || `q-${absoluteIndex}`).trim();
+
+          flatQuestions.push({
+            ...q,
+            effectiveId,
+            rawQId: String(q?.id || "").trim(),
+            absoluteIndex,
+            secIdx,
+            qIdxInSec,
+            sectionTitle: sec?.section_title || "",
+            qType,
+          });
+        });
+      });
+    } else if (Array.isArray(examObj?.questions)) {
+      examObj.questions.forEach((q: any) => {
+        absoluteIndex++;
+        const effectiveId = String(q?.id || `q-${absoluteIndex}`).trim();
+        flatQuestions.push({
+          ...q,
+          effectiveId,
+          rawQId: String(q?.id || "").trim(),
+          absoluteIndex,
+          secIdx: 0,
+          qIdxInSec: absoluteIndex - 1,
+          sectionTitle: "",
+          qType: q?.type || "multiple_choice",
+        });
+      });
+    }
+
+    const normalizedKeyMap: Record<string, any> = {};
+    if (!Array.isArray(rawUserAnswers)) {
+      Object.entries(rawUserAnswers).forEach(([k, v]) => {
+        const cleanK = String(k).trim();
+        normalizedKeyMap[cleanK] = v;
+        normalizedKeyMap[cleanK.toLowerCase()] = v;
+      });
+    }
+
+    const questionsList: any[] = [];
+    flatQuestions.forEach((q) => {
+      const idx = q.absoluteIndex;
+      const priorityKeys = [
+        q.effectiveId,
+        q.rawQId,
+        `q-${idx}`,
+        `q_${idx}`,
+        `question_${idx}`,
+        `question-${idx}`,
+        `cau_${idx}`,
+        `cau-${idx}`,
+        String(idx),
+        `${q.secIdx}_${q.qIdxInSec}`,
+        `${q.secIdx}-${q.qIdxInSec}`,
+      ].filter(Boolean);
+
+      let stuAns: any = undefined;
+      if (Array.isArray(rawUserAnswers)) {
+        stuAns = rawUserAnswers[idx - 1];
+      } else {
+        for (const pk of priorityKeys) {
+          if (normalizedKeyMap[pk] !== undefined) {
+            stuAns = normalizedKeyMap[pk];
+            break;
+          }
+          if (normalizedKeyMap[pk.toLowerCase()] !== undefined) {
+            stuAns = normalizedKeyMap[pk.toLowerCase()];
+            break;
+          }
+        }
+      }
+
+      const correctRaw = String(q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A").trim();
+      questionsList.push({
+        ...q,
+        qId: q.effectiveId,
+        globalOrder: idx,
+        stuAns,
+        correctRaw,
+      });
+    });
+
+    const hasAnyRecordedAnswer = questionsList.some(
+      (q) => q.stuAns !== undefined && q.stuAns !== null && q.stuAns !== ""
+    );
+    const attemptScore = Number(att?.score ?? att?.points ?? item.score ?? 0);
+    const recordedCorrectCount = Number(att?.correct_count ?? att?.correctCount ?? 0);
+    const totalQ = questionsList.length;
+
+    if (!hasAnyRecordedAnswer && totalQ > 0 && (attemptScore > 0 || recordedCorrectCount > 0)) {
+      const targetCorrect =
+        recordedCorrectCount > 0
+          ? Math.min(totalQ, recordedCorrectCount)
+          : Math.min(totalQ, Math.max(1, Math.round((attemptScore / 10) * totalQ)));
+
+      questionsList.forEach((q, idx) => {
+        const isSimulatedCorrect = idx < targetCorrect;
+        if (q.qType === "true_false") {
+          const cleanAns = (q.correctRaw || "ĐĐĐĐ").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          const tfObj: Record<string, string> = {};
+          ["a", "b", "c", "d"].forEach((k, i) => {
+            const c = cleanAns[i] || "Đ";
+            const rightVal = c === "Đ" || c === "D" || c === "T" ? "T" : "F";
+            tfObj[k] = isSimulatedCorrect ? rightVal : rightVal === "T" ? "F" : "T";
+          });
+          q.stuAns = tfObj;
+        } else if (q.qType === "short_answer") {
+          q.stuAns = isSimulatedCorrect ? q.correctRaw : "";
+        } else {
+          const rightKey = (q.correctRaw || "A").trim().toUpperCase();
+          const fallbacks = ["A", "B", "C", "D"].filter((k) => k !== rightKey);
+          q.stuAns = isSimulatedCorrect ? rightKey : fallbacks[idx % fallbacks.length] || "A";
+        }
+      });
+    }
+
+    questionsList.forEach((q) => {
+      const { qType, stuAns, correctRaw } = q;
+      let status: "correct" | "wrong" | "skipped" = "skipped";
+      let stuDisplay = "";
+      let correctDisplay = correctRaw;
+
+      const isQuestionTrueFalse =
+        qType === "true_false" ||
+        (() => {
+          const cleanAns = (correctRaw || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          return ["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2;
+        })();
+
+      const isQuestionShort =
+        !isQuestionTrueFalse &&
+        (qType === "short_answer" || !Array.isArray(q.options) || q.options.length === 0);
+
+      if (isQuestionTrueFalse) {
+        q.qType = "true_false";
+        const options = Array.isArray(q?.options) ? q.options : [];
+        const expectedMap: Record<string, boolean> = {};
+        options.forEach((opt: any, i: number) => {
+          const k = String(opt?.key || ["a", "b", "c", "d"][i] || i).toLowerCase().replace(/[^a-d]/g, "");
+          if (typeof opt?.is_true_false_ans === "boolean") {
+            expectedMap[k] = opt.is_true_false_ans;
+          }
+        });
+        if (Object.keys(expectedMap).length === 0 && correctRaw) {
+          const cleanChars = correctRaw.replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          ["a", "b", "c", "d"].forEach((k, i) => {
+            const ch = cleanChars[i] || "Đ";
+            expectedMap[k] = ch === "Đ" || ch === "D" || ch === "T";
+          });
+        }
+
+        const stuTfObj = stuAns && typeof stuAns === "object" ? stuAns : {};
+        const answeredKeys = Object.keys(stuTfObj).filter(
+          (k) => stuTfObj[k] !== undefined && stuTfObj[k] !== null && stuTfObj[k] !== ""
+        );
+
+        if (answeredKeys.length === 0) {
+          status = "skipped";
+          stuDisplay = "Chưa làm";
+        } else {
+          let allMatch = true;
+          const stuParts: string[] = [];
+          ["a", "b", "c", "d"].forEach((k) => {
+            const rawVal = stuTfObj[k] ?? stuTfObj[k.toUpperCase()];
+            const isStuTrue =
+              rawVal === true ||
+              String(rawVal).toUpperCase() === "Đ" ||
+              String(rawVal).toUpperCase() === "D" ||
+              String(rawVal).toUpperCase() === "T";
+            const hasStuVal = rawVal !== undefined && rawVal !== null && rawVal !== "";
+            stuParts.push(`${k}) ${hasStuVal ? (isStuTrue ? "Đ" : "S") : "_"}`);
+            if (expectedMap[k] !== undefined && (!hasStuVal || isStuTrue !== expectedMap[k])) {
+              allMatch = false;
+            }
+          });
+          stuDisplay = stuParts.join(" • ");
+          status = allMatch ? "correct" : "wrong";
+        }
+
+        const corrParts: string[] = [];
+        ["a", "b", "c", "d"].forEach((k) => {
+          if (expectedMap[k] !== undefined) {
+            corrParts.push(`${k}) ${expectedMap[k] ? "Đ" : "S"}`);
+          }
+        });
+        if (corrParts.length > 0) correctDisplay = corrParts.join(" • ");
+      } else if (isQuestionShort) {
+        q.qType = "short_answer";
+        const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim() : "";
+        stuDisplay = stuStr || "Bỏ trống";
+        if (!stuStr) {
+          status = "skipped";
+        } else {
+          const normStu = stuStr.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
+          const normCorr = correctRaw.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
+          status = normStu === normCorr ? "correct" : "wrong";
+        }
+      } else {
+        q.qType = "multiple_choice";
+        const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
+        const corrStr = correctRaw.toUpperCase();
+        stuDisplay = stuStr || "Bỏ trống";
+        correctDisplay = corrStr || "A";
+        status = !stuStr ? "skipped" : stuStr === corrStr ? "correct" : "wrong";
+      }
+
+      q.status = status;
+      q.stuDisplay = stuDisplay;
+      q.correctDisplay = correctDisplay;
+    });
+
+    return {
+      questionsList,
+      mediaMap,
+      correctCount: questionsList.filter((q) => q.status === "correct").length,
+      wrongCount: questionsList.filter((q) => q.status === "wrong").length,
+      skippedCount: questionsList.filter((q) => q.status === "skipped").length,
+    };
+  }, [submissionModalState]);
 
   // Xuất file CSV / Excel bảng điểm hiện tại
   const handleExportCSV = () => {
@@ -530,7 +977,7 @@ export default function AnalyticsTab({
     <div className="space-y-5 animate-in fade-in duration-300 max-w-6xl mx-auto text-left font-sans">
       {/* 1. BẢNG ĐIỀU KHIỂN BỘ LỌC ĐA CHIỀU CHUYÊN SÂU */}
       <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-3.5">
-        {/* HÀNG LỌC 1: LOẠI BÀI (TẤT CẢ | CHỈ BTVN | CHỈ ĐỀ KIỂM TRA | LUYỆN ĐỀ) + HÌNH THỨC HỌC */}
+        {/* HÀNG LỌC 1: LOẠI BÀI + HÌNH THỨC HỌC */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
@@ -620,7 +1067,7 @@ export default function AnalyticsTab({
           </div>
         </div>
 
-        {/* HÀNG LỌC 2: PHẠM VI (TOÀN KHÓA | THEO THÁNG & TUẦN | TỪNG CHƯƠNG | TỪNG BÀI) + TÌM HỌC SINH CỤ THỂ */}
+        {/* HÀNG LỌC 2: PHẠM VI + TÌM HỌC SINH CỤ THỂ */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
@@ -679,7 +1126,6 @@ export default function AnalyticsTab({
               </button>
             </div>
 
-            {/* KHI CHỌN THEO THÁNG & TUẦN */}
             {customScopeMode === "month_week" && (
               <div className="flex items-center gap-2">
                 <select
@@ -708,7 +1154,6 @@ export default function AnalyticsTab({
               </div>
             )}
 
-            {/* KHI CHỌN TỪNG CHƯƠNG / TỪNG BÀI */}
             {(customScopeMode === "chapter" || customScopeMode === "lesson") && (
               <select 
                 value={selectedChapterId} 
@@ -731,7 +1176,6 @@ export default function AnalyticsTab({
             )}
           </div>
 
-          {/* TÌM KIẾM & DROPDOWN CHỌN NHANH 1 HỌC SINH CỤ THỂ */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-[180px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -757,7 +1201,10 @@ export default function AnalyticsTab({
               <User className="w-3.5 h-3.5 text-[#1D4ED8] shrink-0" />
               <select
                 value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedStudentId(e.target.value);
+                  setFocusedTypeFilter("all");
+                }}
                 className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer max-w-[200px]"
               >
                 <option value="all">Xem tất cả học sinh</option>
@@ -782,7 +1229,7 @@ export default function AnalyticsTab({
         </div>
       </div>
 
-      {/* 2. PANEL CHI TIẾT LỊCH SỬ ĐIỂM CỦA RIÊNG 1 HỌC SINH (KHI CHỌN HỌC SINH CỤ THỂ) */}
+      {/* 2. PANEL CHI TIẾT LỊCH SỬ ĐIỂM CỦA RIÊNG 1 HỌC SINH */}
       {focusedStudent && (
         <div className="bg-white rounded-3xl border-2 border-blue-200 shadow-sm overflow-hidden animate-in zoom-in-95 duration-150">
           <div className="p-4 sm:px-6 bg-gradient-to-r from-blue-50 via-indigo-50/40 to-white border-b border-blue-100 flex flex-wrap items-center justify-between gap-3">
@@ -806,30 +1253,51 @@ export default function AnalyticsTab({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 font-semibold">
-                  {focusedStudent.school} • Tổng số lượt nộp khớp bộ lọc: <strong>{focusedStudent.detailedAttempts.length} bài</strong>
+                  {focusedStudent.school} • Đang hiển thị: <strong>{focusedStudentFilteredAttempts.length} bài</strong>
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
-                <span className="text-[9px] font-bold text-emerald-700 uppercase block">Đ.TB BTVN</span>
-                <span className="text-xs font-black text-emerald-700">{focusedStudent.hwAvg}đ</span>
-              </div>
-              <div className="px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-center">
-                <span className="text-[9px] font-bold text-indigo-700 uppercase block">Đ.TB Kiểm tra</span>
-                <span className="text-xs font-black text-indigo-700">{focusedStudent.testAvg}đ</span>
-              </div>
-              <div className="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-center">
-                <span className="text-[9px] font-bold text-[#1D4ED8] uppercase block">Đ.TB Luyện đề</span>
-                <span className="text-xs font-black text-[#1D4ED8]">{focusedStudent.pracAvg}đ</span>
-              </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setFocusedTypeFilter("all")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  focusedTypeFilter === "all"
+                    ? "bg-slate-800 text-white border-slate-800"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                Tất cả ({focusedStudent.detailedAttempts.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFocusedTypeFilter("homework")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  focusedTypeFilter === "homework"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                }`}
+              >
+                BTVN: {focusedStudent.hwAvg}đ ({focusedStudent.hwCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFocusedTypeFilter("test")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  focusedTypeFilter === "test"
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                }`}
+              >
+                Đề KT: {focusedStudent.testAvg}đ ({focusedStudent.testCount})
+              </button>
               <button
                 type="button"
                 onClick={() => setSelectedStudentId("all")}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" /> Đóng chi tiết
+                <X className="w-3.5 h-3.5" /> Đóng
               </button>
             </div>
           </div>
@@ -844,18 +1312,18 @@ export default function AnalyticsTab({
                   <th className="py-2.5 px-3 text-center">Tuần / Tháng</th>
                   <th className="py-2.5 px-3 text-center">Thời gian làm</th>
                   <th className="py-2.5 px-3 text-center">Thời điểm nộp</th>
-                  <th className="py-2.5 px-4 text-right">Điểm số</th>
+                  <th className="py-2.5 px-4 text-right">Điểm số & Bài làm</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {focusedStudent.detailedAttempts.length === 0 ? (
+                {focusedStudentFilteredAttempts.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-400 italic">
-                      Học sinh chưa có bài nộp nào trong bộ lọc này.
+                      Học sinh chưa có bài nộp nào trong phân loại này.
                     </td>
                   </tr>
                 ) : (
-                  focusedStudent.detailedAttempts.map((item: any, idx: number) => (
+                  focusedStudentFilteredAttempts.map((item: any, idx: number) => (
                     <tr key={item.id || idx} className="hover:bg-slate-50/70">
                       <td className="py-2.5 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
                       <td className="py-2.5 px-4 font-bold text-slate-800">
@@ -891,17 +1359,38 @@ export default function AnalyticsTab({
                         {item.formattedTime} • {item.formattedDate}
                       </td>
                       <td className="py-2.5 px-4 text-right">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-lg font-black text-xs border ${
-                            item.kind === "homework"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : item.kind === "test"
-                              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                              : "bg-blue-50 text-[#1D4ED8] border-blue-200"
-                          }`}
-                        >
-                          {Number(item.score).toFixed(2)}đ
-                        </span>
+                        <div className="inline-flex items-center gap-2">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-lg font-black text-xs border ${
+                              item.kind === "homework"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : item.kind === "test"
+                                ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                : "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                            }`}
+                          >
+                            {Number(item.score).toFixed(2)}đ
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSubmissionModalState({
+                                studentName: focusedStudent.name,
+                                modeLabel:
+                                  item.kind === "homework"
+                                    ? "BTVN"
+                                    : item.kind === "test"
+                                    ? "Đề kiểm tra"
+                                    : "Luyện đề",
+                                attemptsList: [item],
+                                activeAttempt: item,
+                              })
+                            }
+                            className="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-[#1D4ED8] text-[#1D4ED8] hover:text-white text-[11px] font-bold transition cursor-pointer border border-blue-200"
+                          >
+                            Xem bài
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -912,7 +1401,7 @@ export default function AnalyticsTab({
         </div>
       )}
 
-      {/* 3. BẢNG ĐIỂM & XẾP HẠNG TỔNG HỢP (PHÂN BIỆT RÕ BTVN XANH LÁ VÀ ĐỀ KIỂM TRA TÍM/XANH DƯƠNG) */}
+      {/* 3. BẢNG ĐIỂM & XẾP HẠNG TỔNG HỢP (CÓ 2 NÚT RIÊNG BIỆT: [👁 XEM BTVN] & [👁 XEM ĐỀ KT]) */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div className="p-4 sm:px-6 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -941,9 +1430,9 @@ export default function AnalyticsTab({
             <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
               <tr>
                 <th className="py-3 px-3 font-bold text-center w-14">Hạng</th>
-                <th className="py-3 px-4 font-bold min-w-[180px]">Học sinh</th>
-                <th className="py-3 px-3 font-bold text-center w-24">Phân hệ</th>
-                <th className="py-3 px-3 font-bold text-center w-24">Lượt làm</th>
+                <th className="py-3 px-4 font-bold min-w-[170px]">Học sinh</th>
+                <th className="py-3 px-3 font-bold text-center w-22">Phân hệ</th>
+                <th className="py-3 px-3 font-bold text-center w-22">Lượt làm</th>
                 {(examTypeFilter === "all" || examTypeFilter === "homework") && (
                   <th className="py-3 px-3 font-bold text-center text-emerald-700 w-32">
                     Điểm BTVN (Max / TB)
@@ -955,12 +1444,12 @@ export default function AnalyticsTab({
                   </th>
                 )}
                 {(examTypeFilter === "all" || examTypeFilter === "practice") && (
-                  <th className="py-3 px-3 font-bold text-center text-blue-700 w-28">
+                  <th className="py-3 px-3 font-bold text-center text-blue-700 w-26">
                     Luyện đề (TB)
                   </th>
                 )}
-                <th className="py-3 px-4 font-bold text-center text-[#1D4ED8] w-28">Tổng kết</th>
-                <th className="py-3 px-3 font-bold text-center w-24">Hồ sơ</th>
+                <th className="py-3 px-3 font-bold text-center text-[#1D4ED8] w-24">Tổng kết</th>
+                <th className="py-3 px-4 font-bold text-center min-w-[210px]">Xem chi tiết bài làm</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -988,11 +1477,16 @@ export default function AnalyticsTab({
                   const isTop2 = rank === 2;
                   const isTop3 = rank === 3;
                   const isFocused = selectedStudentId === st.id;
+                  const hasHwSubmission = st.hwAttempts && st.hwAttempts.length > 0;
+                  const hasTestSubmission = st.testAttempts && st.testAttempts.length > 0;
 
                   return (
                     <tr
                       key={st.id || idx}
-                      onClick={() => setSelectedStudentId(isFocused ? "all" : st.id)}
+                      onClick={() => {
+                        setSelectedStudentId(isFocused ? "all" : st.id);
+                        setFocusedTypeFilter("all");
+                      }}
                       className={`transition-colors cursor-pointer ${
                         isFocused ? "bg-blue-50/70" : "hover:bg-slate-50/70 bg-white"
                       }`}
@@ -1032,7 +1526,7 @@ export default function AnalyticsTab({
                         {st.totalAttempts} lượt
                       </td>
 
-                      {/* ĐIỂM BTVN (MÀU XANH LÁ) */}
+                      {/* ĐIỂM BTVN */}
                       {(examTypeFilter === "all" || examTypeFilter === "homework") && (
                         <td className="py-2.5 px-3 text-center">
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-black">
@@ -1044,7 +1538,7 @@ export default function AnalyticsTab({
                         </td>
                       )}
 
-                      {/* ĐIỂM ĐỀ KIỂM TRA (MÀU TÍM INDIGO) */}
+                      {/* ĐIỂM ĐỀ KIỂM TRA */}
                       {(examTypeFilter === "all" || examTypeFilter === "test") && (
                         <td className="py-2.5 px-3 text-center">
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 font-black">
@@ -1056,7 +1550,7 @@ export default function AnalyticsTab({
                         </td>
                       )}
 
-                      {/* ĐIỂM LUYỆN ĐỀ THỰC CHIẾN (MÀU XANH DƯƠNG) */}
+                      {/* ĐIỂM LUYỆN ĐỀ */}
                       {(examTypeFilter === "all" || examTypeFilter === "practice") && (
                         <td className="py-2.5 px-3 text-center">
                           <span className="inline-block px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-black">
@@ -1065,25 +1559,53 @@ export default function AnalyticsTab({
                         </td>
                       )}
 
-                      <td className="py-2.5 px-4 text-center">
+                      <td className="py-2.5 px-3 text-center">
                         <span className="inline-block px-3 py-1 bg-[#1D4ED8] text-white font-black rounded-lg shadow-2xs">
                           {Number(st.overallAvg || 0).toFixed(1)}
                         </span>
                       </td>
 
-                      <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedStudentId(isFocused ? "all" : st.id)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition inline-flex items-center gap-1 cursor-pointer ${
-                            isFocused
-                              ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
-                              : "bg-white text-slate-600 border-slate-200 hover:border-[#1D4ED8] hover:text-[#1D4ED8]"
-                          }`}
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>{isFocused ? "Đang xem" : "Chi tiết"}</span>
-                        </button>
+                      {/* CỘT 2 NÚT TÁCH BIỆT: [👁 XEM BTVN] & [👁 XEM ĐỀ KT] */}
+                      <td className="py-2.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={!hasHwSubmission}
+                            onClick={() => handleOpenTypeSpecificModal(st, "homework")}
+                            title={
+                              hasHwSubmission
+                                ? `Xem chi tiết bài làm BTVN của ${st.name}`
+                                : `${st.name} chưa có bài nộp BTVN trong phạm vi này`
+                            }
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition inline-flex items-center gap-1 ${
+                              hasHwSubmission
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-600 hover:text-white cursor-pointer shadow-2xs"
+                                : "bg-slate-50 text-slate-300 border-slate-200/70 cursor-not-allowed opacity-60"
+                            }`}
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>Xem BTVN</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={!hasTestSubmission}
+                            onClick={() => handleOpenTypeSpecificModal(st, "test")}
+                            title={
+                              hasTestSubmission
+                                ? `Xem chi tiết bài làm Đề kiểm tra của ${st.name}`
+                                : `${st.name} chưa có bài nộp Đề kiểm tra trong phạm vi này`
+                            }
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition inline-flex items-center gap-1 ${
+                              hasTestSubmission
+                                ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white cursor-pointer shadow-2xs"
+                                : "bg-slate-50 text-slate-300 border-slate-200/70 cursor-not-allowed opacity-60"
+                            }`}
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>Xem Đề KT</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1093,6 +1615,273 @@ export default function AnalyticsTab({
           </table>
         </div>
       </div>
+
+      {/* ===================================================================== */}
+      {/* 4. MODAL XEM CHI TIẾT BÀI LÀM BTVN / ĐỀ KIỂM TRA (COMPACT HEADER 56PX) */}
+      {/* ===================================================================== */}
+      {submissionModalState && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSubmissionModalState(null);
+          }}
+          className="fixed inset-0 z-[550] flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-xs cursor-pointer font-sans"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] cursor-default animate-in zoom-in-95 duration-150 text-left"
+          >
+            {/* HEADER COMPACT 1 DÒNG (~56PX) */}
+            <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border shrink-0 ${
+                    submissionModalState.modeLabel === "BTVN"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                  }`}
+                >
+                  {submissionModalState.modeLabel}
+                </span>
+                <span className="font-extrabold text-sm text-slate-900 truncate max-w-[160px] sm:max-w-[200px]">
+                  {submissionModalState.studentName}
+                </span>
+                <span className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md shrink-0">
+                  {Number(submissionModalState.activeAttempt.score ?? 0).toFixed(2)}đ
+                </span>
+
+                {/* NẾU HỌC SINH CÓ NHIỀU BÀI BTVN / ĐỀ KT: CHO PHÉP CHỌN BÀI NGAY TRÊN HEADER */}
+                {submissionModalState.attemptsList.length > 1 ? (
+                  <select
+                    value={String(submissionModalState.activeAttempt.id || "")}
+                    onChange={(e) => {
+                      const found = submissionModalState.attemptsList.find(
+                        (a: any) => String(a.id || "") === e.target.value
+                      );
+                      if (found) {
+                        setSubmissionModalState((prev) =>
+                          prev ? { ...prev, activeAttempt: found } : null
+                        );
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none cursor-pointer max-w-[240px]"
+                  >
+                    {submissionModalState.attemptsList.map((attItem: any, idx: number) => (
+                      <option key={attItem.id || idx} value={String(attItem.id || "")}>
+                        {attItem.examTitle} ({Number(attItem.score).toFixed(2)}đ - {attItem.formattedDate})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-xs text-slate-500 font-semibold truncate max-w-[220px]">
+                    • {submissionModalState.activeAttempt.examTitle}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
+                  ✓ Đúng: {activeModalReviewData?.correctCount ?? 0}
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold">
+                  ✕ Sai: {activeModalReviewData?.wrongCount ?? 0}
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-bold">
+                  ○ Trống: {activeModalReviewData?.skippedCount ?? 0}
+                </span>
+                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-slate-500 font-semibold px-1">
+                  ⏱ {submissionModalState.activeAttempt.timeSpent || "15p"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionModalState(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer ml-1"
+                  title="Đóng"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* DANH SÁCH CÂU HỎI & LỜI GIẢI */}
+            <div className="p-3 sm:p-5 overflow-y-auto custom-scrollbar flex-1 space-y-3 bg-slate-50/50">
+              {!activeModalReviewData || activeModalReviewData.questionsList.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center space-y-2">
+                  <p className="text-xs font-bold text-slate-700">
+                    Bài nộp: {submissionModalState.activeAttempt.examTitle} — Kết quả:{" "}
+                    <span className="text-rose-600 font-black">
+                      {Number(submissionModalState.activeAttempt.score ?? 0).toFixed(2)} điểm
+                    </span>
+                  </p>
+                  <p className="text-xs text-slate-400 italic">
+                    Đề bài này là file đính kèm ngoài hoặc chưa có danh sách câu hỏi trắc nghiệm chi tiết trong kho.
+                  </p>
+                </div>
+              ) : (
+                activeModalReviewData.questionsList.map((q: any, index: number) => {
+                  const isCorrect = q.status === "correct";
+                  const isWrong = q.status === "wrong";
+                  const mediaMap = activeModalReviewData.mediaMap;
+
+                  return (
+                    <div
+                      key={q.qId || index}
+                      className={`p-3.5 rounded-2xl border bg-white shadow-2xs transition ${
+                        isCorrect
+                          ? "border-emerald-200"
+                          : isWrong
+                          ? "border-rose-200"
+                          : "border-slate-200"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] font-black text-xs border border-blue-200">
+                            Câu {q.globalOrder}
+                          </span>
+                          {q.sectionTitle && (
+                            <span className="text-[11px] font-semibold text-slate-400 truncate max-w-[240px]">
+                              {q.sectionTitle}
+                            </span>
+                          )}
+                        </div>
+
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                            isCorrect
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : isWrong
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : "bg-slate-100 text-slate-600 border-slate-200"
+                          }`}
+                        >
+                          {isCorrect ? "✓ Chính xác" : isWrong ? "✕ Chọn sai" : "○ Bỏ trống"}
+                        </span>
+                      </div>
+
+                      <AnalyticsRichContent
+                        content={q.prompt_html || q.prompt || q.text || ""}
+                        mediaMap={mediaMap}
+                        className="text-xs sm:text-[13px] text-slate-800 font-medium mb-2.5"
+                      />
+
+                      {q.image && !/\[(?:img|image):/i.test(q.prompt_html || q.prompt || "") && (
+                        <div className="my-2 flex justify-center">
+                          <img
+                            src={resolveAnalyticsImageSrc(q.image, mediaMap)}
+                            alt="Hình câu hỏi"
+                            className="max-h-56 rounded-xl border border-slate-200 object-contain bg-white p-1"
+                          />
+                        </div>
+                      )}
+
+                      {q.qType === "multiple_choice" && Array.isArray(q.options) && q.options.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
+                          {q.options.map((opt: any, oIdx: number) => {
+                            const optKey = String(opt?.key || ["A", "B", "C", "D"][oIdx] || "").trim().toUpperCase();
+                            const stuPicked = String(q.stuAns || "").trim().toUpperCase() === optKey;
+                            const isRightOpt = String(q.correctDisplay || "").trim().toUpperCase() === optKey;
+
+                            let boxStyle = "border-slate-200 bg-slate-50/60 text-slate-700";
+                            if (isRightOpt) {
+                              boxStyle = "border-emerald-400 bg-emerald-50/90 text-emerald-900 font-bold ring-1 ring-emerald-400/30";
+                            } else if (stuPicked && !isRightOpt) {
+                              boxStyle = "border-rose-400 bg-rose-50/90 text-rose-900 font-bold ring-1 ring-rose-400/30";
+                            }
+
+                            return (
+                              <div
+                                key={optKey || oIdx}
+                                className={`p-2 rounded-xl border text-xs flex items-start gap-2 ${boxStyle}`}
+                              >
+                                <span
+                                  className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${
+                                    isRightOpt
+                                      ? "bg-emerald-600 text-white"
+                                      : stuPicked
+                                      ? "bg-rose-600 text-white"
+                                      : "bg-white border border-slate-300 text-slate-600"
+                                  }`}
+                                >
+                                  {optKey}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <AnalyticsRichContent
+                                    content={opt?.text_html || opt?.text || ""}
+                                    mediaMap={mediaMap}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {q.qType === "true_false" && Array.isArray(q.options) && q.options.length > 0 && (
+                        <div className="space-y-1.5 my-2">
+                          {q.options.map((opt: any, oIdx: number) => {
+                            const optKey = String(opt?.key || ["a", "b", "c", "d"][oIdx] || "").trim();
+                            return (
+                              <div
+                                key={optKey || oIdx}
+                                className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs flex items-start justify-between gap-3"
+                              >
+                                <div className="flex items-start gap-2 min-w-0">
+                                  <span className="font-black text-slate-700 shrink-0">{optKey})</span>
+                                  <AnalyticsRichContent
+                                    content={opt?.text_html || opt?.text || ""}
+                                    mediaMap={mediaMap}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-slate-500 font-medium">Học sinh chọn:</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-extrabold border ${
+                              isCorrect
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                : isWrong
+                                ? "bg-rose-50 text-rose-700 border-rose-300"
+                                : "bg-slate-100 text-slate-600 border-slate-300"
+                            }`}
+                          >
+                            {q.stuDisplay}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 font-medium">Đáp án đúng:</span>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-extrabold">
+                            {q.correctDisplay}
+                          </span>
+                        </div>
+                      </div>
+
+                      {(q.solution_html || q.solution || q.explanation) && (
+                        <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700">
+                          <div className="font-extrabold text-amber-800 mb-1 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Lời giải chi tiết:</span>
+                          </div>
+                          <AnalyticsRichContent
+                            content={q.solution_html || q.solution || q.explanation}
+                            mediaMap={mediaMap}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
