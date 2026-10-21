@@ -5,8 +5,10 @@ import {
   User, Award, Copy, Printer, Sparkles, PlusCircle, 
   UserCheck, Check, Eye, X, Plus, Trash2, BookOpen, 
   Download, ImageIcon, Search, ChevronRight, ShieldCheck,
-  Filter, CheckSquare, Square, FileText, Layers, CheckCircle2
+  Filter, CheckSquare, Square, FileText, Layers, CheckCircle2,
+  ZoomIn, ZoomOut
 } from "lucide-react";
+import { OMR_CANONICAL_WIDTH, OMR_CANONICAL_HEIGHT } from "@/lib/omrEngine";
 
 interface Props {
   registeredStudents: any[];
@@ -24,6 +26,9 @@ interface SelectedPracticeExamItem {
   score: number | string;
   durationText?: string;
   assignedMonth?: number;
+  submissionType?: "web" | "paper";
+  paperScanUrl?: string | null;
+  omrRawData?: any | null;
 }
 
 function normalizeText(str: any): string {
@@ -97,6 +102,20 @@ function parseEvaluationBullets(rawEval: string): { title: string; body: string 
   });
 }
 
+// HÀM HIỂN THỊ NHÃN PHÂN LOẠI KÈM HÌNH THỨC (TRÊN GIẤY / TRỰC TUYẾN)
+function formatCategoryWithSubmissionMode(
+  category?: string,
+  submissionType?: "web" | "paper"
+): string {
+  const baseCat = (category || "Luyện đề").trim();
+  if (/trên\s*giấy|trực\s*tuyến/i.test(baseCat)) {
+    return baseCat;
+  }
+  return submissionType === "paper"
+    ? `${baseCat} (Trên giấy)`
+    : `${baseCat} (Trực tuyến)`;
+}
+
 export default function AdminStudentReportPanel({
   registeredStudents = [],
   allAttempts = [],
@@ -118,6 +137,10 @@ export default function AdminStudentReportPanel({
   // Modal chọn đề thi đưa vào báo cáo
   const [showPracticePickerModal, setShowPracticePickerModal] = useState<boolean>(false);
   const [practiceMonthFilter, setPracticeMonthFilter] = useState<string>("all");
+
+  // Modal xem nhanh Phiếu thi gốc trên giấy ngay trong trang Báo cáo phụ huynh
+  const [previewPaperItem, setPreviewPaperItem] = useState<SelectedPracticeExamItem | null>(null);
+  const [paperZoom, setPaperZoom] = useState<number>(1);
 
   const reportPage1Ref = useRef<HTMLDivElement>(null);
   const reportPage2Ref = useRef<HTMLDivElement>(null);
@@ -279,7 +302,7 @@ export default function AdminStudentReportPanel({
     });
   }, [studentAllAttempts, quizAssignmentMap]);
 
-  // Tự động gán đề luyện thi đúng theo Tháng được chọn (Lọc trùng đề theo điểm cao nhất MAX)
+  // Tự động gán đề luyện thi đúng theo Tháng được chọn (Bao gồm cả bài làm trên giấy và trực tuyến)
   useEffect(() => {
     if (reportMode !== "auto") return;
     if (studentPracticeAttempts.length > 0) {
@@ -303,6 +326,11 @@ export default function AdminStudentReportPanel({
         const d = new Date(a.createdAt || a.created_at || Date.now());
         const dateStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
         const { month, category } = resolveAttemptMonthAndWeek(a);
+        const isPaper =
+          a?.submission_type === "paper" ||
+          Boolean(a?.paper_scan_url) ||
+          Boolean(a?.omr_raw_data);
+
         return {
           id: a.id || `prac-${idx}`,
           title: a.examTitle || a.quizTitle || a.quiz_title || a.title || "Đề luyện thi thực chiến",
@@ -310,7 +338,10 @@ export default function AdminStudentReportPanel({
           completedDate: dateStr,
           score: a.score ?? a.points ?? "0",
           durationText: a.timeSpent || a.time_spent || "",
-          assignedMonth: month
+          assignedMonth: month,
+          submissionType: isPaper ? "paper" : "web",
+          paperScanUrl: a.paper_scan_url || a.omr_raw_data?.warped_image_data_url || null,
+          omrRawData: a.omr_raw_data || null,
         };
       });
 
@@ -493,13 +524,21 @@ export default function AdminStudentReportPanel({
       const rawDate = attOrExam.createdAt || attOrExam.created_at || Date.now();
       const d = new Date(rawDate);
       const dateStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+      const isPaper =
+        attOrExam?.submission_type === "paper" ||
+        Boolean(attOrExam?.paper_scan_url) ||
+        Boolean(attOrExam?.omr_raw_data);
+
       const newItem: SelectedPracticeExamItem = {
         id: targetId,
         title: attOrExam.examTitle || attOrExam.quizTitle || attOrExam.quiz_title || attOrExam.title || "Đề luyện thi thực chiến",
         category: attOrExam.category || "Luyện đề",
         completedDate: dateStr,
         score: attOrExam.score !== undefined && attOrExam.score !== null ? attOrExam.score : (attOrExam.points ?? "8.0"),
-        durationText: attOrExam.timeSpent || attOrExam.time_spent || ""
+        durationText: attOrExam.timeSpent || attOrExam.time_spent || "",
+        submissionType: isPaper ? "paper" : "web",
+        paperScanUrl: attOrExam.paper_scan_url || attOrExam.omr_raw_data?.warped_image_data_url || null,
+        omrRawData: attOrExam.omr_raw_data || null,
       };
       setSelectedPracticeExams(prev => [...prev, newItem]);
     }
@@ -514,6 +553,7 @@ export default function AdminStudentReportPanel({
       category: "Luyện đề",
       completedDate: dateStr,
       score: "8.5",
+      submissionType: "paper",
     };
     setSelectedPracticeExams(prev => [...prev, newItem]);
   };
@@ -638,7 +678,6 @@ export default function AdminStudentReportPanel({
       1
     );
 
-    // Thanh chỉ báo bên trái Header
     drawRoundedRect(ctx, contentX, cursorY + 14, 4, headerH - 28, 2, "#1D4ED8");
 
     ctx.fillStyle = "#1D4ED8";
@@ -665,7 +704,6 @@ export default function AdminStudentReportPanel({
       );
     }
 
-    // Badge Tháng bo tròn bên phải
     const badgeW = 136;
     const badgeH = 30;
     const badgeX = contentX + contentWidth - badgeW - 18;
@@ -739,7 +777,6 @@ export default function AdminStudentReportPanel({
       summaryCards.forEach((c, idx) => {
         const cx = contentX + idx * (cardW + gap);
         drawRoundedRect(ctx, cx, cursorY, cardW, cardH, 14, c.bg, c.border, 1);
-        // Điểm nhấn thanh ngang mảnh trên thẻ
         drawRoundedRect(ctx, cx + 14, cursorY, 36, 3, 1.5, c.accent);
 
         ctx.fillStyle = c.labelColor;
@@ -753,7 +790,7 @@ export default function AdminStudentReportPanel({
 
       cursorY += cardH + 26;
 
-      // MỤC 1: BẢNG THEO DÕI ĐIỂM SỐ TUẦN (BO TRÒN, CĂN GIỮA CHUẨN XÁC)
+      // MỤC 1: BẢNG THEO DÕI ĐIỂM SỐ TUẦN
       ctx.fillStyle = "#0F172A";
       ctx.font = "700 12.5px " + FONT_SANS;
       ctx.fillText(
@@ -766,7 +803,6 @@ export default function AdminStudentReportPanel({
       const tblH = 108;
       drawRoundedRect(ctx, contentX, tblTop, contentWidth, tblH, 14, "#FFFFFF", "#E2E8F0", 1);
 
-      // Header bảng tuần
       drawRoundedRect(ctx, contentX, tblTop, contentWidth, 34, 14, "#F1F5F9");
       ctx.fillStyle = "#F1F5F9";
       ctx.fillRect(contentX, tblTop + 20, contentWidth, 14);
@@ -821,7 +857,6 @@ export default function AdminStudentReportPanel({
       );
       ctx.textAlign = "left";
 
-      // Đường kẻ mảnh phân cách 2 hàng
       ctx.strokeStyle = "#F1F5F9";
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -863,7 +898,7 @@ export default function AdminStudentReportPanel({
 
       cursorY = tblTop + tblH + 26;
 
-      // MỤC 2: BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN
+      // MỤC 2: BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN (HIỂN THỊ RÕ TRÊN GIẤY VS TRỰC TUYẾN)
       ctx.fillStyle = "#0F172A";
       ctx.font = "700 12.5px " + FONT_SANS;
       ctx.fillText(
@@ -894,8 +929,8 @@ export default function AdminStudentReportPanel({
       ctx.fillText("STT", contentX + 18, pracTableTop + 22);
       ctx.fillText("Tên đề thi thực chiến", contentX + 64, pracTableTop + 22);
       ctx.textAlign = "center";
-      ctx.fillText("Kỳ thi / Phân loại", contentX + 465, pracTableTop + 22);
-      ctx.fillText("Ngày hoàn thành", contentX + 610, pracTableTop + 22);
+      ctx.fillText("Phân loại / Hình thức", contentX + 455, pracTableTop + 22);
+      ctx.fillText("Ngày hoàn thành", contentX + 615, pracTableTop + 22);
       ctx.textAlign = "right";
       ctx.fillText("Kết quả", contentX + contentWidth - 18, pracTableTop + 22);
       ctx.textAlign = "left";
@@ -933,32 +968,33 @@ export default function AdminStudentReportPanel({
           ctx.fillStyle = "#0F172A";
           ctx.font = "600 12.5px " + FONT_SANS;
           const cleanTitle =
-            item.title.length > 46 ? item.title.slice(0, 43) + "..." : item.title;
+            item.title.length > 42 ? item.title.slice(0, 39) + "..." : item.title;
           ctx.fillText(cleanTitle, contentX + 64, rowTextY);
 
-          // Badge Phân loại căn giữa
-          const catText = (item.category || "Luyện đề").toUpperCase();
-          ctx.font = "700 10px " + FONT_SANS;
-          const catW = Math.max(76, ctx.measureText(catText).width + 20);
+          // Badge Phân loại kèm Hình thức (Trên giấy / Trực tuyến)
+          const isPaper = item.submissionType === "paper";
+          const catText = formatCategoryWithSubmissionMode(item.category, item.submissionType);
+          ctx.font = "700 9.5px " + FONT_SANS;
+          const catW = Math.max(110, ctx.measureText(catText).width + 18);
           drawRoundedRect(
             ctx,
-            contentX + 465 - catW / 2,
+            contentX + 455 - catW / 2,
             rowTextY - 14,
             catW,
             20,
             6,
-            "#EFF6FF",
-            "#BFDBFE",
+            isPaper ? "#F3E8FF" : "#EFF6FF",
+            isPaper ? "#D8B4FE" : "#BFDBFE",
             1
           );
-          ctx.fillStyle = "#1D4ED8";
+          ctx.fillStyle = isPaper ? "#6B21A8" : "#1D4ED8";
           ctx.textAlign = "center";
-          ctx.fillText(catText, contentX + 465, rowTextY - 1);
+          ctx.fillText(catText, contentX + 455, rowTextY - 1);
 
           // Ngày hoàn thành
           ctx.fillStyle = "#475569";
           ctx.font = "500 12px " + FONT_SANS;
-          ctx.fillText(item.completedDate, contentX + 610, rowTextY);
+          ctx.fillText(item.completedDate, contentX + 615, rowTextY);
 
           // Badge Điểm số bên phải
           const scoreBadgeW = 68;
@@ -986,7 +1022,7 @@ export default function AdminStudentReportPanel({
       cursorY = pracTableTop + pracTableH + 24;
     }
 
-    // 4. NỘI DUNG TRANG 2 (HOẶC BẢN ĐƠN): NHẬN XÉT CHI TIẾT DẠNG BULLET CARDS + WATERMARK + CHỮ KÝ
+    // 4. NỘI DUNG TRANG 2 (HOẶC BẢN ĐƠN): NHẬN XÉT CHI TIẾT DẠNG BULLET CARDS + WATERMARK
     if (pageMode === "single" || pageMode === "page2") {
       ctx.fillStyle = "#0F172A";
       ctx.font = "700 12.5px " + FONT_SANS;
@@ -1031,7 +1067,6 @@ export default function AdminStudentReportPanel({
           1
         );
 
-        // Vẽ icon Checkmark tròn màu xanh bên trái mỗi mục nhận xét
         const iconCenterX = contentX + 36;
         const iconCenterY = curBulletY + 21;
         ctx.beginPath();
@@ -1068,14 +1103,11 @@ export default function AdminStudentReportPanel({
 
       cursorY = evalCardTop + totalEvalCardHeight + 22;
 
-
       ctx.fillStyle = "#64748B";
       ctx.font = "500 11.5px " + FONT_SANS;
       ctx.fillStyle = "#94A3B8";
       ctx.font = "400 11px " + FONT_SANS;
-
     } else if (pageMode === "page1") {
-      // Footer nhỏ gọn cho Trang 1
       ctx.fillStyle = "#94A3B8";
       ctx.font = "500 11px " + FONT_SANS;
       ctx.fillText(
@@ -1148,7 +1180,13 @@ export default function AdminStudentReportPanel({
     let practiceLines = "";
     if (currentReport.practiceItems.length > 0) {
       practiceLines = currentReport.practiceItems
-        .map((p, idx) => `  ${idx + 1}. ${p.title} [${p.category}]: ${p.score}/10 (${p.completedDate})`)
+        .map(
+          (p, idx) =>
+            `  ${idx + 1}. ${p.title} [${formatCategoryWithSubmissionMode(
+              p.category,
+              p.submissionType
+            )}]: ${p.score}/10 (${p.completedDate})`
+        )
         .join("\n");
     } else {
       practiceLines = "  (Chưa có đề thi nào)";
@@ -1404,7 +1442,7 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* 2. BẢNG ĐỘNG: LUYỆN ĐỀ THỰC CHIẾN TÙY CHỌN */}
+                {/* 2. BẢNG ĐỘNG: LUYỆN ĐỀ THỰC CHIẾN (HỖ TRỢ PHÂN LOẠI TRÊN GIẤY / TRỰC TUYẾN + XEM PHIẾU GỐC) */}
                 <div className="space-y-2 pt-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-xs font-black uppercase text-blue-900 tracking-wider flex items-center gap-1.5">
@@ -1433,17 +1471,18 @@ export default function AdminStudentReportPanel({
                       <thead>
                         <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold text-[11px] uppercase">
                           <th className="py-2.5 px-3 text-center w-10">STT</th>
-                          <th className="py-2.5 px-3 min-w-[180px]">Tên đề thi</th>
-                          <th className="py-2.5 px-2 w-28">Phân loại</th>
-                          <th className="py-2.5 px-2 text-center w-28">Ngày hoàn thành</th>
-                          <th className="py-2.5 px-2 text-center w-28">Điểm số</th>
-                          <th className="py-2.5 px-2 text-center w-12">Xóa</th>
+                          <th className="py-2.5 px-3 min-w-[160px]">Tên đề thi</th>
+                          <th className="py-2.5 px-2 w-24">Phân loại</th>
+                          <th className="py-2.5 px-2 text-center w-28">Hình thức</th>
+                          <th className="py-2.5 px-2 text-center w-24">Ngày nộp</th>
+                          <th className="py-2.5 px-2 text-center w-24">Điểm số</th>
+                          <th className="py-2.5 px-2 text-center w-14">Xóa</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white">
                         {selectedPracticeExams.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-6 text-center text-slate-400 italic">
+                            <td colSpan={7} className="py-6 text-center text-slate-400 italic">
                               Chưa có đề luyện thi nào trong Tháng {reportMonth}. Bấm <strong>"+ Chọn đề đưa vào báo cáo"</strong> hoặc <strong>"+ Thêm đề thủ công"</strong>.
                             </td>
                           </tr>
@@ -1458,6 +1497,18 @@ export default function AdminStudentReportPanel({
                                   onChange={e => handleUpdatePracticeExamItem(item.id, "title", e.target.value)}
                                   className="w-full font-bold text-slate-800 bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg px-2 py-1 outline-none transition"
                                 />
+                                {item.paperScanUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPaperZoom(1);
+                                      setPreviewPaperItem(item);
+                                    }}
+                                    className="mt-0.5 ml-2 inline-flex items-center gap-1 text-[10px] font-extrabold text-purple-700 hover:underline cursor-pointer"
+                                  >
+                                    <Eye className="w-3 h-3" /> Xem phiếu thi gốc
+                                  </button>
+                                )}
                               </td>
                               <td className="py-2 px-2">
                                 <input
@@ -1468,11 +1519,31 @@ export default function AdminStudentReportPanel({
                                 />
                               </td>
                               <td className="py-2 px-2 text-center">
+                                <select
+                                  value={item.submissionType || "web"}
+                                  onChange={(e) =>
+                                    handleUpdatePracticeExamItem(
+                                      item.id,
+                                      "submissionType",
+                                      e.target.value as "web" | "paper"
+                                    )
+                                  }
+                                  className={`px-2 py-1 rounded-md text-[10px] font-black uppercase border outline-none cursor-pointer ${
+                                    item.submissionType === "paper"
+                                      ? "bg-purple-100 text-purple-800 border-purple-200"
+                                      : "bg-slate-100 text-slate-700 border-slate-200"
+                                  }`}
+                                >
+                                  <option value="web">🌐 Trực tuyến</option>
+                                  <option value="paper">📄 Trên giấy</option>
+                                </select>
+                              </td>
+                              <td className="py-2 px-2 text-center">
                                 <input
                                   type="text"
                                   value={item.completedDate}
                                   onChange={e => handleUpdatePracticeExamItem(item.id, "completedDate", e.target.value)}
-                                  className="w-24 text-center text-slate-600 font-medium bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg px-1.5 py-1 outline-none"
+                                  className="w-20 text-center text-slate-600 font-medium bg-transparent border border-transparent hover:border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg px-1 py-1 outline-none"
                                 />
                               </td>
                               <td className="py-2 px-2 text-center">
@@ -1484,7 +1555,7 @@ export default function AdminStudentReportPanel({
                                     max="10"
                                     value={item.score}
                                     onChange={e => handleUpdatePracticeExamItem(item.id, "score", e.target.value)}
-                                    className="w-12 text-center font-black text-xs text-[#1D4ED8] bg-transparent outline-none"
+                                    className="w-11 text-center font-black text-xs text-[#1D4ED8] bg-transparent outline-none"
                                   />
                                   <span className="text-[10px] font-bold text-slate-400">/10</span>
                                 </div>
@@ -1678,17 +1749,18 @@ export default function AdminStudentReportPanel({
                 <thead>
                   <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold text-[11px] uppercase">
                     <th className="py-2.5 px-3 text-center w-10">STT</th>
-                    <th className="py-2.5 px-3 min-w-[180px]">Tên đề thi (Nhấn để sửa)</th>
-                    <th className="py-2.5 px-2 w-32">Phân loại</th>
-                    <th className="py-2.5 px-2 text-center w-32">Ngày hoàn thành</th>
-                    <th className="py-2.5 px-2 text-center w-32">Điểm số (Nhập điểm)</th>
-                    <th className="py-2.5 px-2 text-center w-14">Thao tác</th>
+                    <th className="py-2.5 px-3 min-w-[160px]">Tên đề thi (Nhấn để sửa)</th>
+                    <th className="py-2.5 px-2 w-28">Phân loại</th>
+                    <th className="py-2.5 px-2 text-center w-28">Hình thức</th>
+                    <th className="py-2.5 px-2 text-center w-28">Ngày hoàn thành</th>
+                    <th className="py-2.5 px-2 text-center w-28">Điểm số</th>
+                    <th className="py-2.5 px-2 text-center w-14">Xóa</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {selectedPracticeExams.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-6 text-center text-slate-400 italic">
+                      <td colSpan={7} className="py-6 text-center text-slate-400 italic">
                         Chưa có đề luyện thi nào. Bấm <strong>"+ Thêm đề thủ công"</strong> hoặc <strong>"+ Chọn đề đưa vào báo cáo"</strong> để thêm.
                       </td>
                     </tr>
@@ -1715,12 +1787,32 @@ export default function AdminStudentReportPanel({
                           />
                         </td>
                         <td className="py-2 px-2 text-center">
+                          <select
+                            value={item.submissionType || "web"}
+                            onChange={(e) =>
+                              handleUpdatePracticeExamItem(
+                                item.id,
+                                "submissionType",
+                                e.target.value as "web" | "paper"
+                              )
+                            }
+                            className={`px-2 py-1.5 rounded-lg text-[10px] font-black uppercase border outline-none cursor-pointer ${
+                              item.submissionType === "paper"
+                                ? "bg-purple-100 text-purple-800 border-purple-200"
+                                : "bg-slate-100 text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            <option value="web">🌐 Trực tuyến</option>
+                            <option value="paper">📄 Trên giấy</option>
+                          </select>
+                        </td>
+                        <td className="py-2 px-2 text-center">
                           <input
                             type="text"
                             value={item.completedDate}
                             onChange={e => handleUpdatePracticeExamItem(item.id, "completedDate", e.target.value)}
                             placeholder="17/10/2026"
-                            className="w-28 text-center text-slate-600 font-medium bg-slate-50/60 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg px-2 py-1.5 outline-none"
+                            className="w-24 text-center text-slate-600 font-medium bg-slate-50/60 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-lg px-2 py-1.5 outline-none"
                           />
                         </td>
                         <td className="py-2 px-2 text-center">
@@ -1834,6 +1926,10 @@ export default function AdminStudentReportPanel({
                   const dateStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
                   const title = att.examTitle || att.quizTitle || att.quiz_title || att.title || "Đề luyện thi thực chiến";
                   const displayScore = selectedItem ? selectedItem.score : (att.score ?? att.points ?? "8.0");
+                  const isPaper =
+                    att?.submission_type === "paper" ||
+                    Boolean(att?.paper_scan_url) ||
+                    Boolean(att?.omr_raw_data);
 
                   return (
                     <div
@@ -1857,10 +1953,19 @@ export default function AdminStudentReportPanel({
                           <h5 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
                             {title}
                           </h5>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-semibold mt-0.5">
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-semibold mt-0.5 flex-wrap">
                             <span className="text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded font-black text-[9px] uppercase">
                               {att.category || "Luyện đề"}
                             </span>
+                            {isPaper ? (
+                              <span className="text-purple-800 bg-purple-100 px-2 py-0.5 rounded font-black text-[9px] uppercase">
+                                📄 Trên giấy
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 bg-slate-100 px-2 py-0.5 rounded font-bold text-[9px] uppercase">
+                                🌐 Trực tuyến
+                              </span>
+                            )}
                             <span>• Ngày nộp: {dateStr}</span>
                           </div>
                         </div>
@@ -2116,7 +2221,7 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* 4. BẢNG ĐỘNG LUYỆN ĐỀ THỰC CHIẾN */}
+                {/* 4. BẢNG ĐỘNG LUYỆN ĐỀ THỰC CHIẾN (HIỂN THỊ PHÂN LOẠI + HÌNH THỨC TRÊN GIẤY / TRỰC TUYẾN + LINK XEM PHIẾU GỐC) */}
                 <div className="space-y-2">
                   <h4 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
                     <Award className="w-3.5 h-3.5 text-[#1D4ED8]" /> 2. Bảng điểm Luyện đề Thực chiến ({currentReport.practiceItems.length} đề)
@@ -2128,7 +2233,7 @@ export default function AdminStudentReportPanel({
                         <tr className="bg-blue-50/70 border-b border-blue-100 text-blue-900 font-bold text-[11px]">
                           <th className="py-2.5 px-3 text-center w-12">STT</th>
                           <th className="py-2.5 px-4">Tên đề thi thực chiến</th>
-                          <th className="py-2.5 px-3 text-center">Kỳ thi / Phân loại</th>
+                          <th className="py-2.5 px-3 text-center">Phân loại / Hình thức</th>
                           <th className="py-2.5 px-3 text-center">Ngày hoàn thành</th>
                           <th className="py-2.5 px-4 text-right">Kết quả</th>
                         </tr>
@@ -2141,25 +2246,48 @@ export default function AdminStudentReportPanel({
                             </td>
                           </tr>
                         ) : (
-                          currentReport.practiceItems.map((item, pIdx) => (
-                            <tr key={item.id} className={pIdx % 2 === 1 ? "bg-slate-50/50" : "bg-white"}>
-                              <td className="py-2.5 px-3 text-center font-semibold text-slate-400">
-                                {String(pIdx + 1).padStart(2, "0")}
-                              </td>
-                              <td className="py-2.5 px-4 font-semibold text-slate-800">{item.title}</td>
-                              <td className="py-2.5 px-3 text-center">
-                                <span className="inline-block px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase bg-blue-50 text-[#1D4ED8] border border-blue-200">
-                                  {item.category || "Luyện đề"}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center text-slate-500 font-medium">{item.completedDate}</td>
-                              <td className="py-2.5 px-4 text-right">
-                                <span className="inline-block px-2.5 py-0.5 rounded-md bg-rose-50 text-rose-600 border border-rose-200 font-extrabold">
-                                  {item.score} / 10
-                                </span>
-                              </td>
-                            </tr>
-                          ))
+                          currentReport.practiceItems.map((item, pIdx) => {
+                            const isPaper = item.submissionType === "paper";
+                            return (
+                              <tr key={item.id} className={pIdx % 2 === 1 ? "bg-slate-50/50" : "bg-white"}>
+                                <td className="py-2.5 px-3 text-center font-semibold text-slate-400">
+                                  {String(pIdx + 1).padStart(2, "0")}
+                                </td>
+                                <td className="py-2.5 px-4 font-semibold text-slate-800">
+                                  <div>{item.title}</div>
+                                  {item.paperScanUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPaperZoom(1);
+                                        setPreviewPaperItem(item);
+                                      }}
+                                      className="print:hidden mt-0.5 inline-flex items-center gap-1 text-[10px] font-extrabold text-purple-700 hover:underline cursor-pointer"
+                                    >
+                                      <Eye className="w-3 h-3" /> [Xem phiếu thi gốc]
+                                    </button>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span
+                                    className={`inline-block px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase border ${
+                                      isPaper
+                                        ? "bg-purple-50 text-purple-800 border-purple-200"
+                                        : "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                                    }`}
+                                  >
+                                    {formatCategoryWithSubmissionMode(item.category, item.submissionType)}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center text-slate-500 font-medium">{item.completedDate}</td>
+                                <td className="py-2.5 px-4 text-right">
+                                  <span className="inline-block px-2.5 py-0.5 rounded-md bg-rose-50 text-rose-600 border border-rose-200 font-extrabold">
+                                    {item.score} / 10
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -2176,7 +2304,6 @@ export default function AdminStudentReportPanel({
               >
                 <div className="absolute top-0 left-8 right-8 h-1 bg-[#1D4ED8] rounded-b-full" />
 
-                {/* Header rút gọn Trang 2 */}
                 <div className="p-3.5 bg-slate-50/90 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3 relative pl-5">
                   <div className="w-1 bg-[#1D4ED8] rounded-full absolute left-1.5 top-3 bottom-3" />
                   <div>
@@ -2192,7 +2319,6 @@ export default function AdminStudentReportPanel({
                   </span>
                 </div>
 
-                {/* Khung nhận xét có Watermark chìm & Bullet Cards */}
                 <div className="space-y-2.5">
                   <h4 className="text-xs font-bold uppercase text-slate-800 tracking-wider flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-amber-500" /> 3. Nhận xét chi tiết & Định hướng từ Giáo viên phụ trách
@@ -2226,7 +2352,6 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* Khối chữ ký điện tử & Xác nhận căn phải */}
                 <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-50/60 border border-slate-100">
                   <div className="text-[11px] text-slate-500 space-y-0.5">
                     <p className="font-semibold text-slate-600">
@@ -2247,6 +2372,123 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL XEM PHIẾU THI GỐC TRÊN GIẤY DÀNH CHO GIÁO VIÊN TRƯỚC KHI XUẤT BÁO CÁO */}
+      {/* ========================================================================= */}
+      {previewPaperItem && (
+        <div
+          onClick={() => setPreviewPaperItem(null)}
+          className="fixed inset-0 z-[200] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-slate-900 rounded-3xl max-w-3xl w-full max-h-[92vh] border border-slate-700 shadow-2xl flex flex-col overflow-hidden cursor-default"
+          >
+            <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-white">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-purple-400 block">
+                  📄 Phiếu trả lời trắc nghiệm gốc của học sinh
+                </span>
+                <h4 className="text-sm font-bold text-white">
+                  {previewPaperItem.title} — Điểm: {previewPaperItem.score}/10
+                </h4>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaperZoom((z) => Math.max(0.8, Number((z - 0.25).toFixed(2))))}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-mono text-slate-300">{Math.round(paperZoom * 100)}%</span>
+                <button
+                  type="button"
+                  onClick={() => setPaperZoom((z) => Math.min(2.2, Number((z + 0.25).toFixed(2))))}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewPaperItem(null)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white transition cursor-pointer ml-2"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto p-5 custom-scrollbar flex items-start justify-center bg-slate-900">
+              {previewPaperItem.paperScanUrl ? (
+                <div
+                  style={{
+                    width: `${Math.round(540 * paperZoom)}px`,
+                    transition: "width 0.18s ease-out",
+                  }}
+                  className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
+                >
+                  <img
+                    src={previewPaperItem.paperScanUrl}
+                    alt="Phiếu thi gốc"
+                    className="w-full h-auto block"
+                  />
+                  {previewPaperItem.omrRawData?.bubble_coordinates && (
+                    <svg
+                      viewBox={`0 0 ${
+                        previewPaperItem.omrRawData.canonical_width || OMR_CANONICAL_WIDTH
+                      } ${
+                        previewPaperItem.omrRawData.canonical_height || OMR_CANONICAL_HEIGHT
+                      }`}
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                    >
+                      {previewPaperItem.omrRawData.bubble_coordinates
+                        .filter((b: any) => b.status !== "unfilled")
+                        .map((b: any) => {
+                          const strokeColor =
+                            b.status === "correct"
+                              ? "#10B981"
+                              : b.status === "wrong"
+                              ? "#EF4444"
+                              : b.status === "expected_missed"
+                              ? "#3B82F6"
+                              : "#F59E0B";
+
+                          return (
+                            <circle
+                              key={b.id}
+                              cx={b.x}
+                              cy={b.y}
+                              r={b.r + 2.5}
+                              fill={
+                                b.status === "correct"
+                                  ? "rgba(16,185,129,0.22)"
+                                  : b.status === "wrong"
+                                  ? "rgba(239,68,68,0.22)"
+                                  : "none"
+                              }
+                              stroke={strokeColor}
+                              strokeWidth={2}
+                              strokeDasharray={
+                                b.status === "expected_missed" ? "4 2" : undefined
+                              }
+                            />
+                          );
+                        })}
+                    </svg>
+                  )}
+                </div>
+              ) : (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  Không tìm thấy ảnh quét của đề thi này.
+                </div>
+              )}
             </div>
           </div>
         </div>
