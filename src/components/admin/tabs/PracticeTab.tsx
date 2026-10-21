@@ -23,14 +23,15 @@ import {
   Printer,
   Camera,
   Users,
-  X,
-  FileText
+  X
 } from "lucide-react";
 import { EXAM_CATEGORIES } from "@/types/admin";
 import {
   openPrintableDynamicAnswerSheet,
   formatStudentAutoSBD,
-  extractExamQuestionCounts
+  extractExamQuestionCounts,
+  buildDynamicOMRBlueprint,
+  deriveExamCode3Digits
 } from "@/lib/omrEngine";
 import {
   AdminBulkOMRScannerModal,
@@ -104,10 +105,13 @@ export default function PracticeTab({
   const [isSbdDirectoryModalOpen, setIsSbdDirectoryModalOpen] = useState<boolean>(false);
   const [studentsDirectory, setStudentsDirectory] = useState<StudentSBDRecord[]>([]);
 
-  // Tự động nạp danh sách học sinh và cấp SBD theo STT (000001, 000002...)
+  // Tự động nạp danh sách học sinh, cấp SBD theo STT (000001, 000002...) và lưu đồng bộ vào localStorage
   useEffect(() => {
     const loadStudentsForSBD = async () => {
-      const mergedMap = new Map<string, { id: string; username: string; full_name: string; school?: string; grade?: string }>();
+      const mergedMap = new Map<
+        string,
+        { id: string; username: string; full_name: string; school?: string; grade?: string }
+      >();
 
       // 1. Lấy từ Supabase bảng profiles nếu có
       if (supabase) {
@@ -133,15 +137,41 @@ export default function PracticeTab({
         } catch {}
       }
 
-      // 2. Bổ sung từ danh sách lịch sử làm bài (allAttempts) để không bỏ sót học sinh nào
+      // 2. Lấy thêm từ edunexus_registered_students trong localStorage nếu có
+      if (typeof window !== "undefined") {
+        try {
+          const regRaw = localStorage.getItem("edunexus_registered_students");
+          if (regRaw) {
+            const regList = JSON.parse(regRaw);
+            if (Array.isArray(regList)) {
+              regList.forEach((p: any) => {
+                const key = String(p.id || p.username || "").trim();
+                if (key && !mergedMap.has(key)) {
+                  mergedMap.set(key, {
+                    id: key,
+                    username: p.username || key,
+                    full_name: p.full_name || p.name || p.username || "Học sinh",
+                    school: p.school || "THPT",
+                    grade: p.grade || "Lớp 12"
+                  });
+                }
+              });
+            }
+          }
+        } catch {}
+      }
+
+      // 3. Bổ sung từ danh sách lịch sử làm bài (allAttempts) để không bỏ sót học sinh nào
       if (Array.isArray(allAttempts)) {
         allAttempts.forEach((att: any) => {
           const key = String(att.student_id || att.studentId || att.user_id || "").trim();
-          const name = String(att.student_name || att.studentName || att.full_name || "").trim();
+          const name = String(
+            att.student_name || att.studentName || att.full_name || ""
+          ).trim();
           if (key && name && !mergedMap.has(key)) {
             mergedMap.set(key, {
               id: key,
-              username: key,
+              username: att.username || key,
               full_name: name,
               school: att.school || "THPT",
               grade: "Lớp 12"
@@ -165,6 +195,13 @@ export default function PracticeTab({
       }));
 
       setStudentsDirectory(withSbd);
+
+      // Lưu danh mục SBD chuẩn vào localStorage để mọi giao diện Học sinh lấy đúng SBD 100%
+      if (typeof window !== "undefined" && withSbd.length > 0) {
+        try {
+          localStorage.setItem("edunexus_sbd_directory", JSON.stringify(withSbd));
+        } catch {}
+      }
     };
 
     loadStudentsForSBD();
@@ -261,7 +298,6 @@ export default function PracticeTab({
           .eq("id", examId);
 
         if (error) {
-          // Nếu bảng practice_exams chưa có cột assigned_month riêng, lưu qua API hoặc giữ trong JSON
           const targetExam = updated.find((e: any) => e?.id === examId);
           if (targetExam) {
             await fetch("/api/admin/data", {
@@ -570,16 +606,21 @@ export default function PracticeTab({
                   ) : (
                     filteredManageExams.map((ex, exIdx) => {
                       const examMonth = resolveExamMonth(ex);
+                      const qCounts = extractExamQuestionCounts(ex);
+                      const exCode = deriveExamCode3Digits(ex);
                       return (
                         <tr
                           key={ex?.id || exIdx}
                           className="hover:bg-slate-50/50 transition-colors bg-white"
                         >
                           <td
-                            className="py-3.5 px-5 font-bold text-slate-800 truncate max-w-[220px]"
+                            className="py-3.5 px-5 font-bold text-slate-800 max-w-[230px]"
                             title={ex?.title}
                           >
-                            {ex?.title || "Đề thi"}
+                            <div className="truncate">{ex?.title || "Đề thi"}</div>
+                            <span className="text-[10px] text-slate-400 font-semibold">
+                              Mã đề: {exCode} • {qCounts.totalCount} câu
+                            </span>
                           </td>
                           <td className="py-3.5 px-3 text-center">
                             <div className="relative inline-block">
@@ -1021,7 +1062,7 @@ export default function PracticeTab({
                     Xuất Phiếu Trả Lời A4 Động Theo Cấu Trúc Đề
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Tự động co giãn số câu theo đúng đề được chọn
+                    Tự động co giãn & sang trang thứ 2 nếu đề trên 40 câu (VD: 100+ câu)
                   </p>
                 </div>
               </div>
@@ -1045,10 +1086,10 @@ export default function PracticeTab({
               >
                 {(practiceExams || []).map((ex) => {
                   const counts = extractExamQuestionCounts(ex);
+                  const bp = buildDynamicOMRBlueprint(ex);
                   return (
                     <option key={ex.id} value={ex.id}>
-                      {ex.title} — ({counts.totalCount} câu: P.I {counts.part1Count}, P.II{" "}
-                      {counts.part2Count}, P.III {counts.part3Count})
+                      {ex.title} — ({counts.totalCount} câu • {bp.totalPages || 1} trang A4)
                     </option>
                   );
                 })}
