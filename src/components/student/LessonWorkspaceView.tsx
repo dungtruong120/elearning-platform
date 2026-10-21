@@ -35,6 +35,8 @@ import { PaperScanModal } from "@/components/student/paper/PaperScanModal";
 import { PaperReviewView } from "@/components/student/paper/PaperReviewView";
 import { supabase } from "@/lib/supabaseClient";
 
+const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
+
 interface LessonWorkspaceViewProps {
   lesson: any;
   profile?: Profile | null;
@@ -182,7 +184,9 @@ export function LessonWorkspaceView({
       };
     }
 
-    const targetId = String(rawQuizItem.quiz_id || rawQuizItem.exam_id || rawQuizItem.id || "").trim();
+    const targetId = String(
+      rawQuizItem.quiz_id || rawQuizItem.exam_id || rawQuizItem.id || ""
+    ).trim();
     if (!targetId) {
       return { ...rawQuizItem, is_homework: isHw };
     }
@@ -257,11 +261,26 @@ export function LessonWorkspaceView({
     const resolved = await resolveFullExamData(quizItem, isHomeworkFlag);
     openPrintableDynamicAnswerSheet({
       ...resolved,
-      examTitle: resolved?.title || (isHomeworkFlag ? "Bài tập về nhà" : "Đề kiểm tra định kỳ"),
+      examTitle:
+        resolved?.title || (isHomeworkFlag ? "Bài tập về nhà" : "Đề kiểm tra định kỳ"),
       studentSbd: studentAutoSbd,
       studentName: fallbackProfile.full_name || ""
     });
   };
+
+  const handlePaperScanCompleted = useCallback(
+    (attemptRecord: ExamAttempt) => {
+      const scannedExam = activePaperScanExam;
+      setActivePaperScanExam(null);
+      if (attemptRecord && scannedExam) {
+        setReviewingPaperAttempt({
+          attempt: attemptRecord,
+          exam: scannedExam
+        });
+      }
+    },
+    [activePaperScanExam]
+  );
 
   // NẾU HỌC SINH ĐANG Ở TRONG GIAO DIỆN TÔ PHIẾU ONLINE TRÊN MÀN HÌNH
   if (activeDigitalExam) {
@@ -365,7 +384,9 @@ export function LessonWorkspaceView({
                 <span>Video Bài Giảng Lý Thuyết</span>
                 <span
                   className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
-                    videoTab === "lecture" ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700"
+                    videoTab === "lecture"
+                      ? "bg-white/20 text-white"
+                      : "bg-blue-100 text-blue-700"
                   }`}
                 >
                   {lectureVideos.length}
@@ -843,22 +864,17 @@ export function LessonWorkspaceView({
         }}
       />
 
-      {/* 4. MODAL CHỤP / TẢI ẢNH QUÉT PHIẾU GIẤY (NHÁNH 2A) */}
+      {/* 4. MODAL CHỤP / TẢI ẢNH QUÉT PHIẾU GIẤY (NHÁNH 2A - TƯƠNG THÍCH ĐA PROP INTERFACE) */}
       {activePaperScanExam && (
-        <PaperScanModal
+        <SafePaperScanModal
           isOpen={Boolean(activePaperScanExam)}
           onClose={() => setActivePaperScanExam(null)}
           exam={activePaperScanExam}
           profile={fallbackProfile}
           isHomework={isEntryHomework}
-          onScanSuccess={(attemptRecord: ExamAttempt) => {
-            const scannedExam = activePaperScanExam;
-            setActivePaperScanExam(null);
-            setReviewingPaperAttempt({
-              attempt: attemptRecord,
-              exam: scannedExam
-            });
-          }}
+          onSubmitted={handlePaperScanCompleted}
+          onScanSuccess={handlePaperScanCompleted}
+          onComplete={handlePaperScanCompleted}
         />
       )}
     </div>
