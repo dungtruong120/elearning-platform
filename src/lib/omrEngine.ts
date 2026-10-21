@@ -516,9 +516,6 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
 
 /**
  * THUẬT TOÁN AUTO-PAGINATION FLOW ENGINE (TRIỆT TIÊU 100% LỖI CHỒNG ĐÈ KHỐI TRANG 2)
- * - Nếu đề chuẩn <= 40 câu Phần I, <= 8 câu Phần II, <= 6 câu Phần III -> Giữ nguyên layout 1 trang A4 chuẩn.
- * - Khi bất kỳ phần nào vượt quá giới hạn 1 trang -> Dùng con trỏ dòng chảy (Flow Cursor Y) tính toán chiều cao từng hàng.
- *   Hễ `cursorY + blockHeight > MAX_SAFE_Y (1590px)` thì lập tức tăng `currentPage++` và đặt `cursorY = 200px` ở trang mới!
  */
 export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBlueprint {
   const resolved = resolveCompleteExamObject(examOrConfig);
@@ -543,7 +540,7 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
         dynamicPart1Blocks.push({
           pageIndex: 1,
           startQuestion: startQ,
-          endQuestion,
+          endQuestion: endQ,
           startX: colStartXs[c],
           optionStepX: 44,
           startY: 600,
@@ -594,12 +591,12 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
     };
   }
 
-  // Trường hợp 2: Đề dài nhiều câu (Ví dụ: 60 câu P1 + 17 câu P2 + 27 câu P3) -> Bẻ trang Flow Layout tự động
+  // Trường hợp 2: Đề dài nhiều câu -> Bẻ trang Flow Layout tự động
   const MAX_SAFE_Y = 1585;
   const NEW_PAGE_START_Y = 185;
 
   let currentPage = 1;
-  let cursorY = 535; // Sau khung thông tin thí sinh & SBD ở Trang 1
+  let cursorY = 535;
 
   const dynamicPart1Blocks: OMRPart1Block[] = [];
   const dynamicPart2Blocks: OMRPart2Block[] = [];
@@ -638,7 +635,7 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
         dynamicPart1Blocks.push({
           pageIndex: currentPage,
           startQuestion: startQ,
-          endQuestion,
+          endQuestion: endQ,
           startX: colStartXs[colIdx],
           optionStepX: 44,
           startY: startYForCircles,
@@ -801,7 +798,6 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
 
 /**
  * TÌM BIÊN TỜ GIẤY TRẮNG (PAPER REGION BOUNDING BOX)
- * Giúp loại bỏ hoàn toàn phần mặt bàn và ngón tay ở mép dưới/mép bên trước khi dò 4 mốc đen
  */
 function detectWhitePaperBoundingBox(
   gray: Uint8Array,
@@ -850,9 +846,6 @@ function detectWhitePaperBoundingBox(
 
 /**
  * THUẬT TOÁN TÌM 4 MỐC ĐEN ĐỊNH VỊ GÓC KHẮT KHE (CHỐNG BẮT NHẦM BÀN TAY & BÓNG BÀN 100%)
- * - Bắt buộc khối đen phải nằm trong biên tờ giấy trắng.
- * - Bắt buộc có Viền Trắng Bảo Vệ (Quiet Zone Ring >= 65% pixel sáng) bao quanh 4 phía của mốc vuông.
- * - Kiểm tra góc tứ giác hợp lệ (~90 độ).
  */
 export function detectOMRCornerMarkers(
   binary: Uint8Array,
@@ -890,7 +883,6 @@ export function detectOMRCornerMarkers(
 
     for (let y = minY; y <= maxY - patchSize; y += step) {
       for (let x = minX; x <= maxX - patchSize; x += step) {
-        // 1. Tính mật độ đen bên trong lõi mốc góc
         let innerDark = 0;
         let innerTotal = 0;
         for (let py = 0; py < patchSize; py += 2) {
@@ -906,8 +898,6 @@ export function detectOMRCornerMarkers(
         const centerX = Math.round(x + patchSize / 2);
         const centerY = Math.round(y + patchSize / 2);
 
-        // 2. KIỂM TRA VIỀN TRẮNG BẢO VỆ (QUIET ZONE RING) BAO QUANH KHỐI ĐEN
-        // Ngón tay hoặc mặt bàn là mảng tối kéo dài nên sẽ thất bại ở bài kiểm tra viền trắng này!
         let ringWhiteCount = 0;
         let ringSamples = 0;
         const ringDirs = [
@@ -937,7 +927,6 @@ export function detectOMRCornerMarkers(
         const quietZoneRatio = ringWhiteCount / Math.max(1, ringSamples);
         if (quietZoneRatio < 0.62) continue;
 
-        // 3. Kiểm tra kích thước không được quá to (loại bỏ mảng đen lớn của bàn tay)
         const doubleR = Math.round(patchSize * 1.9);
         let farDarkCount = 0;
         let farTotal = 0;
@@ -1006,7 +995,6 @@ export function detectOMRCornerMarkers(
     paperBox.bottom
   );
 
-  // Kiểm tra tính hợp lệ hình học tứ giác của 4 điểm mốc
   if (tl && tr && br && bl) {
     const topEdge = Math.hypot(tr.x - tl.x, tr.y - tl.y);
     const bottomEdge = Math.hypot(br.x - bl.x, br.y - bl.y);
@@ -1027,13 +1015,11 @@ export function detectOMRCornerMarkers(
     }
   }
 
-  // Nếu bị ngón tay che mất 1 góc dưới (ví dụ có TL, TR và 1 trong 2 góc dưới), nội suy hình bình hành vuông góc từ 3 điểm!
   if (tl && tr && (bl || br)) {
     const dxTop = tr.x - tl.x;
     const dyTop = tr.y - tl.y;
     const topLen = Math.hypot(dxTop, dyTop);
     const expectedHeight = topLen * ((1658 - 42) / (1158 - 42));
-    // Vector pháp tuyến vuông góc hướng xuống dưới
     const nx = -dyTop / Math.max(1, topLen);
     const ny = dxTop / Math.max(1, topLen);
 
@@ -1057,7 +1043,6 @@ export function detectOMRCornerMarkers(
     };
   }
 
-  // Fallback chuẩn theo biên tờ giấy trắng (không lấy biên toàn ảnh chứa mặt bàn)
   return {
     topLeft: { x: paperBox.left + paperW * 0.035, y: paperBox.top + paperH * 0.025 },
     topRight: { x: paperBox.right - paperW * 0.035, y: paperBox.top + paperH * 0.025 },
@@ -1150,7 +1135,6 @@ export function warpPerspectiveToCanonical(
 
 /**
  * ĐO MẬT ĐỘ ĐIỂM TỐI TRONG Ô TRÒN KÈM DÒ TÂM CỤC BỘ (SUB-GRID LOCAL PEAK ALIGNMENT)
- * Tự động dịch chuyển nhẹ +-3px quanh tâm lý thuyết để bắt trúng vùng tô bút chì đậm nhất
  */
 export function measureBubbleDensity(
   binary: Uint8Array,
@@ -2064,7 +2048,6 @@ export function gradeOMRSubmission(
 
 /**
  * DỰNG MÃ SVG CHO TỪNG TRANG A4 (CÓ LOGO TCT NỔI BẬT + AUTO-PAGINATION BẺ TRANG CHUẨN XÁC)
- * Triệt tiêu 100% lỗi chồng đè khối ở Trang 2!
  */
 export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string[] {
   const resolved = resolveCompleteExamObject(examOrConfig);
@@ -2098,7 +2081,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
   for (let pageIdx = 1; pageIdx <= totalPages; pageIdx++) {
     let svgElements = "";
 
-    // 1. Vẽ 4 điểm mốc định vị góc (Corner Alignment Markers) kèm Quiet Zone rõ ràng
     const markerSize = 28;
     [
       corners.topLeft,
@@ -2109,12 +2091,10 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       svgElements += `<rect x="${pt.x - markerSize / 2}" y="${pt.y - markerSize / 2}" width="${markerSize}" height="${markerSize}" fill="#000000" />`;
     });
 
-    // Vạch nhịp bước (Timing Tracks) dọc mép phải
     for (let ty = 225; ty <= 470; ty += 27) {
       svgElements += `<rect x="1146" y="${ty - 4}" width="16" height="8" fill="#000000" />`;
     }
 
-    // LOGO TCT - TÂM CHÍ TÀI NỔI BẬT Ở GÓC TRÊN BÊN TRÁI
     svgElements += `
       <g transform="translate(65, 62)">
         <rect x="0" y="0" width="52" height="52" rx="12" fill="#1D4ED8" />
@@ -2125,7 +2105,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
     `;
 
     if (pageIdx === 1) {
-      // ================= HEADER TRANG 1 =================
       svgElements += `
         <text x="485" y="86" font-family="Arial, sans-serif" font-size="22" font-weight="900" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM ${totalPages > 1 ? `(TRANG 1/${totalPages})` : ""}</text>
         <text x="485" y="116" font-family="Arial, sans-serif" font-size="16" font-weight="900" text-anchor="middle" fill="#1D4ED8">${safeTitle}</text>
@@ -2145,7 +2124,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         <text x="415" y="512" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Không đặt ngón tay đè lên 4 ô vuông đen ở 4 góc phiếu khi chụp ảnh chấm điểm.</text>
       `;
 
-      // Khung 7. Số báo danh
       svgElements += `
         <text x="${blueprint.sbd.startX + 70}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">7. Số báo danh</text>
         <rect x="${blueprint.sbd.startX - 18}" y="154" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
@@ -2170,7 +2148,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         }
       }
 
-      // Khung 8. Mã đề thi
       svgElements += `
         <text x="${blueprint.examCode.startX + 28}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">8. Mã đề thi</text>
         <rect x="${blueprint.examCode.startX - 18}" y="154" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
@@ -2192,7 +2169,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         }
       }
     } else {
-      // ================= HEADER TRANG 2, 3... =================
       svgElements += `
         <text x="620" y="88" font-family="Arial, sans-serif" font-size="22" font-weight="900" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM — TRANG ${pageIdx} / ${totalPages}</text>
         <text x="620" y="118" font-family="Arial, sans-serif" font-size="15.5" font-weight="900" text-anchor="middle" fill="#1D4ED8">${safeTitle} • Mã đề: ${presetCode} • Họ tên: ${presetName || "........................................"} • SBD: ${presetSbd || ".............."}</text>
@@ -2200,7 +2176,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       `;
     }
 
-    // 2. Vẽ PHẦN I thuộc trang hiện tại (pageIdx)
     const pageP1Blocks = blueprint.part1.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
@@ -2238,7 +2213,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       });
     }
 
-    // 3. Vẽ PHẦN II: Đúng / Sai thuộc trang hiện tại (Dùng tọa độ động từ b.startY, không bao giờ đè lên Phần III)
     const pageP2Blocks = blueprint.part2.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
@@ -2274,7 +2248,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       });
     }
 
-    // 4. Vẽ PHẦN III: Trả lời ngắn thuộc trang hiện tại (Dùng tọa độ động từ b.minusY, tuyệt đối không dùng Y=1214 cứng!)
     const pageP3Blocks = blueprint.part3.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
