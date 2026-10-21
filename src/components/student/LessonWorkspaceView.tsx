@@ -1,34 +1,50 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  ArrowLeft, 
-  Video, 
-  PenTool, 
-  FileText, 
-  BookOpen, 
-  Clock, 
-  CheckCircle2, 
-  Play, 
-  ExternalLink, 
-  ChevronRight, 
-  Download, 
-  Layers, 
-  Zap, 
-  FileUp, 
+import {
+  ArrowLeft,
+  Video,
+  PenTool,
+  FileText,
+  BookOpen,
+  Clock,
+  CheckCircle2,
+  Play,
+  ExternalLink,
+  ChevronRight,
+  Download,
+  Layers,
+  Zap,
+  FileUp,
   Sparkles,
   HelpCircle,
   Award,
-  Loader2
+  Loader2,
+  Printer,
+  Camera
 } from "lucide-react";
-import { Profile } from "@/types";
+import { Profile, ExamAttempt } from "@/types";
+import {
+  openPrintableDynamicAnswerSheet,
+  formatStudentAutoSBD
+} from "@/lib/omrEngine";
+import { ExamEntryModal } from "@/components/student/ExamEntryModal";
+import { DigitalAnswerSheetView } from "@/components/student/paper/DigitalAnswerSheetView";
+import { PaperScanModal } from "@/components/student/paper/PaperScanModal";
+import { PaperReviewView } from "@/components/student/paper/PaperReviewView";
+import { supabase } from "@/lib/supabaseClient";
 
 interface LessonWorkspaceViewProps {
   lesson: any;
   profile?: Profile | null;
   onBackToCatalog: () => void;
-  onStartQuiz: (quizId: string, quizTitle: string, isHomework: boolean, durationMinutes?: number) => void;
+  onStartQuiz: (
+    quizId: string,
+    quizTitle: string,
+    isHomework: boolean,
+    durationMinutes?: number
+  ) => void;
 }
 
 /**
@@ -73,17 +89,51 @@ export function LessonWorkspaceView({
   const [videoTab, setVideoTab] = useState<"lecture" | "homework_solution">("lecture");
   const [isVideoLoading, setIsVideoLoading] = useState<boolean>(true);
 
+  // State phục vụ Modal chọn hình thức làm bài (Web / Quét phiếu giấy / Tô phiếu Online)
+  const [selectedQuizForEntry, setSelectedQuizForEntry] = useState<any | null>(null);
+  const [isEntryHomework, setIsEntryHomework] = useState<boolean>(false);
+  const [isEntryModalOpen, setIsEntryModalOpen] = useState<boolean>(false);
+  const [isResolvingExam, setIsResolvingExam] = useState<boolean>(false);
+
+  // State mở giao diện Tô phiếu Online trên màn hình (DigitalAnswerSheetView)
+  const [activeDigitalExam, setActiveDigitalExam] = useState<any | null>(null);
+
+  // State mở máy quét chụp ảnh phiếu giấy (PaperScanModal) & Xem lại kết quả (PaperReviewView)
+  const [activePaperScanExam, setActivePaperScanExam] = useState<any | null>(null);
+  const [reviewingPaperAttempt, setReviewingPaperAttempt] = useState<{
+    attempt: ExamAttempt;
+    exam: any;
+  } | null>(null);
+
+  // Số báo danh tự động của học sinh
+  const studentAutoSbd = useMemo(() => {
+    const rawCode = profile?.student_code || profile?.id || "1";
+    return formatStudentAutoSBD(rawCode);
+  }, [profile]);
+
+  const fallbackProfile: Profile = useMemo(() => {
+    if (profile) return profile;
+    return {
+      id: "student-guest",
+      username: "student",
+      full_name: "Học sinh",
+      role: "student",
+      grade: "Lớp 12",
+      school: "THPT"
+    } as Profile;
+  }, [profile]);
+
   // Phân loại danh sách video bài học
   const allVideos: any[] = useMemo(() => lesson?.video_list || [], [lesson?.video_list]);
 
   // 1. Video bài giảng lý thuyết (type === 'lecture' hoặc chưa gắn type)
   const lectureVideos = useMemo(() => {
-    return allVideos.filter(v => !v.type || v.type === "lecture");
+    return allVideos.filter((v) => !v.type || v.type === "lecture");
   }, [allVideos]);
 
   // 2. Video chữa chi tiết BTVN (type === 'homework_solution')
   const homeworkSolutionVideos = useMemo(() => {
-    return allVideos.filter(v => v.type === "homework_solution");
+    return allVideos.filter((v) => v.type === "homework_solution");
   }, [allVideos]);
 
   // Danh sách video thuộc tab đang chọn
@@ -101,11 +151,148 @@ export function LessonWorkspaceView({
     } else {
       return homeworkSolutionVideos[selectedSolutionIdx] || homeworkSolutionVideos[0] || null;
     }
-  }, [videoTab, lectureVideos, selectedLectureIdx, homeworkSolutionVideos, selectedSolutionIdx]);
+  }, [
+    videoTab,
+    lectureVideos,
+    selectedLectureIdx,
+    homeworkSolutionVideos,
+    selectedSolutionIdx
+  ]);
 
   const currentEmbedUrl = useMemo(() => {
     return currentPlayingVideo ? getEmbedVideoUrl(currentPlayingVideo.url) : "";
   }, [currentPlayingVideo]);
+
+  /**
+   * Hàm nạp đầy đủ dữ liệu câu hỏi của đề thi/BTVN từ localStorage hoặc Supabase nếu object rút gọn chưa có đủ `data`/`questions`
+   */
+  const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
+    if (!rawQuizItem) return null;
+
+    // Nếu bản thân item đã có danh sách câu hỏi hoặc sections thì dùng ngay
+    const hasQuestions =
+      (Array.isArray(rawQuizItem.data) && rawQuizItem.data.length > 0) ||
+      (Array.isArray(rawQuizItem.sections) && rawQuizItem.sections.length > 0) ||
+      (Array.isArray(rawQuizItem.questions) && rawQuizItem.questions.length > 0);
+
+    if (hasQuestions) {
+      return {
+        ...rawQuizItem,
+        is_homework: isHw
+      };
+    }
+
+    const targetId = String(rawQuizItem.quiz_id || rawQuizItem.exam_id || rawQuizItem.id || "").trim();
+    if (!targetId) {
+      return { ...rawQuizItem, is_homework: isHw };
+    }
+
+    // Tìm trong localStorage trước
+    if (typeof window !== "undefined") {
+      try {
+        const localQuizzesRaw = localStorage.getItem("edunexus_quizzes");
+        if (localQuizzesRaw) {
+          const parsedQuizzes = JSON.parse(localQuizzesRaw);
+          if (Array.isArray(parsedQuizzes)) {
+            const matched = parsedQuizzes.find(
+              (q: any) => String(q.id) === targetId || String(q.quiz_id) === targetId
+            );
+            if (matched) {
+              return {
+                ...matched,
+                ...rawQuizItem,
+                data: matched.data || matched.sections || rawQuizItem.data,
+                questions: matched.questions || rawQuizItem.questions,
+                is_homework: isHw
+              };
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // Tìm trên Supabase bảng quizzes
+    try {
+      setIsResolvingExam(true);
+      const { data: dbQuiz } = await supabase
+        .from("quizzes")
+        .select("*")
+        .eq("id", targetId)
+        .maybeSingle();
+
+      if (dbQuiz) {
+        return {
+          ...dbQuiz,
+          ...rawQuizItem,
+          data: dbQuiz.data || dbQuiz.sections || rawQuizItem.data,
+          questions: dbQuiz.questions || rawQuizItem.questions,
+          is_homework: isHw
+        };
+      }
+    } catch {
+    } finally {
+      setIsResolvingExam(false);
+    }
+
+    return {
+      ...rawQuizItem,
+      is_homework: isHw
+    };
+  }, []);
+
+  /**
+   * Mở Popup chọn hình thức làm bài khi học sinh bấm vào BTVN hoặc Đề kiểm tra
+   */
+  const handleOpenExamEntry = async (quizItem: any, isHomeworkFlag: boolean) => {
+    const resolved = await resolveFullExamData(quizItem, isHomeworkFlag);
+    setSelectedQuizForEntry(resolved);
+    setIsEntryHomework(isHomeworkFlag);
+    setIsEntryModalOpen(true);
+  };
+
+  /**
+   * In trực tiếp Phiếu trả lời trắc nghiệm A4 co giãn theo đúng cấu trúc của BTVN / Đề KT
+   */
+  const handlePrintSheetForQuiz = async (quizItem: any, isHomeworkFlag: boolean) => {
+    const resolved = await resolveFullExamData(quizItem, isHomeworkFlag);
+    openPrintableDynamicAnswerSheet({
+      ...resolved,
+      examTitle: resolved?.title || (isHomeworkFlag ? "Bài tập về nhà" : "Đề kiểm tra định kỳ"),
+      studentSbd: studentAutoSbd,
+      studentName: fallbackProfile.full_name || ""
+    });
+  };
+
+  // NẾU HỌC SINH ĐANG Ở TRONG GIAO DIỆN TÔ PHIẾU ONLINE TRÊN MÀN HÌNH
+  if (activeDigitalExam) {
+    return (
+      <DigitalAnswerSheetView
+        exam={activeDigitalExam}
+        profile={fallbackProfile}
+        isHomework={isEntryHomework}
+        onBack={() => setActiveDigitalExam(null)}
+        onSubmitted={(attemptRecord) => {
+          setActiveDigitalExam(null);
+          setReviewingPaperAttempt({
+            attempt: attemptRecord,
+            exam: activeDigitalExam
+          });
+        }}
+      />
+    );
+  }
+
+  // NẾU HỌC SINH ĐANG XEM LẠI KẾT QUẢ BÀI CHẤM PHIẾU TRẮC NGHIỆM (GIẤY HOẶC ONLINE)
+  if (reviewingPaperAttempt) {
+    return (
+      <PaperReviewView
+        attempt={reviewingPaperAttempt.attempt}
+        exam={reviewingPaperAttempt.exam}
+        profile={fallbackProfile}
+        onBack={() => setReviewingPaperAttempt(null)}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#F8FAFC] antialiased text-slate-800 tracking-tight flex flex-col overflow-hidden">
@@ -121,7 +308,10 @@ export function LessonWorkspaceView({
           </button>
 
           <div className="hidden md:flex items-center gap-2 text-xs font-medium text-slate-400 truncate">
-            <span onClick={onBackToCatalog} className="hover:text-slate-700 cursor-pointer transition-colors shrink-0">
+            <span
+              onClick={onBackToCatalog}
+              className="hover:text-slate-700 cursor-pointer transition-colors shrink-0"
+            >
               Chương trình học
             </span>
             <ChevronRight className="w-3 h-3 shrink-0" />
@@ -132,9 +322,19 @@ export function LessonWorkspaceView({
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
+          {isResolvingExam && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-semibold">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Đang tải đề...
+            </span>
+          )}
           <div className="text-right hidden sm:block">
-            <p className="text-xs font-semibold text-slate-800 leading-tight">{profile?.full_name || "Học sinh"}</p>
-            <p className="text-[10px] font-medium text-blue-600 uppercase">{profile?.grade || "Lớp 12"}</p>
+            <p className="text-xs font-semibold text-slate-800 leading-tight">
+              {profile?.full_name || "Học sinh"}
+            </p>
+            <p className="text-[10px] font-medium text-blue-600 uppercase">
+              {profile?.grade || "Lớp 12"} • SBD: {studentAutoSbd}
+            </p>
           </div>
           <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-semibold shadow-2xs border border-white">
             {profile?.full_name ? profile.full_name.charAt(0).toUpperCase() : "T"}
@@ -145,10 +345,8 @@ export function LessonWorkspaceView({
       {/* 2. KHÔNG GIAN HỌC TẬP CHÍNH (2 CỘT: TRÁI 8 - PHẢI 4) */}
       <main className="flex-1 overflow-y-auto custom-scrollbar p-3.5 sm:p-5 lg:p-6">
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
-
           {/* CỘT TRÁI (8 CỘT): PHÂN HỆ VIDEO BÀI GIẢNG & VIDEO CHỮA BTVN */}
           <div className="lg:col-span-8 space-y-4 text-left">
-
             {/* THANH TAB PHÂN ĐỊNH RÕ RÀNG 2 LOẠI VIDEO (COMPACT SEGMENTED CONTROL) */}
             <div className="bg-white p-1 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-1.5">
               <button
@@ -165,9 +363,11 @@ export function LessonWorkspaceView({
               >
                 <Video className="w-3.5 h-3.5" />
                 <span>Video Bài Giảng Lý Thuyết</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
-                  videoTab === "lecture" ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700"
-                }`}>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
+                    videoTab === "lecture" ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700"
+                  }`}
+                >
                   {lectureVideos.length}
                 </span>
               </button>
@@ -186,9 +386,13 @@ export function LessonWorkspaceView({
               >
                 <PenTool className="w-3.5 h-3.5" />
                 <span>Video Chữa Chi Tiết BTVN</span>
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
-                  videoTab === "homework_solution" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"
-                }`}>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
+                    videoTab === "homework_solution"
+                      ? "bg-white/20 text-white"
+                      : "bg-amber-100 text-amber-800"
+                  }`}
+                >
                   {homeworkSolutionVideos.length}
                 </span>
               </button>
@@ -201,7 +405,9 @@ export function LessonWorkspaceView({
                   {isVideoLoading && (
                     <div className="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center text-slate-400 gap-2 z-10 animate-pulse">
                       <div className="w-10 h-10 rounded-full border-2 border-slate-700 border-t-blue-500 animate-spin" />
-                      <span className="text-xs font-medium text-slate-300">Đang chuẩn bị video bài học...</span>
+                      <span className="text-xs font-medium text-slate-300">
+                        Đang chuẩn bị video bài học...
+                      </span>
                     </div>
                   )}
                   <iframe
@@ -215,22 +421,28 @@ export function LessonWorkspaceView({
                 </>
               ) : (
                 <div className="flex flex-col items-center justify-center text-slate-400 p-6 text-center">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-2.5 ${
-                    videoTab === "lecture" ? "bg-blue-950/70 text-blue-400" : "bg-amber-950/70 text-amber-400"
-                  }`}>
-                    {videoTab === "lecture" ? <Video className="w-6 h-6" /> : <PenTool className="w-6 h-6" />}
+                  <div
+                    className={`w-12 h-12 rounded-xl flex items-center justify-center mb-2.5 ${
+                      videoTab === "lecture"
+                        ? "bg-blue-950/70 text-blue-400"
+                        : "bg-amber-950/70 text-amber-400"
+                    }`}
+                  >
+                    {videoTab === "lecture" ? (
+                      <Video className="w-6 h-6" />
+                    ) : (
+                      <PenTool className="w-6 h-6" />
+                    )}
                   </div>
                   <h3 className="font-semibold text-sm sm:text-base text-white">
-                    {videoTab === "lecture" 
-                      ? "Chưa có video bài giảng lý thuyết" 
-                      : "Chưa có video chữa chi tiết bài tập về nhà"
-                    }
+                    {videoTab === "lecture"
+                      ? "Chưa có video bài giảng lý thuyết"
+                      : "Chưa có video chữa chi tiết bài tập về nhà"}
                   </h3>
                   <p className="text-xs text-slate-400 mt-1 max-w-sm font-normal">
                     {videoTab === "lecture"
                       ? "Thầy cô đang hoàn thiện nội dung video cho bài học này. Em vui lòng xem tài liệu hoặc tham gia buổi học trực tuyến."
-                      : "Video giải chi tiết BTVN sẽ được cập nhật sau khi hoàn thành buổi học hoặc hạn nộp bài tập."
-                    }
+                      : "Video giải chi tiết BTVN sẽ được cập nhật sau khi hoàn thành buổi học hoặc hạn nộp bài tập."}
                   </p>
                 </div>
               )}
@@ -240,11 +452,13 @@ export function LessonWorkspaceView({
             {activeTabVideos.length > 1 && (
               <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
                 <h4 className="text-[11px] font-semibold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-slate-500" /> Danh sách các phần video ({activeTabVideos.length})
+                  <Layers className="w-3.5 h-3.5 text-slate-500" /> Danh sách các phần video (
+                  {activeTabVideos.length})
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeTabVideos.map((vid, idx) => {
-                    const isSelected = (videoTab === "lecture" ? selectedLectureIdx : selectedSolutionIdx) === idx;
+                    const isSelected =
+                      (videoTab === "lecture" ? selectedLectureIdx : selectedSolutionIdx) === idx;
                     return (
                       <button
                         key={vid.id || idx}
@@ -263,7 +477,11 @@ export function LessonWorkspaceView({
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <Play className={`w-3 h-3 shrink-0 ${isSelected ? "fill-current" : "text-slate-400"}`} />
+                          <Play
+                            className={`w-3 h-3 shrink-0 ${
+                              isSelected ? "fill-current" : "text-slate-400"
+                            }`}
+                          />
                           <span className="text-xs font-semibold truncate">
                             {vid.title || `Phần ${idx + 1}`}
                           </span>
@@ -288,14 +506,20 @@ export function LessonWorkspaceView({
                     {lesson?.format || "Zoom"}
                   </span>
                   {lesson?.target_mode && (
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
-                      lesson.target_mode === "online"
-                        ? "bg-indigo-50 text-indigo-700 border border-indigo-100"
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
+                        lesson.target_mode === "online"
+                          ? "bg-indigo-50 text-indigo-700 border border-indigo-100"
+                          : lesson.target_mode === "offline"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                          : "bg-slate-100 text-slate-700 border border-slate-200"
+                      }`}
+                    >
+                      {lesson.target_mode === "online"
+                        ? "Lớp Online"
                         : lesson.target_mode === "offline"
-                        ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                        : "bg-slate-100 text-slate-700 border border-slate-200"
-                    }`}>
-                      {lesson.target_mode === "online" ? "Lớp Online" : lesson.target_mode === "offline" ? "Lớp Offline" : "Toàn khóa"}
+                        ? "Lớp Offline"
+                        : "Toàn khóa"}
                     </span>
                   )}
                   <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
@@ -334,7 +558,6 @@ export function LessonWorkspaceView({
 
           {/* CỘT PHẢI (4 CỘT): COMPACT ACTION PANEL */}
           <div className="lg:col-span-4 space-y-4 text-left">
-
             {/* KHỐI 1: BÀI TẬP VỀ NHÀ (BTVN) */}
             <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -346,7 +569,7 @@ export function LessonWorkspaceView({
                 </span>
               </div>
 
-              {(!lesson?.homework_files || lesson.homework_files.length === 0) ? (
+              {!lesson?.homework_files || lesson.homework_files.length === 0 ? (
                 <p className="text-center text-slate-400 text-xs py-3 font-normal italic">
                   Chưa có bài tập về nhà cho bài học này.
                 </p>
@@ -369,13 +592,39 @@ export function LessonWorkspaceView({
                         </div>
 
                         {isQuiz ? (
-                          <button
-                            type="button"
-                            onClick={() => onStartQuiz(hw.id, hw.title || "Bài tập về nhà", true, hw.duration_minutes || 45)}
-                            className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                          >
-                            <Play className="w-3 h-3 fill-white" /> Bắt đầu làm BTVN
-                          </button>
+                          <div className="space-y-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenExamEntry(hw, true)}
+                              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                            >
+                              <Play className="w-3 h-3 fill-white" /> Bắt đầu làm BTVN
+                            </button>
+
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handlePrintSheetForQuiz(hw, true)}
+                                className="py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                title="Tải hoặc in phiếu trả lời trắc nghiệm A4 theo cấu trúc BTVN này"
+                              >
+                                <Printer className="w-3 h-3" /> In Phiếu A4
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const resolved = await resolveFullExamData(hw, true);
+                                  setIsEntryHomework(true);
+                                  setActiveDigitalExam(resolved);
+                                }}
+                                className="py-1.5 px-2 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                title="Mở nhanh Phiếu tô trắc nghiệm Online trên màn hình"
+                              >
+                                <PenTool className="w-3 h-3" /> Tô Phiếu Onl
+                              </button>
+                            </div>
+                          </div>
                         ) : hw.url ? (
                           <a
                             href={hw.url}
@@ -404,7 +653,7 @@ export function LessonWorkspaceView({
                 </span>
               </div>
 
-              {(!lesson?.test_quizzes || lesson.test_quizzes.length === 0) ? (
+              {!lesson?.test_quizzes || lesson.test_quizzes.length === 0 ? (
                 <p className="text-center text-slate-400 text-xs py-3 font-normal italic">
                   Chưa có đề kiểm tra định kỳ.
                 </p>
@@ -423,13 +672,40 @@ export function LessonWorkspaceView({
                           Đề KT
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onStartQuiz(test.id, test.title || "Đề kiểm tra", false, test.duration_minutes || 45)}
-                        className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                      >
-                        <Play className="w-3 h-3 fill-white" /> Vào phòng thi kiểm tra
-                      </button>
+
+                      <div className="space-y-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenExamEntry(test, false)}
+                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                        >
+                          <Play className="w-3 h-3 fill-white" /> Vào phòng thi kiểm tra
+                        </button>
+
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handlePrintSheetForQuiz(test, false)}
+                            className="py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                            title="Tải hoặc in phiếu trả lời trắc nghiệm A4 theo cấu trúc Đề KT này"
+                          >
+                            <Printer className="w-3 h-3" /> In Phiếu A4
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const resolved = await resolveFullExamData(test, false);
+                              setIsEntryHomework(false);
+                              setActiveDigitalExam(resolved);
+                            }}
+                            className="py-1.5 px-2 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                            title="Mở nhanh Phiếu tô trắc nghiệm Online trên màn hình"
+                          >
+                            <PenTool className="w-3 h-3" /> Tô Phiếu Onl
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -484,11 +760,11 @@ export function LessonWorkspaceView({
                 ))}
 
                 {(!lesson?.lecture_files || lesson.lecture_files.length === 0) &&
-                 (!lesson?.handwritten_notes || lesson.handwritten_notes.length === 0) && (
-                  <p className="text-center text-slate-400 text-xs py-2 font-normal italic">
-                    Chưa có tài liệu đính kèm.
-                  </p>
-                )}
+                  (!lesson?.handwritten_notes || lesson.handwritten_notes.length === 0) && (
+                    <p className="text-center text-slate-400 text-xs py-2 font-normal italic">
+                      Chưa có tài liệu đính kèm.
+                    </p>
+                  )}
               </div>
             </div>
 
@@ -497,7 +773,8 @@ export function LessonWorkspaceView({
               <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <h3 className="text-xs font-semibold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Tài liệu tăng cường
+                    <Zap className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Tài liệu tăng
+                    cường
                   </h3>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700">
                     {lesson.extra_resources.length}
@@ -528,11 +805,62 @@ export function LessonWorkspaceView({
                 </div>
               </div>
             )}
-
           </div>
-
         </div>
       </main>
+
+      {/* 3. POPUP CHỌN HÌNH THỨC LÀM BÀI (WEB vs QUÉT PHIẾU GIẤY vs TÔ PHIẾU ONLINE) */}
+      <ExamEntryModal
+        isOpen={isEntryModalOpen}
+        onClose={() => setIsEntryModalOpen(false)}
+        exam={selectedQuizForEntry}
+        isHomework={isEntryHomework}
+        studentSbd={studentAutoSbd}
+        studentName={fallbackProfile.full_name || "Học sinh"}
+        onSelectWeb={() => {
+          if (!selectedQuizForEntry) return;
+          const qId = String(
+            selectedQuizForEntry.quiz_id ||
+              selectedQuizForEntry.exam_id ||
+              selectedQuizForEntry.id ||
+              ""
+          );
+          const qTitle =
+            selectedQuizForEntry.title ||
+            (isEntryHomework ? "Bài tập về nhà" : "Đề kiểm tra");
+          const qDuration = Number(
+            selectedQuizForEntry.duration_minutes || selectedQuizForEntry.duration || 45
+          );
+          onStartQuiz(qId, qTitle, isEntryHomework, qDuration);
+        }}
+        onSelectPaperScan={() => {
+          if (!selectedQuizForEntry) return;
+          setActivePaperScanExam(selectedQuizForEntry);
+        }}
+        onSelectDigitalSheet={() => {
+          if (!selectedQuizForEntry) return;
+          setActiveDigitalExam(selectedQuizForEntry);
+        }}
+      />
+
+      {/* 4. MODAL CHỤP / TẢI ẢNH QUÉT PHIẾU GIẤY (NHÁNH 2A) */}
+      {activePaperScanExam && (
+        <PaperScanModal
+          isOpen={Boolean(activePaperScanExam)}
+          onClose={() => setActivePaperScanExam(null)}
+          exam={activePaperScanExam}
+          profile={fallbackProfile}
+          isHomework={isEntryHomework}
+          onScanSuccess={(attemptRecord: ExamAttempt) => {
+            const scannedExam = activePaperScanExam;
+            setActivePaperScanExam(null);
+            setReviewingPaperAttempt({
+              attempt: attemptRecord,
+              exam: scannedExam
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
