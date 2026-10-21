@@ -1,1030 +1,955 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X,
-  UploadCloud,
   Camera,
+  Upload,
+  X,
   CheckCircle2,
   AlertTriangle,
   Loader2,
   Eye,
-  Save,
   Trash2,
-  RefreshCw,
-  FileText,
-  UserCheck,
-  Printer,
-  Edit3,
+  Save,
+  ZoomIn,
+  ZoomOut,
+  SwitchCamera,
   Sparkles,
-  Check
+  FileCheck2,
+  Users
 } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 import {
   scanOMRSheetFromCanvas,
   gradeOMRSubmission,
+  computeAdaptiveBinaryMask,
+  detectOMRCornerMarkers,
+  deriveExamCode3Digits,
   formatStudentAutoSBD,
-  openPrintableDynamicAnswerSheet,
   OMR_CANONICAL_WIDTH,
   OMR_CANONICAL_HEIGHT
 } from "@/lib/omrEngine";
-import {
-  ExamAttempt,
-  OMRResultData,
-  OMRGradingSummary
-} from "@/types";
-
-export interface StudentSBDRecord {
-  stt: number;
-  sbd: string;
-  id: string;
-  username: string;
-  full_name: string;
-  school?: string;
-  grade?: string;
-}
-
-export interface BulkScannedPaperItem {
-  localId: string;
-  fileName: string;
-  status: "processing" | "ready" | "flagged" | "error";
-  errorMessage?: string;
-  detectedSbd: string;
-  detectedExamCode: string;
-  matchedStudent: StudentSBDRecord | null;
-  matchedExam: any | null;
-  score: number;
-  manualScoreOverride: number | null;
-  correctCount: number;
-  totalQuestions: number;
-  confidence: number;
-  flaggedQuestions: number[];
-  warpedImageUrl: string;
-  omrData: OMRResultData;
-  gradingSummary: OMRGradingSummary;
-}
 
 export interface AdminBulkOMRScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  practiceExams: any[];
-  defaultSelectedExam?: any | null;
-  studentsList: StudentSBDRecord[];
-  supabase: any;
-  showToast: (msg: string, type?: "success" | "error") => void;
-  onBulkSavedSuccess?: (newAttempts: ExamAttempt[]) => void;
+  initialSelectedQuiz?: any;
+  chapters?: any[];
+  practiceExams?: any[];
+  registeredStudents?: any[];
+  onSavedBatchAttempts?: (newAttempts: any[]) => void;
+  showToast?: (msg: string, type?: "success" | "error") => void;
+}
+
+interface ScannedSheetItem {
+  tempId: string;
+  fileName: string;
+  detectedSbd: string;
+  detectedExamCode: string;
+  matchedStudentId: string;
+  matchedStudentName: string;
+  matchedSchool: string;
+  matchedQuizId: string;
+  matchedQuizTitle: string;
+  sourceType: "homework" | "test" | "practice";
+  assignedMonth?: number;
+  assignedWeek?: number;
+  score: number;
+  part1Score: number;
+  part2Score: number;
+  part3Score: number;
+  correctCount: number;
+  wrongCount: number;
+  skippedCount: number;
+  totalQuestions: number;
+  confidence: number;
+  flaggedQuestions: number[];
+  geometryWarning?: string;
+  warpedImageUrl: string;
+  omrRawData: any;
+  normalizedAnswers: Record<string, any>;
 }
 
 export function AdminBulkOMRScannerModal({
   isOpen,
   onClose,
-  practiceExams,
-  defaultSelectedExam = null,
-  studentsList,
-  supabase,
-  showToast,
-  onBulkSavedSuccess
+  initialSelectedQuiz,
+  chapters = [],
+  practiceExams = [],
+  registeredStudents = [],
+  onSavedBatchAttempts,
+  showToast
 }: AdminBulkOMRScannerModalProps) {
-  const [selectedExamId, setSelectedExamId] = useState<string>("");
-  const [scannedItems, setScannedItems] = useState<BulkScannedPaperItem[]>([]);
-  const [isProcessingBatch, setIsProcessingBatch] = useState<boolean>(false);
-  const [processingProgress, setProcessingProgress] = useState<{ current: number; total: number }>({
-    current: 0,
-    total: 0
-  });
+  const [inputMode, setInputMode] = useState<"upload" | "camera">("upload");
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState<boolean>(true);
+  const [cameraStatusText, setCameraStatusText] = useState<string>(
+    "Đưa phiếu vào khung ngắm để tự động bắt 4 góc..."
+  );
+
+  const [selectedQuizId, setSelectedQuizId] = useState<string>(
+    initialSelectedQuiz?.id ? String(initialSelectedQuiz.id) : "auto"
+  );
+
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [progressText, setProgressText] = useState<string>("");
+  const [scannedItems, setScannedItems] = useState<ScannedSheetItem[]>([]);
+  const [activeInspectId, setActiveInspectId] = useState<string | null>(null);
+  const [zoomScale, setZoomScale] = useState<number>(1);
   const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
 
-  // Chế độ Camera quét liên tục
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  // Modal xem chi tiết & phúc khảo từng bài
-  const [inspectingItemId, setInspectingItemId] = useState<string | null>(null);
+  const lastAutoCaptureTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    if (isOpen) {
-      if (defaultSelectedExam?.id) {
-        setSelectedExamId(String(defaultSelectedExam.id));
-      } else if (practiceExams && practiceExams.length > 0 && !selectedExamId) {
-        setSelectedExamId(String(practiceExams[0].id));
-      }
-    } else {
-      stopCameraStream();
+    if (initialSelectedQuiz?.id) {
+      setSelectedQuizId(String(initialSelectedQuiz.id));
     }
-  }, [isOpen, defaultSelectedExam, practiceExams]);
+  }, [initialSelectedQuiz]);
 
-  const activeExamObj = useMemo(() => {
-    if (!practiceExams || practiceExams.length === 0) return null;
-    return (
-      practiceExams.find((ex) => String(ex.id) === String(selectedExamId)) ||
-      defaultSelectedExam ||
-      practiceExams[0]
+  // 1. TỔNG HỢP DANH MỤC TẤT CẢ ĐỀ THI (BTVN + ĐỀ KT + LUYỆN ĐỀ) ĐỂ TỰ ĐỘNG KHỚP MÃ ĐỀ
+  const allQuizzesPool = useMemo(() => {
+    const list: {
+      id: string;
+      title: string;
+      examCode: string;
+      sourceType: "homework" | "test" | "practice";
+      assignedMonth?: number;
+      assignedWeek?: number;
+      rawObj: any;
+    }[] = [];
+
+    (chapters || []).forEach((chap: any) => {
+      (chap?.lessons || []).forEach((les: any) => {
+        const lMonth = Number(les?.assigned_month) || 10;
+        const lWeek = Number(les?.assigned_week) || 1;
+
+        (les?.homework_files || []).forEach((hw: any) => {
+          if (!hw || hw.is_drive_file) return;
+          list.push({
+            id: String(hw.id),
+            title: String(hw.title || "BTVN"),
+            examCode: deriveExamCode3Digits(hw),
+            sourceType: "homework",
+            assignedMonth: Number(hw.assigned_month) || lMonth,
+            assignedWeek: Number(hw.assigned_week) || lWeek,
+            rawObj: hw
+          });
+        });
+
+        (les?.test_quizzes || []).forEach((tq: any) => {
+          if (!tq || tq.is_drive_file) return;
+          list.push({
+            id: String(tq.id),
+            title: String(tq.title || "Đề kiểm tra"),
+            examCode: deriveExamCode3Digits(tq),
+            sourceType: "test",
+            assignedMonth: Number(tq.assigned_month) || lMonth,
+            assignedWeek: Number(tq.assigned_week) || lWeek,
+            rawObj: tq
+          });
+        });
+      });
+    });
+
+    (practiceExams || []).forEach((pe: any) => {
+      if (!pe) return;
+      list.push({
+        id: String(pe.id),
+        title: String(pe.title || "Luyện đề"),
+        examCode: deriveExamCode3Digits(pe),
+        sourceType: "practice",
+        assignedMonth: Number(pe.assigned_month) || undefined,
+        assignedWeek: Number(pe.assigned_week) || undefined,
+        rawObj: pe
+      });
+    });
+
+    return list;
+  }, [chapters, practiceExams]);
+
+  // 2. BẢNG TRA CỨU HỌC SINH THEO SBD (000001 -> 0000NN)
+  const studentDirectory = useMemo(() => {
+    const pool = [...(registeredStudents || [])].filter(Boolean);
+    pool.sort((a, b) =>
+      String(a.full_name || a.name || "").localeCompare(
+        String(b.full_name || b.name || ""),
+        "vi"
+      )
     );
-  }, [practiceExams, selectedExamId, defaultSelectedExam]);
+    return pool.map((stu, idx) => ({
+      id: String(stu.id),
+      full_name: String(stu.full_name || stu.name || "Học sinh"),
+      school: String(stu.school || "THPT"),
+      stt: idx + 1,
+      sbd: formatStudentAutoSBD(idx + 1)
+    }));
+  }, [registeredStudents]);
 
-  const inspectingItem = useMemo(() => {
-    if (!inspectingItemId) return null;
-    return scannedItems.find((item) => item.localId === inspectingItemId) || null;
-  }, [scannedItems, inspectingItemId]);
+  const sbdLookupMap = useMemo(() => {
+    const map = new Map<string, (typeof studentDirectory)[0]>();
+    studentDirectory.forEach((s) => {
+      map.set(s.sbd, s);
+      map.set(String(s.stt), s);
+    });
+    return map;
+  }, [studentDirectory]);
 
-  /**
-   * Đối chiếu SBD đọc được từ phiếu với danh sách học sinh trong lớp
-   */
-  const matchStudentBySbd = useCallback(
-    (rawSbd: string): StudentSBDRecord | null => {
-      if (!rawSbd || rawSbd === "Chưa tô") return null;
-      const cleanDigits = rawSbd.replace(/\D/g, "");
-      if (!cleanDigits) return null;
+  // 3. QUẢN LÝ CAMERA QUÉT LIÊN TỤC
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
 
-      const padded6 = formatStudentAutoSBD(cleanDigits);
-      const numericStt = parseInt(cleanDigits, 10);
-
-      // 1. Khớp chính xác SBD 6 chữ số hoặc STT
-      const exact = studentsList.find(
-        (st) =>
-          st.sbd === padded6 ||
-          st.stt === numericStt ||
-          formatStudentAutoSBD(st.id) === padded6
-      );
-      if (exact) return exact;
-
-      return null;
-    },
-    [studentsList]
-  );
-
-  /**
-   * Nạp 1 file ảnh hoặc frame video lên Canvas và chạy OMR Engine
-   */
-  const processSingleImageSource = useCallback(
-    async (
-      imgSource: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
-      fileNameLabel: string,
-      widthPx: number,
-      heightPx: number
-    ): Promise<BulkScannedPaperItem> => {
-      const workCanvas = document.createElement("canvas");
-      workCanvas.width = widthPx;
-      workCanvas.height = heightPx;
-      const ctx = workCanvas.getContext("2d");
-      if (!ctx) {
-        throw new Error("Không thể khởi tạo bộ xử lý ảnh Canvas 2D.");
-      }
-      ctx.drawImage(imgSource, 0, 0, widthPx, heightPx);
-
-      const targetExam = activeExamObj || practiceExams[0] || {};
-      const omrRaw = scanOMRSheetFromCanvas(workCanvas, targetExam);
-      const graded = gradeOMRSubmission(omrRaw, targetExam);
-      const matchedStu = matchStudentBySbd(omrRaw.detected_sbd);
-
-      const hasWarning =
-        graded.updatedOmrData.flagged_questions.length > 0 ||
-        !matchedStu ||
-        omrRaw.detected_sbd === "Chưa tô";
-
-      return {
-        localId: "scan-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7),
-        fileName: fileNameLabel,
-        status: hasWarning ? "flagged" : "ready",
-        detectedSbd: omrRaw.detected_sbd,
-        detectedExamCode: omrRaw.detected_exam_code,
-        matchedStudent: matchedStu,
-        matchedExam: targetExam,
-        score: graded.score,
-        manualScoreOverride: null,
-        correctCount: graded.correctCount,
-        totalQuestions: graded.totalQuestions,
-        confidence: omrRaw.confidence,
-        flaggedQuestions: graded.updatedOmrData.flagged_questions,
-        warpedImageUrl: graded.updatedOmrData.warped_image_data_url || workCanvas.toDataURL("image/jpeg", 0.85),
-        omrData: graded.updatedOmrData,
-        gradingSummary: graded
-      };
-    },
-    [activeExamObj, practiceExams, matchStudentBySbd]
-  );
-
-  /**
-   * Xử lý tải hàng loạt file ảnh phiếu trả lời của cả lớp
-   */
-  const handleFilesSelected = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
-    if (!activeExamObj) {
-      showToast("Vui lòng chọn đề thi chuẩn trước khi quét phiếu!", "error");
+  const startCamera = useCallback(async () => {
+    stopCamera();
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setCameraStatusText("Trình duyệt không hỗ trợ Camera trực tiếp.");
       return;
     }
-
-    const filesArray = Array.from(fileList);
-    setIsProcessingBatch(true);
-    setProcessingProgress({ current: 0, total: filesArray.length });
-
-    const newResults: BulkScannedPaperItem[] = [];
-
-    for (let i = 0; i < filesArray.length; i++) {
-      const file = filesArray[i];
-      setProcessingProgress({ current: i + 1, total: filesArray.length });
-
-      try {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result || ""));
-          reader.onerror = () => reject(new Error("Lỗi đọc file ảnh"));
-          reader.readAsDataURL(file);
-        });
-
-        const imgEl = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => reject(new Error("Ảnh không hợp lệ"));
-          img.src = dataUrl;
-        });
-
-        // Cho phép UI render thanh tiến trình mượt mà
-        await new Promise((r) => setTimeout(r, 30));
-
-        const scannedItem = await processSingleImageSource(
-          imgEl,
-          file.name,
-          imgEl.naturalWidth || imgEl.width,
-          imgEl.naturalHeight || imgEl.height
-        );
-        newResults.push(scannedItem);
-      } catch (err: any) {
-        newResults.push({
-          localId: "err-" + Date.now() + "-" + i,
-          fileName: file.name,
-          status: "error",
-          errorMessage: err?.message || "Không nhận diện được phiếu",
-          detectedSbd: "Lỗi",
-          detectedExamCode: "---",
-          matchedStudent: null,
-          matchedExam: activeExamObj,
-          score: 0,
-          manualScoreOverride: null,
-          correctCount: 0,
-          totalQuestions: 0,
-          confidence: 0,
-          flaggedQuestions: [],
-          warpedImageUrl: "",
-          omrData: {
-            detected_sbd: "",
-            detected_exam_code: "",
-            confidence: 0,
-            warp_matrix_applied: false,
-            canonical_width: OMR_CANONICAL_WIDTH,
-            canonical_height: OMR_CANONICAL_HEIGHT,
-            part1_answers: {},
-            part2_answers: {},
-            part3_answers: {},
-            flagged_questions: [],
-            bubble_coordinates: []
-          },
-          gradingSummary: {
-            score: 0,
-            rawPointsEarned: 0,
-            maxPossiblePoints: 10,
-            totalQuestions: 0,
-            correctCount: 0,
-            wrongCount: 0,
-            skippedCount: 0,
-            part1Score: 0,
-            part2Score: 0,
-            part3Score: 0,
-            normalizedAnswers: {},
-            questionDetails: [],
-            updatedOmrData: {
-              detected_sbd: "",
-              detected_exam_code: "",
-              confidence: 0,
-              warp_matrix_applied: false,
-              canonical_width: OMR_CANONICAL_WIDTH,
-              canonical_height: OMR_CANONICAL_HEIGHT,
-              part1_answers: {},
-              part2_answers: {},
-              part3_answers: {},
-              flagged_questions: [],
-              bubble_coordinates: []
-            }
-          }
-        });
-      }
-    }
-
-    setScannedItems((prev) => [...newResults, ...prev]);
-    setIsProcessingBatch(false);
-    showToast(`Đã quét và chấm tự động ${newResults.length} phiếu trả lời!`, "success");
-  };
-
-  /**
-   * Bật / Tắt Camera quét phiếu trực tiếp
-   */
-  const startCameraStream = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: "environment",
+          facingMode: { ideal: facingMode },
           width: { ideal: 1920 },
           height: { ideal: 1080 }
-        }
+        },
+        audio: false
       });
       streamRef.current = stream;
-      setIsCameraActive(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      }, 100);
-    } catch (err) {
-      showToast("Không thể truy cập Camera. Vui lòng cấp quyền hoặc tải file ảnh lên!", "error");
-    }
-  };
-
-  const stopCameraStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((tr) => tr.stop());
-      streamRef.current = null;
-    }
-    setIsCameraActive(false);
-  };
-
-  const handleCaptureFromCamera = async () => {
-    if (!videoRef.current || !activeExamObj) return;
-    const vid = videoRef.current;
-    const w = vid.videoWidth || 1280;
-    const h = vid.videoHeight || 720;
-
-    try {
-      const item = await processSingleImageSource(
-        vid,
-        `Camera_Capture_${scannedItems.length + 1}.jpg`,
-        w,
-        h
-      );
-      setScannedItems((prev) => [item, ...prev]);
-      showToast(
-        `Đã chụp & chấm phiếu: SBD ${item.detectedSbd} - Điểm: ${item.score}`,
-        "success"
-      );
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
     } catch {
-      showToast("Lỗi khi chụp và phân tích phiếu từ Camera!", "error");
+      setCameraStatusText("Không thể mở Camera. Vui lòng sử dụng chế độ Kéo thả ảnh.");
     }
-  };
+  }, [facingMode, stopCamera]);
 
-  /**
-   * Giáo viên gán lại học sinh cho bài quét nếu học sinh tô nhầm SBD
-   */
-  const handleChangeMatchedStudent = (localId: string, newStudentId: string) => {
-    const foundStu = studentsList.find((s) => String(s.id) === String(newStudentId)) || null;
-    setScannedItems((prev) =>
-      prev.map((item) => {
-        if (item.localId !== localId) return item;
-        const nextStatus =
-          foundStu && item.flaggedQuestions.length === 0 ? "ready" : "flagged";
-        return {
-          ...item,
-          matchedStudent: foundStu,
-          detectedSbd: foundStu ? foundStu.sbd : item.detectedSbd,
-          status: nextStatus
-        };
-      })
-    );
-  };
+  useEffect(() => {
+    if (isOpen && inputMode === "camera") {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return () => stopCamera();
+  }, [isOpen, inputMode, startCamera, stopCamera]);
 
-  /**
-   * Giáo viên chỉnh sửa điểm trực tiếp (Phúc khảo / Tẩy chì lem)
-   */
-  const handleManualScoreChange = (localId: string, newScoreVal: string) => {
-    const parsed = parseFloat(newScoreVal);
-    setScannedItems((prev) =>
-      prev.map((item) => {
-        if (item.localId !== localId) return item;
-        if (newScoreVal === "" || isNaN(parsed)) {
-          return { ...item, manualScoreOverride: null };
+  // HÀM XỬ LÝ 1 CANVAS ẢNH CHỤP -> TRÍCH XUẤT SBD, MÃ ĐỀ & CHẤM ĐIỂM
+  const processSingleCanvas = useCallback(
+    (canvas: HTMLCanvasElement, labelName: string): ScannedSheetItem | null => {
+      // Tìm đề thi mục tiêu
+      let targetQuizEntry =
+        selectedQuizId !== "auto"
+          ? allQuizzesPool.find((q) => q.id === selectedQuizId) || allQuizzesPool[0]
+          : allQuizzesPool[0];
+
+      // Quét sơ bộ để lấy Mã đề nếu để chế độ "auto"
+      const preliminaryOmr = scanOMRSheetFromCanvas(canvas, targetQuizEntry?.rawObj);
+
+      if (selectedQuizId === "auto" && preliminaryOmr.detected_exam_code !== "Chưa tô") {
+        const byCode = allQuizzesPool.find(
+          (q) => q.examCode === preliminaryOmr.detected_exam_code
+        );
+        if (byCode) {
+          targetQuizEntry = byCode;
         }
-        const clamped = Math.min(10, Math.max(0, Number(parsed.toFixed(2))));
-        return { ...item, manualScoreOverride: clamped };
-      })
+      }
+
+      const finalOmr =
+        targetQuizEntry && selectedQuizId === "auto"
+          ? scanOMRSheetFromCanvas(canvas, targetQuizEntry.rawObj)
+          : preliminaryOmr;
+
+      const graded = gradeOMRSubmission(finalOmr, targetQuizEntry?.rawObj);
+
+      // Khớp học sinh từ SBD
+      const cleanSbd = String(finalOmr.detected_sbd || "").trim();
+      const parsedStt = parseInt(cleanSbd.replace(/\D/g, ""), 10);
+      const matchedStu =
+        sbdLookupMap.get(cleanSbd) ||
+        (!isNaN(parsedStt) ? sbdLookupMap.get(String(parsedStt)) : undefined) ||
+        null;
+
+      const item: ScannedSheetItem = {
+        tempId: `scan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        fileName: labelName,
+        detectedSbd: cleanSbd || "Chưa tô",
+        detectedExamCode: finalOmr.detected_exam_code || targetQuizEntry?.examCode || "101",
+        matchedStudentId: matchedStu?.id || `sbd_${cleanSbd || Date.now()}`,
+        matchedStudentName:
+          matchedStu?.full_name ||
+          (cleanSbd && cleanSbd !== "Chưa tô" ? `Học sinh (SBD: ${cleanSbd})` : "Chưa rõ SBD"),
+        matchedSchool: matchedStu?.school || "THPT",
+        matchedQuizId: targetQuizEntry?.id || "quiz-paper",
+        matchedQuizTitle: targetQuizEntry?.title || "Đề thi trên giấy",
+        sourceType: targetQuizEntry?.sourceType || "practice",
+        assignedMonth: targetQuizEntry?.assignedMonth,
+        assignedWeek: targetQuizEntry?.assignedWeek,
+        score: graded.score,
+        part1Score: graded.part1Score,
+        part2Score: graded.part2Score,
+        part3Score: graded.part3Score,
+        correctCount: graded.correctCount,
+        wrongCount: graded.wrongCount,
+        skippedCount: graded.skippedCount,
+        totalQuestions: graded.totalQuestions,
+        confidence: graded.updatedOmrData.confidence,
+        flaggedQuestions: graded.updatedOmrData.flagged_questions || [],
+        geometryWarning: graded.updatedOmrData.geometry_warning,
+        warpedImageUrl: graded.updatedOmrData.warped_image_data_url || "",
+        omrRawData: graded.updatedOmrData,
+        normalizedAnswers: graded.normalizedAnswers
+      };
+
+      return item;
+    },
+    [selectedQuizId, allQuizzesPool, sbdLookupMap]
+  );
+
+  // VÒNG LẶP AUTO-CAPTURE KHI CAMERA BẮT ĐỦ 4 GÓC HỢP LỆ
+  useEffect(() => {
+    if (!isOpen || inputMode !== "camera" || !autoCaptureEnabled) return;
+
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return;
+      const now = Date.now();
+      if (now - lastAutoCaptureTimeRef.current < 3500) return;
+
+      const vW = video.videoWidth || 1280;
+      const vH = video.videoHeight || 720;
+      const checkCanvas = document.createElement("canvas");
+      checkCanvas.width = 600;
+      checkCanvas.height = Math.round((vH / vW) * 600);
+      const ctx = checkCanvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.drawImage(video, 0, 0, checkCanvas.width, checkCanvas.height);
+      const imgData = ctx.getImageData(0, 0, checkCanvas.width, checkCanvas.height);
+      const mask = computeAdaptiveBinaryMask(imgData);
+      const corners = detectOMRCornerMarkers(mask.binary, mask.width, mask.height, mask.gray);
+
+      if (corners.detected && !corners.geometryWarning) {
+        lastAutoCaptureTimeRef.current = now;
+        setCameraStatusText("✓ Đã bắt chuẩn 4 góc! Đang chụp & chấm tự động...");
+
+        const fullCanvas = document.createElement("canvas");
+        fullCanvas.width = vW;
+        fullCanvas.height = vH;
+        const fCtx = fullCanvas.getContext("2d");
+        if (fCtx) {
+          fCtx.drawImage(video, 0, 0, vW, vH);
+          const resultItem = processSingleCanvas(
+            fullCanvas,
+            `Camera_${new Date().toLocaleTimeString("vi-VN")}`
+          );
+          if (resultItem) {
+            setScannedItems((prev) => [resultItem, ...prev]);
+            setActiveInspectId(resultItem.tempId);
+            setCameraStatusText(
+              `✓ Đã chấm: ${resultItem.matchedStudentName} (${resultItem.score}đ) — Mời đưa phiếu tiếp theo vào!`
+            );
+          }
+        }
+      }
+    }, 650);
+
+    return () => clearInterval(interval);
+  }, [isOpen, inputMode, autoCaptureEnabled, processSingleCanvas]);
+
+  // CHỤP BẰNG TAY TỪ CAMERA
+  const handleManualCameraCapture = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const vW = video.videoWidth || 1280;
+    const vH = video.videoHeight || 720;
+    const fullCanvas = document.createElement("canvas");
+    fullCanvas.width = vW;
+    fullCanvas.height = vH;
+    const fCtx = fullCanvas.getContext("2d");
+    if (!fCtx) return;
+
+    fCtx.drawImage(video, 0, 0, vW, vH);
+    const resultItem = processSingleCanvas(
+      fullCanvas,
+      `Camera_${new Date().toLocaleTimeString("vi-VN")}`
+    );
+    if (resultItem) {
+      setScannedItems((prev) => [resultItem, ...prev]);
+      setActiveInspectId(resultItem.tempId);
+    }
+  };
+
+  // XỬ LÝ KÉO THẢ / CHỌN NHIỀU FILE ẢNH CÙNG LÚC
+  const handleMultipleFilesSelect = async (filesList: FileList | null) => {
+    if (!filesList || filesList.length === 0) return;
+    setIsProcessing(true);
+    const filesArr = Array.from(filesList);
+    const newResults: ScannedSheetItem[] = [];
+
+    for (let i = 0; i < filesArr.length; i++) {
+      const f = filesArr[i];
+      setProgressText(`Đang quét phiếu ${i + 1} / ${filesArr.length}: ${f.name}...`);
+
+      try {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(String(e.target?.result || ""));
+          reader.readAsDataURL(f);
+        });
+
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const im = new Image();
+          im.onload = () => resolve(im);
+          im.onerror = reject;
+          im.src = dataUrl;
+        });
+
+        const canvas = document.createElement("canvas");
+        const maxDim = 1800;
+        let w = img.naturalWidth || img.width || OMR_CANONICAL_WIDTH;
+        let h = img.naturalHeight || img.height || OMR_CANONICAL_HEIGHT;
+        if (w > maxDim || h > maxDim) {
+          const r = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * r);
+          h = Math.round(h * r);
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const scanned = processSingleCanvas(canvas, f.name);
+        if (scanned) {
+          newResults.push(scanned);
+        }
+      } catch (e) {
+        console.error("Lỗi quét ảnh:", f.name, e);
+      }
+    }
+
+    if (newResults.length > 0) {
+      setScannedItems((prev) => [...newResults, ...prev]);
+      setActiveInspectId(newResults[0].tempId);
+    }
+
+    setIsProcessing(false);
+    setProgressText("");
+  };
+
+  // CẬP NHẬT ĐIỂM HOẶC ĐỔI HỌC SINH TRONG DANH SÁCH TẠM TRƯỚC KHI LƯU
+  const handleUpdateScannedItem = (
+    tempId: string,
+    updates: Partial<ScannedSheetItem>
+  ) => {
+    setScannedItems((prev) =>
+      prev.map((it) => (it.tempId === tempId ? { ...it, ...updates } : it))
     );
   };
 
-  /**
-   * Lưu toàn bộ danh sách bài thi giấy vừa chấm vào Hệ thống (Supabase + LocalStorage + API)
-   */
-  const handleSaveAllScannedAttempts = async () => {
-    const validItems = scannedItems.filter((it) => it.status !== "error" && it.matchedExam);
-    if (validItems.length === 0) {
-      showToast("Chưa có bài chấm hợp lệ nào để lưu!", "error");
-      return;
-    }
-
+  // LƯU TẤT CẢ ĐIỂM VÀO HỆ THỐNG (SUPABASE & LOCALSTORAGE)
+  const handleSaveAllScannedToSystem = async () => {
+    if (scannedItems.length === 0 || isSavingAll) return;
     setIsSavingAll(true);
+
     const nowIso = new Date().toISOString();
-    const createdAttempts: ExamAttempt[] = [];
+    const formattedAttempts: any[] = [];
 
-    for (let i = 0; i < validItems.length; i++) {
-      const item = validItems[i];
-      const finalScore =
-        item.manualScoreOverride !== null ? item.manualScoreOverride : item.score;
+    for (let i = 0; i < scannedItems.length; i++) {
+      const item = scannedItems[i];
+      const attemptId = `att-paper-${Date.now()}-${i}`;
 
-      const stuId = item.matchedStudent?.id || `sbd-${item.detectedSbd || i + 1}`;
-      const stuName =
-        item.matchedStudent?.full_name || `Thí sinh SBD ${item.detectedSbd || "Chưa rõ"}`;
-      const stuSchool = item.matchedStudent?.school || "THPT";
-      const exObj = item.matchedExam || activeExamObj;
-      const exId = String(exObj?.id || "practice-paper");
-      const exTitle = String(exObj?.title || "Đề thi trên giấy");
-
-      const attemptObj: ExamAttempt = {
-        id: `att-admin-paper-${Date.now()}-${i}`,
-        quiz_id: exId,
-        quizId: exId,
-        exam_id: exId,
-        quiz_title: exTitle,
-        quizTitle: exTitle,
-        exam_title: exTitle,
-        examTitle: exTitle,
-        student_id: stuId,
-        studentId: stuId,
-        user_id: stuId,
-        student_name: stuName,
-        studentName: stuName,
-        full_name: stuName,
-        user_name: stuName,
-        school: stuSchool,
-        score: finalScore,
-        points: finalScore,
+      const record: any = {
+        id: attemptId,
+        quiz_id: item.matchedQuizId,
+        quizId: item.matchedQuizId,
+        exam_id: item.matchedQuizId,
+        quiz_title: item.matchedQuizTitle,
+        quizTitle: item.matchedQuizTitle,
+        exam_title: item.matchedQuizTitle,
+        examTitle: item.matchedQuizTitle,
+        student_id: item.matchedStudentId,
+        studentId: item.matchedStudentId,
+        user_id: item.matchedStudentId,
+        student_name: item.matchedStudentName,
+        studentName: item.matchedStudentName,
+        full_name: item.matchedStudentName,
+        school: item.matchedSchool,
+        score: Number(item.score),
+        points: Number(item.score),
         total_questions: item.totalQuestions,
         totalQuestions: item.totalQuestions,
         correct_count: item.correctCount,
         correctCount: item.correctCount,
-        time_spent: "Thi giấy (Admin OMR)",
-        timeSpent: "Thi giấy (Admin OMR)",
+        time_spent: "Làm trên giấy",
+        timeSpent: "Làm trên giấy",
         duration_seconds: 0,
-        is_homework: false,
-        isHomework: false,
-        type: "practice",
+        is_homework: item.sourceType === "homework",
+        isHomework: item.sourceType === "homework",
+        type: item.sourceType,
         submission_type: "paper",
         paper_scan_url: item.warpedImageUrl,
-        omr_raw_data: item.omrData,
+        omr_raw_data: item.omrRawData,
         recognition_confidence: item.confidence,
         flagged_questions: item.flaggedQuestions,
-        answers: item.gradingSummary.normalizedAnswers,
-        userAnswers: item.gradingSummary.normalizedAnswers,
-        user_answers: item.gradingSummary.normalizedAnswers,
+        answers: item.normalizedAnswers,
+        userAnswers: item.normalizedAnswers,
+        user_answers: item.normalizedAnswers,
+        assigned_month: item.assignedMonth,
+        assigned_week: item.assignedWeek,
         created_at: nowIso,
         createdAt: nowIso,
         submittedAt: nowIso
       };
 
-      createdAttempts.push(attemptObj);
+      formattedAttempts.push(record);
 
       try {
         await fetch("/api/student/scan-paper", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            attemptId: attemptObj.id,
-            examId: exId,
-            examTitle: exTitle,
-            studentId: stuId,
-            studentName: stuName,
-            school: stuSchool,
-            score: finalScore,
-            totalQuestions: item.totalQuestions,
-            correctCount: item.correctCount,
-            isHomework: false,
-            answers: item.gradingSummary.normalizedAnswers,
-            omrData: item.omrData,
-            imageBase64: item.warpedImageUrl
+            attemptId: record.id,
+            examId: record.quiz_id,
+            examTitle: record.quiz_title,
+            studentId: record.student_id,
+            studentName: record.student_name,
+            school: record.school,
+            score: record.score,
+            totalQuestions: record.total_questions,
+            correctCount: record.correct_count,
+            isHomework: record.is_homework,
+            answers: record.answers,
+            omrData: record.omr_raw_data,
+            imageBase64: record.paper_scan_url
           })
         });
       } catch {}
     }
 
-    // Lưu vào localStorage để đồng bộ tức thì
-    if (typeof window !== "undefined") {
-      try {
-        const rawLocal = localStorage.getItem("edunexus_attempts");
-        const parsedLocal = rawLocal ? JSON.parse(rawLocal) : [];
-        localStorage.setItem(
-          "edunexus_attempts",
-          JSON.stringify([...createdAttempts, ...parsedLocal])
-        );
-        window.dispatchEvent(new Event("storage"));
-      } catch {}
+    try {
+      await Promise.allSettled([
+        supabase.from("exam_attempts").insert(formattedAttempts),
+        supabase.from("quiz_results").insert(formattedAttempts)
+      ]);
+    } catch {}
+
+    if (onSavedBatchAttempts) {
+      onSavedBatchAttempts(formattedAttempts);
     }
 
-    // Lưu lên Supabase
-    if (supabase) {
-      try {
-        await Promise.allSettled([
-          supabase.from("exam_attempts").insert(createdAttempts),
-          supabase.from("attempts").insert(createdAttempts)
-        ]);
-      } catch {}
+    if (showToast) {
+      showToast(
+        `Đã lưu thành công ${formattedAttempts.length} bài thi giấy vào hệ thống!`,
+        "success"
+      );
     }
 
     setIsSavingAll(false);
-    showToast(
-      `Đã lưu thành công ${createdAttempts.length} bài thi giấy vào hệ thống bảng điểm!`,
-      "success"
-    );
-    if (onBulkSavedSuccess) {
-      onBulkSavedSuccess(createdAttempts);
-    }
+    setScannedItems([]);
     onClose();
   };
 
   if (!isOpen) return null;
 
+  const activeInspectItem =
+    scannedItems.find((i) => i.tempId === activeInspectId) || scannedItems[0] || null;
+
   return (
     <AnimatePresence>
       <div
         onClick={onClose}
-        className="fixed inset-0 z-[550] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 font-sans text-left cursor-pointer"
+        className="fixed inset-0 z-[550] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 font-sans text-left cursor-pointer"
       >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
           onClick={(e) => e.stopPropagation()}
-          className="bg-white rounded-3xl max-w-6xl w-full max-h-[94vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden cursor-default"
+          className="bg-white rounded-3xl max-w-6xl w-full max-h-[95vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
         >
-          {/* 1. HEADER MODAL */}
-          <div className="px-5 py-4 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white flex items-center justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              handleMultipleFilesSelect(e.target.files);
+              e.target.value = "";
+            }}
+          />
+
+          {/* HEADER */}
+          <div className="px-5 py-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center font-black">
                 <Camera className="w-5 h-5" />
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider">
-                    ADMIN BULK OMR SCANNER
-                  </span>
-                  <span className="text-xs text-slate-300 font-semibold">
-                    Nhận diện SBD tự động • Chấm hàng loạt
-                  </span>
-                </div>
-                <h3 className="text-base sm:text-lg font-extrabold text-white truncate">
-                  Hệ Thống Chấm Bài Thi Giấy Hàng Loạt Cả Lớp
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-purple-300 block">
+                  MÁY QUÉT CHẤM THI OMR HÀNG LOẠT (CHỐNG BẮT NHẦM BÀN TAY)
+                </span>
+                <h3 className="text-sm sm:text-base font-black text-white">
+                  Chấm bài thi giấy cả lớp & Đối soát SBD tự động
                 </h3>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-xl bg-white/10 hover:bg-rose-600 text-slate-200 hover:text-white transition cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* 2. THANH CHỌN ĐỀ THI CHUẨN & CÔNG CỤ NẠP ẢNH HÀNG LOẠT */}
-          <div className="p-4 sm:px-6 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[260px]">
-              <label className="text-xs font-extrabold text-slate-700 shrink-0">
-                Đề thi áp dụng đáp án:
-              </label>
+            <div className="flex flex-wrap items-center gap-2">
               <select
-                value={selectedExamId}
-                onChange={(e) => setSelectedExamId(e.target.value)}
-                className="px-3.5 py-2 rounded-xl bg-white border-2 border-blue-200 focus:border-[#1D4ED8] text-xs font-extrabold text-slate-900 outline-none cursor-pointer flex-1 max-w-md shadow-2xs"
+                value={selectedQuizId}
+                onChange={(e) => setSelectedQuizId(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-white outline-none cursor-pointer max-w-[260px]"
               >
-                {(practiceExams || []).map((ex) => (
-                  <option key={ex.id} value={ex.id}>
-                    {ex.title} ({ex.category || "Luyện đề"})
+                <option value="auto">🤖 Tự nhận diện đề theo Mã đề (3 số)</option>
+                {allQuizzesPool.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    [Mã {q.examCode}] {q.title}
                   </option>
                 ))}
               </select>
 
-              {activeExamObj && (
+              <div className="flex bg-slate-800 p-0.5 rounded-xl border border-slate-700">
                 <button
                   type="button"
-                  onClick={() => openPrintableDynamicAnswerSheet(activeExamObj)}
-                  className="px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                  onClick={() => setInputMode("upload")}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    inputMode === "upload" ? "bg-purple-600 text-white" : "text-slate-300"
+                  }`}
                 >
-                  <Printer className="w-3.5 h-3.5" /> In phiếu A4 đề này
+                  📁 Tải nhiều ảnh
                 </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <label className="px-4 py-2.5 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-extrabold shadow-xs transition flex items-center gap-2 cursor-pointer">
-                <UploadCloud className="w-4 h-4" />
-                <span>+ Tải lên nhiều ảnh phiếu cả lớp</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    handleFilesSelected(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
+                <button
+                  type="button"
+                  onClick={() => setInputMode("camera")}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    inputMode === "camera" ? "bg-purple-600 text-white" : "text-slate-300"
+                  }`}
+                >
+                  📷 Camera liên tục
+                </button>
+              </div>
 
               <button
                 type="button"
-                onClick={() => (isCameraActive ? stopCameraStream() : startCameraStream())}
-                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold border transition flex items-center gap-1.5 cursor-pointer ${
-                  isCameraActive
-                    ? "bg-rose-600 text-white border-rose-700"
-                    : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
-                }`}
+                onClick={onClose}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white transition cursor-pointer"
               >
-                <Camera className="w-4 h-4" />
-                <span>{isCameraActive ? "Tắt Camera" : "Mở Camera quét liên tục"}</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* 3. BODY NỘI DUNG CHÍNH */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 custom-scrollbar bg-[#F8FAFC]">
-            {/* KHỐI CAMERA NẾU ĐANG BẬT */}
-            {isCameraActive && (
-              <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3 border border-slate-700">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-400 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    Đặt tờ phiếu A4 nằm gọn trong khung hình (rõ 4 góc vuông đen)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCaptureFromCamera}
-                    className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs shadow-md cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Camera className="w-4 h-4" /> Chụp & Chấm ngay bài này
-                  </button>
-                </div>
-                <div className="max-w-xl mx-auto rounded-xl overflow-hidden border-2 border-emerald-500/60 bg-black aspect-[3/4] max-h-[360px] flex items-center justify-center">
-                  <video ref={videoRef} className="w-full h-full object-contain" playsInline muted />
-                </div>
-              </div>
-            )}
-
-            {/* THANH TIẾN TRÌNH ĐANG QUÉT HÀNG LOẠT */}
-            {isProcessingBatch && (
-              <div className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-400 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <Loader2 className="w-5 h-5 text-[#1D4ED8] animate-spin shrink-0" />
-                  <div>
-                    <p className="text-xs font-extrabold text-blue-950">
-                      Đang quét OMR & chấm điểm tự động: Bài {processingProgress.current} /{" "}
-                      {processingProgress.total}
-                    </p>
-                    <p className="text-[11px] text-blue-700">
-                      Hệ thống đang nắn phẳng góc A4, đọc Số Báo Danh (6 cột) và đối chiếu đáp án...
-                    </p>
-                  </div>
-                </div>
-                <span className="text-sm font-black text-[#1D4ED8]">
-                  {Math.round((processingProgress.current / Math.max(1, processingProgress.total)) * 100)}%
-                </span>
-              </div>
-            )}
-
-            {/* KHU VỰC KÉO THẢ NẾU CHƯA CÓ BÀI QUÉT NÀO */}
-            {scannedItems.length === 0 && !isProcessingBatch && (
-              <label className="border-2 border-dashed border-blue-300 hover:border-[#1D4ED8] bg-white hover:bg-blue-50/30 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-3 cursor-pointer transition-all">
-                <div className="w-14 h-14 rounded-2xl bg-blue-50 text-[#1D4ED8] border border-blue-200 flex items-center justify-center">
-                  <UploadCloud className="w-7 h-7" />
-                </div>
-                <div className="space-y-1 max-w-lg">
-                  <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
-                    Kéo thả hoặc bấm vào đây để chọn hàng loạt ảnh chụp Phiếu trả lời của cả lớp
-                  </h4>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Hỗ trợ chọn cùng lúc 20 - 50 ảnh phiếu. Hệ thống tự động đọc cột{" "}
-                    <strong>Số Báo Danh (SBD)</strong> để khớp đúng tên học sinh theo STT trong danh
-                    sách lớp và chấm điểm ngay lập tức.
-                  </p>
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    handleFilesSelected(e.target.files);
-                    e.target.value = "";
+          {/* BODY CHIA 2 CỘT: CỘT TRÁI (UPLOAD / CAMERA + DANH SÁCH KẾT QUẢ) & CỘT PHẢI (ẢNH PHÚC KHẢO) */}
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden bg-slate-50">
+            {/* CỘT TRÁI (7 CỘT) */}
+            <div className="lg:col-span-7 border-r border-slate-200 flex flex-col min-h-0 p-4 space-y-4 overflow-y-auto custom-scrollbar">
+              {inputMode === "upload" ? (
+                <div
+                  onClick={() => !isProcessing && fileInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (!isProcessing) handleMultipleFilesSelect(e.dataTransfer.files);
                   }}
-                />
-              </label>
-            )}
-
-            {/* BẢNG KẾT QUẢ CHẤM HÀNG LOẠT & ĐỐI SOÁT */}
-            {scannedItems.length > 0 && (
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-                <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <h4 className="text-xs sm:text-sm font-extrabold text-slate-900">
-                      Danh sách bài thi giấy vừa chấm ({scannedItems.length} bài)
-                    </h4>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
-                      Hợp lệ: {scannedItems.filter((i) => i.status === "ready").length}
+                  className="p-6 rounded-2xl border-2 border-dashed border-purple-300 bg-purple-50/50 hover:bg-purple-100/50 transition text-center space-y-2 cursor-pointer shrink-0"
+                >
+                  {isProcessing ? (
+                    <div className="py-3 space-y-2">
+                      <Loader2 className="w-7 h-7 animate-spin text-purple-600 mx-auto" />
+                      <p className="text-xs font-extrabold text-purple-900">{progressText}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-11 h-11 rounded-2xl bg-purple-600 text-white flex items-center justify-center mx-auto shadow-sm">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                        Kéo thả 20–50 ảnh phiếu trả lời vào đây hoặc Bấm để chọn ảnh
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        AI OMR tự động lọc bỏ bóng bàn tay, nắn phẳng 4 góc, đọc SBD 6 số và chấm điểm ngay.
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-300 relative aspect-video max-h-[260px] flex items-center justify-center shrink-0">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2">
+                    <span className="px-3 py-1 rounded-full bg-slate-900/80 text-emerald-300 text-[11px] font-bold border border-emerald-400/30">
+                      {cameraStatusText}
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-bold">
-                      Cần kiểm tra: {scannedItems.filter((i) => i.status === "flagged").length}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAutoCaptureEnabled((prev) => !prev)
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase cursor-pointer ${
+                        autoCaptureEnabled
+                          ? "bg-emerald-600 text-white"
+                          : "bg-slate-800 text-slate-300"
+                      }`}
+                    >
+                      {autoCaptureEnabled ? "Auto-Capture: BẬT" : "Auto-Capture: TẮT"}
+                    </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm("Xóa danh sách vừa quét để quét lại từ đầu?")) {
-                        setScannedItems([]);
+                  <div className="absolute bottom-3 inset-x-0 flex justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleManualCameraCapture}
+                      className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-lg cursor-pointer"
+                    >
+                      📸 Chụp & Chấm ngay
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFacingMode((m) => (m === "environment" ? "user" : "environment"))
                       }
-                    }}
-                    className="text-xs font-bold text-rose-600 hover:underline cursor-pointer"
-                  >
-                    Xóa tất cả danh sách tạm
-                  </button>
+                      className="px-3 py-2 rounded-xl bg-slate-800/90 text-white text-xs font-bold cursor-pointer"
+                    >
+                      <SwitchCamera className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* DANH SÁCH KẾT QUẢ VỪA QUÉT */}
+              <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-[240px]">
+                <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800">
+                    Danh sách phiếu vừa quét ({scannedItems.length} bài)
+                  </span>
+                  {scannedItems.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={isSavingAll}
+                      onClick={handleSaveAllScannedToSystem}
+                      className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {isSavingAll ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Đang lưu...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Lưu tất cả điểm vào hệ thống ({scannedItems.length})</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-[11px] uppercase text-slate-500 border-b border-slate-200">
-                      <tr>
-                        <th className="py-3 px-3 font-bold text-center w-12">STT</th>
-                        <th className="py-3 px-3 font-bold">SBD Quét được</th>
-                        <th className="py-3 px-4 font-bold min-w-[200px]">
-                          Học sinh tương ứng (Theo SBD)
-                        </th>
-                        <th className="py-3 px-3 font-bold text-center">Mã đề</th>
-                        <th className="py-3 px-3 font-bold text-center">Số câu đúng</th>
-                        <th className="py-3 px-3 font-bold text-center">Điểm OMR</th>
-                        <th className="py-3 px-3 font-bold text-center">Sửa điểm (Nếu lem)</th>
-                        <th className="py-3 px-3 font-bold text-center">Trạng thái</th>
-                        <th className="py-3 px-4 font-bold text-right">Phúc khảo</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {scannedItems.map((item, idx) => {
-                        const displayFinalScore =
-                          item.manualScoreOverride !== null ? item.manualScoreOverride : item.score;
-
-                        return (
-                          <tr key={item.localId} className="hover:bg-blue-50/30 transition">
-                            <td className="py-3 px-3 text-center font-bold text-slate-400">
-                              {idx + 1}
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className="px-2.5 py-1 rounded-lg bg-slate-900 text-white font-mono font-black text-xs">
-                                {item.detectedSbd}
+                <div className="flex-1 overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
+                  {scannedItems.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400 text-xs italic">
+                      Chưa có phiếu nào được quét trong phiên này.
+                    </div>
+                  ) : (
+                    scannedItems.map((item, idx) => {
+                      const isSelected = activeInspectItem?.tempId === item.tempId;
+                      return (
+                        <div
+                          key={item.tempId}
+                          onClick={() => setActiveInspectId(item.tempId)}
+                          className={`p-3 flex flex-wrap items-center justify-between gap-2 transition cursor-pointer ${
+                            isSelected ? "bg-purple-50/80" : "hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-black text-[10px]">
+                                #{idx + 1}
                               </span>
-                            </td>
-                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 font-mono font-black text-[11px]">
+                                SBD: {item.detectedSbd}
+                              </span>
+
+                              {/* Cho phép giáo viên chọn lại học sinh nếu học sinh tô nhầm SBD */}
                               <select
-                                value={item.matchedStudent?.id || ""}
-                                onChange={(e) =>
-                                  handleChangeMatchedStudent(item.localId, e.target.value)
-                                }
-                                className={`w-full px-2.5 py-1.5 rounded-xl border text-xs font-bold outline-none cursor-pointer ${
-                                  item.matchedStudent
-                                    ? "bg-emerald-50/70 border-emerald-200 text-emerald-950"
-                                    : "bg-amber-50 border-amber-300 text-amber-900"
-                                }`}
+                                value={item.matchedStudentId}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => {
+                                  const stu = studentDirectory.find((s) => s.id === e.target.value);
+                                  if (stu) {
+                                    handleUpdateScannedItem(item.tempId, {
+                                      matchedStudentId: stu.id,
+                                      matchedStudentName: stu.full_name,
+                                      matchedSchool: stu.school,
+                                      detectedSbd: stu.sbd
+                                    });
+                                  }
+                                }}
+                                className="px-2 py-0.5 rounded-lg border border-slate-200 bg-white text-xs font-extrabold text-slate-900 outline-none"
                               >
-                                <option value="">-- Chọn học sinh thủ công --</option>
-                                {studentsList.map((st) => (
-                                  <option key={st.id} value={st.id}>
-                                    SBD {st.sbd} - {st.full_name} ({st.school || "Lớp 12"})
+                                <option value={item.matchedStudentId}>
+                                  {item.matchedStudentName}
+                                </option>
+                                {studentDirectory.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    [{s.sbd}] {s.full_name}
                                   </option>
                                 ))}
                               </select>
-                            </td>
-                            <td className="py-3 px-3 text-center font-mono font-bold text-slate-700">
-                              {item.detectedExamCode}
-                            </td>
-                            <td className="py-3 px-3 text-center font-bold text-slate-700">
-                              {item.correctCount}/{item.totalQuestions}
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#1D4ED8] border border-blue-200 font-black text-xs">
-                                { displayFinalScore } đ
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              <input
-                                type="number"
-                                step="0.05"
-                                min="0"
-                                max="10"
-                                placeholder={String(item.score)}
-                                value={
-                                  item.manualScoreOverride !== null
-                                    ? String(item.manualScoreOverride)
-                                    : ""
-                                }
-                                onChange={(e) =>
-                                  handleManualScoreChange(item.localId, e.target.value)
-                                }
-                                className="w-20 px-2 py-1 rounded-lg border border-slate-300 focus:border-[#1D4ED8] text-center font-extrabold text-xs outline-none"
-                                title="Nhập điểm mới nếu muốn ghi đè điểm máy chấm"
-                              />
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              {item.status === "ready" ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black">
-                                  <CheckCircle2 className="w-3 h-3" /> Hợp lệ
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black">
-                                  <AlertTriangle className="w-3 h-3" /> Kiểm tra
+                            </div>
+
+                            <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-2 flex-wrap">
+                              <span>Đề: {item.matchedQuizTitle}</span>
+                              <span>• Đúng: {item.correctCount}/{item.totalQuestions}</span>
+                              {item.flaggedQuestions.length > 0 && (
+                                <span className="text-amber-700 font-bold">
+                                  ⚠️ Lem chì câu {item.flaggedQuestions.join(", ")}
                                 </span>
                               )}
-                            </td>
-                            <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => setInspectingItemId(item.localId)}
-                                  className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Eye className="w-3.5 h-3.5" /> Soi phiếu
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setScannedItems((prev) =>
-                                      prev.filter((x) => x.localId !== item.localId)
-                                    )
-                                  }
-                                  className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            </div>
+                          </div>
+
+                          <div
+                            className="flex items-center gap-2 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center gap-1 bg-rose-50 border border-rose-200 px-2 py-1 rounded-xl">
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="10"
+                                value={item.score}
+                                onChange={(e) =>
+                                  handleUpdateScannedItem(item.tempId, {
+                                    score: Number(e.target.value)
+                                  })
+                                }
+                                className="w-12 text-center font-black text-xs text-rose-600 bg-transparent outline-none"
+                              />
+                              <span className="text-[10px] font-bold text-rose-400">đ</span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setScannedItems((prev) =>
+                                  prev.filter((x) => x.tempId !== item.tempId)
+                                )
+                              }
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* MODAL NHỎ SOI ẢNH PHIẾU ĐỐI CHIẾU Ô XANH (ĐÚNG) / ĐỎ (SAI) */}
-            {inspectingItem && (
-              <div className="p-5 rounded-3xl bg-slate-900 text-white space-y-4 border-2 border-indigo-500 shadow-xl">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400">
-                      PHÚC KHẢO & ĐỐI CHIẾU ẢNH QUÉT OMR
-                    </span>
-                    <h4 className="text-sm sm:text-base font-extrabold text-white">
-                      Học sinh:{" "}
-                      {inspectingItem.matchedStudent?.full_name ||
-                        `SBD ${inspectingItem.detectedSbd}`}{" "}
-                      — Điểm:{" "}
-                      <span className="text-emerald-400">
-                        {inspectingItem.manualScoreOverride ?? inspectingItem.score} / 10
-                      </span>
-                    </h4>
-                  </div>
-
+            {/* CỘT PHẢI (5 CỘT): ẢNH ĐỐI SOÁT OMR CỦA BÀI ĐANG CHỌN */}
+            <div className="lg:col-span-5 bg-slate-900 flex flex-col min-h-0">
+              <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs text-slate-300 shrink-0">
+                <span className="font-bold truncate">
+                  {activeInspectItem
+                    ? `Ảnh chấm: ${activeInspectItem.matchedStudentName} (${activeInspectItem.score}đ)`
+                    : "Xem chi tiết ảnh chấm OMR"}
+                </span>
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setInspectingItemId(null)}
-                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold cursor-pointer"
+                    onClick={() => setZoomScale((z) => Math.max(0.8, Number((z - 0.2).toFixed(2))))}
+                    className="p-1 rounded bg-slate-800 text-white cursor-pointer"
                   >
-                    Đóng khung soi phiếu
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="font-mono text-[11px]">{Math.round(zoomScale * 100)}%</span>
+                  <button
+                    type="button"
+                    onClick={() => setZoomScale((z) => Math.min(2.2, Number((z + 0.2).toFixed(2))))}
+                    className="p-1 rounded bg-slate-800 text-white cursor-pointer"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
                   </button>
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-                  {/* Ảnh phiếu đã khoanh vùng */}
-                  <div className="lg:col-span-6 bg-black rounded-2xl p-2 border border-slate-700 max-h-[520px] overflow-auto">
-                    <div className="relative w-full">
-                      <img
-                        src={inspectingItem.warpedImageUrl}
-                        alt="Warped Answer Sheet"
-                        className="w-full h-auto block rounded-lg"
-                      />
+              <div className="flex-1 overflow-auto p-4 custom-scrollbar flex items-start justify-center">
+                {activeInspectItem?.warpedImageUrl ? (
+                  <div
+                    style={{
+                      width: `${Math.round(420 * zoomScale)}px`,
+                      transition: "width 0.18s ease-out"
+                    }}
+                    className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
+                  >
+                    <img
+                      src={activeInspectItem.warpedImageUrl}
+                      alt="Phiếu đã chấm"
+                      className="w-full h-auto block"
+                    />
+                    {activeInspectItem.omrRawData?.bubble_coordinates && (
                       <svg
                         viewBox={`0 0 ${OMR_CANONICAL_WIDTH} ${OMR_CANONICAL_HEIGHT}`}
                         className="absolute inset-0 w-full h-full pointer-events-none"
                       >
-                        {inspectingItem.omrData.bubble_coordinates.map((b) => {
-                          if (b.status === "unfilled") return null;
-                          const strokeColor =
-                            b.status === "correct"
-                              ? "#10B981"
-                              : b.status === "wrong"
-                              ? "#EF4444"
-                              : b.status === "expected_missed"
-                              ? "#3B82F6"
-                              : "#F59E0B";
-                          return (
-                            <circle
-                              key={b.id}
-                              cx={b.x}
-                              cy={b.y}
-                              r={b.r + 3}
-                              fill="none"
-                              stroke={strokeColor}
-                              strokeWidth="3"
-                            />
-                          );
-                        })}
+                        {activeInspectItem.omrRawData.bubble_coordinates
+                          .filter((b: any) => b.status !== "unfilled")
+                          .map((b: any) => {
+                            const strokeColor =
+                              b.status === "correct"
+                                ? "#10B981"
+                                : b.status === "wrong"
+                                ? "#EF4444"
+                                : b.status === "expected_missed"
+                                ? "#3B82F6"
+                                : "#F59E0B";
+
+                            return (
+                              <circle
+                                key={b.id}
+                                cx={b.x}
+                                cy={b.y}
+                                r={b.r + 2.5}
+                                fill={
+                                  b.status === "correct"
+                                    ? "rgba(16,185,129,0.22)"
+                                    : b.status === "wrong"
+                                    ? "rgba(239,68,68,0.22)"
+                                    : "none"
+                                }
+                                stroke={strokeColor}
+                                strokeWidth={2}
+                                strokeDasharray={
+                                  b.status === "expected_missed" ? "4 2" : undefined
+                                }
+                              />
+                            );
+                          })}
                       </svg>
-                    </div>
+                    )}
                   </div>
-
-                  {/* Bảng chi tiết từng câu của bài đang soi */}
-                  <div className="lg:col-span-6 space-y-3 max-h-[520px] overflow-y-auto pr-1 custom-scrollbar">
-                    <div className="p-3 rounded-xl bg-slate-800/90 border border-slate-700 flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-300">
-                        Chỉnh sửa điểm trực tiếp sau phúc khảo:
-                      </span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        min="0"
-                        max="10"
-                        value={
-                          inspectingItem.manualScoreOverride !== null
-                            ? String(inspectingItem.manualScoreOverride)
-                            : String(inspectingItem.score)
-                        }
-                        onChange={(e) =>
-                          handleManualScoreChange(inspectingItem.localId, e.target.value)
-                        }
-                        className="w-24 px-3 py-1.5 rounded-lg bg-slate-950 border border-indigo-400 text-emerald-400 font-black text-sm text-center outline-none"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {inspectingItem.gradingSummary.questionDetails.map((qd) => (
-                        <div
-                          key={qd.questionOrder}
-                          className={`p-2.5 rounded-xl border text-xs ${
-                            qd.status === "correct"
-                              ? "bg-emerald-950/50 border-emerald-700/60 text-emerald-200"
-                              : qd.status === "wrong"
-                              ? "bg-rose-950/50 border-rose-700/60 text-rose-200"
-                              : "bg-slate-800 border-slate-700 text-slate-300"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between font-black">
-                            <span>Câu {qd.questionOrder}</span>
-                            <span>
-                              +{qd.pointsEarned}/{qd.maxPoints}
-                            </span>
-                          </div>
-                          <div className="text-[11px] mt-1">
-                            HS tô: <strong>{qd.studentAnswerDisplay}</strong> • Đ/A:{" "}
-                            <strong className="text-amber-300">{qd.correctAnswerDisplay}</strong>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 4. FOOTER LƯU TOÀN BỘ ĐIỂM */}
-          <div className="px-6 py-4 bg-white border-t border-slate-200 flex items-center justify-between gap-4 shrink-0">
-            <div className="text-xs text-slate-500 font-medium">
-              Mọi bài chấm sẽ được gắn nhãn{" "}
-              <strong className="text-purple-700">[📄 Giấy]</strong> trên Bảng điểm Analytics & Báo
-              cáo Phụ huynh.
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-bold transition cursor-pointer"
-              >
-                Đóng
-              </button>
-
-              <button
-                type="button"
-                disabled={scannedItems.length === 0 || isSavingAll}
-                onClick={handleSaveAllScannedAttempts}
-                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-md transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {isSavingAll ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Đang đồng bộ điểm...</span>
-                  </>
                 ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    <span>Lưu toàn bộ điểm vào hệ thống ({scannedItems.length})</span>
-                  </>
+                  <div className="my-auto text-center text-slate-500 text-xs p-6">
+                    Hãy tải ảnh phiếu hoặc chụp bằng Camera ở khung bên trái để xem kết quả khoanh vùng OMR.
+                  </div>
                 )}
-              </button>
+              </div>
             </div>
           </div>
         </motion.div>
