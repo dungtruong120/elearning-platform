@@ -58,6 +58,7 @@ export interface OMRPart3Block {
   digit0Y: number;
   rowStepY: number;
   radius: number;
+  boxWidth?: number;
 }
 
 export interface OMRSectionTitleAnchor {
@@ -129,17 +130,17 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
     cols: 6,
     startX: 830,
     colStep: 28,
-    startY: 225,
-    rowStep: 27,
-    radius: 9.5,
+    startY: 245,
+    rowStep: 26,
+    radius: 9.2,
   },
   examCode: {
     cols: 3,
     startX: 1034,
     colStep: 28,
-    startY: 225,
-    rowStep: 27,
-    radius: 9.5,
+    startY: 245,
+    rowStep: 26,
+    radius: 9.2,
   },
   part1: {
     blocks: [
@@ -149,9 +150,9 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
         endQuestion: 10,
         startX: 138,
         optionStepX: 44,
-        startY: 600,
-        rowStepY: 30,
-        radius: 10,
+        startY: 595,
+        rowStepY: 29,
+        radius: 9.8,
       },
       {
         pageIndex: 1,
@@ -159,9 +160,9 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
         endQuestion: 20,
         startX: 396,
         optionStepX: 44,
-        startY: 600,
-        rowStepY: 30,
-        radius: 10,
+        startY: 595,
+        rowStepY: 29,
+        radius: 9.8,
       },
       {
         pageIndex: 1,
@@ -169,9 +170,9 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
         endQuestion: 30,
         startX: 654,
         optionStepX: 44,
-        startY: 600,
-        rowStepY: 30,
-        radius: 10,
+        startY: 595,
+        rowStepY: 29,
+        radius: 9.8,
       },
       {
         pageIndex: 1,
@@ -179,32 +180,32 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
         endQuestion: 40,
         startX: 912,
         optionStepX: 44,
-        startY: 600,
-        rowStepY: 30,
-        radius: 10,
+        startY: 595,
+        rowStepY: 29,
+        radius: 9.8,
       },
     ],
   },
   part2: {
     blocks: [
-      { pageIndex: 1, questionNumber: 1, trueX: 118, falseX: 160, startY: 1032, rowStepY: 29, radius: 9.5 },
-      { pageIndex: 1, questionNumber: 2, trueX: 250, falseX: 292, startY: 1032, rowStepY: 29, radius: 9.5 },
-      { pageIndex: 1, questionNumber: 3, trueX: 382, falseX: 424, startY: 1032, rowStepY: 29, radius: 9.5 },
-      { pageIndex: 1, questionNumber: 4, trueX: 514, falseX: 556, startY: 1032, rowStepY: 29, radius: 9.5 },
-      { pageIndex: 1, questionNumber: 5, trueX: 646, falseX: 688, startY: 1032, rowStepY: 29, radius: 9.5 },
-      { pageIndex: 1, questionNumber: 6, trueX: 778, falseX: 820, startY: 1032, rowStepY: 29, radius: 9.5 },
-      { pageIndex: 1, questionNumber: 7, trueX: 910, falseX: 952, startY: 1032, rowStepY: 29, radius: 9.5 },
-      { pageIndex: 1, questionNumber: 8, trueX: 1042, falseX: 1084, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 1, trueX: 118, falseX: 160, startY: 1012, rowStepY: 28, radius: 9.2 },
+      { pageIndex: 1, questionNumber: 2, trueX: 250, falseX: 292, startY: 1012, rowStepY: 28, radius: 9.2 },
+      { pageIndex: 1, questionNumber: 3, trueX: 382, falseX: 424, startY: 1012, rowStepY: 28, radius: 9.2 },
+      { pageIndex: 1, questionNumber: 4, trueX: 514, falseX: 556, startY: 1012, rowStepY: 28, radius: 9.2 },
+      { pageIndex: 1, questionNumber: 5, trueX: 646, falseX: 688, startY: 1012, rowStepY: 28, radius: 9.2 },
+      { pageIndex: 1, questionNumber: 6, trueX: 778, falseX: 820, startY: 1012, rowStepY: 28, radius: 9.2 },
+      { pageIndex: 1, questionNumber: 7, trueX: 910, falseX: 952, startY: 1012, rowStepY: 28, radius: 9.2 },
+      { pageIndex: 1, questionNumber: 8, trueX: 1042, falseX: 1084, startY: 1012, rowStepY: 28, radius: 9.2 },
     ],
   },
   part3: {
     blocks: [
-      { pageIndex: 1, questionNumber: 1, startX: 122, colStepX: 27, minusY: 1268, commaY: 1295, digit0Y: 1322, rowStepY: 27, radius: 9 },
-      { pageIndex: 1, questionNumber: 2, startX: 294, colStepX: 27, minusY: 1268, commaY: 1295, digit0Y: 1322, rowStepY: 27, radius: 9 },
-      { pageIndex: 1, questionNumber: 3, startX: 466, colStepX: 27, minusY: 1268, commaY: 1295, digit0Y: 1322, rowStepY: 27, radius: 9 },
-      { pageIndex: 1, questionNumber: 4, startX: 638, colStepX: 27, minusY: 1268, commaY: 1295, digit0Y: 1322, rowStepY: 27, radius: 9 },
-      { pageIndex: 1, questionNumber: 5, startX: 810, colStepX: 27, minusY: 1268, commaY: 1295, digit0Y: 1322, rowStepY: 27, radius: 9 },
-      { pageIndex: 1, questionNumber: 6, startX: 982, colStepX: 27, minusY: 1268, commaY: 1295, digit0Y: 1322, rowStepY: 27, radius: 9 },
+      { pageIndex: 1, questionNumber: 1, startX: 122, colStepX: 27, minusY: 1245, commaY: 1271, digit0Y: 1297, rowStepY: 26, radius: 8.8, boxWidth: 152 },
+      { pageIndex: 1, questionNumber: 2, startX: 294, colStepX: 27, minusY: 1245, commaY: 1271, digit0Y: 1297, rowStepY: 26, radius: 8.8, boxWidth: 152 },
+      { pageIndex: 1, questionNumber: 3, startX: 466, colStepX: 27, minusY: 1245, commaY: 1271, digit0Y: 1297, rowStepY: 26, radius: 8.8, boxWidth: 152 },
+      { pageIndex: 1, questionNumber: 4, startX: 638, colStepX: 27, minusY: 1245, commaY: 1271, digit0Y: 1297, rowStepY: 26, radius: 8.8, boxWidth: 152 },
+      { pageIndex: 1, questionNumber: 5, startX: 810, colStepX: 27, minusY: 1245, commaY: 1271, digit0Y: 1297, rowStepY: 26, radius: 8.8, boxWidth: 152 },
+      { pageIndex: 1, questionNumber: 6, startX: 982, colStepX: 27, minusY: 1245, commaY: 1271, digit0Y: 1297, rowStepY: 26, radius: 8.8, boxWidth: 152 },
     ],
   },
 };
@@ -523,7 +524,50 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
 }
 
 /**
- * THUẬT TOÁN AUTO-PAGINATION FLOW ENGINE
+ * TÍNH TOÁN BỐ CỤC CỘT PHẦN III LINH HOẠT (HỖ TRỢ 1 ĐẾN 8 CÂU TRÊN CÙNG 1 HÀNG MÀ KHÔNG BỊ TỌT SANG TRANG 2)
+ */
+function computePart3RowGeometry(questionsInRow: number): {
+  startXs: number[];
+  colStepX: number;
+  boxWidth: number;
+  radius: number;
+} {
+  if (questionsInRow <= 6) {
+    return {
+      startXs: [122, 294, 466, 638, 810, 982],
+      colStepX: 27,
+      boxWidth: 152,
+      radius: 8.8,
+    };
+  }
+  if (questionsInRow === 7) {
+    const startXs: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      startXs.push(110 + i * 148);
+    }
+    return {
+      startXs,
+      colStepX: 24,
+      boxWidth: 136,
+      radius: 8.4,
+    };
+  }
+  const startXs: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    startXs.push(104 + i * 130);
+  }
+  return {
+    startXs,
+    colStepX: 22,
+    boxWidth: 120,
+    radius: 8.0,
+  };
+}
+
+/**
+ * THUẬT TOÁN DÀN TRANG THÔNG MINH (SMART SINGLE-PAGE COMPACTION & AUTO-PAGINATION)
+ * - Bắt buộc dồn toàn bộ đề <= 40 câu (hoặc P1 <= 40, P2 <= 8, P3 <= 8) vào DUY NHẤT 1 TRANG A4!
+ * - Chỉ tách sang Trang 2 khi tổng chiều cao thực tế vượt quá vùng in của Trang 1 (Y > 1595px).
  */
 export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBlueprint {
   const resolved = resolveCompleteExamObject(examOrConfig);
@@ -535,12 +579,23 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
 
   const colStartXs = [138, 396, 654, 912];
   const p2ColTrueXs = [118, 250, 382, 514, 646, 778, 910, 1042];
-  const p3ColStartXs = [122, 294, 466, 638, 810, 982];
 
-  if (p1Limit <= 40 && p2Limit <= 8 && p3Limit <= 6) {
+  // TRƯỜNG HỢP 1: ĐỀ VỪA KHÍT TRONG 1 TRANG A4 DUY NHẤT (P1 <= 40, P2 <= 8, P3 <= 8)
+  // Bao gồm cả đề 21 câu (P1=12, P2=2, P3=7) trong ảnh chụp thực tế!
+  if (p1Limit <= 40 && p2Limit <= 8 && p3Limit <= 8) {
+    let cursorY = 540; // Ngay dưới khung thông tin thí sinh chuẩn Bộ GD&ĐT
+
     const dynamicPart1Blocks: OMRPart1Block[] = [];
     if (p1Limit > 0) {
       const numCols = Math.ceil(p1Limit / 10);
+      let maxRowsP1 = 1;
+      for (let c = 0; c < numCols; c++) {
+        const sQ = c * 10 + 1;
+        const eQ = Math.min(p1Limit, (c + 1) * 10);
+        maxRowsP1 = Math.max(maxRowsP1, eQ - sQ + 1);
+      }
+
+      const startYForP1 = cursorY + 55;
       for (let c = 0; c < numCols; c++) {
         const startQ = c * 10 + 1;
         const endQ = Math.min(p1Limit, (c + 1) * 10);
@@ -550,39 +605,55 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
           endQuestion: endQ,
           startX: colStartXs[c],
           optionStepX: 44,
-          startY: 600,
-          rowStepY: 30,
-          radius: 10,
+          startY: startYForP1,
+          rowStepY: 29,
+          radius: 9.8,
         });
       }
+
+      const p1BoxH = Math.max(68, maxRowsP1 * 29 + 36);
+      cursorY = startYForP1 - 44 + p1BoxH + 24;
     }
 
     const dynamicPart2Blocks: OMRPart2Block[] = [];
-    for (let q = 1; q <= p2Limit; q++) {
-      dynamicPart2Blocks.push({
-        pageIndex: 1,
-        questionNumber: q,
-        trueX: p2ColTrueXs[q - 1],
-        falseX: p2ColTrueXs[q - 1] + 42,
-        startY: 1032,
-        rowStepY: 29,
-        radius: 9.5,
-      });
+    if (p2Limit > 0) {
+      const startYForP2 = cursorY + 64;
+      for (let q = 1; q <= p2Limit; q++) {
+        dynamicPart2Blocks.push({
+          pageIndex: 1,
+          questionNumber: q,
+          trueX: p2ColTrueXs[q - 1],
+          falseX: p2ColTrueXs[q - 1] + 42,
+          startY: startYForP2,
+          rowStepY: 28,
+          radius: 9.2,
+        });
+      }
+      cursorY = startYForP2 - 50 + 168 + 24;
     }
 
     const dynamicPart3Blocks: OMRPart3Block[] = [];
-    for (let q = 1; q <= p3Limit; q++) {
-      dynamicPart3Blocks.push({
-        pageIndex: 1,
-        questionNumber: q,
-        startX: p3ColStartXs[q - 1],
-        colStepX: 27,
-        minusY: 1268,
-        commaY: 1295,
-        digit0Y: 1322,
-        rowStepY: 27,
-        radius: 9,
-      });
+    if (p3Limit > 0) {
+      const p3Geo = computePart3RowGeometry(p3Limit);
+      const boxTopP3 = cursorY + 26;
+      const minusY = boxTopP3 + 48;
+      const commaY = minusY + 26;
+      const digit0Y = commaY + 26;
+
+      for (let q = 1; q <= p3Limit; q++) {
+        dynamicPart3Blocks.push({
+          pageIndex: 1,
+          questionNumber: q,
+          startX: p3Geo.startXs[q - 1],
+          colStepX: p3Geo.colStepX,
+          minusY,
+          commaY,
+          digit0Y,
+          rowStepY: 26,
+          radius: p3Geo.radius,
+          boxWidth: p3Geo.boxWidth,
+        });
+      }
     }
 
     return {
@@ -598,11 +669,12 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
     };
   }
 
-  const MAX_SAFE_Y = 1585;
-  const NEW_PAGE_START_Y = 185;
+  // TRƯỜNG HỢP 2: ĐỀ DÀI (> 40 CÂU HOẶC NHIỀU HÀNG PHẦN II, III) -> BẺ TRANG FLOW TỰ ĐỘNG
+  const MAX_SAFE_Y = 1580;
+  const NEW_PAGE_START_Y = 178; // Ngay dưới Sub-header tinh gọn của Trang 2
 
   let currentPage = 1;
-  let cursorY = 535;
+  let cursorY = 540;
 
   const dynamicPart1Blocks: OMRPart1Block[] = [];
   const dynamicPart2Blocks: OMRPart2Block[] = [];
@@ -622,16 +694,16 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
         maxRowsInTier = Math.max(maxRowsInTier, eQ - sQ + 1);
       }
 
-      const tierTitleGap = 36;
-      const boxHeight = Math.max(70, maxRowsInTier * 30 + 38);
-      const neededHeight = tierTitleGap + boxHeight + 24;
+      const tierTitleGap = 32;
+      const boxHeight = Math.max(68, maxRowsInTier * 29 + 36);
+      const neededHeight = tierTitleGap + boxHeight + 20;
 
       if (cursorY + neededHeight > MAX_SAFE_Y) {
         currentPage++;
         cursorY = NEW_PAGE_START_Y;
       }
 
-      const startYForCircles = cursorY + tierTitleGap + 46;
+      const startYForCircles = cursorY + tierTitleGap + 44;
 
       for (let b = firstBlockIdx; b <= lastBlockIdx; b++) {
         const colIdx = b - firstBlockIdx;
@@ -644,12 +716,12 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
           startX: colStartXs[colIdx],
           optionStepX: 44,
           startY: startYForCircles,
-          rowStepY: 30,
-          radius: 10,
+          rowStepY: 29,
+          radius: 9.8,
         });
       }
 
-      cursorY = startYForCircles - 46 + boxHeight + 34;
+      cursorY = startYForCircles - 44 + boxHeight + 26;
     }
   }
 
@@ -657,16 +729,16 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
     const totalP2Rows = Math.ceil(p2Limit / 8);
     for (let r = 0; r < totalP2Rows; r++) {
       const isFirstRowOfP2 = r === 0;
-      const headerSpace = isFirstRowOfP2 ? 38 : 14;
-      const boxH = 174;
-      const neededHeight = headerSpace + boxH + 20;
+      const headerSpace = isFirstRowOfP2 ? 34 : 12;
+      const boxH = 168;
+      const neededHeight = headerSpace + boxH + 18;
 
       if (cursorY + neededHeight > MAX_SAFE_Y) {
         currentPage++;
         cursorY = NEW_PAGE_START_Y;
       }
 
-      const startYForCircles = cursorY + headerSpace + 52;
+      const startYForCircles = cursorY + headerSpace + 50;
       const qStart = r * 8 + 1;
       const qEnd = Math.min(p2Limit, (r + 1) * 8);
 
@@ -678,22 +750,25 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
           trueX: p2ColTrueXs[col8],
           falseX: p2ColTrueXs[col8] + 42,
           startY: startYForCircles,
-          rowStepY: 29,
-          radius: 9.5,
+          rowStepY: 28,
+          radius: 9.2,
         });
       }
 
-      cursorY = startYForCircles - 52 + boxH + 28;
+      cursorY = startYForCircles - 50 + boxH + 24;
     }
   }
 
   if (p3Limit > 0) {
-    const totalP3Rows = Math.ceil(p3Limit / 6);
+    const perRow = p3Limit <= 8 ? p3Limit : 6;
+    const p3Geo = computePart3RowGeometry(perRow);
+    const totalP3Rows = Math.ceil(p3Limit / perRow);
+
     for (let r = 0; r < totalP3Rows; r++) {
       const isFirstRowOfP3 = r === 0;
-      const headerSpace = isFirstRowOfP3 ? 38 : 16;
-      const boxH = 388;
-      const neededHeight = headerSpace + boxH + 20;
+      const headerSpace = isFirstRowOfP3 ? 34 : 14;
+      const boxH = 368;
+      const neededHeight = headerSpace + boxH + 18;
 
       if (cursorY + neededHeight > MAX_SAFE_Y) {
         currentPage++;
@@ -701,29 +776,30 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
       }
 
       const boxTop = cursorY + headerSpace;
-      const minusY = boxTop + 54;
-      const commaY = minusY + 27;
-      const digit0Y = commaY + 27;
+      const minusY = boxTop + 48;
+      const commaY = minusY + 26;
+      const digit0Y = commaY + 26;
 
-      const qStart = r * 6 + 1;
-      const qEnd = Math.min(p3Limit, (r + 1) * 6);
+      const qStart = r * perRow + 1;
+      const qEnd = Math.min(p3Limit, (r + 1) * perRow);
 
       for (let q = qStart; q <= qEnd; q++) {
-        const col6 = (q - 1) % 6;
+        const colIdx = (q - 1) % perRow;
         dynamicPart3Blocks.push({
           pageIndex: currentPage,
           questionNumber: q,
-          startX: p3ColStartXs[col6],
-          colStepX: 27,
+          startX: p3Geo.startXs[colIdx],
+          colStepX: p3Geo.colStepX,
           minusY,
           commaY,
           digit0Y,
-          rowStepY: 27,
-          radius: 9,
+          rowStepY: 26,
+          radius: p3Geo.radius,
+          boxWidth: p3Geo.boxWidth,
         });
       }
 
-      cursorY = boxTop + boxH + 28;
+      cursorY = boxTop + boxH + 24;
     }
   }
 
@@ -799,9 +875,6 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
   return { gray, binary, width, height };
 }
 
-/**
- * TÁCH BIÊN NỀN GIẤY TRẮNG (PAPER WHITE BOUNDARY ANALYSIS)
- */
 function detectWhitePaperBoundingBox(
   gray: Uint8Array,
   width: number,
@@ -847,11 +920,6 @@ function detectWhitePaperBoundingBox(
   };
 }
 
-/**
- * KIỂM ĐỊNH 4 MỐC ĐỊNH VỊ GÓC (FAIL-FAST QUALITY GATE)
- * - Tuyệt đối không nội suy bừa nếu thiếu 2 góc trên hoặc góc bị cắt lẹm!
- * - Nếu thiếu mốc góc, đánh dấu `detected: false` và trả về vị trí 4 góc tờ giấy trắng để giáo viên dùng 4 chốt ghim (Pin Adjuster) kéo chỉnh trực quan.
- */
 export function detectOMRCornerMarkers(
   binary: Uint8Array,
   width: number,
@@ -904,7 +972,6 @@ export function detectOMRCornerMarkers(
         const centerX = Math.round(x + patchSize / 2);
         const centerY = Math.round(y + patchSize / 2);
 
-        // Đo chiều rộng và chiều cao thực tế của khối đen qua tâm
         let spanLeft = 0;
         while (spanLeft < patchSize * 1.45 && centerX - spanLeft >= 0 && binary[centerY * width + (centerX - spanLeft)] === 1) {
           spanLeft++;
@@ -927,7 +994,6 @@ export function detectOMRCornerMarkers(
         const aspectRatio = blobW / blobH;
         if (aspectRatio < 0.75 || aspectRatio > 1.32) continue;
 
-        // Kiểm tra Viền Trắng Bảo Vệ (Quiet Zone Ring)
         let ringWhiteCount = 0;
         let ringSamples = 0;
         const ringDirs = [
@@ -980,7 +1046,6 @@ export function detectOMRCornerMarkers(
     return bestCandidate ? { x: bestCandidate.x, y: bestCandidate.y } : null;
   };
 
-  // Chỉ tìm mốc góc trong phạm vi 18% sát 4 góc của tờ giấy để không bao giờ bắt nhầm nội dung bên trong
   const searchW = Math.floor(paperW * 0.18);
   const searchH = Math.floor(paperH * 0.16);
 
@@ -1020,7 +1085,6 @@ export function detectOMRCornerMarkers(
     paperBox.bottom
   );
 
-  // Kiểm tra khắt khe tứ giác 4 góc (Fail-Fast Quality Gate)
   if (tl && tr && br && bl) {
     const topEdge = Math.hypot(tr.x - tl.x, tr.y - tl.y);
     const bottomEdge = Math.hypot(br.x - bl.x, br.y - bl.y);
@@ -1047,8 +1111,6 @@ export function detectOMRCornerMarkers(
     }
   }
 
-  // NẾU ẢNH BỊ CẮT MẤT GÓC TRÊN HOẶC BỊ TAY CHE MỐC -> BÁO LỖI NGAY (FAIL-FAST),
-  // ĐẶT 4 CHỐT GHIM Ở 4 GÓC BIÊN GIẤY ĐỂ GIÁO VIÊN KÉO CHỈNH 4 GÓC THỦ CÔNG!
   const missingList: string[] = [];
   if (!tl) missingList.push("Trên-Trái");
   if (!tr) missingList.push("Trên-Phải");
@@ -1066,10 +1128,6 @@ export function detectOMRCornerMarkers(
   };
 }
 
-/**
- * GIẢI HỆ PHƯƠNG TRÌNH TUYẾN TÍNH 8x8 BẰNG KHỬ GAUSS (GAUSSIAN ELIMINATION WITH PARTIAL PIVOTING)
- * Tìm Ma trận Homography 3x3 ánh xạ từ Khung Chuẩn A4 (dst) sang Ảnh Chụp Gốc (src)
- */
 export function solvePerspectiveHomography3x3(
   dstPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint],
   srcPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint]
@@ -1132,10 +1190,6 @@ export function solvePerspectiveHomography3x3(
   ];
 }
 
-/**
- * NẮN PHẲNG ẢNH BẰNG MA TRẬN HOMOGRAPHY 3x3 THỰC THỤ (TRUE PERSPECTIVE HOMOGRAPHY WARP)
- * Khắc phục 100% lỗi vặn xoắn parabol của phép nội suy Bilinear cũ!
- */
 export function warpPerspectiveToCanonical(
   sourceImageData: ImageData,
   corners: {
@@ -1218,16 +1272,12 @@ export function warpPerspectiveToCanonical(
   return dstImageData;
 }
 
-/**
- * NEO TỌA ĐỘ THEO VẠCH NHỊP BƯỚC (TIMING TRACKS) & NHÃN CÂU HỎI (SEMANTIC ANCHOR CALIBRATION)
- * Quét dải Timing Tracks ở mép phải (X ≈ 1146, Y từ 225..470) để đo độ lệch dọc ΔY thực tế sau khi in
- */
 function measureTimingTrackVerticalOffset(
   binary: Uint8Array,
   width: number,
   height: number
 ): number {
-  const expectedYs = [225, 252, 279, 306, 333, 360, 387, 414, 441, 468];
+  const expectedYs = [245, 271, 297, 323, 349, 375, 401, 427, 453, 479];
   const diffs: number[] = [];
 
   for (const expY of expectedYs) {
@@ -1258,10 +1308,6 @@ function measureTimingTrackVerticalOffset(
   return diffs[Math.floor(diffs.length / 2)];
 }
 
-/**
- * TÌM VECTOR DỊCH CHUYỂN TỐI ƯU (ΔX, ΔY) CHO MỘT KHỐI LƯỚI BẰNG CÁCH HỘI TỤ TÂM CÁC Ô TRÒN (CENTROID GRID SNAPPING)
- * Quét dịch chuyển nhẹ toàn khối trong phạm vi [-14..+14] px để tìm vị trí mà tại đó các ô được tô chì rơi đúng vào chính giữa tâm vòng tròn!
- */
 function snapSubGridOffsetToBubbleCentroids(
   binary: Uint8Array,
   gray: Uint8Array,
@@ -1292,7 +1338,6 @@ function snapSubGridOffsetToBubbleCentroids(
           score += darkVal * (binary[centerIdx] === 1 ? 1.5 : 0.8);
         }
       }
-      // Ưu tiên độ dịch chuyển nhỏ nếu điểm tương đương
       const penalty = (Math.abs(dx) + Math.abs(dy)) * 1.2;
       const total = score - penalty;
       if (total > bestContrastScore) {
@@ -1306,9 +1351,6 @@ function snapSubGridOffsetToBubbleCentroids(
   return { dx: bestDx, dy: bestDy };
 }
 
-/**
- * ĐO MẬT ĐỘ ĐIỂM TỐI KÈM DÒ ĐỈNH TƯƠNG ĐỐI (ADAPTIVE DYNAMIC PEAK SEARCH R ± 3PX)
- */
 export function measureBubbleWithLocalPeak(
   binary: Uint8Array,
   gray: Uint8Array,
@@ -1429,9 +1471,6 @@ function pickDominantBubble<T extends { key: string; density: number }>(
   return { selected: null, isAmbiguous: false };
 }
 
-/**
- * QUÉT TOÀN BỘ PHIẾU TRẢ LỜI TRẮC NGHIỆM VỚI MA TRẬN HOMOGRAPHY 3x3 + HỖ TRỢ 4 GÓC THỦ CÔNG (customCorners)
- */
 export function scanOMRSheetFromCanvas(
   sourceCanvasOrImageData: HTMLCanvasElement | ImageData,
   blueprintOrExam?: OMRTemplateBlueprint | any,
@@ -1462,7 +1501,6 @@ export function scanOMRSheetFromCanvas(
 
   const initialMask = computeAdaptiveBinaryMask(rawImageData);
 
-  // Nếu Giáo viên đã kéo chỉnh 4 chốt ghim góc thủ công (customCorners), sử dụng trực tiếp 4 góc đó!
   const cornerResult = customCorners
     ? {
         topLeft: customCorners.topLeft,
@@ -1504,7 +1542,6 @@ export function scanOMRSheetFromCanvas(
   const canonicalMask = computeAdaptiveBinaryMask(warpedImageData);
   const { binary, gray, width, height } = canonicalMask;
 
-  // Đo độ lệch dọc từ dải Timing Tracks bên mép phải
   const timingTrackDy = measureTimingTrackVerticalOffset(binary, width, height);
 
   const bubbleCoordinates: OMRBubbleCoordinate[] = [];
@@ -1512,7 +1549,7 @@ export function scanOMRSheetFromCanvas(
   let confidenceSum = 0;
   let confidenceCount = 0;
 
-  // 1. QUÉT KHUNG SỐ BÁO DANH (6 CỘT x 10 HÀNG) VỚI CENTROID SNAPPING
+  // 1. QUÉT KHUNG SỐ BÁO DANH (6 CỘT x 10 HÀNG)
   const sbdDigits: string[] = [];
   if (targetPageIndex === 1) {
     const sbdPreviewCenters: { x: number; y: number; r: number }[] = [];
@@ -1674,7 +1711,7 @@ export function scanOMRSheetFromCanvas(
     }
   }
 
-  // 3. QUÉT PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D) VỚI CENTROID SNAPPING TỪNG CỘT
+  // 3. QUÉT PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D)
   const part1Answers: Record<number, string> = {};
   const optionKeys = ["A", "B", "C", "D"];
 
@@ -2015,9 +2052,6 @@ export function scanOMRSheetFromCanvas(
 
 export const processOMR = scanOMRSheetFromCanvas;
 
-/**
- * GỘP KẾT QUẢ QUÉT CỦA NHIỀU TRANG (TRANG 1 + TRANG 2...) THÀNH 1 BẢN GHI OMR DUY NHẤT
- */
 export function mergeMultiPageOMRResults(pagesResults: OMRResultData[]): OMRResultData {
   if (!pagesResults || pagesResults.length === 0) {
     throw new Error("Không có dữ liệu trang OMR nào để gộp.");
@@ -2055,9 +2089,6 @@ export function mergeMultiPageOMRResults(pagesResults: OMRResultData[]): OMRResu
   };
 }
 
-/**
- * HÀM CHẤM ĐIỂM TỰ ĐỘNG BÀI LÀM OMR VÀ CẬP NHẬT TRẠNG THÁI BOUNDING BOX (XANH / ĐỎ)
- */
 export function gradeOMRSubmission(
   omrData: OMRResultData,
   examDataOrQuestions: any
@@ -2436,8 +2467,53 @@ export function gradeOMRSubmission(
 }
 
 /**
- * DỰNG MÃ SVG CHO TỪNG TRANG A4 (CHỈ GIỮ ĐÚNG 4 MỐC VUÔNG ĐEN LỚN 32x32 Ở 4 GÓC TRANG,
- * KHÔNG VẼ CÁC Ô VUÔNG ĐEN PHỤ Ở GIỮA TRANG ĐỂ TRÁNH BẮT NHẦM KHI ẢNH BỊ CẮT GÓC)
+ * DỰNG MÃ SVG VECTOR SẮC NÉT CHO BANNER HEADER TCT (ẢNH 2) & BANNER FOOTER TCT (ẢNH 3)
+ */
+function renderTCTHeaderAndFooterSVG(pageIdx: number): string {
+  return `
+    <!-- BANNER HEADER TCT CHUYÊN NGHIỆP (THEO ĐÚNG MẪU ẢNH 2) -->
+    <g transform="translate(65, 22)">
+      <!-- Khối cam đổ bóng phía sau Logo TCT -->
+      <polygon points="8,14 146,14 132,74 0,74" fill="#F58220" />
+      <!-- Khung nghiêng nền trắng viền xanh đậm chứa chữ TCT -->
+      <polygon points="0,4 136,4 123,64 0,64" fill="#FFFFFF" stroke="#003399" stroke-width="2.5" />
+      <text x="64" y="42" font-family="Arial, sans-serif" font-size="31" font-weight="900" text-anchor="middle" fill="#003399" letter-spacing="1">TCT</text>
+      <text x="63" y="57" font-family="Arial, sans-serif" font-size="9.5" font-weight="900" text-anchor="middle" fill="#003399" letter-spacing="1.2">TÂM CHÍ TÀI</text>
+
+      <!-- Dòng slogan nghiêng ở giữa -->
+      <text x="365" y="48" font-family="Arial, sans-serif" font-size="16.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">Chuyên luyện thi vào 10, HSA, TSA và THPT</text>
+
+      <!-- 2 Khối hình bình hành màu cam trang trí -->
+      <polygon points="575,30 618,30 603,64 560,64" fill="#F58220" />
+      <polygon points="632,30 675,30 660,64 617,64" fill="#F58220" />
+
+      <!-- Khung viền xanh bên phải: Chuyên Toán Tư Duy - Trắc Nghiệm Tia Chớp -->
+      <polygon points="692,30 1070,30 1070,64 677,64" fill="#FFFFFF" stroke="#003399" stroke-width="2.2" />
+      <text x="875" y="52" font-family="Arial, sans-serif" font-size="15" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">Chuyên Toán Tư Duy - Trắc Nghiệm Tia Chớp</text>
+    </g>
+
+    <!-- BANNER FOOTER TCT CHUYÊN NGHIỆP Ở ĐÁY TRANG (THEO ĐÚNG MẪU ẢNH 3) -->
+    <g transform="translate(65, 1630)">
+      <!-- Icon Điện thoại & Hotline -->
+      <circle cx="88" cy="20" r="13" fill="none" stroke="#003399" stroke-width="1.8" />
+      <path d="M83,14 C85,12 87,15 86,17 C85,19 88,22 90,21 C92,20 95,22 93,24 C90,27 81,18 83,14 Z" fill="#003399" />
+      <text x="110" y="26" font-family="Arial, sans-serif" font-size="16.5" font-weight="bold" fill="#003399">0972 26 16 16</text>
+
+      <!-- Icon Ngôi nhà & Địa chỉ -->
+      <circle cx="328" cy="20" r="13" fill="#003399" />
+      <polygon points="328,12 320,19 323,19 323,26 333,26 333,19 336,19" fill="#FFFFFF" />
+      <text x="350" y="26" font-family="Arial, sans-serif" font-size="16.5" font-weight="bold" fill="#003399">Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội</text>
+
+      <!-- Khối cam & Khung số trang bên phải -->
+      <polygon points="828,2 850,2 836,40 814,40" fill="#F58220" />
+      <polygon points="852,2 1070,2 1070,40 838,40" fill="#FFFFFF" stroke="#003399" stroke-width="2.2" />
+      <text x="905" y="27" font-family="Times New Roman, serif" font-size="20" font-weight="bold" text-anchor="middle" fill="#0033CC">${pageIdx}</text>
+    </g>
+  `;
+}
+
+/**
+ * DỰNG MÃ SVG CHO TỪNG TRANG A4 (CHUẨN FORM GỐC BỘ GD&ĐT + BANNER HEADER & FOOTER TCT)
  */
 export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string[] {
   const resolved = resolveCompleteExamObject(examOrConfig);
@@ -2449,7 +2525,7 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
   const rawTitle =
     resolved?.examTitle ||
     resolved?.title ||
-    "ĐỀ KIỂM TRA & LUYỆN THI - TÂM CHÍ TÀI EDUNEXUS";
+    "KỲ THI TỐT NGHIỆP TRUNG HỌC PHỔ THÔNG";
   const safeTitle = String(rawTitle).replace(/[<>&"]/g, "");
 
   const rawSbdInput = resolved?.studentSbd || "";
@@ -2471,7 +2547,7 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
   for (let pageIdx = 1; pageIdx <= totalPages; pageIdx++) {
     let svgElements = "";
 
-    // 4 Mốc vuông đen định vị góc cỡ lớn 32x32
+    // 1. 4 Mốc vuông đen định vị góc chuẩn A4 (32x32)
     const markerSize = 32;
     [
       corners.topLeft,
@@ -2482,52 +2558,52 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       svgElements += `<rect x="${pt.x - markerSize / 2}" y="${pt.y - markerSize / 2}" width="${markerSize}" height="${markerSize}" fill="#000000" />`;
     });
 
-    for (let ty = 225; ty <= 470; ty += 27) {
+    // 2. Dải vạch nhịp bước (Timing Tracks) dọc mép phải
+    for (let ty = 245; ty <= 479; ty += 26) {
       svgElements += `<rect x="1146" y="${ty - 4}" width="16" height="8" fill="#000000" />`;
     }
 
-    svgElements += `
-      <g transform="translate(65, 62)">
-        <rect x="0" y="0" width="52" height="52" rx="12" fill="#1D4ED8" />
-        <text x="26" y="33" font-family="Arial, sans-serif" font-size="19" font-weight="900" text-anchor="middle" fill="#FFFFFF">TCT</text>
-        <text x="64" y="22" font-family="Arial, sans-serif" font-size="14" font-weight="900" fill="#0F172A">TÂM CHÍ TÀI</text>
-        <text x="64" y="40" font-family="Arial, sans-serif" font-size="10.5" font-weight="bold" fill="#1D4ED8">EDUNEXUS OMR SYSTEM</text>
-      </g>
-    `;
+    // 3. Chèn Banner Header & Footer TCT chuyên nghiệp (Ảnh 2 & Ảnh 3)
+    svgElements += renderTCTHeaderAndFooterSVG(pageIdx);
 
     if (pageIdx === 1) {
+      // ================= HEADER & KHUNG THÔNG TIN TRANG 1 CHUẨN GỐC BỘ GD&ĐT =================
       svgElements += `
-        <text x="485" y="86" font-family="Arial, sans-serif" font-size="22" font-weight="900" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM ${totalPages > 1 ? `(TRANG 1/${totalPages})` : ""}</text>
-        <text x="485" y="116" font-family="Arial, sans-serif" font-size="16" font-weight="900" text-anchor="middle" fill="#1D4ED8">${safeTitle}</text>
-        <rect x="65" y="148" width="710" height="335" fill="none" stroke="#334155" stroke-width="1.5" rx="6" />
-        <line x1="255" y1="148" x2="255" y2="483" stroke="#334155" stroke-width="1.2" />
-        <line x1="65" y1="315" x2="255" y2="315" stroke="#334155" stroke-width="1.2" />
-        <text x="160" y="176" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 1</text>
-        <text x="160" y="342" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 2</text>
-        <text x="275" y="185" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">1. Trung tâm / Hội đồng: <tspan font-weight="bold">Hệ thống Luyện thi Toán TCT</tspan></text>
-        <text x="275" y="225" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">2. Điểm bài thi: ...........................................................................</text>
-        <text x="275" y="265" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">3. Lớp / Ca học: ..........................................................................</text>
-        <text x="275" y="305" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">4. Họ và tên thí sinh: ${presetName ? `<tspan font-weight="bold">${presetName}</tspan>` : ".................................................................."}</text>
-        <text x="275" y="345" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">5. Ngày làm bài: ........../........../2026</text>
-        <text x="275" y="385" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">6. Chữ ký của thí sinh: ..............................................................</text>
-        <text x="275" y="432" font-family="Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#1D4ED8">Cấu trúc đề: ${p1Max + p2Max + p3Max} câu (Phần I: ${p1Max} câu • Phần II: ${p2Max} câu • Phần III: ${p3Max} câu)</text>
-        <text x="275" y="460" font-family="Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#dc2626">* Học sinh tra cứu đúng SBD theo STT lớp (VD: 000001, 000002...) để tô vào mục 7.</text>
-        <text x="415" y="512" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Chụp rõ cả 4 ô vuông đen ở 4 góc phiếu và không để tay che góc.</text>
+        <text x="420" y="122" font-family="Arial, sans-serif" font-size="22" font-weight="900" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM</text>
+        <text x="420" y="148" font-family="Arial, sans-serif" font-size="14.5" font-weight="bold" text-anchor="middle" fill="#003399">Kỳ thi: ${safeTitle}</text>
+
+        <!-- Khung Thông Tin Học Sinh & Giám Thị nguyên bản 100% mẫu Bộ GD&ĐT -->
+        <rect x="65" y="166" width="710" height="328" fill="none" stroke="#334155" stroke-width="1.5" rx="4" />
+        <line x1="255" y1="166" x2="255" y2="494" stroke="#334155" stroke-width="1.2" />
+        <line x1="65" y1="330" x2="255" y2="330" stroke="#334155" stroke-width="1.2" />
+
+        <text x="160" y="192" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1e293b">Họ tên, chữ ký Giám thị 1</text>
+        <text x="160" y="356" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1e293b">Họ tên, chữ ký Giám thị 2</text>
+
+        <text x="275" y="205" font-family="Arial, sans-serif" font-size="13.5" fill="#0f172a">1. Hội đồng thi: ..........................................................................</text>
+        <text x="275" y="252" font-family="Arial, sans-serif" font-size="13.5" fill="#0f172a">2. Điểm thi: .................................................................................</text>
+        <text x="275" y="299" font-family="Arial, sans-serif" font-size="13.5" fill="#0f172a">3. Phòng thi số: ..........................................................................</text>
+        <text x="275" y="346" font-family="Arial, sans-serif" font-size="13.5" fill="#0f172a">4. Họ và tên thí sinh: ${presetName ? `<tspan font-weight="bold">${presetName}</tspan>` : ".................................................................."}</text>
+        <text x="275" y="393" font-family="Arial, sans-serif" font-size="13.5" fill="#0f172a">5. Ngày sinh: ........../........../20........   (Nam / Nữ)</text>
+        <text x="275" y="440" font-family="Arial, sans-serif" font-size="13.5" fill="#0f172a">6. Chữ ký của thí sinh: ..............................................................</text>
+
+        <text x="420" y="518" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Giữ phiếu phẳng, tô kín ô tròn bằng bút chì đen và không để ngón tay che 4 ô vuông đen ở 4 góc phiếu.</text>
       `;
 
+      // Mục 7. Số báo danh
       svgElements += `
-        <text x="${blueprint.sbd.startX + 70}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">7. Số báo danh</text>
-        <rect x="${blueprint.sbd.startX - 18}" y="154" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
-        <rect x="${blueprint.sbd.startX - 18}" y="200" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="${10 * blueprint.sbd.rowStep + 14}" fill="none" stroke="#0f172a" stroke-width="1.6" />
+        <text x="${blueprint.sbd.startX + 70}" y="160" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">7. Số báo danh</text>
+        <rect x="${blueprint.sbd.startX - 18}" y="168" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
+        <rect x="${blueprint.sbd.startX - 18}" y="214" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="${10 * blueprint.sbd.rowStep + 18}" fill="none" stroke="#0f172a" stroke-width="1.5" />
       `;
       for (let c = 0; c < blueprint.sbd.cols; c++) {
         const cx = blueprint.sbd.startX + c * blueprint.sbd.colStep;
         if (c > 0) {
-          svgElements += `<line x1="${cx - blueprint.sbd.colStep / 2}" y1="154" x2="${cx - blueprint.sbd.colStep / 2}" y2="188" stroke="#cbd5e1" stroke-width="1" />`;
+          svgElements += `<line x1="${cx - blueprint.sbd.colStep / 2}" y1="168" x2="${cx - blueprint.sbd.colStep / 2}" y2="202" stroke="#cbd5e1" stroke-width="1" />`;
         }
         const presetDigit = presetSbd[c] || "";
         if (presetDigit) {
-          svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetDigit}</text>`;
+          svgElements += `<text x="${cx}" y="191" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetDigit}</text>`;
         }
         for (let d = 0; d <= 9; d++) {
           const cy = blueprint.sbd.startY + d * blueprint.sbd.rowStep;
@@ -2539,16 +2615,20 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         }
       }
 
+      // Mục 8. Mã đề thi
       svgElements += `
-        <text x="${blueprint.examCode.startX + 28}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">8. Mã đề thi</text>
-        <rect x="${blueprint.examCode.startX - 18}" y="154" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
-        <rect x="${blueprint.examCode.startX - 18}" y="200" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="${10 * blueprint.examCode.rowStep + 14}" fill="none" stroke="#0f172a" stroke-width="1.6" />
+        <text x="${blueprint.examCode.startX + 28}" y="160" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">8. Mã đề thi</text>
+        <rect x="${blueprint.examCode.startX - 18}" y="168" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
+        <rect x="${blueprint.examCode.startX - 18}" y="214" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="${10 * blueprint.examCode.rowStep + 18}" fill="none" stroke="#0f172a" stroke-width="1.5" />
       `;
       for (let c = 0; c < blueprint.examCode.cols; c++) {
         const cx = blueprint.examCode.startX + c * blueprint.examCode.colStep;
+        if (c > 0) {
+          svgElements += `<line x1="${cx - blueprint.examCode.colStep / 2}" y1="168" x2="${cx - blueprint.examCode.colStep / 2}" y2="202" stroke="#cbd5e1" stroke-width="1" />`;
+        }
         const presetCodeDigit = presetCode[c] || "";
         if (presetCodeDigit) {
-          svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetCodeDigit}</text>`;
+          svgElements += `<text x="${cx}" y="191" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetCodeDigit}</text>`;
         }
         for (let d = 0; d <= 9; d++) {
           const cy = blueprint.examCode.startY + d * blueprint.examCode.rowStep;
@@ -2560,36 +2640,39 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         }
       }
     } else {
+      // ================= SUB-HEADER TINH GỌN TRANG 2 (DÀNH TỐI ĐA KHÔNG GIAN CHO CÂU HỎI) =================
       svgElements += `
-        <text x="620" y="88" font-family="Arial, sans-serif" font-size="22" font-weight="900" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM — TRANG ${pageIdx} / ${totalPages}</text>
-        <text x="620" y="118" font-family="Arial, sans-serif" font-size="15.5" font-weight="900" text-anchor="middle" fill="#1D4ED8">${safeTitle} • Mã đề: ${presetCode} • Họ tên: ${presetName || "........................................"} • SBD: ${presetSbd || ".............."}</text>
-        <line x1="65" y1="138" x2="1135" y2="138" stroke="#334155" stroke-width="1.5" />
+        <text x="600" y="124" font-family="Arial, sans-serif" font-size="16" font-weight="900" text-anchor="middle" fill="#0f172a">
+          PHIẾU TRẢ LỜI TRẮC NGHIỆM — TRANG ${pageIdx} / ${totalPages}   •   ${safeTitle}   •   MÃ ĐỀ: ${presetCode}
+        </text>
+        <line x1="65" y1="138" x2="1135" y2="138" stroke="#334155" stroke-width="1.4" />
       `;
     }
 
+    // 4. Vẽ PHẦN I thuộc trang hiện tại
     const pageP1Blocks = blueprint.part1.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
     if (pageP1Blocks.length > 0) {
       const minQ = pageP1Blocks[0].startQuestion;
       const maxQ = pageP1Blocks[pageP1Blocks.length - 1].endQuestion;
-      const firstBlockTopY = pageP1Blocks[0].startY - 46;
+      const firstBlockTopY = pageP1Blocks[0].startY - 44;
 
       svgElements += `
-        <text x="65" y="${firstBlockTopY - 14}" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN I: Trắc nghiệm nhiều phương án lựa chọn (Từ câu ${minQ} đến câu ${maxQ} / Tổng ${p1Max} câu)</text>
+        <text x="65" y="${firstBlockTopY - 12}" font-family="Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#000">PHẦN I: Trắc nghiệm nhiều phương án lựa chọn (Từ câu ${minQ} đến câu ${maxQ})</text>
       `;
 
       const opts = ["A", "B", "C", "D"];
       pageP1Blocks.forEach((b) => {
         const boxLeft = b.startX - 48;
-        const boxTop = b.startY - 46;
+        const boxTop = b.startY - 44;
         const numRows = b.endQuestion - b.startQuestion + 1;
-        const boxH = Math.max(70, numRows * b.rowStepY + 38);
+        const boxH = Math.max(68, numRows * b.rowStepY + 36);
 
-        svgElements += `<rect x="${boxLeft}" y="${boxTop}" width="232" height="${boxH}" fill="none" stroke="#0f172a" stroke-width="1.5" rx="5" />`;
+        svgElements += `<rect x="${boxLeft}" y="${boxTop}" width="232" height="${boxH}" fill="none" stroke="#0f172a" stroke-width="1.4" rx="5" />`;
         opts.forEach((k, idx) => {
           const ox = b.startX + idx * b.optionStepX;
-          svgElements += `<text x="${ox}" y="${b.startY - 24}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#0f172a">${k}</text>`;
+          svgElements += `<text x="${ox}" y="${b.startY - 22}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#0f172a">${k}</text>`;
         });
 
         for (let q = b.startQuestion; q <= b.endQuestion; q++) {
@@ -2604,6 +2687,7 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       });
     }
 
+    // 5. Vẽ PHẦN II thuộc trang hiện tại
     const pageP2Blocks = blueprint.part2.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
@@ -2612,21 +2696,21 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       const minQ2 = pageP2Blocks[0].questionNumber;
       const maxQ2 = pageP2Blocks[pageP2Blocks.length - 1].questionNumber;
       svgElements += `
-        <text x="65" y="${firstY - 64}" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN II: Trắc nghiệm Đúng / Sai (Câu ${minQ2} đến Câu ${maxQ2} / Tổng ${p2Max} câu)</text>
+        <text x="65" y="${firstY - 60}" font-family="Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#000">PHẦN II: Trắc nghiệm Đúng / Sai (Từ câu ${minQ2} đến câu ${maxQ2})</text>
       `;
       const subLabels = ["a)", "b)", "c)", "d)"];
       pageP2Blocks.forEach((b) => {
         const q = b.questionNumber;
         const boxLeft = b.trueX - 42;
-        const boxTop = b.startY - 52;
+        const boxTop = b.startY - 50;
         const centerX = (b.trueX + b.falseX) / 2 + 2;
 
         svgElements += `
-          <rect x="${boxLeft}" y="${boxTop}" width="118" height="174" fill="none" stroke="#0f172a" stroke-width="1.5" rx="5" />
-          <line x1="${boxLeft}" y1="${boxTop + 24}" x2="${boxLeft + 118}" y2="${boxTop + 24}" stroke="#cbd5e1" stroke-width="1" />
-          <text x="${centerX}" y="${boxTop + 17}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
-          <text x="${b.trueX}" y="${boxTop + 40}" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#334155">Đúng</text>
-          <text x="${b.falseX}" y="${boxTop + 40}" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#334155">Sai</text>
+          <rect x="${boxLeft}" y="${boxTop}" width="118" height="168" fill="none" stroke="#0f172a" stroke-width="1.4" rx="5" />
+          <line x1="${boxLeft}" y1="${boxTop + 23}" x2="${boxLeft + 118}" y2="${boxTop + 23}" stroke="#cbd5e1" stroke-width="1" />
+          <text x="${centerX}" y="${boxTop + 16}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
+          <text x="${b.trueX}" y="${boxTop + 38}" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#334155">Đúng</text>
+          <text x="${b.falseX}" y="${boxTop + 38}" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#334155">Sai</text>
         `;
         subLabels.forEach((lbl, idx) => {
           const cy = b.startY + idx * b.rowStepY;
@@ -2639,32 +2723,37 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       });
     }
 
+    // 6. Vẽ PHẦN III thuộc trang hiện tại (Hỗ trợ co giãn lên tới 7-8 câu trên cùng 1 hàng)
     const pageP3Blocks = blueprint.part3.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
     if (pageP3Blocks.length > 0) {
-      const firstBoxTop = pageP3Blocks[0].minusY - 54;
+      const firstBoxTop = pageP3Blocks[0].minusY - 48;
       const minQ3 = pageP3Blocks[0].questionNumber;
       const maxQ3 = pageP3Blocks[pageP3Blocks.length - 1].questionNumber;
       svgElements += `
-        <text x="65" y="${firstBoxTop - 14}" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN III: Trả lời ngắn - Điền đáp số (Câu ${minQ3} đến Câu ${maxQ3} / Tổng ${p3Max} câu)</text>
+        <text x="65" y="${firstBoxTop - 12}" font-family="Arial, sans-serif" font-size="14.5" font-weight="bold" fill="#000">PHẦN III: Trả lời ngắn - Điền đáp số (Từ câu ${minQ3} đến câu ${maxQ3})</text>
       `;
       pageP3Blocks.forEach((b) => {
         const q = b.questionNumber;
-        const boxLeft = b.startX - 36;
-        const boxTop = b.minusY - 54;
+        const boxW = b.boxWidth || 152;
+        const leftPad = boxW < 140 ? 28 : 34;
+        const boxLeft = b.startX - leftPad;
+        const boxTop = b.minusY - 48;
+        const boxCenter = boxLeft + boxW / 2;
+
         svgElements += `
-          <rect x="${boxLeft}" y="${boxTop}" width="152" height="388" fill="none" stroke="#0f172a" stroke-width="1.5" rx="5" />
-          <text x="${b.startX + 40}" y="${boxTop + 24}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
-          <text x="${b.startX - 20}" y="${b.minusY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">-</text>
+          <rect x="${boxLeft}" y="${boxTop}" width="${boxW}" height="368" fill="none" stroke="#0f172a" stroke-width="1.4" rx="5" />
+          <text x="${boxCenter}" y="${boxTop + 22}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
+          <text x="${b.startX - 18}" y="${b.minusY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">-</text>
           <circle cx="${b.startX}" cy="${b.minusY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
-          <text x="${b.startX - 20}" y="${b.commaY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">,</text>
+          <text x="${b.startX - 18}" y="${b.commaY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">,</text>
           <circle cx="${b.startX + b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
           <circle cx="${b.startX + 2 * b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
         `;
         for (let d = 0; d <= 9; d++) {
           const cy = b.digit0Y + d * b.rowStepY;
-          svgElements += `<text x="${b.startX - 20}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#0f172a">${d}</text>`;
+          svgElements += `<text x="${b.startX - 18}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="10.5" font-weight="bold" text-anchor="middle" fill="#0f172a">${d}</text>`;
           for (let c = 0; c < 4; c++) {
             const cx = b.startX + c * b.colStepX;
             svgElements += `<circle cx="${cx}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.1" />`;
@@ -2731,7 +2820,7 @@ export function openPrintableDynamicAnswerSheet(examOrConfig?: any) {
     <body>
       <div class="toolbar">
         <div>
-          <strong>Phiếu Trả Lời A4 Tự Động Theo Đề:</strong> ${String(title).replace(/[<>&"]/g, "")}
+          <strong>Phiếu Trả Lời A4 Chuẩn Bộ GD&ĐT — Tâm Chí Tài:</strong> ${String(title).replace(/[<>&"]/g, "")}
           <span style="margin-left:8px; font-size:12px; color:#93c5fd;">(${counts.totalCount} câu • ${pagesSvg.length} trang A4)</span>
         </div>
         <button class="btn-print" onclick="window.print()">🖨 In Phiếu / Lưu PDF (${pagesSvg.length} trang A4)</button>
