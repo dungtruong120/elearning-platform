@@ -59,6 +59,8 @@ import {
   Camera
 } from "lucide-react";
 
+const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
+
 const MOTIVATIONAL_QUOTES = [
   "Học tập không phải là con đường duy nhất để thành công, nhưng là con đường ngắn nhất để chinh phục tri thức.",
   "Thành công lớn nhất không phải là không bao giờ vấp ngã, mà là đứng dậy sau mỗi lần vấp ngã.",
@@ -1020,13 +1022,32 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   }, [workspacePracticeExam, myAttempts]);
 
   // Mở Popup chọn hình thức thi (Web / Quét phiếu giấy / Tô phiếu Online)
-  const handleTriggerExamEntryModal = useCallback((examObj: any, isHomeworkFlag: boolean = false) => {
-    setEntryModalState({
-      isOpen: true,
-      exam: examObj,
-      isHomework: isHomeworkFlag
-    });
-  }, []);
+  const handleTriggerExamEntryModal = useCallback(
+    (examObj: any, isHomeworkFlag: boolean = false) => {
+      setEntryModalState({
+        isOpen: true,
+        exam: examObj,
+        isHomework: isHomeworkFlag
+      });
+    },
+    []
+  );
+
+  // Callback thống nhất khi học sinh hoàn thành quét phiếu giấy
+  const handleDashboardPaperScanCompleted = useCallback(
+    (attemptRecord: ExamAttempt) => {
+      const scannedExam = activePaperScanState?.exam;
+      setActivePaperScanState(null);
+      fetchAuthAndData();
+      if (attemptRecord && scannedExam) {
+        setPaperReviewAttemptState({
+          attempt: attemptRecord,
+          exam: scannedExam
+        });
+      }
+    },
+    [activePaperScanState, fetchAuthAndData]
+  );
 
   // 1. RENDER CHẾ ĐỘ XEM LẠI BÀI THI TRÊN PHIẾU (GIẤY HOẶC PHIẾU ONLINE)
   if (paperReviewAttemptState) {
@@ -2297,23 +2318,17 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         }}
       />
 
-      {/* MODAL CHỤP / TẢI ẢNH PHIẾU TRẢ LỜI TRÊN GIẤY (NHÁNH 2A) */}
+      {/* MODAL CHỤP / TẢI ẢNH PHIẾU TRẢ LỜI TRÊN GIẤY (NHÁNH 2A - TƯƠNG THÍCH ĐA PROP INTERFACE) */}
       {activePaperScanState && (
-        <PaperScanModal
+        <SafePaperScanModal
           isOpen={Boolean(activePaperScanState)}
           onClose={() => setActivePaperScanState(null)}
           exam={activePaperScanState.exam}
           profile={profile!}
           isHomework={activePaperScanState.isHomework}
-          onScanSuccess={(attemptRecord: ExamAttempt) => {
-            const scannedExam = activePaperScanState.exam;
-            setActivePaperScanState(null);
-            fetchAuthAndData();
-            setPaperReviewAttemptState({
-              attempt: attemptRecord,
-              exam: scannedExam
-            });
-          }}
+          onSubmitted={handleDashboardPaperScanCompleted}
+          onScanSuccess={handleDashboardPaperScanCompleted}
+          onComplete={handleDashboardPaperScanCompleted}
         />
       )}
     </div>
