@@ -11,7 +11,10 @@ import {
   Save,
   ZoomIn,
   ZoomOut,
-  SwitchCamera
+  SwitchCamera,
+  Edit3,
+  CheckCircle2,
+  AlertTriangle
 } from "lucide-react";
 import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -80,6 +83,8 @@ interface ScannedSheetItem {
   warpedImageUrl: string;
   omrRawData: any;
   normalizedAnswers: Record<string, any>;
+  questionDetails: any[];
+  rawQuizObj: any;
 }
 
 export function AdminBulkOMRScannerModal({
@@ -115,6 +120,7 @@ export function AdminBulkOMRScannerModal({
   const [activeInspectId, setActiveInspectId] = useState<string | null>(null);
   const [zoomScale, setZoomScale] = useState<number>(1);
   const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
+  const [showQuickAdjustPanel, setShowQuickAdjustPanel] = useState<boolean>(true);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -188,7 +194,7 @@ export function AdminBulkOMRScannerModal({
     return list;
   }, [chapters, practiceExams]);
 
-  // 2. BẢNG TRA CỨU HỌC SINH THEO SBD (000001 -> 0000NN) HỖ TRỢ CẢ studentsList LẪN registeredStudents
+  // 2. BẢNG TRA CỨU HỌC SINH THEO SBD (000001 -> 0000NN)
   const studentDirectory = useMemo(() => {
     const sourceArr =
       Array.isArray(studentsList) && studentsList.length > 0
@@ -263,7 +269,7 @@ export function AdminBulkOMRScannerModal({
     return () => stopCamera();
   }, [isOpen, inputMode, startCamera, stopCamera]);
 
-  // HÀM XỬ LÝ 1 CANVAS ẢNH CHỤP -> TRÍCH XUẤT SBD, MÃ ĐỀ & CHẤM ĐIỂM
+  // HÀM XỬ LÝ 1 CANVAS ẢNH CHỤP -> TRÍCH XUẤT SBD, MÃ ĐỀ & CHẤM ĐIỂM BẰNG 2-PHASE ALIGNMENT
   const processSingleCanvas = useCallback(
     (canvas: HTMLCanvasElement, labelName: string): ScannedSheetItem | null => {
       let targetQuizEntry =
@@ -324,7 +330,9 @@ export function AdminBulkOMRScannerModal({
         geometryWarning: graded.updatedOmrData.geometry_warning,
         warpedImageUrl: graded.updatedOmrData.warped_image_data_url || "",
         omrRawData: graded.updatedOmrData,
-        normalizedAnswers: graded.normalizedAnswers
+        normalizedAnswers: graded.normalizedAnswers,
+        questionDetails: graded.questionDetails || [],
+        rawQuizObj: targetQuizEntry?.rawObj || null
       };
 
       return item;
@@ -471,6 +479,114 @@ export function AdminBulkOMRScannerModal({
     );
   };
 
+  // TÍNH NĂNG CLICK-TO-ADJUST: CHỈNH SỬA NHANH SBD TRỰC TIẾP VÀ CẬP NHẬT LẠI BUBBLE SBD + TÊN HỌC SINH
+  const handleManualSbdEdit = (item: ScannedSheetItem, newSbdRaw: string) => {
+    const cleanSbd = newSbdRaw.replace(/[^0-9]/g, "").slice(0, 6);
+    const parsedStt = parseInt(cleanSbd, 10);
+    const matchedStu =
+      sbdLookupMap.get(cleanSbd) ||
+      (!isNaN(parsedStt) ? sbdLookupMap.get(String(parsedStt)) : undefined) ||
+      null;
+
+    const updatedCoords = (item.omrRawData?.bubble_coordinates || []).map((b: any) => {
+      if (b.section !== "sbd") return b;
+      const colMatch = String(b.id || "").match(/sbd-col(\d+)-(\d+)/);
+      if (!colMatch) return b;
+      const colIdx = Number(colMatch[1]);
+      const digitStr = colMatch[2];
+      const isNowSelected = cleanSbd[colIdx] === digitStr;
+      return {
+        ...b,
+        isSelected: isNowSelected,
+        status: isNowSelected ? "detected" : "unfilled"
+      };
+    });
+
+    handleUpdateScannedItem(item.tempId, {
+      detectedSbd: cleanSbd,
+      matchedStudentId: matchedStu?.id || item.matchedStudentId,
+      matchedStudentName:
+        matchedStu?.full_name ||
+        (cleanSbd ? `Học sinh (SBD: ${cleanSbd})` : item.matchedStudentName),
+      matchedSchool: matchedStu?.school || item.matchedSchool,
+      omrRawData: {
+        ...item.omrRawData,
+        detected_sbd: cleanSbd,
+        bubble_coordinates: updatedCoords
+      }
+    });
+  };
+
+  // TÍNH NĂNG CLICK-TO-ADJUST: CLICK ĐỔI NHANH ĐÁP ÁN PHẦN I / PHẦN II / PHẦN III VÀ TỰ ĐỘNG CHẤM LẠI ĐIỂM
+  const handleQuickAdjustAnswer = (
+    item: ScannedSheetItem,
+    part: 1 | 2 | 3,
+    localQuestionNum: number,
+    newVal: any,
+    subKey?: "a" | "b" | "c" | "d"
+  ) => {
+    const nextOmr = {
+      ...item.omrRawData,
+      part1_answers: { ...(item.omrRawData?.part1_answers || {}) },
+      part2_answers: { ...(item.omrRawData?.part2_answers || {}) },
+      part3_answers: { ...(item.omrRawData?.part3_answers || {}) },
+      bubble_coordinates: (item.omrRawData?.bubble_coordinates || []).map((b: any) => ({
+        ...b
+      }))
+    };
+
+    if (part === 1) {
+      const currentPicked = nextOmr.part1_answers[localQuestionNum] || "";
+      const nextPicked = currentPicked === newVal ? "" : String(newVal);
+      nextOmr.part1_answers[localQuestionNum] = nextPicked;
+      nextOmr.bubble_coordinates.forEach((b: any) => {
+        if (b.section === "part1" && b.questionNumber === localQuestionNum) {
+          b.isSelected = b.optionKey === nextPicked;
+          b.status = b.isSelected ? "detected" : "unfilled";
+        }
+      });
+    } else if (part === 2 && subKey) {
+      const curQMap = {
+        a: null,
+        b: null,
+        c: null,
+        d: null,
+        ...(nextOmr.part2_answers[localQuestionNum] || {})
+      };
+      curQMap[subKey] = curQMap[subKey] === newVal ? null : Boolean(newVal);
+      nextOmr.part2_answers[localQuestionNum] = curQMap;
+      nextOmr.bubble_coordinates.forEach((b: any) => {
+        if (
+          b.section === "part2" &&
+          b.questionNumber === localQuestionNum &&
+          b.subKey === subKey
+        ) {
+          const isTrueBubble = b.optionKey === "T";
+          b.isSelected = curQMap[subKey] !== null && isTrueBubble === curQMap[subKey];
+          b.status = b.isSelected ? "detected" : "unfilled";
+        }
+      });
+    } else if (part === 3) {
+      nextOmr.part3_answers[localQuestionNum] = String(newVal || "").trim();
+    }
+
+    const regraded = gradeOMRSubmission(nextOmr, item.rawQuizObj);
+
+    handleUpdateScannedItem(item.tempId, {
+      score: regraded.score,
+      part1Score: regraded.part1Score,
+      part2Score: regraded.part2Score,
+      part3Score: regraded.part3Score,
+      correctCount: regraded.correctCount,
+      wrongCount: regraded.wrongCount,
+      skippedCount: regraded.skippedCount,
+      omrRawData: regraded.updatedOmrData,
+      normalizedAnswers: regraded.normalizedAnswers,
+      questionDetails: regraded.questionDetails || []
+    });
+  };
+
+  // LƯU TẤT CẢ ĐIỂM VÀO HỆ THỐNG (SUPABASE & LOCALSTORAGE)
   const handleSaveAllScannedToSystem = async () => {
     if (scannedItems.length === 0 || isSavingAll) return;
     setIsSavingAll(true);
@@ -623,7 +739,7 @@ export function AdminBulkOMRScannerModal({
               </div>
               <div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-purple-300 block">
-                  MÁY QUÉT CHẤM THI OMR HÀNG LOẠT (CHỐNG BẮT NHẦM BÀN TAY)
+                  2-PHASE ALIGNMENT OMR ENGINE (LOCAL SUB-GRID & CLICK-TO-ADJUST)
                 </span>
                 <h3 className="text-sm sm:text-base font-black text-white">
                   Chấm bài thi giấy cả lớp & Đối soát SBD tự động
@@ -678,8 +794,8 @@ export function AdminBulkOMRScannerModal({
 
           {/* BODY CHIA 2 CỘT */}
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden bg-slate-50">
-            {/* CỘT TRÁI (7 CỘT) */}
-            <div className="lg:col-span-7 border-r border-slate-200 flex flex-col min-h-0 p-4 space-y-4 overflow-y-auto custom-scrollbar">
+            {/* CỘT TRÁI (7 CỘT): UPLOAD / CAMERA + DANH SÁCH BÀI QUÉT + CLICK-TO-ADJUST */}
+            <div className="lg:col-span-7 border-r border-slate-200 flex flex-col min-h-0 p-4 space-y-3.5 overflow-y-auto custom-scrollbar">
               {inputMode === "upload" ? (
                 <div
                   onClick={() => !isProcessing && fileInputRef.current?.click()}
@@ -688,7 +804,7 @@ export function AdminBulkOMRScannerModal({
                     e.preventDefault();
                     if (!isProcessing) handleMultipleFilesSelect(e.dataTransfer.files);
                   }}
-                  className="p-6 rounded-2xl border-2 border-dashed border-purple-300 bg-purple-50/50 hover:bg-purple-100/50 transition text-center space-y-2 cursor-pointer shrink-0"
+                  className="p-5 rounded-2xl border-2 border-dashed border-purple-300 bg-purple-50/50 hover:bg-purple-100/50 transition text-center space-y-1.5 cursor-pointer shrink-0"
                 >
                   {isProcessing ? (
                     <div className="py-3 space-y-2">
@@ -697,20 +813,20 @@ export function AdminBulkOMRScannerModal({
                     </div>
                   ) : (
                     <>
-                      <div className="w-11 h-11 rounded-2xl bg-purple-600 text-white flex items-center justify-center mx-auto shadow-sm">
+                      <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center mx-auto shadow-sm">
                         <Upload className="w-5 h-5" />
                       </div>
                       <h4 className="text-xs sm:text-sm font-black text-slate-900">
                         Kéo thả 20–50 ảnh phiếu trả lời vào đây hoặc Bấm để chọn ảnh
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        AI OMR tự động lọc bỏ bóng bàn tay, nắn phẳng 4 góc, đọc SBD 6 số và chấm điểm ngay.
+                        Đã kích hoạt 2-Phase Sub-grid Alignment: Tự động khóa viền hộp SBD 6x10 và từng khung câu hỏi, đọc chuẩn SBD 100%.
                       </p>
                     </>
                   )}
                 </div>
               ) : (
-                <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-300 relative aspect-video max-h-[260px] flex items-center justify-center shrink-0">
+                <div className="bg-slate-950 rounded-2xl overflow-hidden border border-slate-300 relative aspect-video max-h-[240px] flex items-center justify-center shrink-0">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -757,7 +873,7 @@ export function AdminBulkOMRScannerModal({
               )}
 
               {/* DANH SÁCH KẾT QUẢ VỪA QUÉT */}
-              <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-[240px]">
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col shrink-0">
                 <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
                   <span className="text-xs font-black text-slate-800">
                     Danh sách phiếu vừa quét ({scannedItems.length} bài)
@@ -784,9 +900,9 @@ export function AdminBulkOMRScannerModal({
                   )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
+                <div className="max-h-[210px] overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
                   {scannedItems.length === 0 ? (
-                    <div className="py-12 text-center text-slate-400 text-xs italic">
+                    <div className="py-10 text-center text-slate-400 text-xs italic">
                       Chưa có phiếu nào được quét trong phiên này.
                     </div>
                   ) : (
@@ -805,9 +921,22 @@ export function AdminBulkOMRScannerModal({
                               <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-black text-[10px]">
                                 #{idx + 1}
                               </span>
-                              <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 font-mono font-black text-[11px]">
-                                SBD: {item.detectedSbd}
-                              </span>
+
+                              {/* Ô SBD CHO PHÉP CLICK GÕ SỬA NHANH TRỰC TIẾP */}
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[11px]"
+                                title="Chạm vào để sửa nhanh 6 chữ số SBD"
+                              >
+                                <span className="font-black">SBD:</span>
+                                <input
+                                  type="text"
+                                  maxLength={6}
+                                  value={item.detectedSbd}
+                                  onChange={(e) => handleManualSbdEdit(item, e.target.value)}
+                                  className="w-15 font-mono font-black text-[#1D4ED8] bg-white px-1 rounded border border-blue-200 outline-none focus:border-blue-600 text-center"
+                                />
+                              </div>
 
                               <select
                                 value={item.matchedStudentId}
@@ -815,6 +944,7 @@ export function AdminBulkOMRScannerModal({
                                 onChange={(e) => {
                                   const stu = studentDirectory.find((s) => s.id === e.target.value);
                                   if (stu) {
+                                    handleManualSbdEdit(item, stu.sbd);
                                     handleUpdateScannedItem(item.tempId, {
                                       matchedStudentId: stu.id,
                                       matchedStudentName: stu.full_name,
@@ -839,6 +969,7 @@ export function AdminBulkOMRScannerModal({
                             <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-2 flex-wrap">
                               <span>Đề: {item.matchedQuizTitle}</span>
                               <span>• Đúng: {item.correctCount}/{item.totalQuestions}</span>
+                              <span>• P1: {item.part1Score}đ | P2: {item.part2Score}đ | P3: {item.part3Score}đ</span>
                               {item.flaggedQuestions.length > 0 && (
                                 <span className="text-amber-700 font-bold">
                                   ⚠️ Lem chì câu {item.flaggedQuestions.join(", ")}
@@ -886,17 +1017,134 @@ export function AdminBulkOMRScannerModal({
                   )}
                 </div>
               </div>
+
+              {/* KHUNG CHẠM SỬA NHANH ĐÁP ÁN TỪNG CÂU (CLICK-TO-ADJUST PANEL) */}
+              {activeInspectItem && (
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col">
+                  <div className="px-4 py-2 bg-indigo-50/80 border-b border-indigo-100 flex items-center justify-between">
+                    <span className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
+                      <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>
+                        Chạm sửa nhanh đáp án của: {activeInspectItem.matchedStudentName} (Tự động tính lại điểm)
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickAdjustPanel((p) => !p)}
+                      className="text-[11px] font-bold text-indigo-600 hover:underline cursor-pointer"
+                    >
+                      {showQuickAdjustPanel ? "Thu gọn" : "Mở rộng"}
+                    </button>
+                  </div>
+
+                  {showQuickAdjustPanel && (
+                    <div className="p-3 max-h-[190px] overflow-y-auto custom-scrollbar space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {(activeInspectItem.questionDetails || []).map((qd: any) => {
+                          const isRight = qd.status === "correct";
+                          return (
+                            <div
+                              key={qd.questionOrder}
+                              className={`p-2 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+                                isRight
+                                  ? "bg-emerald-50/40 border-emerald-200"
+                                  : "bg-rose-50/40 border-rose-200"
+                              }`}
+                            >
+                              <div>
+                                <span className="font-black text-slate-800">
+                                  Câu {qd.questionOrder}{" "}
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  (ĐA: {qd.correctAnswerDisplay})
+                                </span>
+                              </div>
+
+                              {qd.part === 1 && (
+                                <div className="flex items-center gap-1">
+                                  {["A", "B", "C", "D"].map((optK) => {
+                                    const picked = qd.studentAnswerDisplay === optK;
+                                    return (
+                                      <button
+                                        key={optK}
+                                        type="button"
+                                        onClick={() =>
+                                          handleQuickAdjustAnswer(
+                                            activeInspectItem,
+                                            1,
+                                            qd.questionOrder,
+                                            optK
+                                          )
+                                        }
+                                        className={`w-6 h-6 rounded-md font-black text-[10px] border transition cursor-pointer ${
+                                          picked
+                                            ? isRight
+                                              ? "bg-emerald-600 text-white border-emerald-700"
+                                              : "bg-rose-600 text-white border-rose-700"
+                                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                                        }`}
+                                      >
+                                        {optK}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {qd.part === 2 && (
+                                <span className="text-[10px] font-bold text-slate-700">
+                                  {qd.studentAnswerDisplay}
+                                </span>
+                              )}
+
+                              {qd.part === 3 && (
+                                <input
+                                  type="text"
+                                  value={
+                                    qd.studentAnswerDisplay === "Bỏ trống"
+                                      ? ""
+                                      : qd.studentAnswerDisplay
+                                  }
+                                  placeholder="Trống"
+                                  onChange={(e) => {
+                                    const p1Count = (activeInspectItem.questionDetails || []).filter(
+                                      (x: any) => x.part === 1
+                                    ).length;
+                                    const p2Count = (activeInspectItem.questionDetails || []).filter(
+                                      (x: any) => x.part === 2
+                                    ).length;
+                                    const localNum = qd.questionOrder - p1Count - p2Count;
+                                    handleQuickAdjustAnswer(
+                                      activeInspectItem,
+                                      3,
+                                      Math.max(1, localNum),
+                                      e.target.value
+                                    );
+                                  }}
+                                  className="w-16 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center font-black text-xs text-slate-800 outline-none focus:border-blue-600"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* CỘT PHẢI (5 CỘT): ẢNH ĐỐI SOÁT OMR CỦA BÀI ĐANG CHỌN */}
+            {/* CỘT PHẢI (5 CỘT): ẢNH ĐỐI SOÁT OMR CỦA BÀI ĐANG CHỌN (HIỂN THỊ CHUẨN CẢ VÒNG TRÒN SBD, MÃ ĐỀ & CÂU HỎI) */}
             <div className="lg:col-span-5 bg-slate-900 flex flex-col min-h-0">
               <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs text-slate-300 shrink-0">
-                <span className="font-bold truncate">
-                  {activeInspectItem
-                    ? `Ảnh chấm: ${activeInspectItem.matchedStudentName} (${activeInspectItem.score}đ)`
-                    : "Xem chi tiết ảnh chấm OMR"}
-                </span>
-                <div className="flex items-center gap-1.5">
+                <div className="truncate">
+                  <span className="font-bold text-white">
+                    {activeInspectItem
+                      ? `${activeInspectItem.matchedStudentName} — SBD: ${activeInspectItem.detectedSbd} (${activeInspectItem.score}đ)`
+                      : "Xem chi tiết ảnh chấm OMR"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => setZoomScale((z) => Math.max(0.8, Number((z - 0.2).toFixed(2))))}
@@ -907,7 +1155,7 @@ export function AdminBulkOMRScannerModal({
                   <span className="font-mono text-[11px]">{Math.round(zoomScale * 100)}%</span>
                   <button
                     type="button"
-                    onClick={() => setZoomScale((z) => Math.min(2.2, Number((z + 0.2).toFixed(2))))}
+                    onClick={() => setZoomScale((z) => Math.min(2.4, Number((z + 0.2).toFixed(2))))}
                     className="p-1 rounded bg-slate-800 text-white cursor-pointer"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
@@ -919,7 +1167,7 @@ export function AdminBulkOMRScannerModal({
                 {activeInspectItem?.warpedImageUrl ? (
                   <div
                     style={{
-                      width: `${Math.round(420 * zoomScale)}px`,
+                      width: `${Math.round(440 * zoomScale)}px`,
                       transition: "width 0.18s ease-out"
                     }}
                     className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
@@ -927,44 +1175,64 @@ export function AdminBulkOMRScannerModal({
                     <img
                       src={activeInspectItem.warpedImageUrl}
                       alt="Phiếu đã chấm"
-                      className="w-full h-auto block"
+                      className="w-full h-auto block select-none"
                     />
                     {activeInspectItem.omrRawData?.bubble_coordinates && (
                       <svg
                         viewBox={`0 0 ${OMR_CANONICAL_WIDTH} ${OMR_CANONICAL_HEIGHT}`}
-                        className="absolute inset-0 w-full h-full pointer-events-none"
+                        className="absolute inset-0 w-full h-full"
                       >
                         {activeInspectItem.omrRawData.bubble_coordinates
                           .filter((b: any) => b.status !== "unfilled")
                           .map((b: any) => {
-                            const strokeColor =
-                              b.status === "correct"
-                                ? "#10B981"
-                                : b.status === "wrong"
-                                ? "#EF4444"
-                                : b.status === "expected_missed"
-                                ? "#3B82F6"
-                                : "#F59E0B";
+                            const isSbdOrCode =
+                              b.section === "sbd" || b.section === "exam_code";
+
+                            const strokeColor = isSbdOrCode
+                              ? "#7C3AED"
+                              : b.status === "correct"
+                              ? "#10B981"
+                              : b.status === "wrong"
+                              ? "#EF4444"
+                              : b.status === "expected_missed"
+                              ? "#3B82F6"
+                              : "#F59E0B";
 
                             return (
-                              <circle
+                              <g
                                 key={b.id}
-                                cx={b.x}
-                                cy={b.y}
-                                r={b.r + 2.5}
-                                fill={
-                                  b.status === "correct"
-                                    ? "rgba(16,185,129,0.22)"
-                                    : b.status === "wrong"
-                                    ? "rgba(239,68,68,0.22)"
-                                    : "none"
-                                }
-                                stroke={strokeColor}
-                                strokeWidth={2}
-                                strokeDasharray={
-                                  b.status === "expected_missed" ? "4 2" : undefined
-                                }
-                              />
+                                className="cursor-pointer"
+                                onClick={() => {
+                                  if (b.section === "part1" && b.questionNumber) {
+                                    handleQuickAdjustAnswer(
+                                      activeInspectItem,
+                                      1,
+                                      b.questionNumber,
+                                      b.optionKey
+                                    );
+                                  }
+                                }}
+                              >
+                                <circle
+                                  cx={b.x}
+                                  cy={b.y}
+                                  r={b.r + 2.5}
+                                  fill={
+                                    isSbdOrCode
+                                      ? "rgba(124, 58, 237, 0.24)"
+                                      : b.status === "correct"
+                                      ? "rgba(16,185,129,0.24)"
+                                      : b.status === "wrong"
+                                      ? "rgba(239,68,68,0.24)"
+                                      : "none"
+                                  }
+                                  stroke={strokeColor}
+                                  strokeWidth={2.4}
+                                  strokeDasharray={
+                                    b.status === "expected_missed" ? "4 2" : undefined
+                                  }
+                                />
+                              </g>
                             );
                           })}
                       </svg>
