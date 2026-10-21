@@ -21,7 +21,8 @@ import {
   Globe,
   Save,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  PenTool
 } from "lucide-react";
 import katex from "katex";
 import { supabase } from "@/lib/supabaseClient";
@@ -65,7 +66,7 @@ function sanitizeLatexString(tex: string): string {
       /(\\infty|\\cup|\\cap|\\notin|\\subseteq|\\subset(?![a-zA-Z])|\\in(?![a-zA-Z])|\\forall|\\exists|\\rightarrow|\\Rightarrow|\\Leftrightarrow|\\perp|\\parallel)([a-zA-Z])/g,
       "$1 $2"
     )
-    .replace(/\[(?:img\vert{}image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/gi, "[img:$1]");
+    .replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/gi, "[img:$1]");
 }
 
 function resolveAnalyticsImageSrc(rawKey: string, mediaMap: Record<string, any> = {}): string {
@@ -81,7 +82,8 @@ function resolveAnalyticsImageSrc(rawKey: string, mediaMap: Record<string, any> 
   }
   if (!mediaMap || typeof mediaMap !== "object") return "";
   const cleanKey = trimmed
-    .replace(/^\[(?:img\vert{}image):\s*/i, "") .replace(/\]$/i, "")
+    .replace(/^\[(?:img|image):\s*/i, "")
+    .replace(/\]$/i, "")
     .replace(/^\$+|\$+$/g, "")
     .trim();
 
@@ -99,7 +101,7 @@ function resolveAnalyticsImageSrc(rawKey: string, mediaMap: Record<string, any> 
 function AnalyticsRichContent({
   content,
   mediaMap = {},
-  className = "",
+  className = ""
 }: {
   content?: string;
   mediaMap?: Record<string, any>;
@@ -180,19 +182,27 @@ export default function AnalyticsTab({
 }: AnalyticsTabProps) {
   const currentRealtimeMonth = useMemo(() => new Date().getMonth() + 1, []);
 
-  // STATE BỘ LỌC CHUYÊN SÂU
-  const [examTypeFilter, setExamTypeFilter] = useState<"all" | "homework" | "test" | "practice">("all");
-  const [submissionTypeFilter, setSubmissionTypeFilter] = useState<"all" | "web" | "paper">("all");
-  const [customScopeMode, setCustomScopeMode] = useState<"course" | "month_week" | "chapter" | "lesson">(
+  // STATE BỘ LỌC CHUYÊN SÂU (HỖ TRỢ 3 PHÂN LOẠI HÌNH THỨC: WEB | GIẤY | PHIẾU TÔ ONLINE)
+  const [examTypeFilter, setExamTypeFilter] = useState<"all" | "homework" | "test" | "practice">(
+    "all"
+  );
+  const [submissionTypeFilter, setSubmissionTypeFilter] = useState<
+    "all" | "web" | "paper" | "digital_sheet"
+  >("all");
+  const [customScopeMode, setCustomScopeMode] = useState<
+    "course" | "month_week" | "chapter" | "lesson"
+  >(
     rankingScope === "chapter" ? "chapter" : rankingScope === "lesson" ? "lesson" : "course"
   );
   const [selectedMonth, setSelectedMonth] = useState<number>(currentRealtimeMonth);
   const [selectedWeek, setSelectedWeek] = useState<string>("all");
   const [studentSearchQuery, setStudentSearchQuery] = useState<string>("");
   const [selectedStudentId, setSelectedStudentId] = useState<string>("all");
-  const [focusedTypeFilter, setFocusedTypeFilter] = useState<"all" | "homework" | "test" | "practice">("all");
+  const [focusedTypeFilter, setFocusedTypeFilter] = useState<
+    "all" | "homework" | "test" | "practice"
+  >("all");
 
-  // STATE MODAL XEM CHI TIẾT BÀI LÀM (HỖ TRỢ CẢ BÀI WEB LẪN ẢNH QUÉT BÀI GIẤY OMR)
+  // STATE MODAL XEM CHI TIẾT BÀI LÀM (HỖ TRỢ CẢ BÀI WEB, ẢNH QUÉT BÀI GIẤY OMR & PHIẾU TÔ ONLINE)
   const [submissionModalState, setSubmissionModalState] = useState<{
     studentName: string;
     modeLabel: "BTVN" | "Đề kiểm tra" | "Luyện đề";
@@ -275,33 +285,39 @@ export default function AnalyticsTab({
   }, [propPracticeExams, localPracticeExams]);
 
   const activeLessons = useMemo(() => {
-    return (chapters || []).find(c => c?.id === selectedChapterId)?.lessons || [];
+    return (chapters || []).find((c) => c?.id === selectedChapterId)?.lessons || [];
   }, [chapters, selectedChapterId]);
 
   // Bản đồ tra cứu metadata & đối tượng đề gốc của mọi BTVN, Đề kiểm tra và Đề luyện thi
   const quizLookupMap = useMemo(() => {
-    const byId = new Map<string, {
-      kind: "homework" | "test" | "practice";
-      chapterId?: string;
-      chapterTitle?: string;
-      lessonId?: string;
-      lessonTitle?: string;
-      month?: number;
-      week?: number;
-      title: string;
-      quizObj: any;
-    }>();
-    const byTitle = new Map<string, {
-      kind: "homework" | "test" | "practice";
-      chapterId?: string;
-      chapterTitle?: string;
-      lessonId?: string;
-      lessonTitle?: string;
-      month?: number;
-      week?: number;
-      title: string;
-      quizObj: any;
-    }>();
+    const byId = new Map<
+      string,
+      {
+        kind: "homework" | "test" | "practice";
+        chapterId?: string;
+        chapterTitle?: string;
+        lessonId?: string;
+        lessonTitle?: string;
+        month?: number;
+        week?: number;
+        title: string;
+        quizObj: any;
+      }
+    >();
+    const byTitle = new Map<
+      string,
+      {
+        kind: "homework" | "test" | "practice";
+        chapterId?: string;
+        chapterTitle?: string;
+        lessonId?: string;
+        lessonTitle?: string;
+        month?: number;
+        week?: number;
+        title: string;
+        quizObj: any;
+      }
+    >();
 
     (chapters || []).forEach((chap: any) => {
       const cId = String(chap?.id || "");
@@ -323,7 +339,7 @@ export default function AnalyticsTab({
             month: Number(hw.assigned_month) || lMonth,
             week: Number(hw.assigned_week) || lWeek,
             title: hw.title || "BTVN",
-            quizObj: hw,
+            quizObj: hw
           };
           if (hw.id) byId.set(String(hw.id).trim().toLowerCase(), info);
           if (hw.title) byTitle.set(normalizeText(hw.title), info);
@@ -340,7 +356,7 @@ export default function AnalyticsTab({
             month: Number(tq.assigned_month) || lMonth,
             week: Number(tq.assigned_week) || lWeek,
             title: tq.title || "Đề kiểm tra",
-            quizObj: tq,
+            quizObj: tq
           };
           if (tq.id) byId.set(String(tq.id).trim().toLowerCase(), info);
           if (tq.title) byTitle.set(normalizeText(tq.title), info);
@@ -355,7 +371,7 @@ export default function AnalyticsTab({
         month: Number(pe.assigned_month) || undefined,
         week: Number(pe.assigned_week) || undefined,
         title: pe.title || "Đề luyện thi",
-        quizObj: pe,
+        quizObj: pe
       };
       if (pe.id) byId.set(String(pe.id).trim().toLowerCase(), info);
       if (pe.title) byTitle.set(normalizeText(pe.title), info);
@@ -364,10 +380,14 @@ export default function AnalyticsTab({
     return { byId, byTitle };
   }, [chapters, effectivePracticeExams]);
 
-  // Hàm phân loại chi tiết từng lượt nộp bài (Bao gồm cả submission_type: 'web' | 'paper')
+  // Hàm phân loại chi tiết từng lượt nộp bài (Hỗ trợ rõ 3 loại: 'web' | 'paper' | 'digital_sheet')
   const classifyAttempt = (att: any) => {
-    const qId = String(att?.quizId || att?.quiz_id || att?.exam_id || "").trim().toLowerCase();
-    const rawTitle = String(att?.examTitle || att?.quizTitle || att?.quiz_title || att?.title || "Bài làm");
+    const qId = String(att?.quizId || att?.quiz_id || att?.exam_id || "")
+      .trim()
+      .toLowerCase();
+    const rawTitle = String(
+      att?.examTitle || att?.quizTitle || att?.quiz_title || att?.title || "Bài làm"
+    );
     const normTitle = normalizeText(rawTitle);
 
     const matched =
@@ -384,24 +404,42 @@ export default function AnalyticsTab({
       kind = "test";
     }
 
-    const isPaperSubmission =
-      att?.submission_type === "paper" ||
-      Boolean(att?.paper_scan_url) ||
-      Boolean(att?.omr_raw_data);
+    const attIdStr = String(att?.id || "");
+    const timeSpentRaw = String(att?.timeSpent || att?.time_spent || "");
 
-    const submissionType: "web" | "paper" = isPaperSubmission ? "paper" : "web";
+    const isDigitalSheetSubmission =
+      att?.submission_type === "digital_sheet" ||
+      attIdStr.includes("att-paper-onl") ||
+      timeSpentRaw.includes("Phiếu Onl");
+
+    const isPaperScanSubmission =
+      !isDigitalSheetSubmission &&
+      (att?.submission_type === "paper" ||
+        Boolean(att?.paper_scan_url) ||
+        Boolean(att?.omr_raw_data));
+
+    const submissionType: "web" | "paper" | "digital_sheet" = isDigitalSheetSubmission
+      ? "digital_sheet"
+      : isPaperScanSubmission
+      ? "paper"
+      : "web";
+
+    const hasSheetImage = isDigitalSheetSubmission || isPaperScanSubmission;
 
     const rawDate = att?.createdAt || att?.created_at || att?.submittedAt;
     const parsedDate = rawDate ? new Date(rawDate) : new Date();
     const validDate = !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
 
-    const month = Number(att?.assigned_month) || Number(matched?.month) || (validDate.getMonth() + 1);
-    const week = Number(att?.assigned_week) || Number(matched?.week) || Math.min(5, Math.max(1, Math.ceil(validDate.getDate() / 7)));
+    const month =
+      Number(att?.assigned_month) || Number(matched?.month) || validDate.getMonth() + 1;
+    const week =
+      Number(att?.assigned_week) ||
+      Number(matched?.week) ||
+      Math.min(5, Math.max(1, Math.ceil(validDate.getDate() / 7)));
 
-    const attId = String(att?.id || "");
     const effectiveScore =
-      scoreOverridesMap[attId] !== undefined
-        ? scoreOverridesMap[attId]
+      scoreOverridesMap[attIdStr] !== undefined
+        ? scoreOverridesMap[attIdStr]
         : Number(att?.score ?? att?.points ?? 0);
 
     return {
@@ -409,7 +447,9 @@ export default function AnalyticsTab({
       quizObj: matched?.quizObj || null,
       kind,
       submissionType,
-      paperScanUrl: att?.paper_scan_url || att?.omr_raw_data?.warped_image_data_url || null,
+      hasSheetImage,
+      paperScanUrl:
+        att?.paper_scan_url || att?.omr_raw_data?.warped_image_data_url || null,
       omrRawData: att?.omr_raw_data || null,
       month,
       week,
@@ -419,14 +459,22 @@ export default function AnalyticsTab({
       lessonTitle: matched?.lessonTitle || "",
       examTitle: rawTitle,
       score: effectiveScore,
-      timeSpent: isPaperSubmission ? "Làm trên giấy" : (att?.timeSpent || att?.time_spent || "15 phút"),
+      timeSpent: isDigitalSheetSubmission
+        ? "Tô phiếu Online"
+        : isPaperScanSubmission
+        ? "Làm trên giấy"
+        : timeSpentRaw || "15 phút",
       createdAt: validDate.toISOString(),
-      formattedDate: `${String(validDate.getDate()).padStart(2, "0")}/${String(validDate.getMonth() + 1).padStart(2, "0")}/${validDate.getFullYear()}`,
-      formattedTime: `${String(validDate.getHours()).padStart(2, "0")}:${String(validDate.getMinutes()).padStart(2, "0")}`,
+      formattedDate: `${String(validDate.getDate()).padStart(2, "0")}/${String(
+        validDate.getMonth() + 1
+      ).padStart(2, "0")}/${validDate.getFullYear()}`,
+      formattedTime: `${String(validDate.getHours()).padStart(2, "0")}:${String(
+        validDate.getMinutes()
+      ).padStart(2, "0")}`
     };
   };
 
-  // Kiểm tra 1 lượt nộp có thỏa mãn bộ lọc Phạm vi & Hình thức làm bài (Web / Giấy) không
+  // Kiểm tra 1 lượt nộp có thỏa mãn bộ lọc Phạm vi & Hình thức làm bài (Web / Giấy / Phiếu Onl) không
   const isAttemptMatchingScope = (classified: ReturnType<typeof classifyAttempt>): boolean => {
     if (submissionTypeFilter !== "all" && classified.submissionType !== submissionTypeFilter) {
       return false;
@@ -442,7 +490,7 @@ export default function AnalyticsTab({
     return true;
   };
 
-  // LƯU ĐIỂM SỬA THỦ CÔNG CHO BÀI THI TRÊN GIẤY (HOẶC BÀI WEB)
+  // LƯU ĐIỂM SỬA THỦ CÔNG CHO BÀI THI TRÊN GIẤY / PHIẾU ONLINE / BÀI WEB
   const handleSaveManualScoreOverride = async () => {
     if (!submissionModalState?.activeAttempt || isSavingManualScore) return;
     const parsedScore = Number(String(manualScoreInput).replace(",", "."));
@@ -457,7 +505,7 @@ export default function AnalyticsTab({
 
     setScoreOverridesMap((prev) => ({
       ...prev,
-      [targetAttemptId]: parsedScore,
+      [targetAttemptId]: parsedScore
     }));
 
     setSubmissionModalState((prev) => {
@@ -469,7 +517,7 @@ export default function AnalyticsTab({
       return {
         ...prev,
         activeAttempt: updatedActive,
-        attemptsList: updatedList,
+        attemptsList: updatedList
       };
     });
 
@@ -507,7 +555,7 @@ export default function AnalyticsTab({
         supabase
           .from("attempts")
           .update({ score: parsedScore, points: parsedScore })
-          .eq("id", targetAttemptId),
+          .eq("id", targetAttemptId)
       ]);
     } catch {}
 
@@ -516,35 +564,41 @@ export default function AnalyticsTab({
     setTimeout(() => setScoreSavedToast(false), 2500);
   };
 
-  // TÍNH TOÁN BẢNG ĐIỂM TỔNG HỢP & PHÂN TÁCH MẢNG hwAttempts / testAttempts / paperCount / webCount
+  // TÍNH TOÁN BẢNG ĐIỂM TỔNG HỢP & PHÂN TÁCH MẢNG hwAttempts / testAttempts / webCount / paperCount / digitalSheetCount
   const enrichedStudentRows = useMemo(() => {
-    const studentMap = new Map<string, {
-      id: string;
-      name: string;
-      username: string;
-      school: string;
-      mode: "online" | "offline";
-      hwScores: number[];
-      testScores: number[];
-      pracScores: number[];
-      hwAttempts: any[];
-      testAttempts: any[];
-      pracAttempts: any[];
-      detailedAttempts: any[];
-      webAttemptsCount: number;
-      paperAttemptsCount: number;
-      fallbackHwMax: number;
-      fallbackTestMax: number;
-      fallbackOverall: number;
-      fallbackAttemptsCount: number;
-    }>();
+    const studentMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        username: string;
+        school: string;
+        mode: "online" | "offline";
+        hwScores: number[];
+        testScores: number[];
+        pracScores: number[];
+        hwAttempts: any[];
+        testAttempts: any[];
+        pracAttempts: any[];
+        detailedAttempts: any[];
+        webAttemptsCount: number;
+        paperAttemptsCount: number;
+        digitalSheetAttemptsCount: number;
+        fallbackHwMax: number;
+        fallbackTestMax: number;
+        fallbackOverall: number;
+        fallbackAttemptsCount: number;
+      }
+    >();
 
     const profileLookup = new Map<string, string>();
 
     (analyticsData || []).forEach((st: any) => {
       if (!st) return;
       const id = String(st.id || st.name);
-      const mode = String(st.mode || "online").toLowerCase().includes("off") ? "offline" : "online";
+      const mode = String(st.mode || "online").toLowerCase().includes("off")
+        ? "offline"
+        : "online";
       studentMap.set(id, {
         id,
         name: st.name || "Học sinh",
@@ -560,10 +614,11 @@ export default function AnalyticsTab({
         detailedAttempts: [],
         webAttemptsCount: 0,
         paperAttemptsCount: 0,
+        digitalSheetAttemptsCount: 0,
         fallbackHwMax: Number(st.hwMax || 0),
         fallbackTestMax: Number(st.testMax || 0),
         fallbackOverall: Number(st.overallAvg || 0),
-        fallbackAttemptsCount: Number(st.totalAttempts || 0),
+        fallbackAttemptsCount: Number(st.totalAttempts || 0)
       });
       profileLookup.set(id.trim().toLowerCase(), id);
       if (st.name) profileLookup.set(normalizeText(st.name), id);
@@ -590,10 +645,11 @@ export default function AnalyticsTab({
           detailedAttempts: [],
           webAttemptsCount: 0,
           paperAttemptsCount: 0,
+          digitalSheetAttemptsCount: 0,
           fallbackHwMax: 0,
           fallbackTestMax: 0,
           fallbackOverall: 0,
-          fallbackAttemptsCount: 0,
+          fallbackAttemptsCount: 0
         });
       }
       profileLookup.set(id.trim().toLowerCase(), id);
@@ -607,8 +663,12 @@ export default function AnalyticsTab({
 
     (effectiveAttempts || []).forEach((att: any) => {
       if (!att) return;
-      const stuIdRaw = String(att.studentId || att.student_id || att.user_id || "").trim().toLowerCase();
-      const stuNameNorm = normalizeText(att.studentName || att.student_name || att.full_name || "");
+      const stuIdRaw = String(att.studentId || att.student_id || att.user_id || "")
+        .trim()
+        .toLowerCase();
+      const stuNameNorm = normalizeText(
+        att.studentName || att.student_name || att.full_name || ""
+      );
 
       const targetStudentId =
         (stuIdRaw && profileLookup.get(stuIdRaw)) ||
@@ -623,7 +683,7 @@ export default function AnalyticsTab({
       const stEntry = studentMap.get(targetStudentId)!;
       const enrichedAttItem = {
         id: att.id || `att-${stEntry.detailedAttempts.length}`,
-        ...classified,
+        ...classified
       };
 
       if (classified.kind === "homework") {
@@ -639,7 +699,9 @@ export default function AnalyticsTab({
 
       if (examTypeFilter === "all" || classified.kind === examTypeFilter) {
         stEntry.detailedAttempts.push(enrichedAttItem);
-        if (classified.submissionType === "paper") {
+        if (classified.submissionType === "digital_sheet") {
+          stEntry.digitalSheetAttemptsCount++;
+        } else if (classified.submissionType === "paper") {
           stEntry.paperAttemptsCount++;
         } else {
           stEntry.webAttemptsCount++;
@@ -660,7 +722,14 @@ export default function AnalyticsTab({
         if (submissionTypeFilter === "paper" && st.paperAttemptsCount === 0) {
           return false;
         }
-        if (submissionTypeFilter === "web" && hasDetailedAttemptsSource && st.webAttemptsCount === 0) {
+        if (submissionTypeFilter === "digital_sheet" && st.digitalSheetAttemptsCount === 0) {
+          return false;
+        }
+        if (
+          submissionTypeFilter === "web" &&
+          hasDetailedAttemptsSource &&
+          st.webAttemptsCount === 0
+        ) {
           return false;
         }
         if (studentSearchQuery.trim()) {
@@ -676,27 +745,41 @@ export default function AnalyticsTab({
         const sortedHwAttempts = [...st.hwAttempts].sort((a, b) => b.score - a.score);
         const sortedTestAttempts = [...st.testAttempts].sort((a, b) => b.score - a.score);
 
-        const hwMax = st.hwScores.length > 0
-          ? Math.max(...st.hwScores)
-          : (!hasDetailedAttemptsSource && submissionTypeFilter === "all" ? st.fallbackHwMax : 0);
-        const hwAvg = st.hwScores.length > 0
-          ? st.hwScores.reduce((a, b) => a + b, 0) / st.hwScores.length
-          : hwMax;
+        const hwMax =
+          st.hwScores.length > 0
+            ? Math.max(...st.hwScores)
+            : !hasDetailedAttemptsSource && submissionTypeFilter === "all"
+            ? st.fallbackHwMax
+            : 0;
+        const hwAvg =
+          st.hwScores.length > 0
+            ? st.hwScores.reduce((a, b) => a + b, 0) / st.hwScores.length
+            : hwMax;
 
-        const testMax = st.testScores.length > 0
-          ? Math.max(...st.testScores)
-          : (!hasDetailedAttemptsSource && submissionTypeFilter === "all" ? st.fallbackTestMax : 0);
-        const testAvg = st.testScores.length > 0
-          ? st.testScores.reduce((a, b) => a + b, 0) / st.testScores.length
-          : testMax;
+        const testMax =
+          st.testScores.length > 0
+            ? Math.max(...st.testScores)
+            : !hasDetailedAttemptsSource && submissionTypeFilter === "all"
+            ? st.fallbackTestMax
+            : 0;
+        const testAvg =
+          st.testScores.length > 0
+            ? st.testScores.reduce((a, b) => a + b, 0) / st.testScores.length
+            : testMax;
 
         const pracMax = st.pracScores.length > 0 ? Math.max(...st.pracScores) : 0;
-        const pracAvg = st.pracScores.length > 0
-          ? st.pracScores.reduce((a, b) => a + b, 0) / st.pracScores.length
-          : 0;
+        const pracAvg =
+          st.pracScores.length > 0
+            ? st.pracScores.reduce((a, b) => a + b, 0) / st.pracScores.length
+            : 0;
 
         let displayOverall = 0;
-        if (!hasDetailedAttemptsSource && examTypeFilter === "all" && customScopeMode === "course" && submissionTypeFilter === "all") {
+        if (
+          !hasDetailedAttemptsSource &&
+          examTypeFilter === "all" &&
+          customScopeMode === "course" &&
+          submissionTypeFilter === "all"
+        ) {
           displayOverall = st.fallbackOverall;
         } else if (examTypeFilter === "homework") {
           displayOverall = customScopeMode === "lesson" ? hwMax : hwAvg;
@@ -706,8 +789,10 @@ export default function AnalyticsTab({
           displayOverall = pracAvg;
         } else {
           const activeBuckets: number[] = [];
-          if (st.hwScores.length > 0) activeBuckets.push(customScopeMode === "lesson" ? hwMax : hwAvg);
-          if (st.testScores.length > 0) activeBuckets.push(customScopeMode === "lesson" ? testMax : testAvg);
+          if (st.hwScores.length > 0)
+            activeBuckets.push(customScopeMode === "lesson" ? hwMax : hwAvg);
+          if (st.testScores.length > 0)
+            activeBuckets.push(customScopeMode === "lesson" ? testMax : testAvg);
           if (st.pracScores.length > 0) activeBuckets.push(pracAvg);
           if (activeBuckets.length > 0) {
             displayOverall = activeBuckets.reduce((a, b) => a + b, 0) / activeBuckets.length;
@@ -732,7 +817,7 @@ export default function AnalyticsTab({
           testAvg: Number(testAvg.toFixed(1)),
           pracMax: Number(pracMax.toFixed(1)),
           pracAvg: Number(pracAvg.toFixed(1)),
-          overallAvg: Number(displayOverall.toFixed(1)),
+          overallAvg: Number(displayOverall.toFixed(1))
         };
       })
       .sort((a, b) => b.overallAvg - a.overallAvg || b.totalAttempts - a.totalAttempts);
@@ -751,7 +836,7 @@ export default function AnalyticsTab({
     selectedStudentId,
     studentSearchQuery,
     quizLookupMap,
-    scoreOverridesMap,
+    scoreOverridesMap
   ]);
 
   const focusedStudent = useMemo(() => {
@@ -776,7 +861,7 @@ export default function AnalyticsTab({
       studentName: studentRow.name,
       modeLabel: targetType === "homework" ? "BTVN" : "Đề kiểm tra",
       attemptsList: list,
-      activeAttempt: list[0],
+      activeAttempt: list[0]
     });
   };
 
@@ -818,7 +903,7 @@ export default function AnalyticsTab({
       ...(examObj?.media_map || {}),
       ...(examObj?.mediaMap || {}),
       ...(att?.media_map || {}),
-      ...(att?.mediaMap || {}),
+      ...(att?.mediaMap || {})
     };
 
     const flatQuestions: any[] = [];
@@ -826,8 +911,10 @@ export default function AnalyticsTab({
 
     if (Array.isArray(rawSections) && rawSections.length > 0) {
       rawSections.forEach((sec: any, secIdx: number) => {
-        if (sec?.mediaMap && typeof sec.mediaMap === "object") Object.assign(mediaMap, sec.mediaMap);
-        if (sec?.media_map && typeof sec.media_map === "object") Object.assign(mediaMap, sec.media_map);
+        if (sec?.mediaMap && typeof sec.mediaMap === "object")
+          Object.assign(mediaMap, sec.mediaMap);
+        if (sec?.media_map && typeof sec.media_map === "object")
+          Object.assign(mediaMap, sec.media_map);
 
         const secType =
           sec?.section_type ||
@@ -842,7 +929,8 @@ export default function AnalyticsTab({
         secQuestions.forEach((q: any, qIdxInSec: number) => {
           absoluteIndex++;
           if (q?.mediaMap && typeof q.mediaMap === "object") Object.assign(mediaMap, q.mediaMap);
-          if (q?.media_map && typeof q.media_map === "object") Object.assign(mediaMap, q.media_map);
+          if (q?.media_map && typeof q.media_map === "object")
+            Object.assign(mediaMap, q.media_map);
 
           const qType = q?.type || secType || "multiple_choice";
           const effectiveId = String(q?.id || `q-${absoluteIndex}`).trim();
@@ -855,7 +943,7 @@ export default function AnalyticsTab({
             secIdx,
             qIdxInSec,
             sectionTitle: sec?.section_title || "",
-            qType,
+            qType
           });
         });
       });
@@ -871,7 +959,7 @@ export default function AnalyticsTab({
           secIdx: 0,
           qIdxInSec: absoluteIndex - 1,
           sectionTitle: "",
-          qType: q?.type || "multiple_choice",
+          qType: q?.type || "multiple_choice"
         });
       });
     }
@@ -899,7 +987,7 @@ export default function AnalyticsTab({
         `cau-${idx}`,
         String(idx),
         `${q.secIdx}_${q.qIdxInSec}`,
-        `${q.secIdx}-${q.qIdxInSec}`,
+        `${q.secIdx}-${q.qIdxInSec}`
       ].filter(Boolean);
 
       let stuAns: any = undefined;
@@ -924,7 +1012,7 @@ export default function AnalyticsTab({
         qId: q.effectiveId,
         globalOrder: idx,
         stuAns,
-        correctRaw,
+        correctRaw
       });
     });
 
@@ -944,7 +1032,9 @@ export default function AnalyticsTab({
       questionsList.forEach((q, idx) => {
         const isSimulatedCorrect = idx < targetCorrect;
         if (q.qType === "true_false") {
-          const cleanAns = (q.correctRaw || "ĐĐĐĐ").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          const cleanAns = (q.correctRaw || "ĐĐĐĐ")
+            .replace(/[^A-Za-zĐđSsTtFf]/g, "")
+            .toUpperCase();
           const tfObj: Record<string, string> = {};
           ["a", "b", "c", "d"].forEach((k, i) => {
             const c = cleanAns[i] || "Đ";
@@ -984,7 +1074,9 @@ export default function AnalyticsTab({
         const options = Array.isArray(q?.options) ? q.options : [];
         const expectedMap: Record<string, boolean> = {};
         options.forEach((opt: any, i: number) => {
-          const k = String(opt?.key || ["a", "b", "c", "d"][i] || i).toLowerCase().replace(/[^a-d]/g, "");
+          const k = String(opt?.key || ["a", "b", "c", "d"][i] || i)
+            .toLowerCase()
+            .replace(/[^a-d]/g, "");
           if (typeof opt?.is_true_false_ans === "boolean") {
             expectedMap[k] = opt.is_true_false_ans;
           }
@@ -1039,13 +1131,22 @@ export default function AnalyticsTab({
         if (!stuStr) {
           status = "skipped";
         } else {
-          const normStu = stuStr.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
-          const normCorr = correctRaw.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
+          const normStu = stuStr
+            .replace(/\s+/g, "")
+            .replace(/,/g, ".")
+            .replace(/[−–—]/g, "-")
+            .toLowerCase();
+          const normCorr = correctRaw
+            .replace(/\s+/g, "")
+            .replace(/,/g, ".")
+            .replace(/[−–—]/g, "-")
+            .toLowerCase();
           status = normStu === normCorr ? "correct" : "wrong";
         }
       } else {
         q.qType = "multiple_choice";
-        const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
+        const stuStr =
+          stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
         const corrStr = correctRaw.toUpperCase();
         stuDisplay = stuStr || "Bỏ trống";
         correctDisplay = corrStr || "A";
@@ -1062,7 +1163,7 @@ export default function AnalyticsTab({
       mediaMap,
       correctCount: questionsList.filter((q) => q.status === "correct").length,
       wrongCount: questionsList.filter((q) => q.status === "wrong").length,
-      skippedCount: questionsList.filter((q) => q.status === "skipped").length,
+      skippedCount: questionsList.filter((q) => q.status === "skipped").length
     };
   }, [submissionModalState]);
 
@@ -1077,6 +1178,7 @@ export default function AnalyticsTab({
       "Số lượt làm",
       "Bài Web",
       "Bài Giấy",
+      "Phiếu Onl",
       "Đ.BTVN (Max)",
       "Đ.BTVN (TB)",
       "Đ.Kiểm tra (Max)",
@@ -1093,6 +1195,7 @@ export default function AnalyticsTab({
       st.totalAttempts,
       st.webAttemptsCount,
       st.paperAttemptsCount,
+      st.digitalSheetAttemptsCount,
       st.hwMax,
       st.hwAvg,
       st.testMax,
@@ -1102,8 +1205,7 @@ export default function AnalyticsTab({
     ]);
 
     const csvContent =
-      "\uFEFF" +
-      [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1118,7 +1220,7 @@ export default function AnalyticsTab({
     <div className="space-y-5 animate-in fade-in duration-300 max-w-6xl mx-auto text-left font-sans">
       {/* 1. BẢNG ĐIỀU KHIỂN BỘ LỌC ĐA CHIỀU CHUYÊN SÂU */}
       <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-3.5">
-        {/* HÀNG LỌC 1: LOẠI BÀI + HÌNH THỨC LÀM BÀI (WEB / GIẤY) + HÌNH THỨC HỌC */}
+        {/* HÀNG LỌC 1: LOẠI BÀI + HÌNH THỨC LÀM BÀI (WEB / GIẤY / PHIẾU TÔ ONLINE) + HÌNH THỨC HỌC */}
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
@@ -1174,7 +1276,7 @@ export default function AnalyticsTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* BỘ LỌC HÌNH THỨC NỘP BÀI: TẤT CẢ | 🌐 LÀM TRÊN WEB | 📄 LÀM TRÊN GIẤY */}
+            {/* BỘ LỌC HÌNH THỨC NỘP BÀI: TẤT CẢ | 🌐 LÀM TRÊN WEB | 📄 LÀM TRÊN GIẤY | 📝 PHIẾU TÔ ONLINE */}
             <div className="flex items-center gap-1 p-1 bg-purple-50/70 rounded-xl border border-purple-200/80 shrink-0">
               <button
                 type="button"
@@ -1209,6 +1311,17 @@ export default function AnalyticsTab({
               >
                 📄 Làm trên Giấy
               </button>
+              <button
+                type="button"
+                onClick={() => setSubmissionTypeFilter("digital_sheet")}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                  submissionTypeFilter === "digital_sheet"
+                    ? "bg-indigo-600 text-white shadow-2xs"
+                    : "text-indigo-700 hover:text-indigo-900"
+                }`}
+              >
+                📝 Phiếu Tô Online
+              </button>
             </div>
 
             {/* ĐỐI TƯỢNG HỌC SINH: ALL / ONLINE / OFFLINE */}
@@ -1217,8 +1330,10 @@ export default function AnalyticsTab({
                 type="button"
                 onClick={() => setAnalyticsModeFilter("all")}
                 className={
-                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + 
-                  (analyticsModeFilter === "all" ? "bg-white text-[#1D4ED8] shadow-xs" : "text-slate-600 hover:text-slate-900")
+                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " +
+                  (analyticsModeFilter === "all"
+                    ? "bg-white text-[#1D4ED8] shadow-xs"
+                    : "text-slate-600 hover:text-slate-900")
                 }
               >
                 Toàn bộ HS
@@ -1227,8 +1342,10 @@ export default function AnalyticsTab({
                 type="button"
                 onClick={() => setAnalyticsModeFilter("online")}
                 className={
-                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + 
-                  (analyticsModeFilter === "online" ? "bg-white text-indigo-700 shadow-xs" : "text-slate-600 hover:text-slate-900")
+                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " +
+                  (analyticsModeFilter === "online"
+                    ? "bg-white text-indigo-700 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900")
                 }
               >
                 HS Online
@@ -1237,8 +1354,10 @@ export default function AnalyticsTab({
                 type="button"
                 onClick={() => setAnalyticsModeFilter("offline")}
                 className={
-                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " + 
-                  (analyticsModeFilter === "offline" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600 hover:text-slate-900")
+                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " +
+                  (analyticsModeFilter === "offline"
+                    ? "bg-white text-emerald-700 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900")
                 }
               >
                 HS Offline
@@ -1251,55 +1370,63 @@ export default function AnalyticsTab({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
-              <button 
+              <button
                 type="button"
                 onClick={() => {
                   setCustomScopeMode("course");
                   setRankingScope("course");
-                }} 
+                }}
                 className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " + 
-                  (customScopeMode === "course" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-500 hover:text-slate-800")
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " +
+                  (customScopeMode === "course"
+                    ? "bg-white text-[#1D4ED8] shadow-2xs"
+                    : "text-slate-500 hover:text-slate-800")
                 }
               >
                 Toàn khóa
               </button>
-              <button 
+              <button
                 type="button"
                 onClick={() => {
                   setCustomScopeMode("month_week");
                   setRankingScope("course");
-                }} 
+                }}
                 className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer " + 
-                  (customScopeMode === "month_week" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-500 hover:text-slate-800")
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer " +
+                  (customScopeMode === "month_week"
+                    ? "bg-white text-[#1D4ED8] shadow-2xs"
+                    : "text-slate-500 hover:text-slate-800")
                 }
               >
                 <Calendar className="w-3.5 h-3.5" />
                 <span>Theo Tháng & Tuần</span>
               </button>
-              <button 
+              <button
                 type="button"
                 onClick={() => {
                   setCustomScopeMode("chapter");
                   setRankingScope("chapter");
-                }} 
+                }}
                 className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " + 
-                  (customScopeMode === "chapter" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-500 hover:text-slate-800")
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " +
+                  (customScopeMode === "chapter"
+                    ? "bg-white text-[#1D4ED8] shadow-2xs"
+                    : "text-slate-500 hover:text-slate-800")
                 }
               >
                 Từng chương
               </button>
-              <button 
+              <button
                 type="button"
                 onClick={() => {
                   setCustomScopeMode("lesson");
                   setRankingScope("lesson");
-                }} 
+                }}
                 className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " + 
-                  (customScopeMode === "lesson" ? "bg-white text-[#1D4ED8] shadow-2xs" : "text-slate-500 hover:text-slate-800")
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " +
+                  (customScopeMode === "lesson"
+                    ? "bg-white text-[#1D4ED8] shadow-2xs"
+                    : "text-slate-500 hover:text-slate-800")
                 }
               >
                 Từng bài
@@ -1315,7 +1442,8 @@ export default function AnalyticsTab({
                 >
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                     <option key={m} value={m}>
-                      Tháng {m < 10 ? "0" + m : m} {m === currentRealtimeMonth ? "(Hiện tại)" : ""}
+                      Tháng {m < 10 ? "0" + m : m}{" "}
+                      {m === currentRealtimeMonth ? "(Hiện tại)" : ""}
                     </option>
                   ))}
                 </select>
@@ -1335,23 +1463,34 @@ export default function AnalyticsTab({
             )}
 
             {(customScopeMode === "chapter" || customScopeMode === "lesson") && (
-              <select 
-                value={selectedChapterId} 
-                onChange={e => { setSelectedChapterId(e.target.value); setSelectedLessonId("all"); }} 
+              <select
+                value={selectedChapterId}
+                onChange={(e) => {
+                  setSelectedChapterId(e.target.value);
+                  setSelectedLessonId("all");
+                }}
                 className="px-3 py-1.5 text-xs font-bold text-[#1D4ED8] bg-blue-50 border border-blue-200 rounded-xl focus:border-blue-500 outline-none transition cursor-pointer max-w-[240px]"
               >
                 <option value="all">-- Chọn Chương --</option>
-                {(chapters || []).map(c => <option key={c?.id} value={c?.id}>{c?.title}</option>)}
+                {(chapters || []).map((c) => (
+                  <option key={c?.id} value={c?.id}>
+                    {c?.title}
+                  </option>
+                ))}
               </select>
             )}
             {customScopeMode === "lesson" && selectedChapterId !== "all" && (
-              <select 
-                value={selectedLessonId} 
-                onChange={e => setSelectedLessonId(e.target.value)} 
+              <select
+                value={selectedLessonId}
+                onChange={(e) => setSelectedLessonId(e.target.value)}
                 className="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl focus:border-indigo-500 outline-none transition cursor-pointer max-w-[240px]"
               >
                 <option value="all">-- Chọn Bài học --</option>
-                {activeLessons.map((l: any) => <option key={l?.id} value={l?.id}>{l?.title}</option>)}
+                {activeLessons.map((l: any) => (
+                  <option key={l?.id} value={l?.id}>
+                    {l?.title}
+                  </option>
+                ))}
               </select>
             )}
           </div>
@@ -1433,7 +1572,10 @@ export default function AnalyticsTab({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 font-semibold">
-                  {focusedStudent.school} • Đang hiển thị: <strong>{focusedStudentFilteredAttempts.length} bài</strong> (🌐 {focusedStudent.webAttemptsCount} Web • 📄 {focusedStudent.paperAttemptsCount} Giấy)
+                  {focusedStudent.school} • Đang hiển thị:{" "}
+                  <strong>{focusedStudentFilteredAttempts.length} bài</strong> (🌐{" "}
+                  {focusedStudent.webAttemptsCount} Web • 📄 {focusedStudent.paperAttemptsCount}{" "}
+                  Giấy • 📝 {focusedStudent.digitalSheetAttemptsCount} Phiếu Onl)
                 </p>
               </div>
             </div>
@@ -1505,11 +1647,15 @@ export default function AnalyticsTab({
                 ) : (
                   focusedStudentFilteredAttempts.map((item: any, idx: number) => (
                     <tr key={item.id || idx} className="hover:bg-slate-50/70">
-                      <td className="py-2.5 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                      <td className="py-2.5 px-4 text-center font-bold text-slate-400">
+                        {idx + 1}
+                      </td>
                       <td className="py-2.5 px-4 font-bold text-slate-800">
                         <div>{item.examTitle}</div>
                         {item.lessonTitle && (
-                          <span className="text-[10px] text-slate-400 font-medium">{item.lessonTitle}</span>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            {item.lessonTitle}
+                          </span>
                         )}
                       </td>
                       <td className="py-2.5 px-3 text-center">
@@ -1528,7 +1674,11 @@ export default function AnalyticsTab({
                         )}
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        {item.submissionType === "paper" ? (
+                        {item.submissionType === "digital_sheet" ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            📝 Phiếu Onl
+                          </span>
+                        ) : item.submissionType === "paper" ? (
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-200">
                             📄 Giấy
                           </span>
@@ -1571,12 +1721,12 @@ export default function AnalyticsTab({
                                     ? "Đề kiểm tra"
                                     : "Luyện đề",
                                 attemptsList: [item],
-                                activeAttempt: item,
+                                activeAttempt: item
                               })
                             }
                             className="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-[#1D4ED8] text-[#1D4ED8] hover:text-white text-[11px] font-bold transition cursor-pointer border border-blue-200"
                           >
-                            {item.submissionType === "paper" ? "Xem phiếu" : "Xem bài"}
+                            {item.hasSheetImage ? "Xem phiếu" : "Xem bài"}
                           </button>
                         </div>
                       </td>
@@ -1589,7 +1739,7 @@ export default function AnalyticsTab({
         </div>
       )}
 
-      {/* 3. BẢNG ĐIỂM & XẾP HẠNG TỔNG HỢP (CÓ BADGE [🌐 WEB] / [📄 GIẤY] & 2 NÚT XEM BÀI LÀM) */}
+      {/* 3. BẢNG ĐIỂM & XẾP HẠNG TỔNG HỢP (CÓ BADGE [🌐 WEB] / [📄 GIẤY] / [📝 PHIẾU ONL]) */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div className="p-4 sm:px-6 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 flex-wrap">
@@ -1599,12 +1749,22 @@ export default function AnalyticsTab({
             </h3>
             {examTypeFilter !== "all" && (
               <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-black uppercase">
-                Đang lọc: {examTypeFilter === "homework" ? "Chỉ BTVN" : examTypeFilter === "test" ? "Chỉ Đề kiểm tra" : "Luyện đề thực chiến"}
+                Đang lọc:{" "}
+                {examTypeFilter === "homework"
+                  ? "Chỉ BTVN"
+                  : examTypeFilter === "test"
+                  ? "Chỉ Đề kiểm tra"
+                  : "Luyện đề thực chiến"}
               </span>
             )}
             {submissionTypeFilter !== "all" && (
               <span className="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-black uppercase">
-                Hình thức: {submissionTypeFilter === "paper" ? "📄 Làm trên Giấy" : "🌐 Làm trên Web"}
+                Hình thức:{" "}
+                {submissionTypeFilter === "paper"
+                  ? "📄 Làm trên Giấy"
+                  : submissionTypeFilter === "digital_sheet"
+                  ? "📝 Phiếu Tô Online"
+                  : "🌐 Làm trên Web"}
               </span>
             )}
             {customScopeMode === "month_week" && (
@@ -1625,7 +1785,9 @@ export default function AnalyticsTab({
                 <th className="py-3 px-3 font-bold text-center w-14">Hạng</th>
                 <th className="py-3 px-4 font-bold min-w-[170px]">Học sinh</th>
                 <th className="py-3 px-3 font-bold text-center w-22">Phân hệ</th>
-                <th className="py-3 px-3 font-bold text-center w-32">Lượt làm (Web / Giấy)</th>
+                <th className="py-3 px-3 font-bold text-center w-40">
+                  Lượt làm (Web / Giấy / Phiếu Onl)
+                </th>
                 {(examTypeFilter === "all" || examTypeFilter === "homework") && (
                   <th className="py-3 px-3 font-bold text-center text-emerald-700 w-32">
                     Điểm BTVN (Max / TB)
@@ -1642,7 +1804,9 @@ export default function AnalyticsTab({
                   </th>
                 )}
                 <th className="py-3 px-3 font-bold text-center text-[#1D4ED8] w-24">Tổng kết</th>
-                <th className="py-3 px-4 font-bold text-center min-w-[210px]">Xem chi tiết bài làm</th>
+                <th className="py-3 px-4 font-bold text-center min-w-[210px]">
+                  Xem chi tiết bài làm
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1686,15 +1850,24 @@ export default function AnalyticsTab({
                     >
                       <td className="py-2.5 px-3 text-center font-black">
                         {isTop1 ? (
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-xs font-black shadow-2xs" title="Hạng 1 - Huy hiệu Vàng">
+                          <span
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-xs font-black shadow-2xs"
+                            title="Hạng 1 - Huy hiệu Vàng"
+                          >
                             🥇
                           </span>
                         ) : isTop2 ? (
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-700 border border-slate-300 text-xs font-black" title="Hạng 2 - Huy hiệu Bạc">
+                          <span
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-700 border border-slate-300 text-xs font-black"
+                            title="Hạng 2 - Huy hiệu Bạc"
+                          >
                             🥈
                           </span>
                         ) : isTop3 ? (
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-800 border border-orange-300 text-xs font-black" title="Hạng 3 - Huy hiệu Đồng">
+                          <span
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-800 border border-orange-300 text-xs font-black"
+                            title="Hạng 3 - Huy hiệu Đồng"
+                          >
                             🥉
                           </span>
                         ) : (
@@ -1703,15 +1876,19 @@ export default function AnalyticsTab({
                       </td>
                       <td className="py-2.5 px-4 font-bold text-slate-800">
                         <div className="group-hover:text-[#1D4ED8]">{st.name}</div>
-                        <span className="text-[10px] text-slate-400 font-normal">{st.school || "THPT"}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {st.school || "THPT"}
+                        </span>
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        <span className={
-                          "px-2 py-0.5 rounded text-[9px] font-black uppercase " + 
-                          (st.mode === "online" 
-                            ? "bg-indigo-50 text-indigo-700 border border-indigo-200" 
-                            : "bg-emerald-50 text-emerald-700 border border-emerald-200")
-                        }>
+                        <span
+                          className={
+                            "px-2 py-0.5 rounded text-[9px] font-black uppercase " +
+                            (st.mode === "online"
+                              ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                              : "bg-emerald-50 text-emerald-700 border border-emerald-200")
+                          }
+                        >
                           {st.mode === "online" ? "Online" : "Offline"}
                         </span>
                       </td>
@@ -1728,11 +1905,19 @@ export default function AnalyticsTab({
                               📄 Giấy ({st.paperAttemptsCount})
                             </span>
                           )}
-                          {st.webAttemptsCount === 0 && st.paperAttemptsCount === 0 && st.totalAttempts > 0 && (
-                            <span className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-extrabold">
-                              🌐 Web
+                          {st.digitalSheetAttemptsCount > 0 && (
+                            <span className="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-extrabold">
+                              📝 Phiếu Onl ({st.digitalSheetAttemptsCount})
                             </span>
                           )}
+                          {st.webAttemptsCount === 0 &&
+                            st.paperAttemptsCount === 0 &&
+                            st.digitalSheetAttemptsCount === 0 &&
+                            st.totalAttempts > 0 && (
+                              <span className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-extrabold">
+                                🌐 Web
+                              </span>
+                            )}
                         </div>
                       </td>
 
@@ -1827,7 +2012,7 @@ export default function AnalyticsTab({
       </div>
 
       {/* ===================================================================== */}
-      {/* 4. MODAL XEM CHI TIẾT BÀI LÀM (TỰ ĐỘNG CHIA 2 CỘT KHI LÀ BÀI THI TRÊN GIẤY) */}
+      {/* 4. MODAL XEM CHI TIẾT BÀI LÀM (TỰ ĐỘNG CHIA 2 CỘT KHI LÀ BÀI GIẤY HOẶC PHIẾU ONL) */}
       {/* ===================================================================== */}
       {submissionModalState && (
         <div
@@ -1839,12 +2024,10 @@ export default function AnalyticsTab({
           <div
             onClick={(e) => e.stopPropagation()}
             className={`bg-white rounded-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] cursor-default animate-in zoom-in-95 duration-150 text-left ${
-              submissionModalState.activeAttempt.submissionType === "paper"
-                ? "max-w-6xl"
-                : "max-w-4xl"
+              submissionModalState.activeAttempt.hasSheetImage ? "max-w-6xl" : "max-w-4xl"
             }`}
           >
-            {/* HEADER COMPACT 1 DÒNG (CÓ BỘ SỬA ĐIỂM THỦ CÔNG CHO BÀI THI GIẤY) */}
+            {/* HEADER COMPACT 1 DÒNG (CÓ BỘ SỬA ĐIỂM THỦ CÔNG CHO GIÁO VIÊN) */}
             <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <span
@@ -1857,7 +2040,11 @@ export default function AnalyticsTab({
                   {submissionModalState.modeLabel}
                 </span>
 
-                {submissionModalState.activeAttempt.submissionType === "paper" ? (
+                {submissionModalState.activeAttempt.submissionType === "digital_sheet" ? (
+                  <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-black uppercase shrink-0">
+                    📝 Phiếu Tô Online
+                  </span>
+                ) : submissionModalState.activeAttempt.submissionType === "paper" ? (
                   <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-black uppercase shrink-0">
                     📄 Bài thi Giấy (OMR)
                   </span>
@@ -1913,7 +2100,11 @@ export default function AnalyticsTab({
                   >
                     {submissionModalState.attemptsList.map((attItem: any, idx: number) => (
                       <option key={attItem.id || idx} value={String(attItem.id || "")}>
-                        {attItem.submissionType === "paper" ? "[📄 Giấy] " : "[🌐 Web] "}
+                        {attItem.submissionType === "digital_sheet"
+                          ? "[📝 Phiếu Onl] "
+                          : attItem.submissionType === "paper"
+                          ? "[📄 Giấy] "
+                          : "[🌐 Web] "}
                         {attItem.examTitle} ({Number(attItem.score).toFixed(2)}đ)
                       </option>
                     ))}
@@ -1946,26 +2137,30 @@ export default function AnalyticsTab({
               </div>
             </div>
 
-            {/* NỘI DUNG MODAL: NẾU LÀ BÀI THI TRÊN GIẤY -> CHIA 2 CỘT (ẢNH QUÉT GỐC KÈM BOUNDING BOX + CÂU HỎI) */}
+            {/* NỘI DUNG MODAL: NẾU CÓ ẢNH PHIẾU (GIẤY HOẶC PHIẾU ONLINE) -> CHIA 2 CỘT */}
             <div
               className={`flex-1 min-h-0 overflow-hidden ${
-                submissionModalState.activeAttempt.submissionType === "paper" &&
+                submissionModalState.activeAttempt.hasSheetImage &&
                 submissionModalState.activeAttempt.paperScanUrl
                   ? "grid grid-cols-1 lg:grid-cols-12"
                   : "flex flex-col"
               }`}
             >
-              {/* CỘT TRÁI (CHỈ HIỆN KHI LÀ BÀI THI TRÊN GIẤY): ẢNH PHIẾU QUÉT KÈM VÒNG TRÒN XANH/ĐỎ */}
-              {submissionModalState.activeAttempt.submissionType === "paper" &&
+              {/* CỘT TRÁI: ẢNH PHIẾU QUÉT KÈM VÒNG TRÒN XANH/ĐỎ */}
+              {submissionModalState.activeAttempt.hasSheetImage &&
                 submissionModalState.activeAttempt.paperScanUrl && (
                   <div className="lg:col-span-6 border-r border-slate-200 bg-slate-900 flex flex-col min-h-0">
                     <div className="px-4 py-2 bg-slate-950 text-slate-300 text-[11px] font-bold flex items-center justify-between border-b border-slate-800 shrink-0">
                       <div className="flex items-center gap-3">
                         <span className="text-purple-300">
-                          SBD: {submissionModalState.activeAttempt.omrRawData?.detected_sbd || "Chưa tô"}
+                          SBD:{" "}
+                          {submissionModalState.activeAttempt.omrRawData?.detected_sbd ||
+                            "Chưa tô"}
                         </span>
                         <span className="text-emerald-300">
-                          Mã đề: {submissionModalState.activeAttempt.omrRawData?.detected_exam_code || "101"}
+                          Mã đề:{" "}
+                          {submissionModalState.activeAttempt.omrRawData?.detected_exam_code ||
+                            "101"}
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -1995,13 +2190,13 @@ export default function AnalyticsTab({
                       <div
                         style={{
                           width: `${Math.round(480 * paperZoomScale)}px`,
-                          transition: "width 0.18s ease-out",
+                          transition: "width 0.18s ease-out"
                         }}
                         className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-xl shrink-0"
                       >
                         <img
                           src={submissionModalState.activeAttempt.paperScanUrl}
-                          alt="Phiếu thi giấy của học sinh"
+                          alt="Phiếu thi của học sinh"
                           className="w-full h-auto block"
                         />
                         {submissionModalState.activeAttempt.omrRawData?.bubble_coordinates && (
@@ -2058,7 +2253,7 @@ export default function AnalyticsTab({
               {/* CỘT PHẢI: DANH SÁCH CÂU HỎI & ĐỐI CHIẾU LỜI GIẢI */}
               <div
                 className={`p-3 sm:p-5 overflow-y-auto custom-scrollbar space-y-3 bg-slate-50/50 ${
-                  submissionModalState.activeAttempt.submissionType === "paper" &&
+                  submissionModalState.activeAttempt.hasSheetImage &&
                   submissionModalState.activeAttempt.paperScanUrl
                     ? "lg:col-span-6"
                     : "flex-1"
@@ -2073,7 +2268,8 @@ export default function AnalyticsTab({
                       </span>
                     </p>
                     <p className="text-xs text-slate-400 italic">
-                      Đề bài này là file đính kèm ngoài hoặc chưa có danh sách câu hỏi trắc nghiệm chi tiết trong kho.
+                      Đề bài này là file đính kèm ngoài hoặc chưa có danh sách câu hỏi trắc nghiệm
+                      chi tiết trong kho.
                     </p>
                   </div>
                 ) : (
@@ -2134,69 +2330,85 @@ export default function AnalyticsTab({
                           </div>
                         )}
 
-                        {q.qType === "multiple_choice" && Array.isArray(q.options) && q.options.length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
-                            {q.options.map((opt: any, oIdx: number) => {
-                              const optKey = String(opt?.key || ["A", "B", "C", "D"][oIdx] || "").trim().toUpperCase();
-                              const stuPicked = String(q.stuAns || "").trim().toUpperCase() === optKey;
-                              const isRightOpt = String(q.correctDisplay || "").trim().toUpperCase() === optKey;
+                        {q.qType === "multiple_choice" &&
+                          Array.isArray(q.options) &&
+                          q.options.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
+                              {q.options.map((opt: any, oIdx: number) => {
+                                const optKey = String(
+                                  opt?.key || ["A", "B", "C", "D"][oIdx] || ""
+                                )
+                                  .trim()
+                                  .toUpperCase();
+                                const stuPicked =
+                                  String(q.stuAns || "").trim().toUpperCase() === optKey;
+                                const isRightOpt =
+                                  String(q.correctDisplay || "").trim().toUpperCase() === optKey;
 
-                              let boxStyle = "border-slate-200 bg-slate-50/60 text-slate-700";
-                              if (isRightOpt) {
-                                boxStyle = "border-emerald-400 bg-emerald-50/90 text-emerald-900 font-bold ring-1 ring-emerald-400/30";
-                              } else if (stuPicked && !isRightOpt) {
-                                boxStyle = "border-rose-400 bg-rose-50/90 text-rose-900 font-bold ring-1 ring-rose-400/30";
-                              }
+                                let boxStyle = "border-slate-200 bg-slate-50/60 text-slate-700";
+                                if (isRightOpt) {
+                                  boxStyle =
+                                    "border-emerald-400 bg-emerald-50/90 text-emerald-900 font-bold ring-1 ring-emerald-400/30";
+                                } else if (stuPicked && !isRightOpt) {
+                                  boxStyle =
+                                    "border-rose-400 bg-rose-50/90 text-rose-900 font-bold ring-1 ring-rose-400/30";
+                                }
 
-                              return (
-                                <div
-                                  key={optKey || oIdx}
-                                  className={`p-2 rounded-xl border text-xs flex items-start gap-2 ${boxStyle}`}
-                                >
-                                  <span
-                                    className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${
-                                      isRightOpt
-                                        ? "bg-emerald-600 text-white"
-                                        : stuPicked
-                                        ? "bg-rose-600 text-white"
-                                        : "bg-white border border-slate-300 text-slate-600"
-                                    }`}
+                                return (
+                                  <div
+                                    key={optKey || oIdx}
+                                    className={`p-2 rounded-xl border text-xs flex items-start gap-2 ${boxStyle}`}
                                   >
-                                    {optKey}
-                                  </span>
-                                  <div className="flex-1 min-w-0">
-                                    <AnalyticsRichContent
-                                      content={opt?.text_html || opt?.text || ""}
-                                      mediaMap={mediaMap}
-                                    />
+                                    <span
+                                      className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${
+                                        isRightOpt
+                                          ? "bg-emerald-600 text-white"
+                                          : stuPicked
+                                          ? "bg-rose-600 text-white"
+                                          : "bg-white border border-slate-300 text-slate-600"
+                                      }`}
+                                    >
+                                      {optKey}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <AnalyticsRichContent
+                                        content={opt?.text_html || opt?.text || ""}
+                                        mediaMap={mediaMap}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                                );
+                              })}
+                            </div>
+                          )}
 
-                        {q.qType === "true_false" && Array.isArray(q.options) && q.options.length > 0 && (
-                          <div className="space-y-1.5 my-2">
-                            {q.options.map((opt: any, oIdx: number) => {
-                              const optKey = String(opt?.key || ["a", "b", "c", "d"][oIdx] || "").trim();
-                              return (
-                                <div
-                                  key={optKey || oIdx}
-                                  className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs flex items-start justify-between gap-3"
-                                >
-                                  <div className="flex items-start gap-2 min-w-0">
-                                    <span className="font-black text-slate-700 shrink-0">{optKey})</span>
-                                    <AnalyticsRichContent
-                                      content={opt?.text_html || opt?.text || ""}
-                                      mediaMap={mediaMap}
-                                    />
+                        {q.qType === "true_false" &&
+                          Array.isArray(q.options) &&
+                          q.options.length > 0 && (
+                            <div className="space-y-1.5 my-2">
+                              {q.options.map((opt: any, oIdx: number) => {
+                                const optKey = String(
+                                  opt?.key || ["a", "b", "c", "d"][oIdx] || ""
+                                ).trim();
+                                return (
+                                  <div
+                                    key={optKey || oIdx}
+                                    className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs flex items-start justify-between gap-3"
+                                  >
+                                    <div className="flex items-start gap-2 min-w-0">
+                                      <span className="font-black text-slate-700 shrink-0">
+                                        {optKey})
+                                      </span>
+                                      <AnalyticsRichContent
+                                        content={opt?.text_html || opt?.text || ""}
+                                        mediaMap={mediaMap}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                                );
+                              })}
+                            </div>
+                          )}
 
                         <div className="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                           <div className="flex items-center gap-2 flex-wrap">
