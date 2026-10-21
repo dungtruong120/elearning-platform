@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { STANDARD_SHIFTS } from "@/types";
 import { AdminTab, INITIAL_CHAPTERS } from "@/types/admin";
 import AdminStudentReportPanel from "@/components/admin/AdminStudentReportPanel";
-import AdminSidebar from "@/components/admin/Sidebar";
+import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
 import LessonsTab from "@/components/admin/tabs/LessonsTab";
 import PracticeTab from "@/components/admin/tabs/PracticeTab";
