@@ -25,11 +25,11 @@ const STRONG_FILLED_DENSITY = 0.48;
 const RELATIVE_DOMINANCE_RATIO = 1.32;
 const AMBIGUOUS_DIFF_THRESHOLD = 0.09;
 
-/**
- * 1. MA TRẬN TỌA ĐỘ CHUẨN (BLUEPRINT) CHO PHIẾU TRẢ LỜI TRẮC NGHIỆM BỘ GD&ĐT 2025-2026[cite: 25]
- * Tương thích 100% với mẫu phiếu A4 in ra từ hệ thống EduNexus và mẫu chuẩn Bộ GD&ĐT[cite: 25]
- */
 export interface OMRTemplateBlueprint {
+  templateId?: string;
+  part1TotalQuestions?: number;
+  part2TotalQuestions?: number;
+  part3TotalQuestions?: number;
   sbd: {
     cols: number;
     startX: number;
@@ -81,8 +81,23 @@ export interface OMRTemplateBlueprint {
   };
 }
 
+export interface DynamicExamSheetConfig {
+  examTitle?: string;
+  examCode?: string;
+  studentSbd?: string;
+  studentName?: string;
+  className?: string;
+  part1Count?: number;
+  part2Count?: number;
+  part3Count?: number;
+}
+
 export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
-  // 7. Số báo danh (6 cột x 10 hàng 0..9)[cite: 25]
+  templateId: "moet_standard_2025",
+  part1TotalQuestions: 40,
+  part2TotalQuestions: 8,
+  part3TotalQuestions: 6,
+  // 7. Số báo danh (6 cột x 10 hàng 0..9)
   sbd: {
     cols: 6,
     startX: 830,
@@ -91,7 +106,7 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
     rowStep: 27,
     radius: 9.5,
   },
-  // 8. Mã đề thi (3 hoặc 4 cột x 10 hàng 0..9)[cite: 25]
+  // 8. Mã đề thi (3 cột x 10 hàng 0..9)
   examCode: {
     cols: 3,
     startX: 1034,
@@ -100,7 +115,7 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
     rowStep: 27,
     radius: 9.5,
   },
-  // PHẦN I: 40 CÂU TRẮC NGHIỆM (4 khối cột: 1-10, 11-20, 21-30, 31-40)[cite: 25]
+  // PHẦN I: 40 CÂU TRẮC NGHIỆM (4 khối cột: 1-10, 11-20, 21-30, 31-40)
   part1: {
     blocks: [
       {
@@ -141,7 +156,7 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
       },
     ],
   },
-  // PHẦN II: 8 CÂU ĐÚNG / SAI (4 khung đôi, mỗi câu gồm 4 ý a, b, c, d)[cite: 25]
+  // PHẦN II: 8 CÂU ĐÚNG / SAI (4 khung đôi, mỗi câu gồm 4 ý a, b, c, d)
   part2: {
     blocks: [
       { questionNumber: 1, trueX: 132, falseX: 176, startY: 1068, rowStepY: 31, radius: 10.5 },
@@ -154,7 +169,7 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
       { questionNumber: 8, trueX: 1000, falseX: 1044, startY: 1068, rowStepY: 31, radius: 10.5 },
     ],
   },
-  // PHẦN III: 6 CÂU TRẢ LỜI NGẮN (Mỗi câu 4 cột ký tự: Dấu âm '-', dấu phẩy ',', số 0..9)[cite: 25]
+  // PHẦN III: 6 CÂU TRẢ LỜI NGẮN (Mỗi câu 4 cột ký tự: Dấu âm '-', dấu phẩy ',', số 0..9)
   part3: {
     blocks: [
       {
@@ -222,7 +237,140 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
 };
 
 /**
- * 2. CHUYỂN ĐỔI ẢNH SANG GRAYSCALE VÀ NHỊ PHÂN HÓA THÍCH NGHI (INTEGRAL IMAGE THRESHOLDING)
+ * PHÂN TÍCH ĐỀ THI ĐỂ ĐẾM SỐ LƯỢNG CÂU TỪNG PHẦN (PHẦN I, PHẦN II, PHẦN III)
+ */
+export function extractExamQuestionCounts(examDataOrQuestions: any): {
+  part1Count: number;
+  part2Count: number;
+  part3Count: number;
+  totalCount: number;
+} {
+  if (!examDataOrQuestions) {
+    return { part1Count: 40, part2Count: 8, part3Count: 6, totalCount: 54 };
+  }
+
+  const rawSections =
+    examDataOrQuestions?.data ||
+    examDataOrQuestions?.sections ||
+    (Array.isArray(examDataOrQuestions) ? examDataOrQuestions : []);
+
+  let p1 = 0;
+  let p2 = 0;
+  let p3 = 0;
+
+  const classifySingleQ = (q: any, fallbackType?: string) => {
+    const rawCorrect = String(q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A").trim();
+    const cleanAns = rawCorrect.replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+
+    const isTF =
+      q?.type === "true_false" ||
+      fallbackType === "true_false" ||
+      (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2);
+
+    const isShort =
+      !isTF &&
+      (q?.type === "short_answer" ||
+        fallbackType === "short_answer" ||
+        !Array.isArray(q?.options) ||
+        q.options.length === 0);
+
+    if (isTF) p2++;
+    else if (isShort) p3++;
+    else p1++;
+  };
+
+  if (Array.isArray(rawSections) && rawSections.length > 0 && rawSections[0]?.questions) {
+    rawSections.forEach((sec: any) => {
+      const secType =
+        sec?.section_type ||
+        sec?.type ||
+        (sec?.section_title && /đúng\s*sai/i.test(sec.section_title)
+          ? "true_false"
+          : sec?.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
+          ? "short_answer"
+          : "multiple_choice");
+      (sec?.questions || []).forEach((q: any) => classifySingleQ(q, secType));
+    });
+  } else if (Array.isArray(examDataOrQuestions?.questions)) {
+    examDataOrQuestions.questions.forEach((q: any) => classifySingleQ(q));
+  } else if (Array.isArray(rawSections) && rawSections.length > 0) {
+    rawSections.forEach((q: any) => classifySingleQ(q));
+  }
+
+  const total = p1 + p2 + p3;
+  if (total === 0) {
+    return { part1Count: 40, part2Count: 8, part3Count: 6, totalCount: 54 };
+  }
+
+  return {
+    part1Count: p1,
+    part2Count: p2,
+    part3Count: p3,
+    totalCount: total,
+  };
+}
+
+/**
+ * THUẬT TOÁN DYNAMIC GRID CALIBRATION:
+ * Co giãn lưới câu hỏi theo đúng số câu thực tế của đề thi nhưng giữ nguyên 100% hệ tọa độ chuẩn
+ * để OMR Scanner luôn đọc chính xác tuyệt đối.
+ */
+export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBlueprint {
+  const counts =
+    examOrConfig &&
+    typeof examOrConfig.part1Count === "number" &&
+    typeof examOrConfig.part2Count === "number" &&
+    typeof examOrConfig.part3Count === "number"
+      ? {
+          part1Count: examOrConfig.part1Count,
+          part2Count: examOrConfig.part2Count,
+          part3Count: examOrConfig.part3Count,
+        }
+      : extractExamQuestionCounts(examOrConfig);
+
+  const p1Limit = Math.min(40, Math.max(0, counts.part1Count));
+  const p2Limit = Math.min(8, Math.max(0, counts.part2Count));
+  const p3Limit = Math.min(6, Math.max(0, counts.part3Count));
+
+  const dynamicPart1Blocks = MOET_2025_OMR_BLUEPRINT.part1.blocks
+    .filter((b) => b.startQuestion <= Math.max(1, p1Limit))
+    .map((b) => ({
+      ...b,
+      endQuestion: Math.min(b.endQuestion, Math.max(b.startQuestion, p1Limit)),
+    }));
+
+  const dynamicPart2Blocks = MOET_2025_OMR_BLUEPRINT.part2.blocks.filter(
+    (b) => b.questionNumber <= p2Limit
+  );
+
+  const dynamicPart3Blocks = MOET_2025_OMR_BLUEPRINT.part3.blocks.filter(
+    (b) => b.questionNumber <= p3Limit
+  );
+
+  return {
+    ...MOET_2025_OMR_BLUEPRINT,
+    templateId: `dynamic_${p1Limit}_${p2Limit}_${p3Limit}`,
+    part1TotalQuestions: p1Limit,
+    part2TotalQuestions: p2Limit,
+    part3TotalQuestions: p3Limit,
+    part1: { blocks: dynamicPart1Blocks },
+    part2: { blocks: dynamicPart2Blocks },
+    part3: { blocks: dynamicPart3Blocks },
+  };
+}
+
+/**
+ * HÀM CẤP SỐ BÁO DANH (SBD) TỰ ĐỘNG 6 CHỮ SỐ THEO SỐ THỨ TỰ HỌC SINH TRONG LỚP
+ * Ví dụ: Học sinh STT 1 -> "000001", STT 22 -> "000022"
+ */
+export function formatStudentAutoSBD(studentIndexOrNumber: number | string): string {
+  const num = parseInt(String(studentIndexOrNumber).replace(/\D/g, ""), 10);
+  if (isNaN(num) || num <= 0) return "000001";
+  return String(num).padStart(6, "0").slice(-6);
+}
+
+/**
+ * CHUYỂN ĐỔI ẢNH SANG GRAYSCALE VÀ NHỊ PHÂN HÓA THÍCH NGHI (INTEGRAL IMAGE THRESHOLDING)
  */
 export function computeAdaptiveBinaryMask(imageData: ImageData): {
   gray: Uint8Array;
@@ -236,7 +384,6 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
   const binary = new Uint8Array(totalPixels);
   const integral = new Float64Array((width + 1) * (height + 1));
 
-  // Bước 1: Tính độ sáng Grayscale
   for (let i = 0, p = 0; i < data.length; i += 4, p++) {
     const r = data[i];
     const g = data[i + 1];
@@ -244,7 +391,6 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
     gray[p] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
   }
 
-  // Bước 2: Xây dựng Integral Image để tính trung bình cục bộ O(1)
   const stride = width + 1;
   for (let y = 1; y <= height; y++) {
     let rowSum = 0;
@@ -257,7 +403,6 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
     }
   }
 
-  // Bước 3: Lọc ngưỡng thích nghi (Window 31x31, độ lệch C = 14)
   const halfWin = 16;
   const sensitivity = 0.84;
 
@@ -276,7 +421,6 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
 
       const localMean = sum / count;
       const idx = y * width + x;
-      // Điểm tối hơn trung bình cục bộ được gán giá trị 1 (đen)
       binary[idx] = gray[idx] < localMean * sensitivity && gray[idx] < 195 ? 1 : 0;
     }
   }
@@ -285,7 +429,7 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
 }
 
 /**
- * 3. TÌM 4 ĐIỂM MỐC ĐỊNH VỊ Ở 4 GÓC PHIẾU (CORNER ALIGNMENT MARKERS)[cite: 25]
+ * TÌM 4 ĐIỂM MỐC ĐỊNH VỊ Ở 4 GÓC PHIẾU (CORNER ALIGNMENT MARKERS)
  */
 export function detectOMRCornerMarkers(
   binary: Uint8Array,
@@ -368,7 +512,6 @@ export function detectOMRCornerMarkers(
     };
   }
 
-  // Fallback về 4 góc chuẩn theo tỉ lệ nếu ảnh đã được cắt sát lề
   return {
     topLeft: { x: width * 0.035, y: height * 0.025 },
     topRight: { x: width * 0.965, y: height * 0.025 },
@@ -379,8 +522,7 @@ export function detectOMRCornerMarkers(
 }
 
 /**
- * 4. NẮN PHẲNG ẢNH BẰNG PHÉP NỘI SUY PHỐI CẢNH 4 ĐIỂM (FOUR-POINT BILINEAR WARP)
- * Đưa ảnh chụp nghiêng về khung hình chuẩn A4 (1200 x 1700 px)
+ * NẮN PHẲNG ẢNH BẰNG PHÉP NỘI SUY PHỐI CẢNH 4 ĐIỂM (FOUR-POINT BILINEAR WARP)
  */
 export function warpPerspectiveToCanonical(
   sourceImageData: ImageData,
@@ -412,7 +554,6 @@ export function warpPerspectiveToCanonical(
     for (let x = 0; x < dstWidth; x++) {
       const u = (x - padX) / innerW;
 
-      // Ánh xạ tọa độ chuẩn (u, v) sang tọa độ trên ảnh chụp gốc (srcX, srcY)
       const srcX =
         (1 - u) * (1 - v) * topLeft.x +
         u * (1 - v) * topRight.x +
@@ -460,7 +601,7 @@ export function warpPerspectiveToCanonical(
 }
 
 /**
- * 5. ĐO MẬT ĐỘ ĐIỂM TỐI TRONG Ô TRÒN (RELATIVE PIXEL DENSITY SAMPLING)
+ * ĐO MẬT ĐỘ ĐIỂM TỐI TRONG Ô TRÒN (RELATIVE PIXEL DENSITY SAMPLING)
  */
 export function measureBubbleDensity(
   binary: Uint8Array,
@@ -500,9 +641,6 @@ export function measureBubbleDensity(
   return Number(Math.min(1, weightedDarkSum / totalSamples).toFixed(3));
 }
 
-/**
- * 6. THUẬT TOÁN SO SÁNH TƯƠNG ĐỐI GIỮA CÁC Ô TRONG CÙNG 1 CÂU HỎI / CỘT SỐ
- */
 function pickDominantBubble<T extends { key: string; density: number }>(
   candidates: T[],
   minThreshold: number = MIN_FILLED_DENSITY
@@ -529,7 +667,6 @@ function pickDominantBubble<T extends { key: string; density: number }>(
   const ratio = second.density > 0.05 ? top.density / second.density : 99;
   const diff = top.density - second.density;
 
-  // Nếu học sinh tô cả 2 ô đậm gần bằng nhau (tẩy không sạch)
   if (
     second.density >= STRONG_FILLED_DENSITY &&
     diff < AMBIGUOUS_DIFF_THRESHOLD &&
@@ -546,12 +683,17 @@ function pickDominantBubble<T extends { key: string; density: number }>(
 }
 
 /**
- * 7. QUÉT TOÀN BỘ PHIẾU TRẢ LỜI TRẮC NGHIỆM TỪ CANVAS HOẶC IMAGEDATA[cite: 25]
+ * QUÉT TOÀN BỘ PHIẾU TRẢ LỜI TRẮC NGHIỆM TỪ CANVAS HOẶC IMAGEDATA (HỖ TRỢ BLUEPRINT ĐỘNG)
  */
 export function scanOMRSheetFromCanvas(
   sourceCanvasOrImageData: HTMLCanvasElement | ImageData,
-  blueprint: OMRTemplateBlueprint = MOET_2025_OMR_BLUEPRINT
+  blueprintOrExam?: OMRTemplateBlueprint | any
 ): OMRResultData {
+  const blueprint: OMRTemplateBlueprint =
+    blueprintOrExam && blueprintOrExam.sbd && blueprintOrExam.part1
+      ? blueprintOrExam
+      : buildDynamicOMRBlueprint(blueprintOrExam);
+
   let rawImageData: ImageData;
 
   if (sourceCanvasOrImageData instanceof ImageData) {
@@ -569,7 +711,6 @@ export function scanOMRSheetFromCanvas(
     );
   }
 
-  // Bước 1: Nhị phân hóa ảnh chụp gốc và tìm 4 điểm mốc góc
   const initialMask = computeAdaptiveBinaryMask(rawImageData);
   const cornerResult = detectOMRCornerMarkers(
     initialMask.binary,
@@ -577,7 +718,6 @@ export function scanOMRSheetFromCanvas(
     initialMask.height
   );
 
-  // Bước 2: Nắn thẳng ảnh về chuẩn A4 (1200 x 1700)
   const warpedImageData = warpPerspectiveToCanonical(
     rawImageData,
     cornerResult,
@@ -585,7 +725,6 @@ export function scanOMRSheetFromCanvas(
     OMR_CANONICAL_HEIGHT
   );
 
-  // Xuất chuỗi Base64 của ảnh đã nắn phẳng để hiển thị đối chiếu trên UI
   let warpedDataUrl: string | undefined = undefined;
   if (typeof document !== "undefined") {
     try {
@@ -600,7 +739,6 @@ export function scanOMRSheetFromCanvas(
     } catch {}
   }
 
-  // Bước 3: Tính mặt nạ nhị phân trên ảnh đã nắn thẳng
   const canonicalMask = computeAdaptiveBinaryMask(warpedImageData);
   const { binary, gray, width, height } = canonicalMask;
 
@@ -609,7 +747,7 @@ export function scanOMRSheetFromCanvas(
   let confidenceSum = 0;
   let confidenceCount = 0;
 
-  // --- QUÉT SỐ BÁO DANH (6 CỘT) ---[cite: 25]
+  // 1. Quét Số báo danh (6 cột)
   const sbdDigits: string[] = [];
   for (let col = 0; col < blueprint.sbd.cols; col++) {
     const cx = blueprint.sbd.startX + col * blueprint.sbd.colStep;
@@ -648,7 +786,7 @@ export function scanOMRSheetFromCanvas(
     });
   }
 
-  // --- QUÉT MÃ ĐỀ THI (3 CỘT) ---[cite: 25]
+  // 2. Quét Mã đề thi (3 cột)
   const examCodeDigits: string[] = [];
   for (let col = 0; col < blueprint.examCode.cols; col++) {
     const cx = blueprint.examCode.startX + col * blueprint.examCode.colStep;
@@ -687,7 +825,7 @@ export function scanOMRSheetFromCanvas(
     });
   }
 
-  // --- QUÉT PHẦN I: 40 CÂU TRẮC NGHIỆM NHIỀU LỰA CHỌN (A, B, C, D) ---[cite: 25]
+  // 3. Quét Phần I: Trắc nghiệm nhiều lựa chọn (A, B, C, D)
   const part1Answers: Record<number, string> = {};
   const optionKeys = ["A", "B", "C", "D"];
 
@@ -739,13 +877,14 @@ export function scanOMRSheetFromCanvas(
     }
   });
 
-  // --- QUÉT PHẦN II: 8 CÂU TRẮC NGHIỆM ĐÚNG / SAI (4 Ý a, b, c, d) ---[cite: 25]
+  // 4. Quét Phần II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)
   const part2Answers: Record<number, Record<"a" | "b" | "c" | "d", boolean | null>> = {};
   const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+  const p1Offset = blueprint.part1TotalQuestions ?? 40;
 
   blueprint.part2.blocks.forEach((block) => {
     const qNum = block.questionNumber;
-    const globalQOrder = 40 + qNum;
+    const globalQOrder = p1Offset + qNum;
     part2Answers[qNum] = { a: null, b: null, c: null, d: null };
 
     subKeys.forEach((subK, subIdx) => {
@@ -803,19 +942,19 @@ export function scanOMRSheetFromCanvas(
     });
   });
 
-  // --- QUÉT PHẦN III: 6 CÂU TRẢ LỜI NGẮN (4 CỘT SỐ MỖI CÂU) ---[cite: 25]
+  // 5. Quét Phần III: Trả lời ngắn (4 cột số mỗi câu)
   const part3Answers: Record<number, string> = {};
+  const p2Offset = p1Offset + (blueprint.part2TotalQuestions ?? 8);
 
   blueprint.part3.blocks.forEach((block) => {
     const qNum = block.questionNumber;
-    const globalQOrder = 48 + qNum;
+    const globalQOrder = p2Offset + qNum;
     const chars: string[] = [];
 
     for (let col = 0; col < 4; col++) {
       const cx = block.startX + col * block.colStepX;
       const colCandidates: { key: string; density: number; y: number }[] = [];
 
-      // Ô dấu âm (-) chỉ nằm ở cột đầu tiên[cite: 25]
       if (col === 0) {
         const dMinus = measureBubbleDensity(
           binary,
@@ -829,7 +968,6 @@ export function scanOMRSheetFromCanvas(
         colCandidates.push({ key: "-", density: dMinus, y: block.minusY });
       }
 
-      // Ô dấu phẩy (,) nằm ở cột 2 và cột 3[cite: 25]
       if (col === 1 || col === 2) {
         const dComma = measureBubbleDensity(
           binary,
@@ -843,7 +981,6 @@ export function scanOMRSheetFromCanvas(
         colCandidates.push({ key: ",", density: dComma, y: block.commaY });
       }
 
-      // Các chữ số từ 0 đến 9[cite: 25]
       for (let digit = 0; digit <= 9; digit++) {
         const cy = block.digit0Y + digit * block.rowStepY;
         const dDigit = measureBubbleDensity(
@@ -914,14 +1051,15 @@ export function scanOMRSheetFromCanvas(
   };
 }
 
+export const processOMR = scanOMRSheetFromCanvas;
+
 /**
- * 8. HÀM CHẤM ĐIỂM TỰ ĐỘNG BÀI LÀM OMR VÀ CẬP NHẬT TRẠNG THÁI BOUNDING BOX (XANH / ĐỎ)
+ * HÀM CHẤM ĐIỂM TỰ ĐỘNG BÀI LÀM OMR VÀ CẬP NHẬT TRẠNG THÁI BOUNDING BOX (XANH / ĐỎ)
  */
 export function gradeOMRSubmission(
   omrData: OMRResultData,
   examDataOrQuestions: any
 ): OMRGradingSummary {
-  // Trích xuất danh sách câu hỏi phẳng từ cấu trúc đề thi (data / sections / questions)
   const rawSections =
     examDataOrQuestions?.data ||
     examDataOrQuestions?.sections ||
@@ -1067,7 +1205,6 @@ export function gradeOMRSubmission(
       else if (status === "wrong") wrongCount++;
       else skippedCount++;
 
-      // Cập nhật màu sắc tọa độ ô tròn của câu này
       updatedCoordinates.forEach((b) => {
         if (b.section === "part1" && b.questionNumber === q.localNumberInPart) {
           if (b.optionKey === selectedOpt) {
@@ -1257,4 +1394,242 @@ export function gradeOMRSubmission(
       bubble_coordinates: updatedCoordinates,
     },
   };
+}
+
+/**
+ * HÀM SINH CHUỖI VECTOR SVG MẪU PHIẾU TRẢ LỜI TRẮC NGHIỆM A4 ĐỘNG THEO SỐ LƯỢNG CÂU HỎI CỦA ĐỀ THI
+ * - Tự động ẩn hoặc thu gọn các ô thừa nếu đề ngắn (<= 20 câu, <= 40 câu) để vừa vặn trên 1 mặt A4.
+ * - Vẫn bảo toàn 100% 4 góc định vị (Corner Markers) và Timing Tracks chuẩn A4 (1200x1700).
+ */
+export function generatePrintableAnswerSheetSVG(examOrConfig?: any): string {
+  const blueprint = buildDynamicOMRBlueprint(examOrConfig);
+  const W = OMR_CANONICAL_WIDTH;
+  const H = OMR_CANONICAL_HEIGHT;
+  const corners = CANONICAL_CORNER_TARGETS;
+
+  const rawTitle =
+    examOrConfig?.examTitle ||
+    examOrConfig?.title ||
+    "KỲ THI TỐT NGHIỆP THPT & ĐÁNH GIÁ NĂNG LỰC - EDUNEXUS";
+  const safeTitle = String(rawTitle).replace(/[<>&"]/g, "");
+  const presetSbd = String(examOrConfig?.studentSbd || "").trim();
+  const presetCode = String(examOrConfig?.examCode || "").trim();
+  const presetName = String(examOrConfig?.studentName || "").replace(/[<>&"]/g, "");
+
+  const p1Max = blueprint.part1TotalQuestions ?? 40;
+  const p2Max = blueprint.part2TotalQuestions ?? 8;
+  const p3Max = blueprint.part3TotalQuestions ?? 6;
+
+  let svgElements = "";
+
+  // 1. Vẽ 4 điểm mốc định vị góc (Corner Alignment Markers) & Timing Tracks dọc mép phải
+  const markerSize = 28;
+  [corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft].forEach((pt) => {
+    svgElements += `<rect x="${pt.x - markerSize / 2}" y="${pt.y - markerSize / 2}" width="${markerSize}" height="${markerSize}" fill="#000000" />`;
+  });
+
+  // Vạch nhịp bước (Timing Tracks) dọc mép phải
+  for (let ty = 225; ty <= 470; ty += 27) {
+    svgElements += `<rect x="1146" y="${ty - 4}" width="16" height="8" fill="#000000" />`;
+  }
+
+  // 2. Vẽ Header & Khung thông tin thí sinh
+  svgElements += `
+    <text x="415" y="92" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM</text>
+    <text x="415" y="120" font-family="Arial, sans-serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1D4ED8">${safeTitle}</text>
+    <rect x="65" y="148" width="710" height="335" fill="none" stroke="#334155" stroke-width="1.5" rx="6" />
+    <line x1="255" y1="148" x2="255" y2="483" stroke="#334155" stroke-width="1.2" />
+    <line x1="65" y1="315" x2="255" y2="315" stroke="#334155" stroke-width="1.2" />
+    <text x="160" y="176" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 1</text>
+    <text x="160" y="342" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 2</text>
+    <text x="275" y="185" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">1. Hội đồng thi: ..........................................................................</text>
+    <text x="275" y="225" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">2. Điểm thi: .................................................................................</text>
+    <text x="275" y="265" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">3. Phòng thi số: ..........................................................................</text>
+    <text x="275" y="305" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">4. Họ và tên thí sinh: ${presetName ? `<tspan font-weight="bold">${presetName}</tspan>` : ".................................................................."}</text>
+    <text x="275" y="345" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">5. Ngày sinh: ........../........../20.......  (Nam / Nữ)</text>
+    <text x="275" y="385" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">6. Chữ ký của thí sinh: ..............................................................</text>
+    <text x="275" y="435" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#1D4ED8">Cấu trúc đề: Phần I (${p1Max} câu) • Phần II (${p2Max} câu) • Phần III (${p3Max} câu)</text>
+    <text x="415" y="514" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Giữ phiếu phẳng, tô kín ô tròn bằng bút chì đen và chụp rõ đủ 4 ô vuông đen ở 4 góc phiếu.</text>
+  `;
+
+  // 3. Vẽ Khung 7. Số báo danh & 8. Mã đề thi
+  svgElements += `
+    <text x="${blueprint.sbd.startX + 70}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">7. Số báo danh</text>
+    <rect x="${blueprint.sbd.startX - 18}" y="154" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
+    <rect x="${blueprint.sbd.startX - 18}" y="200" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="${10 * blueprint.sbd.rowStep + 14}" fill="none" stroke="#334155" stroke-width="1.2" />
+  `;
+  for (let c = 0; c < blueprint.sbd.cols; c++) {
+    const cx = blueprint.sbd.startX + c * blueprint.sbd.colStep;
+    const presetDigit = presetSbd[c] || "";
+    if (presetDigit) {
+      svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetDigit}</text>`;
+    }
+    for (let d = 0; d <= 9; d++) {
+      const cy = blueprint.sbd.startY + d * blueprint.sbd.rowStep;
+      const isPreFilled = presetDigit === String(d);
+      svgElements += `
+        <circle cx="${cx}" cy="${cy}" r="${blueprint.sbd.radius}" fill="${isPreFilled ? "#0f172a" : "none"}" stroke="#475569" stroke-width="1.1" />
+        <text x="${cx}" y="${cy + 3.5}" font-family="Arial, sans-serif" font-size="9.5" text-anchor="middle" fill="${isPreFilled ? "#ffffff" : "#475569"}">${d}</text>
+      `;
+    }
+  }
+
+  svgElements += `
+    <text x="${blueprint.examCode.startX + 28}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">8. Mã đề thi</text>
+    <rect x="${blueprint.examCode.startX - 18}" y="154" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
+    <rect x="${blueprint.examCode.startX - 18}" y="200" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="${10 * blueprint.examCode.rowStep + 14}" fill="none" stroke="#334155" stroke-width="1.2" />
+  `;
+  for (let c = 0; c < blueprint.examCode.cols; c++) {
+    const cx = blueprint.examCode.startX + c * blueprint.examCode.colStep;
+    const presetCodeDigit = presetCode[c] || "";
+    if (presetCodeDigit) {
+      svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetCodeDigit}</text>`;
+    }
+    for (let d = 0; d <= 9; d++) {
+      const cy = blueprint.examCode.startY + d * blueprint.examCode.rowStep;
+      const isPreFilled = presetCodeDigit === String(d);
+      svgElements += `
+        <circle cx="${cx}" cy="${cy}" r="${blueprint.examCode.radius}" fill="${isPreFilled ? "#0f172a" : "none"}" stroke="#475569" stroke-width="1.1" />
+        <text x="${cx}" y="${cy + 3.5}" font-family="Arial, sans-serif" font-size="9.5" text-anchor="middle" fill="${isPreFilled ? "#ffffff" : "#475569"}">${d}</text>
+      `;
+    }
+  }
+
+  // 4. Vẽ PHẦN I (Tự động giới hạn theo số câu p1Max của đề)
+  if (p1Max > 0) {
+    svgElements += `
+      <rect x="30" y="544" width="18" height="18" fill="#000" />
+      <rect x="1152" y="544" width="18" height="18" fill="#000" />
+      <text x="65" y="559" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN I: Trắc nghiệm nhiều phương án lựa chọn (Từ câu 1 đến câu ${p1Max})</text>
+    `;
+    const opts = ["A", "B", "C", "D"];
+    blueprint.part1.blocks.forEach((b) => {
+      const boxLeft = b.startX - 48;
+      const numRows = b.endQuestion - b.startQuestion + 1;
+      const boxH = Math.max(75, numRows * b.rowStepY + 42);
+      svgElements += `<rect x="${boxLeft}" y="572" width="232" height="${boxH}" fill="none" stroke="#334155" stroke-width="1.3" rx="4" />`;
+      opts.forEach((k, idx) => {
+        const ox = b.startX + idx * b.optionStepX;
+        svgElements += `<text x="${ox}" y="594" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#0f172a">${k}</text>`;
+      });
+
+      for (let q = b.startQuestion; q <= b.endQuestion; q++) {
+        const rIdx = q - b.startQuestion;
+        const cy = b.startY + rIdx * b.rowStepY;
+        svgElements += `<text x="${b.startX - 28}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#0f172a">${q}</text>`;
+        opts.forEach((_, idx) => {
+          const cx = b.startX + idx * b.optionStepX;
+          svgElements += `<circle cx="${cx}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />`;
+        });
+      }
+    });
+  }
+
+  // 5. Vẽ PHẦN II: Đúng / Sai (Chỉ render đúng số câu p2Max của đề)
+  if (p2Max > 0) {
+    svgElements += `
+      <rect x="30" y="956" width="18" height="18" fill="#000" />
+      <rect x="1152" y="956" width="18" height="18" fill="#000" />
+      <text x="65" y="971" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN II: Trắc nghiệm Đúng / Sai (${p2Max} câu)</text>
+    `;
+    const subLabels = ["a)", "b)", "c)", "d)"];
+    blueprint.part2.blocks.forEach((b) => {
+      const q = b.questionNumber;
+      const boxLeft = b.trueX - 42;
+      svgElements += `
+        <rect x="${boxLeft}" y="988" width="108" height="195" fill="none" stroke="#334155" stroke-width="1.3" rx="4" />
+        <text x="${(b.trueX + b.falseX) / 2}" y="1012" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
+        <text x="${b.trueX}" y="1034" font-family="Arial, sans-serif" font-size="10.5" font-weight="bold" text-anchor="middle" fill="#334155">Đúng</text>
+        <text x="${b.falseX}" y="1034" font-family="Arial, sans-serif" font-size="10.5" font-weight="bold" text-anchor="middle" fill="#334155">Sai</text>
+      `;
+      subLabels.forEach((lbl, idx) => {
+        const cy = b.startY + idx * b.rowStepY;
+        svgElements += `
+          <text x="${b.trueX - 24}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#0f172a">${lbl}</text>
+          <circle cx="${b.trueX}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+          <circle cx="${b.falseX}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+        `;
+      });
+    });
+  }
+
+  // 6. Vẽ PHẦN III: Trả lời ngắn (Chỉ render đúng số câu p3Max của đề)
+  if (p3Max > 0) {
+    svgElements += `
+      <rect x="30" y="1208" width="18" height="18" fill="#000" />
+      <rect x="1152" y="1208" width="18" height="18" fill="#000" />
+      <text x="65" y="1223" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN III: Trả lời ngắn - Điền đáp số (${p3Max} câu)</text>
+    `;
+    blueprint.part3.blocks.forEach((b) => {
+      const q = b.questionNumber;
+      const boxLeft = b.startX - 36;
+      svgElements += `
+        <rect x="${boxLeft}" y="1236" width="152" height="390" fill="none" stroke="#334155" stroke-width="1.3" rx="4" />
+        <text x="${b.startX + 40}" y="1260" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
+        <text x="${b.startX - 20}" y="${b.minusY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">-</text>
+        <circle cx="${b.startX}" cy="${b.minusY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+        <text x="${b.startX - 20}" y="${b.commaY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">,</text>
+        <circle cx="${b.startX + b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+        <circle cx="${b.startX + 2 * b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+      `;
+      for (let d = 0; d <= 9; d++) {
+        const cy = b.digit0Y + d * b.rowStepY;
+        svgElements += `<text x="${b.startX - 20}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#0f172a">${d}</text>`;
+        for (let c = 0; c < 4; c++) {
+          const cx = b.startX + c * b.colStepX;
+          svgElements += `<circle cx="${cx}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.1" />`;
+        }
+      }
+    });
+  }
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#ffffff" />${svgElements}</svg>`;
+}
+
+/**
+ * MỞ CỬA SỔ IN TRỰC TIẾP PHIẾU TRẢ LỜI TRẮC NGHIỆM A4 ĐỘNG THEO CẤU TRÚC ĐỀ THI
+ */
+export function openPrintableDynamicAnswerSheet(examOrConfig?: any) {
+  if (typeof window === "undefined") return;
+  const printWin = window.open("", "_blank");
+  if (!printWin) return;
+
+  const svgMarkup = generatePrintableAnswerSheetSVG(examOrConfig);
+  const title = examOrConfig?.examTitle || examOrConfig?.title || "Phiếu Trả Lời Trắc Nghiệm A4";
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="UTF-8" />
+      <title>Phiếu Trả Lời Trắc Nghiệm A4 - ${String(title).replace(/[<>&"]/g, "")}</title>
+      <style>
+        @page { size: A4 portrait; margin: 5mm; }
+        body { margin: 0; padding: 0; background: #f1f5f9; font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; }
+        .toolbar { width: 100%; max-width: 820px; margin: 12px auto; padding: 10px 18px; background: #0f172a; color: #fff; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
+        .btn-print { background: #2563eb; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px; }
+        .sheet-wrap { background: #fff; width: 210mm; max-width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.12); margin-bottom: 24px; }
+        svg { width: 100%; height: auto; display: block; }
+        @media print {
+          body { background: #fff; }
+          .toolbar { display: none !important; }
+          .sheet-wrap { box-shadow: none; width: 100%; margin: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="toolbar">
+        <span><strong>Phiếu Trả Lời A4 Tự Động Theo Đề:</strong> ${String(title).replace(/[<>&"]/g, "")}</span>
+        <button class="btn-print" onclick="window.print()">🖨 In Phiếu / Lưu PDF (A4)</button>
+      </div>
+      <div class="sheet-wrap">
+        ${svgMarkup}
+      </div>
+    </body>
+    </html>
+  `;
+
+  printWin.document.open();
+  printWin.document.write(html);
+  printWin.document.close();
 }
