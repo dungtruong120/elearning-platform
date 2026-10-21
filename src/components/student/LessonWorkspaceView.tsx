@@ -15,7 +15,10 @@ import {
   Zap,
   Award,
   Loader2,
-  Printer
+  Printer,
+  Camera,
+  CheckCircle2,
+  Eye
 } from "lucide-react";
 import { Profile, ExamAttempt } from "@/types";
 import {
@@ -92,10 +95,34 @@ export function LessonWorkspaceView({
     exam: any;
   } | null>(null);
 
+  // Lưu trữ danh sách các lượt nộp bài (bao gồm cả Web và Giấy) để đồng bộ tiến độ hoàn thành
+  const [studentAttempts, setStudentAttempts] = useState<any[]>([]);
+
   // Số báo danh tự động của học sinh (đồng bộ 100% với Bảng SBD Lớp của Admin)
   const [studentAutoSbd, setStudentAutoSbd] = useState<string>(() =>
     formatStudentAutoSBD(profile)
   );
+
+  const loadStudentAttemptsFromStorage = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem("edunexus_attempts");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setStudentAttempts(parsed);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadStudentAttemptsFromStorage();
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", loadStudentAttemptsFromStorage);
+      return () => window.removeEventListener("storage", loadStudentAttemptsFromStorage);
+    }
+  }, [loadStudentAttemptsFromStorage]);
 
   useEffect(() => {
     let isMounted = true;
@@ -154,6 +181,40 @@ export function LessonWorkspaceView({
     } as Profile;
   }, [profile]);
 
+  // Tìm lượt nộp điểm cao nhất của học sinh cho 1 BTVN hoặc Đề KT cụ thể
+  const findBestAttemptForQuizItem = useCallback(
+    (quizItem: any) => {
+      if (!quizItem || studentAttempts.length === 0) return null;
+      const qId = String(quizItem.id || quizItem.quiz_id || "").trim().toLowerCase();
+      const qTitle = String(quizItem.title || "").trim().toLowerCase();
+      const stuId = String(fallbackProfile.id || "").trim().toLowerCase();
+      const stuName = String(fallbackProfile.full_name || "").trim().toLowerCase();
+
+      const matching = studentAttempts.filter((a: any) => {
+        if (!a) return false;
+        const aStuId = String(a.studentId || a.student_id || a.user_id || "").trim().toLowerCase();
+        const aStuName = String(a.studentName || a.student_name || a.full_name || "").trim().toLowerCase();
+        const isMyAttempt =
+          (stuId && aStuId === stuId) ||
+          (stuName && aStuName === stuName) ||
+          aStuId.includes(stuId);
+        if (!isMyAttempt) return false;
+
+        const aQId = String(a.quizId || a.quiz_id || a.exam_id || "").trim().toLowerCase();
+        const aQTitle = String(a.examTitle || a.quizTitle || a.title || "").trim().toLowerCase();
+        return (qId && aQId === qId) || (qTitle && aQTitle === qTitle);
+      });
+
+      if (matching.length === 0) return null;
+      return matching.reduce((best, cur) =>
+        Number(cur.score ?? cur.points ?? 0) >= Number(best.score ?? best.points ?? 0)
+          ? cur
+          : best
+      );
+    },
+    [studentAttempts, fallbackProfile]
+  );
+
   const allVideos: any[] = useMemo(() => lesson?.video_list || [], [lesson?.video_list]);
 
   const lectureVideos = useMemo(() => {
@@ -195,7 +256,6 @@ export function LessonWorkspaceView({
   const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
     if (!rawQuizItem) return null;
 
-    // 1. Thử tìm trong kho localStorage trước
     const localResolved = resolveCompleteExamObject(rawQuizItem);
     const hasQuestionsLocal =
       (Array.isArray(localResolved?.data) && localResolved.data.length > 0) ||
@@ -217,7 +277,6 @@ export function LessonWorkspaceView({
     try {
       setIsResolvingExam(true);
 
-      // 2. Tìm trên bảng quizzes theo id
       if (targetId) {
         const { data: dbQuiz } = await supabase
           .from("quizzes")
@@ -235,7 +294,6 @@ export function LessonWorkspaceView({
           };
         }
 
-        // 3. Tìm trên bảng practice_exams theo id
         const { data: dbPrac } = await supabase
           .from("practice_exams")
           .select("*")
@@ -253,7 +311,6 @@ export function LessonWorkspaceView({
         }
       }
 
-      // 4. Tìm theo tiêu đề nếu id là id tạm của file đính kèm
       if (targetTitle) {
         const { data: byTitleQuiz } = await supabase
           .from("quizzes")
@@ -322,6 +379,7 @@ export function LessonWorkspaceView({
     (attemptRecord: ExamAttempt) => {
       const scannedExam = activePaperScanExam;
       setActivePaperScanExam(null);
+      loadStudentAttemptsFromStorage();
       if (attemptRecord && scannedExam) {
         setReviewingPaperAttempt({
           attempt: attemptRecord,
@@ -329,7 +387,7 @@ export function LessonWorkspaceView({
         });
       }
     },
-    [activePaperScanExam]
+    [activePaperScanExam, loadStudentAttemptsFromStorage]
   );
 
   if (activeDigitalExam) {
@@ -340,10 +398,12 @@ export function LessonWorkspaceView({
         isHomework={isEntryHomework}
         onBack={() => setActiveDigitalExam(null)}
         onSubmitted={(attemptRecord) => {
+          const targetEx = activeDigitalExam;
           setActiveDigitalExam(null);
+          loadStudentAttemptsFromStorage();
           setReviewingPaperAttempt({
             attempt: attemptRecord,
-            exam: activeDigitalExam
+            exam: targetEx
           });
         }}
       />
@@ -621,7 +681,7 @@ export function LessonWorkspaceView({
             </div>
           </div>
 
-          {/* CỘT PHẢI (4 CỘT): COMPACT ACTION PANEL */}
+          {/* CỘT PHẢI (4 CỘT): COMPACT ACTION PANEL (HỖ TRỢ ĐẦY ĐỦ THI WEB, IN PHIẾU GIẤY, QUÉT OMR & TÔ ONLINE) */}
           <div className="lg:col-span-4 space-y-4 text-left">
             {/* KHỐI 1: BÀI TẬP VỀ NHÀ (BTVN) */}
             <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
@@ -639,21 +699,34 @@ export function LessonWorkspaceView({
                   Chưa có bài tập về nhà cho bài học này.
                 </p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   {lesson.homework_files.map((hw: any, idx: number) => {
                     const isQuiz = hw.is_quiz !== false;
+                    const bestHwAttempt = findBestAttemptForQuizItem(hw);
+                    const isPaperDone =
+                      bestHwAttempt?.submission_type === "paper" ||
+                      Boolean(bestHwAttempt?.paper_scan_url) ||
+                      Boolean(bestHwAttempt?.omr_raw_data);
+
                     return (
                       <div
                         key={hw.id || idx}
-                        className="p-3 rounded-lg border border-slate-200/70 bg-slate-50/50 hover:bg-white hover:border-blue-200 transition-all space-y-2"
+                        className="p-3 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-blue-200 transition-all space-y-2"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <h4 className="font-semibold text-xs text-slate-800 line-clamp-1">
                             {hw.title || `BTVN Phần ${idx + 1}`}
                           </h4>
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
-                            {isQuiz ? "Trắc nghiệm" : "Tài liệu"}
-                          </span>
+                          {bestHwAttempt ? (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              {Number(bestHwAttempt.score ?? bestHwAttempt.points ?? 0).toFixed(1)}đ
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
+                              {isQuiz ? "Trắc nghiệm" : "Tài liệu"}
+                            </span>
+                          )}
                         </div>
 
                         {isQuiz ? (
@@ -663,7 +736,8 @@ export function LessonWorkspaceView({
                               onClick={() => handleOpenExamEntry(hw, true)}
                               className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
                             >
-                              <Play className="w-3 h-3 fill-white" /> Bắt đầu làm BTVN
+                              <Play className="w-3 h-3 fill-white" />
+                              <span>{bestHwAttempt ? "Làm lại BTVN" : "Bắt đầu làm BTVN"}</span>
                             </button>
 
                             <div className="grid grid-cols-2 gap-1.5">
@@ -671,9 +745,10 @@ export function LessonWorkspaceView({
                                 type="button"
                                 onClick={() => handlePrintSheetForQuiz(hw, true)}
                                 className="py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                                title="Tải hoặc in phiếu trả lời trắc nghiệm A4 theo cấu trúc BTVN này"
+                                title="In phiếu trả lời A4 tương ứng với BTVN này"
                               >
-                                <Printer className="w-3 h-3" /> In Phiếu A4
+                                <Printer className="w-3 h-3" />
+                                <span>📄 In phiếu làm giấy</span>
                               </button>
 
                               <button
@@ -681,14 +756,31 @@ export function LessonWorkspaceView({
                                 onClick={async () => {
                                   const resolved = await resolveFullExamData(hw, true);
                                   setIsEntryHomework(true);
-                                  setActiveDigitalExam(resolved);
+                                  setActivePaperScanExam(resolved);
                                 }}
-                                className="py-1.5 px-2 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                                title="Mở nhanh Phiếu tô trắc nghiệm Online trên màn hình"
+                                className="py-1.5 px-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                title="Chụp hoặc tải ảnh phiếu BTVN đã làm trên giấy để chấm điểm"
                               >
-                                <PenTool className="w-3 h-3" /> Tô Phiếu Onl
+                                <Camera className="w-3 h-3" />
+                                <span>📷 Quét phiếu giấy</span>
                               </button>
                             </div>
+
+                            {bestHwAttempt && isPaperDone && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const resolved = await resolveFullExamData(hw, true);
+                                  setReviewingPaperAttempt({
+                                    attempt: bestHwAttempt,
+                                    exam: resolved
+                                  });
+                                }}
+                                className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3" /> Xem lại phiếu giấy đã chấm ({Number(bestHwAttempt.score).toFixed(1)}đ)
+                              </button>
+                            )}
                           </div>
                         ) : hw.url ? (
                           <a
@@ -723,56 +815,90 @@ export function LessonWorkspaceView({
                   Chưa có đề kiểm tra định kỳ.
                 </p>
               ) : (
-                <div className="space-y-2">
-                  {lesson.test_quizzes.map((test: any, idx: number) => (
-                    <div
-                      key={test.id || idx}
-                      className="p-3 rounded-lg border border-emerald-100 bg-emerald-50/20 hover:bg-white hover:border-emerald-300 transition-all space-y-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <h4 className="font-semibold text-xs text-slate-800 line-clamp-1">
-                          {test.title || `Đề kiểm tra ${idx + 1}`}
-                        </h4>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase bg-emerald-100 text-emerald-800 shrink-0">
-                          Đề KT
-                        </span>
-                      </div>
+                <div className="space-y-2.5">
+                  {lesson.test_quizzes.map((test: any, idx: number) => {
+                    const bestTestAttempt = findBestAttemptForQuizItem(test);
+                    const isPaperDone =
+                      bestTestAttempt?.submission_type === "paper" ||
+                      Boolean(bestTestAttempt?.paper_scan_url) ||
+                      Boolean(bestTestAttempt?.omr_raw_data);
 
-                      <div className="space-y-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenExamEntry(test, false)}
-                          className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                        >
-                          <Play className="w-3 h-3 fill-white" /> Vào phòng thi kiểm tra
-                        </button>
+                    return (
+                      <div
+                        key={test.id || idx}
+                        className="p-3 rounded-xl border border-emerald-100 bg-emerald-50/20 hover:bg-white hover:border-emerald-300 transition-all space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-semibold text-xs text-slate-800 line-clamp-1">
+                            {test.title || `Đề kiểm tra ${idx + 1}`}
+                          </h4>
+                          {bestTestAttempt ? (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              {Number(bestTestAttempt.score ?? bestTestAttempt.points ?? 0).toFixed(1)}đ
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase bg-emerald-100 text-emerald-800 shrink-0">
+                              Đề KT
+                            </span>
+                          )}
+                        </div>
 
-                        <div className="grid grid-cols-2 gap-1.5">
+                        <div className="space-y-1.5">
                           <button
                             type="button"
-                            onClick={() => handlePrintSheetForQuiz(test, false)}
-                            className="py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                            title="Tải hoặc in phiếu trả lời trắc nghiệm A4 theo cấu trúc Đề KT này"
+                            onClick={() => handleOpenExamEntry(test, false)}
+                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
                           >
-                            <Printer className="w-3 h-3" /> In Phiếu A4
+                            <Play className="w-3 h-3 fill-white" />
+                            <span>{bestTestAttempt ? "Thi lại Đề KT" : "Vào phòng thi kiểm tra"}</span>
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const resolved = await resolveFullExamData(test, false);
-                              setIsEntryHomework(false);
-                              setActiveDigitalExam(resolved);
-                            }}
-                            className="py-1.5 px-2 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                            title="Mở nhanh Phiếu tô trắc nghiệm Online trên màn hình"
-                          >
-                            <PenTool className="w-3 h-3" /> Tô Phiếu Onl
-                          </button>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handlePrintSheetForQuiz(test, false)}
+                              className="py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                              title="In phiếu trả lời A4 tương ứng với Đề kiểm tra này"
+                            >
+                              <Printer className="w-3 h-3" />
+                              <span>📄 In phiếu làm giấy</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const resolved = await resolveFullExamData(test, false);
+                                setIsEntryHomework(false);
+                                setActivePaperScanExam(resolved);
+                              }}
+                              className="py-1.5 px-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                              title="Chụp hoặc tải ảnh phiếu Đề kiểm tra đã làm trên giấy"
+                            >
+                              <Camera className="w-3 h-3" />
+                              <span>📷 Quét phiếu giấy</span>
+                            </button>
+                          </div>
+
+                          {bestTestAttempt && isPaperDone && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const resolved = await resolveFullExamData(test, false);
+                                setReviewingPaperAttempt({
+                                  attempt: bestTestAttempt,
+                                  exam: resolved
+                                });
+                              }}
+                              className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3" /> Xem lại phiếu giấy đã chấm ({Number(bestTestAttempt.score).toFixed(1)}đ)
+                            </button>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -914,6 +1040,7 @@ export function LessonWorkspaceView({
           exam={activePaperScanExam}
           profile={fallbackProfile}
           isHomework={isEntryHomework}
+          onScanComplete={handlePaperScanCompleted}
           onSubmitted={handlePaperScanCompleted}
           onScanSuccess={handlePaperScanCompleted}
           onComplete={handlePaperScanCompleted}
