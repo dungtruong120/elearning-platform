@@ -19,14 +19,48 @@ export const CANONICAL_CORNER_TARGETS = {
   bottomLeft: { x: 42, y: 1658 },
 };
 
-// NGƯỠNG NHẬN DIỆN TÔ CHÌ TƯƠNG ĐỐI & TUYỆT ĐỐI
-const MIN_FILLED_DENSITY = 0.34;
-const STRONG_FILLED_DENSITY = 0.48;
-const RELATIVE_DOMINANCE_RATIO = 1.32;
-const AMBIGUOUS_DIFF_THRESHOLD = 0.09;
+// NGƯỠNG NHẬN DIỆN TÔ CHÌ TƯƠNG ĐỐI & TUYỆT ĐỐI (ĐÃ CÂN CHỈNH CHỐNG NHIỄU ẢNH CHỤP ĐIỆN THOẠI)
+const MIN_FILLED_DENSITY = 0.28;
+const STRONG_FILLED_DENSITY = 0.42;
+const RELATIVE_DOMINANCE_RATIO = 1.24;
+const AMBIGUOUS_DIFF_THRESHOLD = 0.08;
+
+export interface OMRPart1Block {
+  pageIndex?: number;
+  startQuestion: number;
+  endQuestion: number;
+  startX: number;
+  optionStepX: number;
+  startY: number;
+  rowStepY: number;
+  radius: number;
+}
+
+export interface OMRPart2Block {
+  pageIndex?: number;
+  questionNumber: number;
+  trueX: number;
+  falseX: number;
+  startY: number;
+  rowStepY: number;
+  radius: number;
+}
+
+export interface OMRPart3Block {
+  pageIndex?: number;
+  questionNumber: number;
+  startX: number;
+  colStepX: number;
+  minusY: number;
+  commaY: number;
+  digit0Y: number;
+  rowStepY: number;
+  radius: number;
+}
 
 export interface OMRTemplateBlueprint {
   templateId?: string;
+  totalPages?: number;
   part1TotalQuestions?: number;
   part2TotalQuestions?: number;
   part3TotalQuestions?: number;
@@ -47,37 +81,13 @@ export interface OMRTemplateBlueprint {
     radius: number;
   };
   part1: {
-    blocks: {
-      startQuestion: number;
-      endQuestion: number;
-      startX: number;
-      optionStepX: number;
-      startY: number;
-      rowStepY: number;
-      radius: number;
-    }[];
+    blocks: OMRPart1Block[];
   };
   part2: {
-    blocks: {
-      questionNumber: number;
-      trueX: number;
-      falseX: number;
-      startY: number;
-      rowStepY: number;
-      radius: number;
-    }[];
+    blocks: OMRPart2Block[];
   };
   part3: {
-    blocks: {
-      questionNumber: number;
-      startX: number;
-      colStepX: number;
-      minusY: number;
-      commaY: number;
-      digit0Y: number;
-      rowStepY: number;
-      radius: number;
-    }[];
+    blocks: OMRPart3Block[];
   };
 }
 
@@ -92,8 +102,13 @@ export interface DynamicExamSheetConfig {
   part3Count?: number;
 }
 
+/**
+ * MA TRẬN TỌA ĐỘ CHUẨN (BLUEPRINT) CHO TRANG 1 PHIẾU TRẢ LỜI TRẮC NGHIỆM A4
+ * Đã căn chỉnh khoảng cách Phần II (8 câu Đúng/Sai chia 2 hàng x 4 cột rộng rãi, tuyệt đối không chồng lấn)
+ */
 export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
   templateId: "moet_standard_2025",
+  totalPages: 1,
   part1TotalQuestions: 40,
   part2TotalQuestions: 8,
   part3TotalQuestions: 6,
@@ -115,129 +130,379 @@ export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
     rowStep: 27,
     radius: 9.5,
   },
-  // PHẦN I: 40 CÂU TRẮC NGHIỆM (4 khối cột: 1-10, 11-20, 21-30, 31-40)
+  // PHẦN I TRANG 1: 40 CÂU TRẮC NGHIỆM (4 khối cột: 1-10, 11-20, 21-30, 31-40)
   part1: {
     blocks: [
       {
+        pageIndex: 1,
         startQuestion: 1,
         endQuestion: 10,
         startX: 138,
         optionStepX: 44,
-        startY: 622,
-        rowStepY: 31,
-        radius: 10.5,
+        startY: 600,
+        rowStepY: 30,
+        radius: 10,
       },
       {
+        pageIndex: 1,
         startQuestion: 11,
         endQuestion: 20,
         startX: 396,
         optionStepX: 44,
-        startY: 622,
-        rowStepY: 31,
-        radius: 10.5,
+        startY: 600,
+        rowStepY: 30,
+        radius: 10,
       },
       {
+        pageIndex: 1,
         startQuestion: 21,
         endQuestion: 30,
         startX: 654,
         optionStepX: 44,
-        startY: 622,
-        rowStepY: 31,
-        radius: 10.5,
+        startY: 600,
+        rowStepY: 30,
+        radius: 10,
       },
       {
+        pageIndex: 1,
         startQuestion: 31,
         endQuestion: 40,
         startX: 912,
         optionStepX: 44,
-        startY: 622,
-        rowStepY: 31,
-        radius: 10.5,
+        startY: 600,
+        rowStepY: 30,
+        radius: 10,
       },
     ],
   },
-  // PHẦN II: 8 CÂU ĐÚNG / SAI (4 khung đôi, mỗi câu gồm 4 ý a, b, c, d)
+  // PHẦN II: CĂN CHỈNH KHOẢNG CÁCH CHUẨN (8 CÂU CÁCH ĐỀU 130PX TRÊN 1 HÀNG RỘNG RÃI, KHÔNG BAO GIỜ CHỒNG KHUNG)
   part2: {
     blocks: [
-      { questionNumber: 1, trueX: 132, falseX: 176, startY: 1068, rowStepY: 31, radius: 10.5 },
-      { questionNumber: 2, trueX: 226, falseX: 270, startY: 1068, rowStepY: 31, radius: 10.5 },
-      { questionNumber: 3, trueX: 390, falseX: 434, startY: 1068, rowStepY: 31, radius: 10.5 },
-      { questionNumber: 4, trueX: 484, falseX: 528, startY: 1068, rowStepY: 31, radius: 10.5 },
-      { questionNumber: 5, trueX: 648, falseX: 692, startY: 1068, rowStepY: 31, radius: 10.5 },
-      { questionNumber: 6, trueX: 742, falseX: 786, startY: 1068, rowStepY: 31, radius: 10.5 },
-      { questionNumber: 7, trueX: 906, falseX: 950, startY: 1068, rowStepY: 31, radius: 10.5 },
-      { questionNumber: 8, trueX: 1000, falseX: 1044, startY: 1068, rowStepY: 31, radius: 10.5 },
+      { pageIndex: 1, questionNumber: 1, trueX: 118, falseX: 160, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 2, trueX: 250, falseX: 292, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 3, trueX: 382, falseX: 424, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 4, trueX: 514, falseX: 556, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 5, trueX: 646, falseX: 688, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 6, trueX: 778, falseX: 820, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 7, trueX: 910, falseX: 952, startY: 1032, rowStepY: 29, radius: 9.5 },
+      { pageIndex: 1, questionNumber: 8, trueX: 1042, falseX: 1084, startY: 1032, rowStepY: 29, radius: 9.5 },
     ],
   },
   // PHẦN III: 6 CÂU TRẢ LỜI NGẮN (Mỗi câu 4 cột ký tự: Dấu âm '-', dấu phẩy ',', số 0..9)
   part3: {
     blocks: [
       {
+        pageIndex: 1,
         questionNumber: 1,
         startX: 122,
         colStepX: 27,
-        minusY: 1286,
-        commaY: 1314,
-        digit0Y: 1342,
-        rowStepY: 28,
-        radius: 9.5,
+        minusY: 1268,
+        commaY: 1295,
+        digit0Y: 1322,
+        rowStepY: 27,
+        radius: 9,
       },
       {
+        pageIndex: 1,
         questionNumber: 2,
         startX: 294,
         colStepX: 27,
-        minusY: 1286,
-        commaY: 1314,
-        digit0Y: 1342,
-        rowStepY: 28,
-        radius: 9.5,
+        minusY: 1268,
+        commaY: 1295,
+        digit0Y: 1322,
+        rowStepY: 27,
+        radius: 9,
       },
       {
+        pageIndex: 1,
         questionNumber: 3,
         startX: 466,
         colStepX: 27,
-        minusY: 1286,
-        commaY: 1314,
-        digit0Y: 1342,
-        rowStepY: 28,
-        radius: 9.5,
+        minusY: 1268,
+        commaY: 1295,
+        digit0Y: 1322,
+        rowStepY: 27,
+        radius: 9,
       },
       {
+        pageIndex: 1,
         questionNumber: 4,
         startX: 638,
         colStepX: 27,
-        minusY: 1286,
-        commaY: 1314,
-        digit0Y: 1342,
-        rowStepY: 28,
-        radius: 9.5,
+        minusY: 1268,
+        commaY: 1295,
+        digit0Y: 1322,
+        rowStepY: 27,
+        radius: 9,
       },
       {
+        pageIndex: 1,
         questionNumber: 5,
         startX: 810,
         colStepX: 27,
-        minusY: 1286,
-        commaY: 1314,
-        digit0Y: 1342,
-        rowStepY: 28,
-        radius: 9.5,
+        minusY: 1268,
+        commaY: 1295,
+        digit0Y: 1322,
+        rowStepY: 27,
+        radius: 9,
       },
       {
+        pageIndex: 1,
         questionNumber: 6,
         startX: 982,
         colStepX: 27,
-        minusY: 1286,
-        commaY: 1314,
-        digit0Y: 1342,
-        rowStepY: 28,
-        radius: 9.5,
+        minusY: 1268,
+        commaY: 1295,
+        digit0Y: 1322,
+        rowStepY: 27,
+        radius: 9,
       },
     ],
   },
 };
 
 /**
- * PHÂN TÍCH ĐỀ THI ĐỂ ĐẾM SỐ LƯỢNG CÂU TỪNG PHẦN (PHẦN I, PHẦN II, PHẦN III)
+ * HÀM SINH MÃ ĐỀ 3 CHỮ SỐ CỐ ĐỊNH TỪ ID HOẶC TIÊU ĐỀ ĐỀ THI
+ * Giúp OMR tự động nhận diện chính xác đề thi đang quét
+ */
+export function deriveExamCode3Digits(examOrId?: any): string {
+  if (!examOrId) return "101";
+  if (typeof examOrId === "object" && examOrId.examCode && /^\d{3}$/.test(String(examOrId.examCode))) {
+    return String(examOrId.examCode);
+  }
+  const str = String(
+    typeof examOrId === "object" ? examOrId.id || examOrId.title || "101" : examOrId
+  );
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) % 900;
+  }
+  return String(100 + Math.abs(hash)).slice(0, 3);
+}
+
+/**
+ * HÀM CẤP SỐ BÁO DANH (SBD) TỰ ĐỘNG 6 CHỮ SỐ CHUẨN ĐỒNG BỘ GIỮA ADMIN VÀ HỌC SINH
+ * - Ưu tiên 1: Nếu học sinh có trong danh sách lớp đã sort A-Z (edunexus_sbd_directory hoặc registered_students), lấy đúng STT 1..N -> "000001".."0000NN"
+ * - Ưu tiên 2: Nếu truyền vào số STT nguyên dương (1..9999) -> pad 6 chữ số "000001"
+ * - Tuyệt đối KHÔNG bóc các số ngẫu nhiên trong chuỗi UUID dài để tránh sinh SBD lạ kiểu "026386"!
+ */
+export function formatStudentAutoSBD(studentOrIndex: any, optionalStudentsList?: any[]): string {
+  // Nếu truyền trực tiếp số thứ tự (ví dụ 1, 2, 3...)
+  if (typeof studentOrIndex === "number" && studentOrIndex > 0 && studentOrIndex < 100000) {
+    return String(Math.floor(studentOrIndex)).padStart(6, "0").slice(-6);
+  }
+
+  // Nếu truyền chuỗi số ngắn thuần túy (ví dụ "1", "22", "000003")
+  if (typeof studentOrIndex === "string" && /^\d{1,6}$/.test(studentOrIndex.trim())) {
+    const n = parseInt(studentOrIndex.trim(), 10);
+    if (n > 0) return String(n).padStart(6, "0").slice(-6);
+  }
+
+  // Nếu là object profile học sinh hoặc ID/username, tra cứu trong danh mục SBD chuẩn của lớp
+  if (typeof window !== "undefined") {
+    try {
+      const targetId = String(
+        typeof studentOrIndex === "object"
+          ? studentOrIndex?.id || ""
+          : studentOrIndex || ""
+      )
+        .trim()
+        .toLowerCase();
+      const targetUser = String(
+        typeof studentOrIndex === "object"
+          ? studentOrIndex?.username || ""
+          : studentOrIndex || ""
+      )
+        .trim()
+        .toLowerCase();
+      const targetName = String(
+        typeof studentOrIndex === "object" ? studentOrIndex?.full_name || "" : ""
+      )
+        .trim()
+        .toLowerCase();
+
+      // 1. Kiểm tra bảng SBD đã được đồng bộ trong localStorage
+      const savedDirRaw = localStorage.getItem("edunexus_sbd_directory");
+      if (savedDirRaw) {
+        const savedDir = JSON.parse(savedDirRaw);
+        if (Array.isArray(savedDir) && savedDir.length > 0) {
+          const found = savedDir.find(
+            (item: any) =>
+              (targetId && String(item.id || "").trim().toLowerCase() === targetId) ||
+              (targetUser && String(item.username || "").trim().toLowerCase() === targetUser) ||
+              (targetName && String(item.full_name || "").trim().toLowerCase() === targetName)
+          );
+          if (found && found.sbd) return String(found.sbd).padStart(6, "0").slice(-6);
+        }
+      }
+
+      // 2. Xây dựng danh sách học sinh chuẩn giống hệt thuật toán sort A-Z của Admin
+      const pool: { id: string; username: string; full_name: string }[] = [];
+      const seen = new Set<string>();
+
+      const pushCandidate = (idVal: any, userVal: any, nameVal: any) => {
+        const key = String(idVal || userVal || nameVal || "").trim();
+        if (!key || seen.has(key.toLowerCase())) return;
+        seen.add(key.toLowerCase());
+        pool.push({
+          id: String(idVal || key).trim(),
+          username: String(userVal || key).trim(),
+          full_name: String(nameVal || userVal || key).trim(),
+        });
+      };
+
+      if (Array.isArray(optionalStudentsList)) {
+        optionalStudentsList.forEach((s: any) =>
+          pushCandidate(s?.id, s?.username, s?.full_name || s?.name)
+        );
+      }
+
+      const regRaw = localStorage.getItem("edunexus_registered_students");
+      if (regRaw) {
+        const regList = JSON.parse(regRaw);
+        if (Array.isArray(regList)) {
+          regList.forEach((s: any) =>
+            pushCandidate(s?.id, s?.username, s?.full_name || s?.name)
+          );
+        }
+      }
+
+      const attRaw = localStorage.getItem("edunexus_attempts");
+      if (attRaw) {
+        const attList = JSON.parse(attRaw);
+        if (Array.isArray(attList)) {
+          attList.forEach((a: any) =>
+            pushCandidate(
+              a?.student_id || a?.studentId || a?.user_id,
+              a?.username || a?.user_name,
+              a?.student_name || a?.studentName || a?.full_name
+            )
+          );
+        }
+      }
+
+      if (typeof studentOrIndex === "object" && studentOrIndex) {
+        pushCandidate(
+          studentOrIndex.id,
+          studentOrIndex.username,
+          studentOrIndex.full_name
+        );
+      }
+
+      if (pool.length > 0) {
+        pool.sort((a, b) => a.full_name.localeCompare(b.full_name, "vi"));
+        const matchIdx = pool.findIndex(
+          (p) =>
+            (targetId && p.id.toLowerCase() === targetId) ||
+            (targetUser && p.username.toLowerCase() === targetUser) ||
+            (targetName && p.full_name.toLowerCase() === targetName)
+        );
+        if (matchIdx !== -1) {
+          return String(matchIdx + 1).padStart(6, "0").slice(-6);
+        }
+      }
+    } catch {}
+  }
+
+  // Nếu student_code là số ngắn (không phải UUID chứa dấu gạch ngang)
+  if (typeof studentOrIndex === "object" && studentOrIndex?.student_code) {
+    const codeStr = String(studentOrIndex.student_code).trim();
+    if (/^\d{1,6}$/.test(codeStr)) {
+      return codeStr.padStart(6, "0").slice(-6);
+    }
+  }
+
+  return "000001";
+}
+
+/**
+ * TÌM KIẾM DỮ LIỆU ĐỀ THI ĐẦY ĐỦ TRONG KHO LOCALSTORAGE NẾU OBJECT TRUYỀN VÀO CHỈ LÀ METADATA RÚT GỌN
+ * Giải quyết triệt để lỗi "Đề BTVN Tổng Ôn hơn 100 câu nhưng chỉ nhận diện 40 câu mặc định"
+ */
+export function resolveCompleteExamObject(examOrConfig: any): any {
+  if (!examOrConfig || typeof examOrConfig !== "object") return examOrConfig;
+
+  const hasDirectQuestions =
+    (Array.isArray(examOrConfig.data) && examOrConfig.data.length > 0) ||
+    (Array.isArray(examOrConfig.sections) && examOrConfig.sections.length > 0) ||
+    (Array.isArray(examOrConfig.questions) && examOrConfig.questions.length > 0);
+
+  if (hasDirectQuestions) return examOrConfig;
+
+  if (typeof window !== "undefined") {
+    const targetId = String(
+      examOrConfig.quiz_id || examOrConfig.exam_id || examOrConfig.id || ""
+    )
+      .trim()
+      .toLowerCase();
+    const targetTitle = String(examOrConfig.examTitle || examOrConfig.title || "")
+      .trim()
+      .toLowerCase();
+
+    const storageKeys = [
+      "edunexus_quizzes",
+      "edunexus_practice_exams",
+      "edunexus_course_data",
+    ];
+
+    for (const key of storageKeys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) continue;
+
+        if (key === "edunexus_course_data") {
+          for (const chap of parsed) {
+            for (const les of chap?.lessons || []) {
+              const allItems = [
+                ...(les?.homework_files || []),
+                ...(les?.test_quizzes || []),
+              ];
+              const foundInCourse = allItems.find((it: any) => {
+                const itId = String(it?.id || it?.quiz_id || "").trim().toLowerCase();
+                const itTitle = String(it?.title || "").trim().toLowerCase();
+                return (
+                  (targetId && itId === targetId) ||
+                  (targetTitle && itTitle === targetTitle)
+                );
+              });
+              if (
+                foundInCourse &&
+                ((Array.isArray(foundInCourse.data) && foundInCourse.data.length > 0) ||
+                  (Array.isArray(foundInCourse.questions) && foundInCourse.questions.length > 0))
+              ) {
+                return { ...examOrConfig, ...foundInCourse };
+              }
+            }
+          }
+        } else {
+          const found = parsed.find((q: any) => {
+            const qId = String(q?.id || q?.quiz_id || "").trim().toLowerCase();
+            const qTitle = String(q?.title || "").trim().toLowerCase();
+            return (
+              (targetId && qId === targetId) ||
+              (targetTitle && qTitle === targetTitle)
+            );
+          });
+          if (found) {
+            return {
+              ...examOrConfig,
+              ...found,
+              data: found.data || found.sections || examOrConfig.data,
+              questions: found.questions || examOrConfig.questions,
+            };
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return examOrConfig;
+}
+
+/**
+ * PHÂN TÍCH ĐỀ THI ĐỂ ĐẾM CHÍNH XÁC SỐ LƯỢNG CÂU TỪNG PHẦN (KHÔNG GIỚI HẠN SỐ CÂU)
  */
 export function extractExamQuestionCounts(examDataOrQuestions: any): {
   part1Count: number;
@@ -245,27 +510,54 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
   part3Count: number;
   totalCount: number;
 } {
-  if (!examDataOrQuestions) {
+  const resolvedExam = resolveCompleteExamObject(examDataOrQuestions);
+  if (!resolvedExam) {
     return { part1Count: 40, part2Count: 8, part3Count: 6, totalCount: 54 };
   }
 
+  // Nếu có truyền trực tiếp số lượng câu hợp lệ và đã khớp
+  if (
+    typeof resolvedExam.part1Count === "number" &&
+    typeof resolvedExam.part2Count === "number" &&
+    typeof resolvedExam.part3Count === "number" &&
+    !Array.isArray(resolvedExam.data) &&
+    !Array.isArray(resolvedExam.sections) &&
+    !Array.isArray(resolvedExam.questions)
+  ) {
+    const total =
+      resolvedExam.part1Count + resolvedExam.part2Count + resolvedExam.part3Count;
+    if (total > 0) {
+      return {
+        part1Count: resolvedExam.part1Count,
+        part2Count: resolvedExam.part2Count,
+        part3Count: resolvedExam.part3Count,
+        totalCount: total,
+      };
+    }
+  }
+
   const rawSections =
-    examDataOrQuestions?.data ||
-    examDataOrQuestions?.sections ||
-    (Array.isArray(examDataOrQuestions) ? examDataOrQuestions : []);
+    resolvedExam?.data ||
+    resolvedExam?.sections ||
+    (Array.isArray(resolvedExam) ? resolvedExam : []);
 
   let p1 = 0;
   let p2 = 0;
   let p3 = 0;
 
   const classifySingleQ = (q: any, fallbackType?: string) => {
-    const rawCorrect = String(q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A").trim();
+    const rawCorrect = String(
+      q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A"
+    ).trim();
     const cleanAns = rawCorrect.replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
 
     const isTF =
       q?.type === "true_false" ||
       fallbackType === "true_false" ||
-      (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2);
+      (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2) ||
+      (Array.isArray(q?.options) &&
+        q.options.length > 0 &&
+        typeof q.options[0]?.is_true_false_ans === "boolean");
 
     const isShort =
       !isTF &&
@@ -291,8 +583,8 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
           : "multiple_choice");
       (sec?.questions || []).forEach((q: any) => classifySingleQ(q, secType));
     });
-  } else if (Array.isArray(examDataOrQuestions?.questions)) {
-    examDataOrQuestions.questions.forEach((q: any) => classifySingleQ(q));
+  } else if (Array.isArray(resolvedExam?.questions)) {
+    resolvedExam.questions.forEach((q: any) => classifySingleQ(q));
   } else if (Array.isArray(rawSections) && rawSections.length > 0) {
     rawSections.forEach((q: any) => classifySingleQ(q));
   }
@@ -311,45 +603,115 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
 }
 
 /**
- * THUẬT TOÁN DYNAMIC GRID CALIBRATION:
- * Co giãn lưới câu hỏi theo đúng số câu thực tế của đề thi nhưng giữ nguyên 100% hệ tọa độ chuẩn
- * để OMR Scanner luôn đọc chính xác tuyệt đối.
+ * THUẬT TOÁN DYNAMIC MULTI-PAGE GRID CALIBRATION:
+ * - Hỗ trợ đề ngắn (<= 40 câu): Co gọn trong 1 trang A4.
+ * - Hỗ trợ đề dài (> 40 câu, 100 câu, 150+ câu): Tự động phân bổ sang Trang 2, Trang 3...
+ *   Mỗi trang bổ sung chứa tối đa 80 câu trắc nghiệm (chia 2 tầng x 4 cột x 10 câu) + các câu Phần II, Phần III vượt ngưỡng!
  */
 export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBlueprint {
-  const counts =
-    examOrConfig &&
-    typeof examOrConfig.part1Count === "number" &&
-    typeof examOrConfig.part2Count === "number" &&
-    typeof examOrConfig.part3Count === "number"
-      ? {
-          part1Count: examOrConfig.part1Count,
-          part2Count: examOrConfig.part2Count,
-          part3Count: examOrConfig.part3Count,
-        }
-      : extractExamQuestionCounts(examOrConfig);
+  const resolved = resolveCompleteExamObject(examOrConfig);
+  const counts = extractExamQuestionCounts(resolved);
 
-  const p1Limit = Math.min(40, Math.max(0, counts.part1Count));
-  const p2Limit = Math.min(8, Math.max(0, counts.part2Count));
-  const p3Limit = Math.min(6, Math.max(0, counts.part3Count));
+  const p1Limit = Math.max(0, counts.part1Count);
+  const p2Limit = Math.max(0, counts.part2Count);
+  const p3Limit = Math.max(0, counts.part3Count);
 
-  const dynamicPart1Blocks = MOET_2025_OMR_BLUEPRINT.part1.blocks
-    .filter((b) => b.startQuestion <= Math.max(1, p1Limit))
-    .map((b) => ({
-      ...b,
-      endQuestion: Math.min(b.endQuestion, Math.max(b.startQuestion, p1Limit)),
-    }));
+  const colStartXs = [138, 396, 654, 912];
+  const dynamicPart1Blocks: OMRPart1Block[] = [];
 
-  const dynamicPart2Blocks = MOET_2025_OMR_BLUEPRINT.part2.blocks.filter(
-    (b) => b.questionNumber <= p2Limit
-  );
+  // 1. Tạo các block cho Phần I (Không giới hạn số câu)
+  if (p1Limit > 0) {
+    const totalBlocks10 = Math.ceil(p1Limit / 10);
+    for (let bIdx = 0; bIdx < totalBlocks10; bIdx++) {
+      const startQ = bIdx * 10 + 1;
+      const endQ = Math.min(p1Limit, (bIdx + 1) * 10);
 
-  const dynamicPart3Blocks = MOET_2025_OMR_BLUEPRINT.part3.blocks.filter(
-    (b) => b.questionNumber <= p3Limit
-  );
+      if (bIdx < 4) {
+        // Trang 1: 4 cột đầu tiên (Câu 1 -> 40)
+        dynamicPart1Blocks.push({
+          pageIndex: 1,
+          startQuestion: startQ,
+          endQuestion: endQ,
+          startX: colStartXs[bIdx],
+          optionStepX: 44,
+          startY: 600,
+          rowStepY: 30,
+          radius: 10,
+        });
+      } else {
+        // Từ câu 41 trở đi: Sang Trang 2, Trang 3... (Mỗi trang chứa 8 khối = 80 câu: Tầng trên 40 câu, Tầng dưới 40 câu)
+        const overflowIdx = bIdx - 4;
+        const pageNum = 2 + Math.floor(overflowIdx / 8);
+        const idxInPage = overflowIdx % 8;
+        const tier = Math.floor(idxInPage / 4); // 0: Tầng trên, 1: Tầng dưới
+        const colIdx = idxInPage % 4;
+
+        dynamicPart1Blocks.push({
+          pageIndex: pageNum,
+          startQuestion: startQ,
+          endQuestion: endQ,
+          startX: colStartXs[colIdx],
+          optionStepX: 44,
+          startY: tier === 0 ? 250 : 680,
+          rowStepY: 30,
+          radius: 10,
+        });
+      }
+    }
+  }
+
+  // 2. Tạo các block cho Phần II (Đúng / Sai)
+  const dynamicPart2Blocks: OMRPart2Block[] = [];
+  const p2ColTrueXs = [118, 250, 382, 514, 646, 778, 910, 1042];
+  for (let q = 1; q <= p2Limit; q++) {
+    const idx0 = q - 1;
+    const col8 = idx0 % 8;
+    const rowGroup = Math.floor(idx0 / 8);
+    // Nếu Phần I <= 40 câu và q <= 8 thì nằm ở Trang 1; nếu vượt quá thì đẩy xuống trang cuối
+    const pageIndex = p1Limit <= 40 && rowGroup === 0 ? 1 : Math.max(2, Math.ceil((p1Limit - 40) / 80) + 1);
+    const startY = pageIndex === 1 ? 1032 : 1120 + rowGroup * 210;
+
+    dynamicPart2Blocks.push({
+      pageIndex,
+      questionNumber: q,
+      trueX: p2ColTrueXs[col8],
+      falseX: p2ColTrueXs[col8] + 42,
+      startY,
+      rowStepY: 29,
+      radius: 9.5,
+    });
+  }
+
+  // 3. Tạo các block cho Phần III (Trả lời ngắn)
+  const dynamicPart3Blocks: OMRPart3Block[] = [];
+  const p3ColStartXs = [122, 294, 466, 638, 810, 982];
+  for (let q = 1; q <= p3Limit; q++) {
+    const idx0 = q - 1;
+    const col6 = idx0 % 6;
+    const pageIndex = p1Limit <= 40 && q <= 6 ? 1 : Math.max(2, Math.ceil((p1Limit - 40) / 80) + 1);
+
+    dynamicPart3Blocks.push({
+      pageIndex,
+      questionNumber: q,
+      startX: p3ColStartXs[col6],
+      colStepX: 27,
+      minusY: 1268,
+      commaY: 1295,
+      digit0Y: 1322,
+      rowStepY: 27,
+      radius: 9,
+    });
+  }
+
+  const maxPageP1 = dynamicPart1Blocks.reduce((m, b) => Math.max(m, b.pageIndex || 1), 1);
+  const maxPageP2 = dynamicPart2Blocks.reduce((m, b) => Math.max(m, b.pageIndex || 1), 1);
+  const maxPageP3 = dynamicPart3Blocks.reduce((m, b) => Math.max(m, b.pageIndex || 1), 1);
+  const totalPages = Math.max(1, maxPageP1, maxPageP2, maxPageP3);
 
   return {
     ...MOET_2025_OMR_BLUEPRINT,
     templateId: `dynamic_${p1Limit}_${p2Limit}_${p3Limit}`,
+    totalPages,
     part1TotalQuestions: p1Limit,
     part2TotalQuestions: p2Limit,
     part3TotalQuestions: p3Limit,
@@ -357,16 +719,6 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
     part2: { blocks: dynamicPart2Blocks },
     part3: { blocks: dynamicPart3Blocks },
   };
-}
-
-/**
- * HÀM CẤP SỐ BÁO DANH (SBD) TỰ ĐỘNG 6 CHỮ SỐ THEO SỐ THỨ TỰ HỌC SINH TRONG LỚP
- * Ví dụ: Học sinh STT 1 -> "000001", STT 22 -> "000022"
- */
-export function formatStudentAutoSBD(studentIndexOrNumber: number | string): string {
-  const num = parseInt(String(studentIndexOrNumber).replace(/\D/g, ""), 10);
-  if (isNaN(num) || num <= 0) return "000001";
-  return String(num).padStart(6, "0").slice(-6);
 }
 
 /**
@@ -403,8 +755,8 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
     }
   }
 
-  const halfWin = 16;
-  const sensitivity = 0.84;
+  const halfWin = Math.max(12, Math.round(Math.min(width, height) * 0.015));
+  const sensitivity = 0.85;
 
   for (let y = 0; y < height; y++) {
     const y1 = Math.max(0, y - halfWin);
@@ -421,7 +773,7 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
 
       const localMean = sum / count;
       const idx = y * width + x;
-      binary[idx] = gray[idx] < localMean * sensitivity && gray[idx] < 195 ? 1 : 0;
+      binary[idx] = gray[idx] < localMean * sensitivity && gray[idx] < 200 ? 1 : 0;
     }
   }
 
@@ -451,7 +803,7 @@ export function detectOMRCornerMarkers(
     targetCornerY: number
   ): OMRCornerPoint | null => {
     const patchSize = Math.max(10, Math.round(Math.min(width, height) * 0.018));
-    const step = Math.max(3, Math.floor(patchSize / 3));
+    const step = Math.max(2, Math.floor(patchSize / 4));
 
     let bestCandidate: { x: number; y: number; score: number } | null = null;
 
@@ -469,13 +821,13 @@ export function detectOMRCornerMarkers(
         const sampleTotal = Math.ceil(patchSize / 2) * Math.ceil(patchSize / 2);
         const density = darkCount / sampleTotal;
 
-        if (density >= 0.62) {
+        if (density >= 0.58) {
           const centerX = x + patchSize / 2;
           const centerY = y + patchSize / 2;
           const distToCorner = Math.hypot(centerX - targetCornerX, centerY - targetCornerY);
           const maxPossibleDist = Math.hypot(width, height);
           const proximityWeight = 1 - distToCorner / maxPossibleDist;
-          const score = density * 0.4 + proximityWeight * 0.6;
+          const score = density * 0.35 + proximityWeight * 0.65;
 
           if (!bestCandidate || score > bestCandidate.score) {
             bestCandidate = { x: centerX, y: centerY, score };
@@ -487,20 +839,21 @@ export function detectOMRCornerMarkers(
     return bestCandidate ? { x: bestCandidate.x, y: bestCandidate.y } : null;
   };
 
-  const marginW = Math.floor(width * 0.25);
-  const marginH = Math.floor(height * 0.25);
+  // Giới hạn vùng tìm 4 góc ở 18% sát mép tờ giấy để không bao giờ bắt nhầm nội dung bên trong
+  const marginW = Math.floor(width * 0.18);
+  const marginH = Math.floor(height * 0.18);
 
-  const tl = findDensePatchInRegion(4, marginW, 4, marginH, 0, 0);
-  const tr = findDensePatchInRegion(width - marginW, width - 4, 4, marginH, width, 0);
+  const tl = findDensePatchInRegion(2, marginW, 2, marginH, 0, 0);
+  const tr = findDensePatchInRegion(width - marginW, width - 2, 2, marginH, width, 0);
   const br = findDensePatchInRegion(
     width - marginW,
-    width - 4,
+    width - 2,
     height - marginH,
-    height - 4,
+    height - 2,
     width,
     height
   );
-  const bl = findDensePatchInRegion(4, marginW, height - marginH, height - 4, 0, height);
+  const bl = findDensePatchInRegion(2, marginW, height - marginH, height - 2, 0, height);
 
   if (tl && tr && br && bl) {
     return {
@@ -687,7 +1040,8 @@ function pickDominantBubble<T extends { key: string; density: number }>(
  */
 export function scanOMRSheetFromCanvas(
   sourceCanvasOrImageData: HTMLCanvasElement | ImageData,
-  blueprintOrExam?: OMRTemplateBlueprint | any
+  blueprintOrExam?: OMRTemplateBlueprint | any,
+  targetPageIndex: number = 1
 ): OMRResultData {
   const blueprint: OMRTemplateBlueprint =
     blueprintOrExam && blueprintOrExam.sbd && blueprintOrExam.part1
@@ -749,94 +1103,13 @@ export function scanOMRSheetFromCanvas(
 
   // 1. Quét Số báo danh (6 cột)
   const sbdDigits: string[] = [];
-  for (let col = 0; col < blueprint.sbd.cols; col++) {
-    const cx = blueprint.sbd.startX + col * blueprint.sbd.colStep;
-    const colCandidates: { key: string; density: number; y: number }[] = [];
+  if (targetPageIndex === 1) {
+    for (let col = 0; col < blueprint.sbd.cols; col++) {
+      const cx = blueprint.sbd.startX + col * blueprint.sbd.colStep;
+      const colCandidates: { key: string; density: number; y: number }[] = [];
 
-    for (let digit = 0; digit <= 9; digit++) {
-      const cy = blueprint.sbd.startY + digit * blueprint.sbd.rowStep;
-      const density = measureBubbleDensity(
-        binary,
-        gray,
-        width,
-        height,
-        cx,
-        cy,
-        blueprint.sbd.radius
-      );
-      colCandidates.push({ key: String(digit), density, y: cy });
-    }
-
-    const { selected } = pickDominantBubble(colCandidates, MIN_FILLED_DENSITY);
-    sbdDigits.push(selected ? selected.key : "");
-
-    colCandidates.forEach((cand) => {
-      const isSel = selected?.key === cand.key;
-      bubbleCoordinates.push({
-        id: `sbd-col${col}-${cand.key}`,
-        section: "sbd",
-        optionKey: cand.key,
-        x: cx,
-        y: cand.y,
-        r: blueprint.sbd.radius,
-        density: cand.density,
-        isSelected: isSel,
-        status: isSel ? "detected" : "unfilled",
-      });
-    });
-  }
-
-  // 2. Quét Mã đề thi (3 cột)
-  const examCodeDigits: string[] = [];
-  for (let col = 0; col < blueprint.examCode.cols; col++) {
-    const cx = blueprint.examCode.startX + col * blueprint.examCode.colStep;
-    const colCandidates: { key: string; density: number; y: number }[] = [];
-
-    for (let digit = 0; digit <= 9; digit++) {
-      const cy = blueprint.examCode.startY + digit * blueprint.examCode.rowStep;
-      const density = measureBubbleDensity(
-        binary,
-        gray,
-        width,
-        height,
-        cx,
-        cy,
-        blueprint.examCode.radius
-      );
-      colCandidates.push({ key: String(digit), density, y: cy });
-    }
-
-    const { selected } = pickDominantBubble(colCandidates, MIN_FILLED_DENSITY);
-    examCodeDigits.push(selected ? selected.key : "");
-
-    colCandidates.forEach((cand) => {
-      const isSel = selected?.key === cand.key;
-      bubbleCoordinates.push({
-        id: `code-col${col}-${cand.key}`,
-        section: "exam_code",
-        optionKey: cand.key,
-        x: cx,
-        y: cand.y,
-        r: blueprint.examCode.radius,
-        density: cand.density,
-        isSelected: isSel,
-        status: isSel ? "detected" : "unfilled",
-      });
-    });
-  }
-
-  // 3. Quét Phần I: Trắc nghiệm nhiều lựa chọn (A, B, C, D)
-  const part1Answers: Record<number, string> = {};
-  const optionKeys = ["A", "B", "C", "D"];
-
-  blueprint.part1.blocks.forEach((block) => {
-    for (let qNum = block.startQuestion; qNum <= block.endQuestion; qNum++) {
-      const rowIdx = qNum - block.startQuestion;
-      const cy = block.startY + rowIdx * block.rowStepY;
-      const rowCandidates: { key: string; density: number; x: number }[] = [];
-
-      optionKeys.forEach((optKey, optIdx) => {
-        const cx = block.startX + optIdx * block.optionStepX;
+      for (let digit = 0; digit <= 9; digit++) {
+        const cy = blueprint.sbd.startY + digit * blueprint.sbd.rowStep;
         const density = measureBubbleDensity(
           binary,
           gray,
@@ -844,187 +1117,287 @@ export function scanOMRSheetFromCanvas(
           height,
           cx,
           cy,
-          block.radius
+          blueprint.sbd.radius
         );
-        rowCandidates.push({ key: optKey, density, x: cx });
-      });
-
-      const { selected, isAmbiguous } = pickDominantBubble(rowCandidates, MIN_FILLED_DENSITY);
-      if (selected) {
-        part1Answers[qNum] = selected.key;
-        confidenceSum += isAmbiguous ? 65 : Math.min(100, 75 + selected.density * 35);
-        confidenceCount++;
-      }
-      if (isAmbiguous) {
-        flaggedQuestionsSet.add(qNum);
+        colCandidates.push({ key: String(digit), density, y: cy });
       }
 
-      rowCandidates.forEach((cand) => {
+      const { selected } = pickDominantBubble(colCandidates, MIN_FILLED_DENSITY);
+      sbdDigits.push(selected ? selected.key : "");
+
+      colCandidates.forEach((cand) => {
         const isSel = selected?.key === cand.key;
         bubbleCoordinates.push({
-          id: `p1-q${qNum}-${cand.key}`,
-          section: "part1",
-          questionNumber: qNum,
+          id: `sbd-col${col}-${cand.key}`,
+          section: "sbd",
           optionKey: cand.key,
-          x: cand.x,
-          y: cy,
-          r: block.radius,
+          x: cx,
+          y: cand.y,
+          r: blueprint.sbd.radius,
           density: cand.density,
           isSelected: isSel,
-          status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
+          status: isSel ? "detected" : "unfilled",
         });
       });
     }
-  });
+  }
 
-  // 4. Quét Phần II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)
-  const part2Answers: Record<number, Record<"a" | "b" | "c" | "d", boolean | null>> = {};
-  const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
-  const p1Offset = blueprint.part1TotalQuestions ?? 40;
-
-  blueprint.part2.blocks.forEach((block) => {
-    const qNum = block.questionNumber;
-    const globalQOrder = p1Offset + qNum;
-    part2Answers[qNum] = { a: null, b: null, c: null, d: null };
-
-    subKeys.forEach((subK, subIdx) => {
-      const cy = block.startY + subIdx * block.rowStepY;
-      const densityTrue = measureBubbleDensity(
-        binary,
-        gray,
-        width,
-        height,
-        block.trueX,
-        cy,
-        block.radius
-      );
-      const densityFalse = measureBubbleDensity(
-        binary,
-        gray,
-        width,
-        height,
-        block.falseX,
-        cy,
-        block.radius
-      );
-
-      const pairCandidates = [
-        { key: "T", density: densityTrue, x: block.trueX },
-        { key: "F", density: densityFalse, x: block.falseX },
-      ];
-
-      const { selected, isAmbiguous } = pickDominantBubble(pairCandidates, MIN_FILLED_DENSITY);
-      if (selected) {
-        part2Answers[qNum][subK] = selected.key === "T";
-        confidenceSum += isAmbiguous ? 65 : Math.min(100, 75 + selected.density * 35);
-        confidenceCount++;
-      }
-      if (isAmbiguous) {
-        flaggedQuestionsSet.add(globalQOrder);
-      }
-
-      pairCandidates.forEach((cand) => {
-        const isSel = selected?.key === cand.key;
-        bubbleCoordinates.push({
-          id: `p2-q${qNum}-${subK}-${cand.key}`,
-          section: "part2",
-          questionNumber: qNum,
-          subKey: subK,
-          optionKey: cand.key,
-          x: cand.x,
-          y: cy,
-          r: block.radius,
-          density: cand.density,
-          isSelected: isSel,
-          status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
-        });
-      });
-    });
-  });
-
-  // 5. Quét Phần III: Trả lời ngắn (4 cột số mỗi câu)
-  const part3Answers: Record<number, string> = {};
-  const p2Offset = p1Offset + (blueprint.part2TotalQuestions ?? 8);
-
-  blueprint.part3.blocks.forEach((block) => {
-    const qNum = block.questionNumber;
-    const globalQOrder = p2Offset + qNum;
-    const chars: string[] = [];
-
-    for (let col = 0; col < 4; col++) {
-      const cx = block.startX + col * block.colStepX;
+  // 2. Quét Mã đề thi (3 cột)
+  const examCodeDigits: string[] = [];
+  if (targetPageIndex === 1) {
+    for (let col = 0; col < blueprint.examCode.cols; col++) {
+      const cx = blueprint.examCode.startX + col * blueprint.examCode.colStep;
       const colCandidates: { key: string; density: number; y: number }[] = [];
 
-      if (col === 0) {
-        const dMinus = measureBubbleDensity(
-          binary,
-          gray,
-          width,
-          height,
-          cx,
-          block.minusY,
-          block.radius
-        );
-        colCandidates.push({ key: "-", density: dMinus, y: block.minusY });
-      }
-
-      if (col === 1 || col === 2) {
-        const dComma = measureBubbleDensity(
-          binary,
-          gray,
-          width,
-          height,
-          cx,
-          block.commaY,
-          block.radius
-        );
-        colCandidates.push({ key: ",", density: dComma, y: block.commaY });
-      }
-
       for (let digit = 0; digit <= 9; digit++) {
-        const cy = block.digit0Y + digit * block.rowStepY;
-        const dDigit = measureBubbleDensity(
+        const cy = blueprint.examCode.startY + digit * blueprint.examCode.rowStep;
+        const density = measureBubbleDensity(
           binary,
           gray,
           width,
           height,
           cx,
           cy,
-          block.radius
+          blueprint.examCode.radius
         );
-        colCandidates.push({ key: String(digit), density: dDigit, y: cy });
+        colCandidates.push({ key: String(digit), density, y: cy });
       }
 
-      const { selected, isAmbiguous } = pickDominantBubble(colCandidates, MIN_FILLED_DENSITY);
-      if (selected) {
-        chars.push(selected.key);
-        confidenceSum += isAmbiguous ? 65 : Math.min(100, 75 + selected.density * 35);
-        confidenceCount++;
-      }
-      if (isAmbiguous) {
-        flaggedQuestionsSet.add(globalQOrder);
-      }
+      const { selected } = pickDominantBubble(colCandidates, MIN_FILLED_DENSITY);
+      examCodeDigits.push(selected ? selected.key : "");
 
       colCandidates.forEach((cand) => {
         const isSel = selected?.key === cand.key;
         bubbleCoordinates.push({
-          id: `p3-q${qNum}-c${col}-${cand.key}`,
-          section: "part3",
-          questionNumber: qNum,
-          subKey: String(col),
+          id: `code-col${col}-${cand.key}`,
+          section: "exam_code",
           optionKey: cand.key,
           x: cx,
           y: cand.y,
-          r: block.radius,
+          r: blueprint.examCode.radius,
           density: cand.density,
           isSelected: isSel,
-          status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
+          status: isSel ? "detected" : "unfilled",
         });
       });
     }
+  }
 
-    part3Answers[qNum] = chars.join("");
-  });
+  // 3. Quét Phần I: Trắc nghiệm nhiều lựa chọn (A, B, C, D)
+  const part1Answers: Record<number, string> = {};
+  const optionKeys = ["A", "B", "C", "D"];
+
+  blueprint.part1.blocks
+    .filter((b) => (b.pageIndex || 1) === targetPageIndex)
+    .forEach((block) => {
+      for (let qNum = block.startQuestion; qNum <= block.endQuestion; qNum++) {
+        const rowIdx = qNum - block.startQuestion;
+        const cy = block.startY + rowIdx * block.rowStepY;
+        const rowCandidates: { key: string; density: number; x: number }[] = [];
+
+        optionKeys.forEach((optKey, optIdx) => {
+          const cx = block.startX + optIdx * block.optionStepX;
+          const density = measureBubbleDensity(
+            binary,
+            gray,
+            width,
+            height,
+            cx,
+            cy,
+            block.radius
+          );
+          rowCandidates.push({ key: optKey, density, x: cx });
+        });
+
+        const { selected, isAmbiguous } = pickDominantBubble(
+          rowCandidates,
+          MIN_FILLED_DENSITY
+        );
+        if (selected) {
+          part1Answers[qNum] = selected.key;
+          confidenceSum += isAmbiguous ? 65 : Math.min(100, 75 + selected.density * 35);
+          confidenceCount++;
+        }
+        if (isAmbiguous) {
+          flaggedQuestionsSet.add(qNum);
+        }
+
+        rowCandidates.forEach((cand) => {
+          const isSel = selected?.key === cand.key;
+          bubbleCoordinates.push({
+            id: `p1-q${qNum}-${cand.key}`,
+            section: "part1",
+            questionNumber: qNum,
+            optionKey: cand.key,
+            x: cand.x,
+            y: cy,
+            r: block.radius,
+            density: cand.density,
+            isSelected: isSel,
+            status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
+          });
+        });
+      }
+    });
+
+  // 4. Quét Phần II: Trắc nghiệm Đúng / Sai (4 ý a, b, c, d)
+  const part2Answers: Record<number, Record<"a" | "b" | "c" | "d", boolean | null>> = {};
+  const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+  const p1Offset = blueprint.part1TotalQuestions ?? 40;
+
+  blueprint.part2.blocks
+    .filter((b) => (b.pageIndex || 1) === targetPageIndex)
+    .forEach((block) => {
+      const qNum = block.questionNumber;
+      const globalQOrder = p1Offset + qNum;
+      part2Answers[qNum] = { a: null, b: null, c: null, d: null };
+
+      subKeys.forEach((subK, subIdx) => {
+        const cy = block.startY + subIdx * block.rowStepY;
+        const densityTrue = measureBubbleDensity(
+          binary,
+          gray,
+          width,
+          height,
+          block.trueX,
+          cy,
+          block.radius
+        );
+        const densityFalse = measureBubbleDensity(
+          binary,
+          gray,
+          width,
+          height,
+          block.falseX,
+          cy,
+          block.radius
+        );
+
+        const pairCandidates = [
+          { key: "T", density: densityTrue, x: block.trueX },
+          { key: "F", density: densityFalse, x: block.falseX },
+        ];
+
+        const { selected, isAmbiguous } = pickDominantBubble(
+          pairCandidates,
+          MIN_FILLED_DENSITY
+        );
+        if (selected) {
+          part2Answers[qNum][subK] = selected.key === "T";
+          confidenceSum += isAmbiguous ? 65 : Math.min(100, 75 + selected.density * 35);
+          confidenceCount++;
+        }
+        if (isAmbiguous) {
+          flaggedQuestionsSet.add(globalQOrder);
+        }
+
+        pairCandidates.forEach((cand) => {
+          const isSel = selected?.key === cand.key;
+          bubbleCoordinates.push({
+            id: `p2-q${qNum}-${subK}-${cand.key}`,
+            section: "part2",
+            questionNumber: qNum,
+            subKey: subK,
+            optionKey: cand.key,
+            x: cand.x,
+            y: cy,
+            r: block.radius,
+            density: cand.density,
+            isSelected: isSel,
+            status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
+          });
+        });
+      });
+    });
+
+  // 5. Quét Phần III: Trả lời ngắn (4 cột số mỗi câu)
+  const part3Answers: Record<number, string> = {};
+  const p2Offset = p1Offset + (blueprint.part2TotalQuestions ?? 8);
+
+  blueprint.part3.blocks
+    .filter((b) => (b.pageIndex || 1) === targetPageIndex)
+    .forEach((block) => {
+      const qNum = block.questionNumber;
+      const globalQOrder = p2Offset + qNum;
+      const chars: string[] = [];
+
+      for (let col = 0; col < 4; col++) {
+        const cx = block.startX + col * block.colStepX;
+        const colCandidates: { key: string; density: number; y: number }[] = [];
+
+        if (col === 0) {
+          const dMinus = measureBubbleDensity(
+            binary,
+            gray,
+            width,
+            height,
+            cx,
+            block.minusY,
+            block.radius
+          );
+          colCandidates.push({ key: "-", density: dMinus, y: block.minusY });
+        }
+
+        if (col === 1 || col === 2) {
+          const dComma = measureBubbleDensity(
+            binary,
+            gray,
+            width,
+            height,
+            cx,
+            block.commaY,
+            block.radius
+          );
+          colCandidates.push({ key: ",", density: dComma, y: block.commaY });
+        }
+
+        for (let digit = 0; digit <= 9; digit++) {
+          const cy = block.digit0Y + digit * block.rowStepY;
+          const dDigit = measureBubbleDensity(
+            binary,
+            gray,
+            width,
+            height,
+            cx,
+            cy,
+            block.radius
+          );
+          colCandidates.push({ key: String(digit), density: dDigit, y: cy });
+        }
+
+        const { selected, isAmbiguous } = pickDominantBubble(
+          colCandidates,
+          MIN_FILLED_DENSITY
+        );
+        if (selected) {
+          chars.push(selected.key);
+          confidenceSum += isAmbiguous ? 65 : Math.min(100, 75 + selected.density * 35);
+          confidenceCount++;
+        }
+        if (isAmbiguous) {
+          flaggedQuestionsSet.add(globalQOrder);
+        }
+
+        colCandidates.forEach((cand) => {
+          const isSel = selected?.key === cand.key;
+          bubbleCoordinates.push({
+            id: `p3-q${qNum}-c${col}-${cand.key}`,
+            section: "part3",
+            questionNumber: qNum,
+            subKey: String(col),
+            optionKey: cand.key,
+            x: cx,
+            y: cand.y,
+            r: block.radius,
+            density: cand.density,
+            isSelected: isSel,
+            status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
+          });
+        });
+      }
+
+      part3Answers[qNum] = chars.join("");
+    });
 
   const avgConfidence =
     confidenceCount > 0 ? Number((confidenceSum / confidenceCount).toFixed(1)) : 96.5;
@@ -1060,10 +1433,12 @@ export function gradeOMRSubmission(
   omrData: OMRResultData,
   examDataOrQuestions: any
 ): OMRGradingSummary {
+  const resolvedExam = resolveCompleteExamObject(examDataOrQuestions);
+
   const rawSections =
-    examDataOrQuestions?.data ||
-    examDataOrQuestions?.sections ||
-    (Array.isArray(examDataOrQuestions) ? examDataOrQuestions : []);
+    resolvedExam?.data ||
+    resolvedExam?.sections ||
+    (Array.isArray(resolvedExam) ? resolvedExam : []);
 
   const flatQuestions: {
     id: string;
@@ -1082,13 +1457,18 @@ export function gradeOMRSubmission(
 
   const pushQuestion = (q: any, fallbackType?: string) => {
     globalCounter++;
-    const rawCorrect = String(q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A").trim();
+    const rawCorrect = String(
+      q?.correct_answer ?? q?.correctAnswer ?? q?.answer ?? "A"
+    ).trim();
     const cleanAns = rawCorrect.replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
 
     const isTF =
       q?.type === "true_false" ||
       fallbackType === "true_false" ||
-      (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2);
+      (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2) ||
+      (Array.isArray(q?.options) &&
+        q.options.length > 0 &&
+        typeof q.options[0]?.is_true_false_ans === "boolean");
 
     const isShort =
       !isTF &&
@@ -1146,8 +1526,8 @@ export function gradeOMRSubmission(
 
       (sec?.questions || []).forEach((q: any) => pushQuestion(q, secType));
     });
-  } else if (Array.isArray(examDataOrQuestions?.questions)) {
-    examDataOrQuestions.questions.forEach((q: any) => pushQuestion(q));
+  } else if (Array.isArray(resolvedExam?.questions)) {
+    resolvedExam.questions.forEach((q: any) => pushQuestion(q));
   } else if (Array.isArray(rawSections)) {
     rawSections.forEach((q: any) => pushQuestion(q));
   }
@@ -1186,7 +1566,9 @@ export function gradeOMRSubmission(
       const qMaxPt = isStandardTHPTWeight ? 0.25 : 1.0;
       maxPossiblePoints += qMaxPt;
 
-      const selectedOpt = (omrData.part1_answers[q.localNumberInPart] || "").trim().toUpperCase();
+      const selectedOpt = (omrData.part1_answers[q.localNumberInPart] || "")
+        .trim()
+        .toUpperCase();
       const expectedOpt = (q.correctAnswer || "A").trim().toUpperCase();
 
       if (selectedOpt) {
@@ -1237,20 +1619,36 @@ export function gradeOMRSubmission(
         c: null,
         d: null,
       };
+
+      const expectedBoolMap: Record<"a" | "b" | "c" | "d", boolean> = {
+        a: true,
+        b: true,
+        c: true,
+        d: true,
+      };
       const cleanExpected = (q.correctAnswer || "ĐĐĐĐ")
         .replace(/[^A-Za-zĐđSsTtFf]/g, "")
         .toUpperCase();
 
       const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+      subKeys.forEach((sk, idx) => {
+        const optItem = Array.isArray(q.options) ? q.options[idx] : null;
+        if (optItem && typeof optItem.is_true_false_ans === "boolean") {
+          expectedBoolMap[sk] = optItem.is_true_false_ans;
+        } else {
+          const expChar = cleanExpected[idx] || "Đ";
+          expectedBoolMap[sk] = expChar === "Đ" || expChar === "D" || expChar === "T";
+        }
+      });
+
       let rightSubCount = 0;
       let answeredSubCount = 0;
       const tfAnswerForExamRoom: Record<string, "T" | "F"> = {};
       const stuDisplayParts: string[] = [];
       const corrDisplayParts: string[] = [];
 
-      subKeys.forEach((sk, idx) => {
-        const expChar = cleanExpected[idx] || "Đ";
-        const expBool = expChar === "Đ" || expChar === "D" || expChar === "T";
+      subKeys.forEach((sk) => {
+        const expBool = expectedBoolMap[sk];
         const stuBool = stuSubMap[sk];
 
         corrDisplayParts.push(`${sk}) ${expBool ? "Đ" : "S"}`);
@@ -1317,7 +1715,8 @@ export function gradeOMRSubmission(
         part: 2,
         questionId: q.id,
         type: "true_false",
-        studentAnswerDisplay: answeredSubCount > 0 ? stuDisplayParts.join(" • ") : "Bỏ trống",
+        studentAnswerDisplay:
+          answeredSubCount > 0 ? stuDisplayParts.join(" • ") : "Bỏ trống",
         correctAnswerDisplay: corrDisplayParts.join(" • "),
         status,
         pointsEarned: earned,
@@ -1339,7 +1738,9 @@ export function gradeOMRSubmission(
       }
 
       const isRight = Boolean(
-        stuRawStr && expRawStr && normalizeShortStr(stuRawStr) === normalizeShortStr(expRawStr)
+        stuRawStr &&
+          expRawStr &&
+          normalizeShortStr(stuRawStr) === normalizeShortStr(expRawStr)
       );
       const status = !stuRawStr ? "skipped" : isRight ? "correct" : "wrong";
       const earned = isRight ? qMaxPt : 0;
@@ -1350,7 +1751,11 @@ export function gradeOMRSubmission(
       else skippedCount++;
 
       updatedCoordinates.forEach((b) => {
-        if (b.section === "part3" && b.questionNumber === q.localNumberInPart && b.isSelected) {
+        if (
+          b.section === "part3" &&
+          b.questionNumber === q.localNumberInPart &&
+          b.isSelected
+        ) {
           b.status = isRight ? "correct" : "wrong";
         }
       });
@@ -1397,205 +1802,277 @@ export function gradeOMRSubmission(
 }
 
 /**
- * HÀM SINH CHUỖI VECTOR SVG MẪU PHIẾU TRẢ LỜI TRẮC NGHIỆM A4 ĐỘNG THEO SỐ LƯỢNG CÂU HỎI CỦA ĐỀ THI
- * - Tự động ẩn hoặc thu gọn các ô thừa nếu đề ngắn (<= 20 câu, <= 40 câu) để vừa vặn trên 1 mặt A4.
- * - Vẫn bảo toàn 100% 4 góc định vị (Corner Markers) và Timing Tracks chuẩn A4 (1200x1700).
+ * DỰNG MÃ SVG CHO TỪNG TRANG A4 (TRANG 1, TRANG 2, TRANG 3...)
+ * - Trang 1: Khung SBD (6 cột), Mã đề (3 cột tô sẵn), Phần I (câu 1..40), Phần II, Phần III.
+ * - Trang 2+ (Nếu đề > 40 câu như đề BTVN Tổng Ôn 100+ câu): Render tiếp câu 41..120+ với 4 góc định vị chuẩn A4 riêng!
  */
-export function generatePrintableAnswerSheetSVG(examOrConfig?: any): string {
-  const blueprint = buildDynamicOMRBlueprint(examOrConfig);
+export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string[] {
+  const resolved = resolveCompleteExamObject(examOrConfig);
+  const blueprint = buildDynamicOMRBlueprint(resolved);
   const W = OMR_CANONICAL_WIDTH;
   const H = OMR_CANONICAL_HEIGHT;
   const corners = CANONICAL_CORNER_TARGETS;
 
   const rawTitle =
-    examOrConfig?.examTitle ||
-    examOrConfig?.title ||
+    resolved?.examTitle ||
+    resolved?.title ||
     "KỲ THI TỐT NGHIỆP THPT & ĐÁNH GIÁ NĂNG LỰC - EDUNEXUS";
   const safeTitle = String(rawTitle).replace(/[<>&"]/g, "");
-  const presetSbd = String(examOrConfig?.studentSbd || "").trim();
-  const presetCode = String(examOrConfig?.examCode || "").trim();
-  const presetName = String(examOrConfig?.studentName || "").replace(/[<>&"]/g, "");
+
+  // Chuẩn hóa SBD 6 số khớp với Admin (Không dùng UUID ngẫu nhiên)
+  const rawSbdInput = resolved?.studentSbd || "";
+  const presetSbd =
+    /^\d{6}$/.test(String(rawSbdInput).trim())
+      ? String(rawSbdInput).trim()
+      : "";
+
+  // Tự động điền Mã đề 3 chữ số của đề thi
+  const presetCode = deriveExamCode3Digits(resolved);
+  const presetName = String(resolved?.studentName || "").replace(/[<>&"]/g, "");
 
   const p1Max = blueprint.part1TotalQuestions ?? 40;
   const p2Max = blueprint.part2TotalQuestions ?? 8;
   const p3Max = blueprint.part3TotalQuestions ?? 6;
+  const totalPages = blueprint.totalPages || 1;
 
-  let svgElements = "";
+  const pagesSvgList: string[] = [];
 
-  // 1. Vẽ 4 điểm mốc định vị góc (Corner Alignment Markers) & Timing Tracks dọc mép phải
-  const markerSize = 28;
-  [corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft].forEach((pt) => {
-    svgElements += `<rect x="${pt.x - markerSize / 2}" y="${pt.y - markerSize / 2}" width="${markerSize}" height="${markerSize}" fill="#000000" />`;
-  });
+  for (let pageIdx = 1; pageIdx <= totalPages; pageIdx++) {
+    let svgElements = "";
 
-  // Vạch nhịp bước (Timing Tracks) dọc mép phải
-  for (let ty = 225; ty <= 470; ty += 27) {
-    svgElements += `<rect x="1146" y="${ty - 4}" width="16" height="8" fill="#000000" />`;
-  }
-
-  // 2. Vẽ Header & Khung thông tin thí sinh
-  svgElements += `
-    <text x="415" y="92" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM</text>
-    <text x="415" y="120" font-family="Arial, sans-serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1D4ED8">${safeTitle}</text>
-    <rect x="65" y="148" width="710" height="335" fill="none" stroke="#334155" stroke-width="1.5" rx="6" />
-    <line x1="255" y1="148" x2="255" y2="483" stroke="#334155" stroke-width="1.2" />
-    <line x1="65" y1="315" x2="255" y2="315" stroke="#334155" stroke-width="1.2" />
-    <text x="160" y="176" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 1</text>
-    <text x="160" y="342" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 2</text>
-    <text x="275" y="185" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">1. Hội đồng thi: ..........................................................................</text>
-    <text x="275" y="225" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">2. Điểm thi: .................................................................................</text>
-    <text x="275" y="265" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">3. Phòng thi số: ..........................................................................</text>
-    <text x="275" y="305" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">4. Họ và tên thí sinh: ${presetName ? `<tspan font-weight="bold">${presetName}</tspan>` : ".................................................................."}</text>
-    <text x="275" y="345" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">5. Ngày sinh: ........../........../20.......  (Nam / Nữ)</text>
-    <text x="275" y="385" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">6. Chữ ký của thí sinh: ..............................................................</text>
-    <text x="275" y="435" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#1D4ED8">Cấu trúc đề: Phần I (${p1Max} câu) • Phần II (${p2Max} câu) • Phần III (${p3Max} câu)</text>
-    <text x="415" y="514" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Giữ phiếu phẳng, tô kín ô tròn bằng bút chì đen và chụp rõ đủ 4 ô vuông đen ở 4 góc phiếu.</text>
-  `;
-
-  // 3. Vẽ Khung 7. Số báo danh & 8. Mã đề thi
-  svgElements += `
-    <text x="${blueprint.sbd.startX + 70}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">7. Số báo danh</text>
-    <rect x="${blueprint.sbd.startX - 18}" y="154" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
-    <rect x="${blueprint.sbd.startX - 18}" y="200" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="${10 * blueprint.sbd.rowStep + 14}" fill="none" stroke="#334155" stroke-width="1.2" />
-  `;
-  for (let c = 0; c < blueprint.sbd.cols; c++) {
-    const cx = blueprint.sbd.startX + c * blueprint.sbd.colStep;
-    const presetDigit = presetSbd[c] || "";
-    if (presetDigit) {
-      svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetDigit}</text>`;
-    }
-    for (let d = 0; d <= 9; d++) {
-      const cy = blueprint.sbd.startY + d * blueprint.sbd.rowStep;
-      const isPreFilled = presetDigit === String(d);
-      svgElements += `
-        <circle cx="${cx}" cy="${cy}" r="${blueprint.sbd.radius}" fill="${isPreFilled ? "#0f172a" : "none"}" stroke="#475569" stroke-width="1.1" />
-        <text x="${cx}" y="${cy + 3.5}" font-family="Arial, sans-serif" font-size="9.5" text-anchor="middle" fill="${isPreFilled ? "#ffffff" : "#475569"}">${d}</text>
-      `;
-    }
-  }
-
-  svgElements += `
-    <text x="${blueprint.examCode.startX + 28}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">8. Mã đề thi</text>
-    <rect x="${blueprint.examCode.startX - 18}" y="154" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
-    <rect x="${blueprint.examCode.startX - 18}" y="200" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="${10 * blueprint.examCode.rowStep + 14}" fill="none" stroke="#334155" stroke-width="1.2" />
-  `;
-  for (let c = 0; c < blueprint.examCode.cols; c++) {
-    const cx = blueprint.examCode.startX + c * blueprint.examCode.colStep;
-    const presetCodeDigit = presetCode[c] || "";
-    if (presetCodeDigit) {
-      svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetCodeDigit}</text>`;
-    }
-    for (let d = 0; d <= 9; d++) {
-      const cy = blueprint.examCode.startY + d * blueprint.examCode.rowStep;
-      const isPreFilled = presetCodeDigit === String(d);
-      svgElements += `
-        <circle cx="${cx}" cy="${cy}" r="${blueprint.examCode.radius}" fill="${isPreFilled ? "#0f172a" : "none"}" stroke="#475569" stroke-width="1.1" />
-        <text x="${cx}" y="${cy + 3.5}" font-family="Arial, sans-serif" font-size="9.5" text-anchor="middle" fill="${isPreFilled ? "#ffffff" : "#475569"}">${d}</text>
-      `;
-    }
-  }
-
-  // 4. Vẽ PHẦN I (Tự động giới hạn theo số câu p1Max của đề)
-  if (p1Max > 0) {
-    svgElements += `
-      <rect x="30" y="544" width="18" height="18" fill="#000" />
-      <rect x="1152" y="544" width="18" height="18" fill="#000" />
-      <text x="65" y="559" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN I: Trắc nghiệm nhiều phương án lựa chọn (Từ câu 1 đến câu ${p1Max})</text>
-    `;
-    const opts = ["A", "B", "C", "D"];
-    blueprint.part1.blocks.forEach((b) => {
-      const boxLeft = b.startX - 48;
-      const numRows = b.endQuestion - b.startQuestion + 1;
-      const boxH = Math.max(75, numRows * b.rowStepY + 42);
-      svgElements += `<rect x="${boxLeft}" y="572" width="232" height="${boxH}" fill="none" stroke="#334155" stroke-width="1.3" rx="4" />`;
-      opts.forEach((k, idx) => {
-        const ox = b.startX + idx * b.optionStepX;
-        svgElements += `<text x="${ox}" y="594" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#0f172a">${k}</text>`;
-      });
-
-      for (let q = b.startQuestion; q <= b.endQuestion; q++) {
-        const rIdx = q - b.startQuestion;
-        const cy = b.startY + rIdx * b.rowStepY;
-        svgElements += `<text x="${b.startX - 28}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#0f172a">${q}</text>`;
-        opts.forEach((_, idx) => {
-          const cx = b.startX + idx * b.optionStepX;
-          svgElements += `<circle cx="${cx}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />`;
-        });
-      }
+    // 1. Vẽ 4 điểm mốc định vị góc (Corner Alignment Markers) duy nhất ở 4 góc A4
+    const markerSize = 28;
+    [
+      corners.topLeft,
+      corners.topRight,
+      corners.bottomRight,
+      corners.bottomLeft,
+    ].forEach((pt) => {
+      svgElements += `<rect x="${pt.x - markerSize / 2}" y="${pt.y - markerSize / 2}" width="${markerSize}" height="${markerSize}" fill="#000000" />`;
     });
-  }
 
-  // 5. Vẽ PHẦN II: Đúng / Sai (Chỉ render đúng số câu p2Max của đề)
-  if (p2Max > 0) {
-    svgElements += `
-      <rect x="30" y="956" width="18" height="18" fill="#000" />
-      <rect x="1152" y="956" width="18" height="18" fill="#000" />
-      <text x="65" y="971" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN II: Trắc nghiệm Đúng / Sai (${p2Max} câu)</text>
-    `;
-    const subLabels = ["a)", "b)", "c)", "d)"];
-    blueprint.part2.blocks.forEach((b) => {
-      const q = b.questionNumber;
-      const boxLeft = b.trueX - 42;
-      svgElements += `
-        <rect x="${boxLeft}" y="988" width="108" height="195" fill="none" stroke="#334155" stroke-width="1.3" rx="4" />
-        <text x="${(b.trueX + b.falseX) / 2}" y="1012" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
-        <text x="${b.trueX}" y="1034" font-family="Arial, sans-serif" font-size="10.5" font-weight="bold" text-anchor="middle" fill="#334155">Đúng</text>
-        <text x="${b.falseX}" y="1034" font-family="Arial, sans-serif" font-size="10.5" font-weight="bold" text-anchor="middle" fill="#334155">Sai</text>
-      `;
-      subLabels.forEach((lbl, idx) => {
-        const cy = b.startY + idx * b.rowStepY;
-        svgElements += `
-          <text x="${b.trueX - 24}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#0f172a">${lbl}</text>
-          <circle cx="${b.trueX}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
-          <circle cx="${b.falseX}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
-        `;
-      });
-    });
-  }
+    // Vạch nhịp bước (Timing Tracks) dọc mép phải
+    for (let ty = 225; ty <= 470; ty += 27) {
+      svgElements += `<rect x="1146" y="${ty - 4}" width="16" height="8" fill="#000000" />`;
+    }
 
-  // 6. Vẽ PHẦN III: Trả lời ngắn (Chỉ render đúng số câu p3Max của đề)
-  if (p3Max > 0) {
-    svgElements += `
-      <rect x="30" y="1208" width="18" height="18" fill="#000" />
-      <rect x="1152" y="1208" width="18" height="18" fill="#000" />
-      <text x="65" y="1223" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN III: Trả lời ngắn - Điền đáp số (${p3Max} câu)</text>
-    `;
-    blueprint.part3.blocks.forEach((b) => {
-      const q = b.questionNumber;
-      const boxLeft = b.startX - 36;
+    if (pageIdx === 1) {
+      // ================= TRANG 1 =================
       svgElements += `
-        <rect x="${boxLeft}" y="1236" width="152" height="390" fill="none" stroke="#334155" stroke-width="1.3" rx="4" />
-        <text x="${b.startX + 40}" y="1260" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
-        <text x="${b.startX - 20}" y="${b.minusY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">-</text>
-        <circle cx="${b.startX}" cy="${b.minusY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
-        <text x="${b.startX - 20}" y="${b.commaY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">,</text>
-        <circle cx="${b.startX + b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
-        <circle cx="${b.startX + 2 * b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+        <text x="415" y="92" font-family="Arial, sans-serif" font-size="23" font-weight="bold" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM ${totalPages > 1 ? `(TRANG 1/${totalPages})` : ""}</text>
+        <text x="415" y="120" font-family="Arial, sans-serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1D4ED8">${safeTitle} — Mã đề: ${presetCode}</text>
+        <rect x="65" y="148" width="710" height="335" fill="none" stroke="#334155" stroke-width="1.5" rx="6" />
+        <line x1="255" y1="148" x2="255" y2="483" stroke="#334155" stroke-width="1.2" />
+        <line x1="65" y1="315" x2="255" y2="315" stroke="#334155" stroke-width="1.2" />
+        <text x="160" y="176" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 1</text>
+        <text x="160" y="342" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#334155">Họ tên, chữ ký Giám thị 2</text>
+        <text x="275" y="185" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">1. Hội đồng thi: ..........................................................................</text>
+        <text x="275" y="225" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">2. Điểm thi: .................................................................................</text>
+        <text x="275" y="265" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">3. Phòng thi số: ..........................................................................</text>
+        <text x="275" y="305" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">4. Họ và tên thí sinh: ${presetName ? `<tspan font-weight="bold">${presetName}</tspan>` : ".................................................................."}</text>
+        <text x="275" y="345" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">5. Ngày sinh: ........../........../20.......  (Nam / Nữ)</text>
+        <text x="275" y="385" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">6. Chữ ký của thí sinh: ..............................................................</text>
+        <text x="275" y="432" font-family="Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#1D4ED8">Tổng số câu của đề: ${p1Max + p2Max + p3Max} câu (Phần I: ${p1Max} câu • Phần II: ${p2Max} câu • Phần III: ${p3Max} câu)</text>
+        <text x="275" y="460" font-family="Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#dc2626">* Học sinh tra cứu đúng SBD theo STT lớp (VD: 000001, 000002...) để tô vào mục 7.</text>
+        <text x="415" y="512" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Giữ phiếu phẳng, tô kín ô tròn bằng bút chì đen và chụp rõ đủ 4 ô vuông đen ở 4 góc phiếu.</text>
       `;
-      for (let d = 0; d <= 9; d++) {
-        const cy = b.digit0Y + d * b.rowStepY;
-        svgElements += `<text x="${b.startX - 20}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#0f172a">${d}</text>`;
-        for (let c = 0; c < 4; c++) {
-          const cx = b.startX + c * b.colStepX;
-          svgElements += `<circle cx="${cx}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.1" />`;
+
+      // Khung 7. Số báo danh
+      svgElements += `
+        <text x="${blueprint.sbd.startX + 70}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">7. Số báo danh</text>
+        <rect x="${blueprint.sbd.startX - 18}" y="154" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
+        <rect x="${blueprint.sbd.startX - 18}" y="200" width="${blueprint.sbd.cols * blueprint.sbd.colStep + 8}" height="${10 * blueprint.sbd.rowStep + 14}" fill="none" stroke="#334155" stroke-width="1.2" />
+      `;
+      for (let c = 0; c < blueprint.sbd.cols; c++) {
+        const cx = blueprint.sbd.startX + c * blueprint.sbd.colStep;
+        if ( c > 0 ) {
+          svgElements += `<line x1="${cx - blueprint.sbd.colStep / 2}" y1="154" x2="${cx - blueprint.sbd.colStep / 2}" y2="188" stroke="#cbd5e1" stroke-width="1" />`;
+        }
+        const presetDigit = presetSbd[c] || "";
+        if (presetDigit) {
+          svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetDigit}</text>`;
+        }
+        for (let d = 0; d <= 9; d++) {
+          const cy = blueprint.sbd.startY + d * blueprint.sbd.rowStep;
+          const isPreFilled = presetDigit === String(d);
+          svgElements += `
+            <circle cx="${cx}" cy="${cy}" r="${blueprint.sbd.radius}" fill="${isPreFilled ? "#0f172a" : "none"}" stroke="#475569" stroke-width="1.1" />
+            <text x="${cx}" y="${cy + 3.5}" font-family="Arial, sans-serif" font-size="9.5" text-anchor="middle" fill="${isPreFilled ? "#ffffff" : "#475569"}">${d}</text>
+          `;
         }
       }
-    });
+
+      // Khung 8. Mã đề thi (Tô đen sẵn 3 chữ số Mã đề để AI nhận diện đúng đề 100%)
+      svgElements += `
+        <text x="${blueprint.examCode.startX + 28}" y="144" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#000">8. Mã đề thi</text>
+        <rect x="${blueprint.examCode.startX - 18}" y="154" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="34" fill="none" stroke="#334155" stroke-width="1.2" />
+        <rect x="${blueprint.examCode.startX - 18}" y="200" width="${blueprint.examCode.cols * blueprint.examCode.colStep + 8}" height="${10 * blueprint.examCode.rowStep + 14}" fill="none" stroke="#334155" stroke-width="1.2" />
+      `;
+      for (let c = 0; c < blueprint.examCode.cols; c++) {
+        const cx = blueprint.examCode.startX + c * blueprint.examCode.colStep;
+        const presetCodeDigit = presetCode[c] || "";
+        if (presetCodeDigit) {
+          svgElements += `<text x="${cx}" y="177" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">${presetCodeDigit}</text>`;
+        }
+        for (let d = 0; d <= 9; d++) {
+          const cy = blueprint.examCode.startY + d * blueprint.examCode.rowStep;
+          const isPreFilled = presetCodeDigit === String(d);
+          svgElements += `
+            <circle cx="${cx}" cy="${cy}" r="${blueprint.examCode.radius}" fill="${isPreFilled ? "#0f172a" : "none"}" stroke="#475569" stroke-width="1.1" />
+            <text x="${cx}" y="${cy + 3.5}" font-family="Arial, sans-serif" font-size="9.5" text-anchor="middle" fill="${isPreFilled ? "#ffffff" : "#475569"}">${d}</text>
+          `;
+        }
+      }
+    } else {
+      // ================= HEADER TRANG 2, 3... (CHO ĐỀ > 40 CÂU / 100+ CÂU) =================
+      svgElements += `
+        <text x="600" y="92" font-family="Arial, sans-serif" font-size="22" font-weight="bold" text-anchor="middle" fill="#000000">PHIẾU TRẢ LỜI TRẮC NGHIỆM — TRANG ${pageIdx} / ${totalPages}</text>
+        <text x="600" y="122" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#1D4ED8">${safeTitle} • Mã đề: ${presetCode} • Họ tên: ${presetName || "................................................"} • SBD: ${presetSbd || ".................."}</text>
+        <line x1="65" y1="142" x2="1135" y2="142" stroke="#334155" stroke-width="1.5" />
+      `;
+    }
+
+    // 2. Vẽ PHẦN I thuộc trang hiện tại (pageIdx)
+    const pageP1Blocks = blueprint.part1.blocks.filter(
+      (b) => (b.pageIndex || 1) === pageIdx
+    );
+    if (pageP1Blocks.length > 0) {
+      const minQ = pageP1Blocks[0].startQuestion;
+      const maxQ = pageP1Blocks[pageP1Blocks.length - 1].endQuestion;
+      const headerY = pageIdx === 1 ? 542 : 185;
+
+      svgElements += `
+        <text x="65" y="${headerY}" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN I: Trắc nghiệm nhiều phương án lựa chọn (Từ câu ${minQ} đến câu ${maxQ} / Tổng ${p1Max} câu)</text>
+      `;
+
+      const opts = ["A", "B", "C", "D"];
+      pageP1Blocks.forEach((b) => {
+        const boxLeft = b.startX - 48;
+        const boxTop = b.startY - 46;
+        const numRows = b.endQuestion - b.startQuestion + 1;
+        const boxH = Math.max(70, numRows * b.rowStepY + 38);
+
+        svgElements += `<rect x="${boxLeft}" y="${boxTop}" width="232" height="${boxH}" fill="none" stroke="#334155" stroke-width="1.3" rx="5" />`;
+        opts.forEach((k, idx) => {
+          const ox = b.startX + idx * b.optionStepX;
+          svgElements += `<text x="${ox}" y="${b.startY - 24}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#0f172a">${k}</text>`;
+        });
+
+        for (let q = b.startQuestion; q <= b.endQuestion; q++) {
+          const rIdx = q - b.startQuestion;
+          const cy = b.startY + rIdx * b.rowStepY;
+          svgElements += `<text x="${b.startX - 28}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11.5" font-weight="bold" text-anchor="middle" fill="#0f172a">${q}</text>`;
+          opts.forEach((_, idx) => {
+            const cx = b.startX + idx * b.optionStepX;
+            svgElements += `<circle cx="${cx}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />`;
+          });
+        }
+      });
+    }
+
+    // 3. Vẽ PHẦN II: Đúng / Sai thuộc trang hiện tại (ĐÃ SỬA LỖI CHỒNG KHUNG 100%)
+    const pageP2Blocks = blueprint.part2.blocks.filter(
+      (b) => (b.pageIndex || 1) === pageIdx
+    );
+    if (pageP2Blocks.length > 0) {
+      const firstY = pageP2Blocks[0].startY;
+      svgElements += `
+        <text x="65" y="${firstY - 68}" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN II: Trắc nghiệm Đúng / Sai (${p2Max} câu)</text>
+      `;
+      const subLabels = ["a)", "b)", "c)", "d)"];
+      pageP2Blocks.forEach((b) => {
+        const q = b.questionNumber;
+        // Căn khung chuẩn rộng 118px trong bước nhảy 132px -> Khoảng hở giữa 2 câu là 14px rất thoáng, không bao giờ đè lên nhau
+        const boxLeft = b.trueX - 42;
+        const boxTop = b.startY - 52;
+        const centerX = (b.trueX + b.falseX) / 2 + 2;
+
+        svgElements += `
+          <rect x="${boxLeft}" y="${boxTop}" width="118" height="174" fill="none" stroke="#334155" stroke-width="1.3" rx="5" />
+          <line x1="${boxLeft}" y1="${boxTop + 24}" x2="${boxLeft + 118}" y2="${boxTop + 24}" stroke="#cbd5e1" stroke-width="1" />
+          <text x="${centerX}" y="${boxTop + 17}" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
+          <text x="${b.trueX}" y="${boxTop + 40}" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#334155">Đúng</text>
+          <text x="${b.falseX}" y="${boxTop + 40}" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#334155">Sai</text>
+        `;
+        subLabels.forEach((lbl, idx) => {
+          const cy = b.startY + idx * b.rowStepY;
+          svgElements += `
+            <text x="${b.trueX - 24}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#0f172a">${lbl}</text>
+            <circle cx="${b.trueX}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+            <circle cx="${b.falseX}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+          `;
+        });
+      });
+    }
+
+    // 4. Vẽ PHẦN III: Trả lời ngắn thuộc trang hiện tại
+    const pageP3Blocks = blueprint.part3.blocks.filter(
+      (b) => (b.pageIndex || 1) === pageIdx
+    );
+    if (pageP3Blocks.length > 0) {
+      svgElements += `
+        <text x="65" y="1198" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#000">PHẦN III: Trả lời ngắn - Điền đáp số (${p3Max} câu)</text>
+      `;
+      pageP3Blocks.forEach((b) => {
+        const q = b.questionNumber;
+        const boxLeft = b.startX - 36;
+        svgElements += `
+          <rect x="${boxLeft}" y="1214" width="152" height="388" fill="none" stroke="#334155" stroke-width="1.3" rx="5" />
+          <text x="${b.startX + 40}" y="1238" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#000">Câu ${q}</text>
+          <text x="${b.startX - 20}" y="${b.minusY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">-</text>
+          <circle cx="${b.startX}" cy="${b.minusY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+          <text x="${b.startX - 20}" y="${b.commaY + 4}" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#000">,</text>
+          <circle cx="${b.startX + b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+          <circle cx="${b.startX + 2 * b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.2" />
+        `;
+        for (let d = 0; d <= 9; d++) {
+          const cy = b.digit0Y + d * b.rowStepY;
+          svgElements += `<text x="${b.startX - 20}" y="${cy + 4}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#0f172a">${d}</text>`;
+          for (let c = 0; c < 4; c++) {
+            const cx = b.startX + c * b.colStepX;
+            svgElements += `<circle cx="${cx}" cy="${cy}" r="${b.radius}" fill="none" stroke="#334155" stroke-width="1.1" />`;
+          }
+        }
+      });
+    }
+
+    pagesSvgList.push(
+      `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#ffffff" />${svgElements}</svg>`
+    );
   }
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="#ffffff" />${svgElements}</svg>`;
+  return pagesSvgList;
+}
+
+export function generatePrintableAnswerSheetSVG(examOrConfig?: any): string {
+  const pages = generatePrintableAnswerSheetPagesSVG(examOrConfig);
+  return pages.join("");
 }
 
 /**
  * MỞ CỬA SỔ IN TRỰC TIẾP PHIẾU TRẢ LỜI TRẮC NGHIỆM A4 ĐỘNG THEO CẤU TRÚC ĐỀ THI
+ * Tự động ngắt trang A4 (Page Break) khi đề có hơn 40 câu (VD: Đề tổng ôn 100 câu -> 2 trang A4 chuẩn)
  */
 export function openPrintableDynamicAnswerSheet(examOrConfig?: any) {
   if (typeof window === "undefined") return;
   const printWin = window.open("", "_blank");
   if (!printWin) return;
 
-  const svgMarkup = generatePrintableAnswerSheetSVG(examOrConfig);
-  const title = examOrConfig?.examTitle || examOrConfig?.title || "Phiếu Trả Lời Trắc Nghiệm A4";
+  const resolved = resolveCompleteExamObject(examOrConfig);
+  const counts = extractExamQuestionCounts(resolved);
+  const pagesSvg = generatePrintableAnswerSheetPagesSVG(resolved);
+  const title =
+    resolved?.examTitle || resolved?.title || "Phiếu Trả Lời Trắc Nghiệm A4";
+
+  const pagesHtml = pagesSvg
+    .map(
+      (svgItem, idx) => `
+      <div class="sheet-wrap ${idx < pagesSvg.length - 1 ? "page-break" : ""}">
+        ${svgItem}
+      </div>
+    `
+    )
+    .join("");
 
   const html = `
     <!DOCTYPE html>
@@ -1609,6 +2086,7 @@ export function openPrintableDynamicAnswerSheet(examOrConfig?: any) {
         .toolbar { width: 100%; max-width: 820px; margin: 12px auto; padding: 10px 18px; background: #0f172a; color: #fff; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
         .btn-print { background: #2563eb; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px; }
         .sheet-wrap { background: #fff; width: 210mm; max-width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,0.12); margin-bottom: 24px; }
+        .page-break { page-break-after: always; break-after: page; }
         svg { width: 100%; height: auto; display: block; }
         @media print {
           body { background: #fff; }
@@ -1619,12 +2097,13 @@ export function openPrintableDynamicAnswerSheet(examOrConfig?: any) {
     </head>
     <body>
       <div class="toolbar">
-        <span><strong>Phiếu Trả Lời A4 Tự Động Theo Đề:</strong> ${String(title).replace(/[<>&"]/g, "")}</span>
-        <button class="btn-print" onclick="window.print()">🖨 In Phiếu / Lưu PDF (A4)</button>
+        <div>
+          <strong>Phiếu Trả Lời A4 Tự Động Theo Đề:</strong> ${String(title).replace(/[<>&"]/g, "")}
+          <span style="margin-left:8px; font-size:12px; color:#93c5fd;">(${counts.totalCount} câu • ${pagesSvg.length} trang A4)</span>
+        </div>
+        <button class="btn-print" onclick="window.print()">🖨 In Phiếu / Lưu PDF (${pagesSvg.length} trang A4)</button>
       </div>
-      <div class="sheet-wrap">
-        ${svgMarkup}
-      </div>
+      ${pagesHtml}
     </body>
     </html>
   `;
