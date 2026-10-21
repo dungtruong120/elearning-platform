@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ArrowLeft,
   Video,
@@ -9,25 +8,20 @@ import {
   FileText,
   BookOpen,
   Clock,
-  CheckCircle2,
   Play,
   ExternalLink,
   ChevronRight,
-  Download,
   Layers,
   Zap,
-  FileUp,
-  Sparkles,
-  HelpCircle,
   Award,
   Loader2,
-  Printer,
-  Camera
+  Printer
 } from "lucide-react";
 import { Profile, ExamAttempt } from "@/types";
 import {
   openPrintableDynamicAnswerSheet,
-  formatStudentAutoSBD
+  formatStudentAutoSBD,
+  resolveCompleteExamObject
 } from "@/lib/omrEngine";
 import { ExamEntryModal } from "@/components/student/ExamEntryModal";
 import { DigitalAnswerSheetView } from "@/components/student/paper/DigitalAnswerSheetView";
@@ -56,21 +50,17 @@ function getEmbedVideoUrl(url: string): string {
   if (!url) return "";
   try {
     const trimmed = url.trim();
-    // YouTube Watch URL
     if (trimmed.includes("youtube.com/watch?v=")) {
       const videoId = trimmed.split("v=")[1]?.split("&")[0];
       return `https://www.youtube.com/embed/${videoId}`;
     }
-    // YouTube Short URL
     if (trimmed.includes("youtu.be/")) {
       const videoId = trimmed.split("youtu.be/")[1]?.split("?")[0];
       return `https://www.youtube.com/embed/${videoId}`;
     }
-    // YouTube Embed URL
     if (trimmed.includes("youtube.com/embed/")) {
       return trimmed;
     }
-    // Google Drive URL
     if (trimmed.includes("drive.google.com/file/d/")) {
       const parts = trimmed.split("/file/d/")[1]?.split("/")[0];
       return `https://drive.google.com/file/d/${parts}/preview`;
@@ -87,30 +77,69 @@ export function LessonWorkspaceView({
   onBackToCatalog,
   onStartQuiz
 }: LessonWorkspaceViewProps) {
-  // Tab video hiện tại: 'lecture' (Bài giảng) hoặc 'homework_solution' (Chữa BTVN)
   const [videoTab, setVideoTab] = useState<"lecture" | "homework_solution">("lecture");
   const [isVideoLoading, setIsVideoLoading] = useState<boolean>(true);
 
-  // State phục vụ Modal chọn hình thức làm bài (Web / Quét phiếu giấy / Tô phiếu Online)
   const [selectedQuizForEntry, setSelectedQuizForEntry] = useState<any | null>(null);
   const [isEntryHomework, setIsEntryHomework] = useState<boolean>(false);
   const [isEntryModalOpen, setIsEntryModalOpen] = useState<boolean>(false);
   const [isResolvingExam, setIsResolvingExam] = useState<boolean>(false);
 
-  // State mở giao diện Tô phiếu Online trên màn hình (DigitalAnswerSheetView)
   const [activeDigitalExam, setActiveDigitalExam] = useState<any | null>(null);
-
-  // State mở máy quét chụp ảnh phiếu giấy (PaperScanModal) & Xem lại kết quả (PaperReviewView)
   const [activePaperScanExam, setActivePaperScanExam] = useState<any | null>(null);
   const [reviewingPaperAttempt, setReviewingPaperAttempt] = useState<{
     attempt: ExamAttempt;
     exam: any;
   } | null>(null);
 
-  // Số báo danh tự động của học sinh
-  const studentAutoSbd = useMemo(() => {
-    const rawCode = profile?.student_code || profile?.id || "1";
-    return formatStudentAutoSBD(rawCode);
+  // Số báo danh tự động của học sinh (đồng bộ 100% với Bảng SBD Lớp của Admin)
+  const [studentAutoSbd, setStudentAutoSbd] = useState<string>(() =>
+    formatStudentAutoSBD(profile)
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+    const syncCanonicalSbdFromDb = async () => {
+      if (!profile) return;
+      try {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id, username, full_name, role, school, grade")
+          .neq("role", "admin");
+
+        if (Array.isArray(profs) && profs.length > 0) {
+          const sorted = [...profs].sort((a: any, b: any) =>
+            String(a.full_name || a.username || "").localeCompare(
+              String(b.full_name || b.username || ""),
+              "vi"
+            )
+          );
+          const dir = sorted.map((p: any, i: number) => ({
+            stt: i + 1,
+            sbd: String(i + 1).padStart(6, "0"),
+            id: String(p.id || ""),
+            username: String(p.username || ""),
+            full_name: String(p.full_name || p.username || "Học sinh")
+          }));
+          if (typeof window !== "undefined") {
+            localStorage.setItem("edunexus_sbd_directory", JSON.stringify(dir));
+          }
+          if (isMounted) {
+            setStudentAutoSbd(formatStudentAutoSBD(profile, dir));
+          }
+          return;
+        }
+      } catch {}
+
+      if (isMounted) {
+        setStudentAutoSbd(formatStudentAutoSBD(profile));
+      }
+    };
+
+    syncCanonicalSbdFromDb();
+    return () => {
+      isMounted = false;
+    };
   }, [profile]);
 
   const fallbackProfile: Profile = useMemo(() => {
@@ -125,25 +154,20 @@ export function LessonWorkspaceView({
     } as Profile;
   }, [profile]);
 
-  // Phân loại danh sách video bài học
   const allVideos: any[] = useMemo(() => lesson?.video_list || [], [lesson?.video_list]);
 
-  // 1. Video bài giảng lý thuyết (type === 'lecture' hoặc chưa gắn type)
   const lectureVideos = useMemo(() => {
     return allVideos.filter((v) => !v.type || v.type === "lecture");
   }, [allVideos]);
 
-  // 2. Video chữa chi tiết BTVN (type === 'homework_solution')
   const homeworkSolutionVideos = useMemo(() => {
     return allVideos.filter((v) => v.type === "homework_solution");
   }, [allVideos]);
 
-  // Danh sách video thuộc tab đang chọn
   const activeTabVideos = useMemo(() => {
     return videoTab === "lecture" ? lectureVideos : homeworkSolutionVideos;
   }, [videoTab, lectureVideos, homeworkSolutionVideos]);
 
-  // Video đang được chọn để phát trong tab hiện tại
   const [selectedLectureIdx, setSelectedLectureIdx] = useState<number>(0);
   const [selectedSolutionIdx, setSelectedSolutionIdx] = useState<number>(0);
 
@@ -166,20 +190,21 @@ export function LessonWorkspaceView({
   }, [currentPlayingVideo]);
 
   /**
-   * Hàm nạp đầy đủ dữ liệu câu hỏi của đề thi/BTVN từ localStorage hoặc Supabase nếu object rút gọn chưa có đủ `data`/`questions`
+   * Nạp đầy đủ dữ liệu câu hỏi của đề thi / BTVN Tổng Ôn (100+ câu) từ localStorage hoặc Supabase (`quizzes` & `practice_exams`)
    */
   const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
     if (!rawQuizItem) return null;
 
-    // Nếu bản thân item đã có danh sách câu hỏi hoặc sections thì dùng ngay
-    const hasQuestions =
-      (Array.isArray(rawQuizItem.data) && rawQuizItem.data.length > 0) ||
-      (Array.isArray(rawQuizItem.sections) && rawQuizItem.sections.length > 0) ||
-      (Array.isArray(rawQuizItem.questions) && rawQuizItem.questions.length > 0);
+    // 1. Thử tìm trong kho localStorage trước
+    const localResolved = resolveCompleteExamObject(rawQuizItem);
+    const hasQuestionsLocal =
+      (Array.isArray(localResolved?.data) && localResolved.data.length > 0) ||
+      (Array.isArray(localResolved?.sections) && localResolved.sections.length > 0) ||
+      (Array.isArray(localResolved?.questions) && localResolved.questions.length > 0);
 
-    if (hasQuestions) {
+    if (hasQuestionsLocal) {
       return {
-        ...rawQuizItem,
+        ...localResolved,
         is_homework: isHw
       };
     }
@@ -187,51 +212,82 @@ export function LessonWorkspaceView({
     const targetId = String(
       rawQuizItem.quiz_id || rawQuizItem.exam_id || rawQuizItem.id || ""
     ).trim();
-    if (!targetId) {
-      return { ...rawQuizItem, is_homework: isHw };
-    }
+    const targetTitle = String(rawQuizItem.title || "").trim();
 
-    // Tìm trong localStorage trước
-    if (typeof window !== "undefined") {
-      try {
-        const localQuizzesRaw = localStorage.getItem("edunexus_quizzes");
-        if (localQuizzesRaw) {
-          const parsedQuizzes = JSON.parse(localQuizzesRaw);
-          if (Array.isArray(parsedQuizzes)) {
-            const matched = parsedQuizzes.find(
-              (q: any) => String(q.id) === targetId || String(q.quiz_id) === targetId
-            );
-            if (matched) {
-              return {
-                ...matched,
-                ...rawQuizItem,
-                data: matched.data || matched.sections || rawQuizItem.data,
-                questions: matched.questions || rawQuizItem.questions,
-                is_homework: isHw
-              };
-            }
-          }
-        }
-      } catch {}
-    }
-
-    // Tìm trên Supabase bảng quizzes
     try {
       setIsResolvingExam(true);
-      const { data: dbQuiz } = await supabase
-        .from("quizzes")
-        .select("*")
-        .eq("id", targetId)
-        .maybeSingle();
 
-      if (dbQuiz) {
-        return {
-          ...dbQuiz,
-          ...rawQuizItem,
-          data: dbQuiz.data || dbQuiz.sections || rawQuizItem.data,
-          questions: dbQuiz.questions || rawQuizItem.questions,
-          is_homework: isHw
-        };
+      // 2. Tìm trên bảng quizzes theo id
+      if (targetId) {
+        const { data: dbQuiz } = await supabase
+          .from("quizzes")
+          .select("*")
+          .eq("id", targetId)
+          .maybeSingle();
+
+        if (dbQuiz && (dbQuiz.data || dbQuiz.questions || dbQuiz.sections)) {
+          return {
+            ...dbQuiz,
+            ...rawQuizItem,
+            data: dbQuiz.data || dbQuiz.sections || rawQuizItem.data,
+            questions: dbQuiz.questions || rawQuizItem.questions,
+            is_homework: isHw
+          };
+        }
+
+        // 3. Tìm trên bảng practice_exams theo id
+        const { data: dbPrac } = await supabase
+          .from("practice_exams")
+          .select("*")
+          .eq("id", targetId)
+          .maybeSingle();
+
+        if (dbPrac && (dbPrac.data || dbPrac.questions || dbPrac.sections)) {
+          return {
+            ...dbPrac,
+            ...rawQuizItem,
+            data: dbPrac.data || dbPrac.sections || rawQuizItem.data,
+            questions: dbPrac.questions || rawQuizItem.questions,
+            is_homework: isHw
+          };
+        }
+      }
+
+      // 4. Tìm theo tiêu đề nếu id là id tạm của file đính kèm
+      if (targetTitle) {
+        const { data: byTitleQuiz } = await supabase
+          .from("quizzes")
+          .select("*")
+          .ilike("title", targetTitle)
+          .limit(1)
+          .maybeSingle();
+
+        if (byTitleQuiz && (byTitleQuiz.data || byTitleQuiz.questions)) {
+          return {
+            ...byTitleQuiz,
+            ...rawQuizItem,
+            data: byTitleQuiz.data || byTitleQuiz.sections,
+            questions: byTitleQuiz.questions,
+            is_homework: isHw
+          };
+        }
+
+        const { data: byTitlePrac } = await supabase
+          .from("practice_exams")
+          .select("*")
+          .ilike("title", targetTitle)
+          .limit(1)
+          .maybeSingle();
+
+        if (byTitlePrac && (byTitlePrac.data || byTitlePrac.questions)) {
+          return {
+            ...byTitlePrac,
+            ...rawQuizItem,
+            data: byTitlePrac.data || byTitlePrac.sections,
+            questions: byTitlePrac.questions,
+            is_homework: isHw
+          };
+        }
       }
     } catch {
     } finally {
@@ -244,9 +300,6 @@ export function LessonWorkspaceView({
     };
   }, []);
 
-  /**
-   * Mở Popup chọn hình thức làm bài khi học sinh bấm vào BTVN hoặc Đề kiểm tra
-   */
   const handleOpenExamEntry = async (quizItem: any, isHomeworkFlag: boolean) => {
     const resolved = await resolveFullExamData(quizItem, isHomeworkFlag);
     setSelectedQuizForEntry(resolved);
@@ -254,9 +307,6 @@ export function LessonWorkspaceView({
     setIsEntryModalOpen(true);
   };
 
-  /**
-   * In trực tiếp Phiếu trả lời trắc nghiệm A4 co giãn theo đúng cấu trúc của BTVN / Đề KT
-   */
   const handlePrintSheetForQuiz = async (quizItem: any, isHomeworkFlag: boolean) => {
     const resolved = await resolveFullExamData(quizItem, isHomeworkFlag);
     openPrintableDynamicAnswerSheet({
@@ -282,7 +332,6 @@ export function LessonWorkspaceView({
     [activePaperScanExam]
   );
 
-  // NẾU HỌC SINH ĐANG Ở TRONG GIAO DIỆN TÔ PHIẾU ONLINE TRÊN MÀN HÌNH
   if (activeDigitalExam) {
     return (
       <DigitalAnswerSheetView
@@ -301,7 +350,6 @@ export function LessonWorkspaceView({
     );
   }
 
-  // NẾU HỌC SINH ĐANG XEM LẠI KẾT QUẢ BÀI CHẤM PHIẾU TRẮC NGHIỆM (GIẤY HOẶC ONLINE)
   if (reviewingPaperAttempt) {
     return (
       <PaperReviewView
@@ -344,7 +392,7 @@ export function LessonWorkspaceView({
           {isResolvingExam && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-semibold">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Đang tải đề...
+              Đang nạp câu hỏi...
             </span>
           )}
           <div className="text-right hidden sm:block">
@@ -366,7 +414,6 @@ export function LessonWorkspaceView({
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
           {/* CỘT TRÁI (8 CỘT): PHÂN HỆ VIDEO BÀI GIẢNG & VIDEO CHỮA BTVN */}
           <div className="lg:col-span-8 space-y-4 text-left">
-            {/* THANH TAB PHÂN ĐỊNH RÕ RÀNG 2 LOẠI VIDEO (COMPACT SEGMENTED CONTROL) */}
             <div className="bg-white p-1 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-1.5">
               <button
                 type="button"
@@ -419,7 +466,6 @@ export function LessonWorkspaceView({
               </button>
             </div>
 
-            {/* KHUNG PHÁT VIDEO TỈ LỆ CHUẨN 16:9 KÈM SKELETON LOADING */}
             <div className="bg-[#0F172A] rounded-2xl overflow-hidden shadow-xs border border-slate-200/80 aspect-video w-full relative flex items-center justify-center">
               {currentEmbedUrl ? (
                 <>
@@ -469,7 +515,6 @@ export function LessonWorkspaceView({
               )}
             </div>
 
-            {/* DANH SÁCH CÁC PHẦN VIDEO NẾU CÓ NHIỀU HƠN 1 VIDEO */}
             {activeTabVideos.length > 1 && (
               <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
                 <h4 className="text-[11px] font-semibold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
@@ -519,7 +564,6 @@ export function LessonWorkspaceView({
               </div>
             )}
 
-            {/* THÔNG TIN CHI TIẾT BÀI HỌC (TYPOGRAPHY GỌN ĐẸP) */}
             <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -733,7 +777,7 @@ export function LessonWorkspaceView({
               )}
             </div>
 
-            {/* KHỐI 3: TÀI LIỆU BÀI GIẢNG & GHI CHÉP VIẾT TAY (DANH SÁCH PHẲNG GỌN GÀNG) */}
+            {/* KHỐI 3: TÀI LIỆU BÀI GIẢNG & GHI CHÉP VIẾT TAY */}
             <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
@@ -742,7 +786,6 @@ export function LessonWorkspaceView({
               </div>
 
               <div className="space-y-1.5">
-                {/* File bài giảng */}
                 {(lesson?.lecture_files || []).map((file: any, idx: number) => (
                   <a
                     key={file.id || idx}
@@ -761,7 +804,6 @@ export function LessonWorkspaceView({
                   </a>
                 ))}
 
-                {/* Ghi chép viết tay */}
                 {(lesson?.handwritten_notes || []).map((note: any, idx: number) => (
                   <a
                     key={note.id || idx}
@@ -789,7 +831,7 @@ export function LessonWorkspaceView({
               </div>
             </div>
 
-            {/* KHỐI 4: TÀI LIỆU TĂNG CƯỜNG (NẾU CÓ) */}
+            {/* KHỐI 4: TÀI LIỆU TĂNG CƯỜNG */}
             {lesson?.extra_resources && lesson.extra_resources.length > 0 && (
               <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
