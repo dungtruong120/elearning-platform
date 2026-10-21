@@ -2,14 +2,21 @@
 
 import React from "react";
 import { 
-  BookOpen, Target, BarChart2, Bell, UserCheck, 
-  Calendar, FileCheck, LogOut 
+  BookOpen,
+  Target,
+  BarChart2,
+  Bell,
+  UserCheck, 
+  Calendar,
+  FileCheck,
+  LogOut,
+  ScanLine
 } from "lucide-react";
 import { AdminTab } from "@/types/admin";
 
 interface AdminSidebarProps {
-  activeTab: AdminTab;
-  onSwitchTab: (tab: AdminTab) => void;
+  activeTab: AdminTab | "paper-exams" | string;
+  onSwitchTab: (tab: any) => void;
   onLogout: () => void;
 }
 
@@ -21,6 +28,7 @@ export default function AdminSidebar({
   const navItems = [
     { key: "lessons" as AdminTab, label: "Nội dung bài học", icon: BookOpen },
     { key: "practice" as AdminTab, label: "Hệ thống Luyện đề", icon: Target },
+    { key: "paper-exams" as any, label: "Chấm thi & Bài giấy", icon: ScanLine },
     { key: "analytics" as AdminTab, label: "Điểm số & Xếp hạng", icon: BarChart2 },
     { key: "notifications" as AdminTab, label: "Quản lý Thông báo", icon: Bell },
     { key: "students" as AdminTab, label: "Quản lý Học viên & Duyệt", icon: UserCheck },
