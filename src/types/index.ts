@@ -3,7 +3,7 @@ export type StudyMode = "online" | "offline";
 export type TargetMode = "online" | "offline" | "all";
 export type TargetAudience = "online" | "offline" | "all";
 export type ApprovalStatus = "pending" | "approved" | "rejected";
-export type SubmissionType = "web" | "paper";
+export type SubmissionType = "web" | "paper" | "digital_sheet";
 
 export type OMRBubbleStatus =
   | "correct"
@@ -15,6 +15,7 @@ export type OMRBubbleStatus =
 
 export interface OMRBubbleCoordinate {
   id: string;
+  pageIndex?: number;
   section: "sbd" | "exam_code" | "part1" | "part2" | "part3";
   questionNumber?: number;
   subKey?: string;
@@ -32,6 +33,18 @@ export interface OMRCornerPoint {
   y: number;
 }
 
+export interface AnswerSheetTemplateConfig {
+  templateId: string;
+  examTitle: string;
+  examCode: string;
+  isMultiPage: boolean;
+  pageCount: number;
+  part1Count: number;
+  part2Count: number;
+  part3Count: number;
+  timingTracksEnabled: boolean;
+}
+
 export interface OMRResultData {
   detected_sbd: string;
   detected_exam_code: string;
@@ -39,7 +52,11 @@ export interface OMRResultData {
   warp_matrix_applied: boolean;
   canonical_width: number;
   canonical_height: number;
+  scanned_page_index?: number;
+  total_pages?: number;
   warped_image_data_url?: string;
+  secondary_page_image_urls?: string[];
+  geometry_warning?: string;
   corner_points?: {
     topLeft: OMRCornerPoint;
     topRight: OMRCornerPoint;
@@ -169,19 +186,19 @@ export interface OnlineSession {
   id: string;
   title: string;
   subject?: string;
-  date: string; // e.g. "24/09"
-  isoDate?: string; // e.g. "2026-09-24"
-  dayOfWeek?: string; // e.g. "Thứ 5"
-  shiftId?: string; // e.g. "ca-6"
-  shiftName?: string; // e.g. "Ca 6"
-  timeSlot: string; // e.g. "19:30 - 21:00"
+  date: string;
+  isoDate?: string;
+  dayOfWeek?: string;
+  shiftId?: string;
+  shiftName?: string;
+  timeSlot: string;
   meetingUrl?: string;
   guideImages?: string[];
   createdAt?: string;
-  room?: string; // e.g. "P.201 TCT"
-  teacherName?: string; // e.g. "Thầy Nam"
-  target_mode?: TargetMode; // "online" | "offline" | "all"
-  audience?: TargetAudience; // "online" | "offline" | "all"
+  room?: string;
+  teacherName?: string;
+  target_mode?: TargetMode;
+  audience?: TargetAudience;
 }
 
 export interface AttendanceRecord {
