@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { motion } from "framer-motion";
 import {
   ArrowLeft,
   Clock,
@@ -9,11 +8,7 @@ import {
   FileText,
   Eraser,
   Printer,
-  CheckCircle2,
   Loader2,
-  Sparkles,
-  ExternalLink,
-  Layers
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
@@ -21,16 +16,18 @@ import {
   Profile,
   ExamAttempt,
   OMRResultData,
-  OMRBubbleCoordinate
+  OMRBubbleCoordinate,
 } from "@/types";
 import {
   buildDynamicOMRBlueprint,
   gradeOMRSubmission,
   openPrintableDynamicAnswerSheet,
   formatStudentAutoSBD,
+  deriveExamCode3Digits,
+  resolveCompleteExamObject,
   OMR_CANONICAL_WIDTH,
   OMR_CANONICAL_HEIGHT,
-  CANONICAL_CORNER_TARGETS
+  CANONICAL_CORNER_TARGETS,
 } from "@/lib/omrEngine";
 import { PaperReviewView } from "@/components/student/paper/PaperReviewView";
 import { supabase } from "@/lib/supabaseClient";
@@ -64,7 +61,10 @@ function DigitalQuestionMath({ content }: { content?: string }) {
 
     str = str.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
       try {
-        return katex.renderToString(tex.trim(), { displayMode: true, throwOnError: false });
+        return katex.renderToString(tex.trim(), {
+          displayMode: true,
+          throwOnError: false,
+        });
       } catch {
         return `$$${tex}$$`;
       }
@@ -72,7 +72,10 @@ function DigitalQuestionMath({ content }: { content?: string }) {
 
     str = str.replace(/\$([^$\n]+?)\$/g, (m, tex) => {
       try {
-        return katex.renderToString(tex.trim(), { displayMode: false, throwOnError: false });
+        return katex.renderToString(tex.trim(), {
+          displayMode: false,
+          throwOnError: false,
+        });
       } catch {
         return m;
       }
@@ -98,22 +101,34 @@ export function DigitalAnswerSheetView({
   profile,
   isHomework = false,
   onBack,
-  onSubmitted
+  onSubmitted,
 }: DigitalAnswerSheetViewProps) {
-  const blueprint = useMemo(() => buildDynamicOMRBlueprint(exam), [exam]);
+  // Tự động nạp đầy đủ câu hỏi của đề thi (kể cả đề BTVN Tổng Ôn > 100 câu)
+  const resolvedExam = useMemo(() => resolveCompleteExamObject(exam), [exam]);
+  const blueprint = useMemo(
+    () => buildDynamicOMRBlueprint(resolvedExam),
+    [resolvedExam]
+  );
+
   const p1Count = blueprint.part1TotalQuestions ?? 40;
   const p2Count = blueprint.part2TotalQuestions ?? 8;
   const p3Count = blueprint.part3TotalQuestions ?? 6;
   const totalQuestionsCount = p1Count + p2Count + p3Count;
 
+  // Chuẩn hóa SBD 6 chữ số khớp 100% với Bảng SBD Lớp của Admin
   const defaultSbd = useMemo(() => {
-    const rawCode = profile?.student_code || profile?.id || "1";
-    return formatStudentAutoSBD(rawCode);
+    return formatStudentAutoSBD(profile);
   }, [profile]);
+
+  const defaultExamCode = useMemo(() => {
+    return deriveExamCode3Digits(resolvedExam);
+  }, [resolvedExam]);
 
   // STATE CÁC Ô TÔ TRÊN PHIẾU ĐIỆN TỬ
   const [sbdCols, setSbdCols] = useState<string[]>(() => defaultSbd.split(""));
-  const [examCodeCols, setExamCodeCols] = useState<string[]>(["1", "0", "1"]);
+  const [examCodeCols, setExamCodeCols] = useState<string[]>(() =>
+    defaultExamCode.split("")
+  );
 
   // Phần I: Câu 1..p1Count -> 'A' | 'B' | 'C' | 'D' | ''
   const [part1Selections, setPart1Selections] = useState<Record<number, string>>({});
@@ -127,7 +142,9 @@ export function DigitalAnswerSheetView({
   const [part3Selections, setPart3Selections] = useState<Record<number, string[]>>({});
 
   const [leftTabMode, setLeftTabMode] = useState<"questions" | "pdf">("questions");
-  const durationMinutes = isHomework ? 0 : Number(exam?.duration_minutes || exam?.duration || 45);
+  const durationMinutes = isHomework
+    ? 0
+    : Number(resolvedExam?.duration_minutes || resolvedExam?.duration || 45);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() =>
     durationMinutes > 0 ? durationMinutes * 60 : 0
   );
@@ -136,12 +153,14 @@ export function DigitalAnswerSheetView({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [completedAttempt, setCompletedAttempt] = useState<ExamAttempt | null>(null);
 
-  // Tách danh sách câu hỏi phẳng từ exam để hiển thị bên cột trái
+  // Tách danh sách câu hỏi phẳng từ resolvedExam để hiển thị bên cột trái
   const flatQuestionsList = useMemo(() => {
     const rawSections =
-      exam?.data ||
-      exam?.sections ||
-      (Array.isArray(exam?.questions) ? [{ questions: exam.questions }] : []);
+      resolvedExam?.data ||
+      resolvedExam?.sections ||
+      (Array.isArray(resolvedExam?.questions)
+        ? [{ questions: resolvedExam.questions }]
+        : []);
 
     const list: {
       order: number;
@@ -169,12 +188,19 @@ export function DigitalAnswerSheetView({
 
         (sec?.questions || []).forEach((q: any) => {
           orderCounter++;
-          const rawCorrect = String(q?.correct_answer ?? q?.correctAnswer ?? "A").trim();
-          const cleanAns = rawCorrect.replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          const rawCorrect = String(
+            q?.correct_answer ?? q?.correctAnswer ?? "A"
+          ).trim();
+          const cleanAns = rawCorrect
+            .replace(/[^A-Za-zĐđSsTtFf]/g, "")
+            .toUpperCase();
           const isTF =
             q?.type === "true_false" ||
             secType === "true_false" ||
-            (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2);
+            (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2) ||
+            (Array.isArray(q?.options) &&
+              q.options.length > 0 &&
+              typeof q.options[0]?.is_true_false_ans === "boolean");
           const isShort =
             !isTF &&
             (q?.type === "short_answer" ||
@@ -189,7 +215,7 @@ export function DigitalAnswerSheetView({
               part: 2,
               localOrder: p2,
               prompt: q.prompt_html || q.prompt || q.text || `Câu ${orderCounter}`,
-              options: Array.isArray(q.options) ? q.options : []
+              options: Array.isArray(q.options) ? q.options : [],
             });
           } else if (isShort) {
             p3++;
@@ -198,7 +224,7 @@ export function DigitalAnswerSheetView({
               part: 3,
               localOrder: p3,
               prompt: q.prompt_html || q.prompt || q.text || `Câu ${orderCounter}`,
-              options: []
+              options: [],
             });
           } else {
             p1++;
@@ -207,14 +233,14 @@ export function DigitalAnswerSheetView({
               part: 1,
               localOrder: p1,
               prompt: q.prompt_html || q.prompt || q.text || `Câu ${orderCounter}`,
-              options: Array.isArray(q.options) ? q.options : []
+              options: Array.isArray(q.options) ? q.options : [],
             });
           }
         });
       });
     }
     return list;
-  }, [exam]);
+  }, [resolvedExam]);
 
   // Đồng hồ đếm giờ
   useEffect(() => {
@@ -238,11 +264,11 @@ export function DigitalAnswerSheetView({
   // Đếm tổng số câu đã tô
   const answeredTotalCount = useMemo(() => {
     const c1 = Object.values(part1Selections).filter(Boolean).length;
-    const c2 = Object.values(part2Selections).filter((sub) =>
-      sub && Object.values(sub).some((v) => v !== null && v !== undefined)
+    const c2 = Object.values(part2Selections).filter(
+      (sub) => sub && Object.values(sub).some((v) => v !== null && v !== undefined)
     ).length;
-    const c3 = Object.values(part3Selections).filter((cols) =>
-      Array.isArray(cols) && cols.some((ch) => Boolean(ch))
+    const c3 = Object.values(part3Selections).filter(
+      (cols) => Array.isArray(cols) && cols.some((ch) => Boolean(ch))
     ).length;
     return c1 + c2 + c3;
   }, [part1Selections, part2Selections, part3Selections]);
@@ -251,12 +277,16 @@ export function DigitalAnswerSheetView({
   const togglePart1Bubble = (qNum: number, optKey: string) => {
     setPart1Selections((prev) => ({
       ...prev,
-      [qNum]: prev[qNum] === optKey ? "" : optKey
+      [qNum]: prev[qNum] === optKey ? "" : optKey,
     }));
   };
 
   // Xử lý click tô / tẩy ô Phần II (Đúng / Sai)
-  const togglePart2Bubble = (qNum: number, subKey: "a" | "b" | "c" | "d", val: boolean) => {
+  const togglePart2Bubble = (
+    qNum: number,
+    subKey: "a" | "b" | "c" | "d",
+    val: boolean
+  ) => {
     setPart2Selections((prev) => {
       const currentQ = prev[qNum] || { a: null, b: null, c: null, d: null };
       const currentSubVal = currentQ[subKey];
@@ -264,8 +294,8 @@ export function DigitalAnswerSheetView({
         ...prev,
         [qNum]: {
           ...currentQ,
-          [subKey]: currentSubVal === val ? null : val
-        }
+          [subKey]: currentSubVal === val ? null : val,
+        },
       };
     });
   };
@@ -277,14 +307,15 @@ export function DigitalAnswerSheetView({
       currentCols[colIdx] = currentCols[colIdx] === charKey ? "" : charKey;
       return {
         ...prev,
-        [qNum]: currentCols
+        [qNum]: currentCols,
       };
     });
   };
 
   // Xử lý tẩy toàn bộ phiếu
   const handleClearAllBubbles = () => {
-    if (!confirm("Bạn có chắc muốn tẩy trắng toàn bộ các ô đã tô trên phiếu?")) return;
+    if (!confirm("Bạn có chắc muốn tẩy trắng toàn bộ các ô đã tô trên phiếu?"))
+      return;
     setPart1Selections({});
     setPart2Selections({});
     setPart3Selections({});
@@ -309,7 +340,7 @@ export function DigitalAnswerSheetView({
         CANONICAL_CORNER_TARGETS.topLeft,
         CANONICAL_CORNER_TARGETS.topRight,
         CANONICAL_CORNER_TARGETS.bottomRight,
-        CANONICAL_CORNER_TARGETS.bottomLeft
+        CANONICAL_CORNER_TARGETS.bottomLeft,
       ].forEach((pt) => {
         ctx.fillRect(pt.x - 14, pt.y - 14, 28, 28);
       });
@@ -321,7 +352,7 @@ export function DigitalAnswerSheetView({
       ctx.fillText("PHIẾU TRẢ LỜI TRẮC NGHIỆM ĐIỆN TỬ", 420, 92);
       ctx.fillStyle = "#1D4ED8";
       ctx.font = "bold 14px Arial";
-      ctx.fillText(String(exam?.title || "ĐỀ THI EDUNEXUS"), 420, 122);
+      ctx.fillText(String(resolvedExam?.title || "ĐỀ THI EDUNEXUS"), 420, 122);
 
       ctx.textAlign = "left";
       ctx.fillStyle = "#334155";
@@ -346,7 +377,7 @@ export function DigitalAnswerSheetView({
 
       return canvas.toDataURL("image/jpeg", 0.88);
     },
-    [exam?.title, profile?.full_name, sbdCols, examCodeCols]
+    [resolvedExam?.title, profile?.full_name, sbdCols, examCodeCols]
   );
 
   // NỘP PHIẾU TÔ ONLINE -> CHẤM BẰNG OMR ENGINE VÀ MỞ MÀN HÌNH ĐỐI SOÁT
@@ -354,11 +385,10 @@ export function DigitalAnswerSheetView({
     if (isSubmitting) return;
     setIsSubmitting(true);
 
-    // Xây dựng danh sách bubble_coordinates từ các ô học sinh đã tô trên màn hình
     const coords: OMRBubbleCoordinate[] = [];
     const optKeys = ["A", "B", "C", "D"];
 
-    // 1. Phần I
+    // 1. Phần I (Hỗ trợ đầy đủ mọi câu hỏi 1..p1Count, kể cả > 100 câu)
     blueprint.part1.blocks.forEach((block) => {
       for (let q = block.startQuestion; q <= block.endQuestion; q++) {
         const rIdx = q - block.startQuestion;
@@ -377,7 +407,7 @@ export function DigitalAnswerSheetView({
             r: block.radius,
             density: isSel ? 0.92 : 0.05,
             isSelected: isSel,
-            status: isSel ? "detected" : "unfilled"
+            status: isSel ? "detected" : "unfilled",
           });
         });
       }
@@ -402,7 +432,7 @@ export function DigitalAnswerSheetView({
           r: block.radius,
           density: val === true ? 0.92 : 0.05,
           isSelected: val === true,
-          status: val === true ? "detected" : "unfilled"
+          status: val === true ? "detected" : "unfilled",
         });
         coords.push({
           id: `p2-q${q}-${sk}-F`,
@@ -415,7 +445,7 @@ export function DigitalAnswerSheetView({
           r: block.radius,
           density: val === false ? 0.92 : 0.05,
           isSelected: val === false,
-          status: val === false ? "detected" : "unfilled"
+          status: val === false ? "detected" : "unfilled",
         });
       });
     });
@@ -443,7 +473,7 @@ export function DigitalAnswerSheetView({
             r: block.radius,
             density: isMinus ? 0.92 : 0.05,
             isSelected: isMinus,
-            status: isMinus ? "detected" : "unfilled"
+            status: isMinus ? "detected" : "unfilled",
           });
         }
         if (c === 1 || c === 2) {
@@ -459,7 +489,7 @@ export function DigitalAnswerSheetView({
             r: block.radius,
             density: isComma ? 0.92 : 0.05,
             isSelected: isComma,
-            status: isComma ? "detected" : "unfilled"
+            status: isComma ? "detected" : "unfilled",
           });
         }
         for (let d = 0; d <= 9; d++) {
@@ -476,7 +506,7 @@ export function DigitalAnswerSheetView({
             r: block.radius,
             density: isDigit ? 0.92 : 0.05,
             isSelected: isDigit,
-            status: isDigit ? "detected" : "unfilled"
+            status: isDigit ? "detected" : "unfilled",
           });
         }
       }
@@ -486,7 +516,7 @@ export function DigitalAnswerSheetView({
 
     const omrPayload: OMRResultData = {
       detected_sbd: sbdCols.join("") || defaultSbd,
-      detected_exam_code: examCodeCols.join("") || "101",
+      detected_exam_code: examCodeCols.join("") || defaultExamCode,
       confidence: 100,
       warp_matrix_applied: true,
       canonical_width: OMR_CANONICAL_WIDTH,
@@ -496,18 +526,23 @@ export function DigitalAnswerSheetView({
       part2_answers: part2Selections,
       part3_answers: p3StringAnswers,
       flagged_questions: [],
-      bubble_coordinates: coords
+      bubble_coordinates: coords,
     };
 
-    const graded = gradeOMRSubmission(omrPayload, exam);
+    const graded = gradeOMRSubmission(omrPayload, resolvedExam);
     const nowIso = new Date().toISOString();
     const durationStr =
-      Math.floor(timeSpentSeconds / 60) + "p " + (timeSpentSeconds % 60) + "s (Phiếu Onl)";
+      Math.floor(timeSpentSeconds / 60) +
+      "p " +
+      (timeSpentSeconds % 60) +
+      "s (Phiếu Onl)";
 
     const studentId = String(profile?.id || profile?.username || "student");
-    const studentName = String(profile?.full_name || profile?.username || "Học sinh");
-    const quizId = String(exam?.id || "quiz-digital");
-    const quizTitle = String(exam?.title || "Đề thi Phiếu Online");
+    const studentName = String(
+      profile?.full_name || profile?.username || "Học sinh"
+    );
+    const quizId = String(resolvedExam?.id || "quiz-digital");
+    const quizTitle = String(resolvedExam?.title || "Đề thi Phiếu Online");
 
     const attemptRecord: ExamAttempt = {
       id: "att-paper-onl-" + Date.now(),
@@ -548,14 +583,17 @@ export function DigitalAnswerSheetView({
       user_answers: graded.normalizedAnswers,
       created_at: nowIso,
       createdAt: nowIso,
-      submittedAt: nowIso
+      submittedAt: nowIso,
     };
 
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_attempts");
         const parsed = saved ? JSON.parse(saved) : [];
-        localStorage.setItem("edunexus_attempts", JSON.stringify([attemptRecord, ...parsed]));
+        localStorage.setItem(
+          "edunexus_attempts",
+          JSON.stringify([attemptRecord, ...parsed])
+        );
         window.dispatchEvent(new Event("storage"));
       } catch {}
     }
@@ -577,15 +615,15 @@ export function DigitalAnswerSheetView({
           isHomework,
           answers: graded.normalizedAnswers,
           omrData: graded.updatedOmrData,
-          imageBase64: syntheticSheetUrl
-        })
+          imageBase64: syntheticSheetUrl,
+        }),
       });
     } catch {}
 
     try {
       await Promise.allSettled([
         supabase.from("exam_attempts").insert([attemptRecord]),
-        supabase.from("attempts").insert([attemptRecord])
+        supabase.from("attempts").insert([attemptRecord]),
       ]);
     } catch {}
 
@@ -607,14 +645,14 @@ export function DigitalAnswerSheetView({
     return (
       <PaperReviewView
         attempt={completedAttempt}
-        exam={exam}
+        exam={resolvedExam}
         profile={profile}
         onBack={onBack}
       />
     );
   }
 
-  const pdfEmbedUrl = exam?.driveUrl || exam?.url || "";
+  const pdfEmbedUrl = resolvedExam?.driveUrl || resolvedExam?.url || "";
 
   return (
     <div className="fixed inset-0 z-[140] bg-[#F1F5F9] flex flex-col overflow-hidden font-sans text-left text-slate-800">
@@ -624,7 +662,11 @@ export function DigitalAnswerSheetView({
           <button
             type="button"
             onClick={() => {
-              if (confirm("Bạn có chắc muốn thoát khỏi Phiếu tô trắc nghiệm Online?")) {
+              if (
+                confirm(
+                  "Bạn có chắc muốn thoát khỏi Phiếu tô trắc nghiệm Online?"
+                )
+              ) {
                 onBack();
               }
             }}
@@ -639,12 +681,17 @@ export function DigitalAnswerSheetView({
                 📝 PHIẾU TÔ ONLINE
               </span>
               <h2 className="text-xs sm:text-sm font-extrabold text-slate-900 truncate">
-                {exam?.title || "Phiếu trả lời trắc nghiệm Bộ GD&ĐT"}
+                {resolvedExam?.title || "Phiếu trả lời trắc nghiệm Bộ GD&ĐT"}
               </h2>
             </div>
             <p className="text-[11px] text-slate-500 font-semibold truncate">
-              Thí sinh: <strong className="text-slate-800">{profile?.full_name}</strong> • Đã tô:{" "}
-              <strong className="text-[#1D4ED8]">{answeredTotalCount}/{totalQuestionsCount} câu</strong>
+              Thí sinh:{" "}
+              <strong className="text-slate-800">{profile?.full_name}</strong>{" "}
+              (SBD: <strong className="text-emerald-700">{sbdCols.join("")}</strong>) • Đã
+              tô:{" "}
+              <strong className="text-[#1D4ED8]">
+                {answeredTotalCount}/{totalQuestionsCount} câu
+              </strong>
             </p>
           </div>
         </div>
@@ -682,7 +729,9 @@ export function DigitalAnswerSheetView({
             ) : (
               <>
                 <Send className="w-3.5 h-3.5" />
-                <span>Nộp phiếu ({answeredTotalCount}/{totalQuestionsCount})</span>
+                <span>
+                  Nộp phiếu ({answeredTotalCount}/{totalQuestionsCount})
+                </span>
               </>
             )}
           </button>
@@ -723,10 +772,16 @@ export function DigitalAnswerSheetView({
 
             <button
               type="button"
-              onClick={() => openPrintableDynamicAnswerSheet(exam)}
+              onClick={() =>
+                openPrintableDynamicAnswerSheet({
+                  ...resolvedExam,
+                  studentSbd: sbdCols.join(""),
+                  studentName: profile?.full_name || "",
+                })
+              }
               className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
             >
-              <Printer className="w-3 h-3" /> In phiếu giấy A4
+              <Printer className="w-3 h-3" /> In phiếu giấy A4 ({blueprint.totalPages || 1} trang)
             </button>
           </div>
 
@@ -741,7 +796,8 @@ export function DigitalAnswerSheetView({
               <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 space-y-2">
                 <FileText className="w-8 h-8 text-slate-400 mx-auto" />
                 <p className="text-xs font-bold text-slate-700">
-                  Hãy xem đề thi trong tài liệu đính kèm và tô đáp án vào Phiếu trả lời bên phải.
+                  Hãy xem đề thi trong tài liệu đính kèm và tô đáp án vào Phiếu
+                  trả lời bên phải.
                 </p>
               </div>
             ) : (
@@ -775,7 +831,9 @@ export function DigitalAnswerSheetView({
                           <span className="font-black text-[#1D4ED8] shrink-0">
                             {opt.key || ["A", "B", "C", "D"][idx]}.
                           </span>
-                          <DigitalQuestionMath content={opt.text_html || opt.text || ""} />
+                          <DigitalQuestionMath
+                            content={opt.text_html || opt.text || ""}
+                          />
                         </div>
                       ))}
                     </div>
@@ -788,7 +846,7 @@ export function DigitalAnswerSheetView({
 
         {/* CỘT PHẢI (6 CỘT): TỜ PHIẾU TRẮC NGHIỆM BỘ GD&ĐT MÔ PHỎNG TƯƠNG TÁC TÔ CHÌ */}
         <div className="lg:col-span-6 overflow-y-auto p-3 sm:p-5 custom-scrollbar bg-slate-200/70 flex justify-center">
-          <div className="w-full max-w-[640px] bg-white rounded-xl shadow-xl border-2 border-slate-300 p-4 sm:p-6 space-y-5 relative h-fit">
+          <div className="w-full max-w-[660px] bg-white rounded-xl shadow-xl border-2 border-slate-300 p-4 sm:p-6 space-y-5 relative h-fit">
             {/* 4 Ô VUÔNG ĐỊNH VỊ GÓC PHIẾU CHUẨN BỘ GD&ĐT */}
             <div className="w-4 h-4 bg-black absolute top-3 left-3" />
             <div className="w-4 h-4 bg-black absolute top-3 right-3" />
@@ -799,10 +857,11 @@ export function DigitalAnswerSheetView({
             <div className="pt-2 border-b-2 border-rose-300 pb-4 space-y-3">
               <div className="text-center">
                 <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-tight">
-                  PHIẾU TRẢ LỜI TRẮC NGHIỆM
+                  PHIẾU TRẢ LỜI TRẮC NGHIỆM ({totalQuestionsCount} CÂU)
                 </h3>
                 <p className="text-[11px] font-bold text-rose-700">
-                  (Mẫu chuẩn Bộ GD&ĐT — Chạm vào ô tròn để tô chì 2B, chạm lại để tẩy)
+                  (Mẫu chuẩn Bộ GD&ĐT — Chạm vào ô tròn để tô chì 2B, chạm lại để
+                  tẩy)
                 </p>
               </div>
 
@@ -810,7 +869,9 @@ export function DigitalAnswerSheetView({
                 <div className="sm:col-span-6 p-3 rounded-xl border border-rose-200 bg-rose-50/20 space-y-1.5 text-xs">
                   <div>
                     <span className="text-slate-500">Họ và tên:</span>{" "}
-                    <strong className="text-slate-900 uppercase">{profile?.full_name}</strong>
+                    <strong className="text-slate-900 uppercase">
+                      {profile?.full_name}
+                    </strong>
                   </div>
                   <div>
                     <span className="text-slate-500">Lớp / Trường:</span>{" "}
@@ -820,7 +881,9 @@ export function DigitalAnswerSheetView({
                   </div>
                   <div>
                     <span className="text-slate-500">Đề thi:</span>{" "}
-                    <strong className="text-[#1D4ED8]">{exam?.title}</strong>
+                    <strong className="text-[#1D4ED8]">
+                      {resolvedExam?.title}
+                    </strong>
                   </div>
                 </div>
 
@@ -879,13 +942,14 @@ export function DigitalAnswerSheetView({
               </div>
             </div>
 
-            {/* PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN A, B, C, D */}
+            {/* PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN A, B, C, D (HIỂN THỊ ĐẦY ĐỦ KỂ CẢ ĐỀ > 100 CÂU) */}
             {p1Count > 0 && (
               <div className="space-y-2.5">
                 <div className="flex items-center gap-2">
                   <span className="w-3.5 h-3.5 bg-black inline-block" />
                   <h4 className="text-xs font-black uppercase text-slate-900">
-                    PHẦN I: Trắc nghiệm nhiều phương án lựa chọn ({p1Count} câu)
+                    PHẦN I: Trắc nghiệm nhiều phương án lựa chọn (Từ câu 1 đến
+                    câu {p1Count})
                   </h4>
                 </div>
 
@@ -913,7 +977,9 @@ export function DigitalAnswerSheetView({
                             key={qNum}
                             className="grid grid-cols-5 items-center py-0.5 text-center"
                           >
-                            <span className="text-[11px] font-black text-slate-800">{qNum}</span>
+                            <span className="text-[11px] font-black text-slate-800">
+                              {qNum}
+                            </span>
                             {["A", "B", "C", "D"].map((optKey) => {
                               const isFilled = selectedKey === optKey;
                               return (
@@ -957,7 +1023,7 @@ export function DigitalAnswerSheetView({
                       a: null,
                       b: null,
                       c: null,
-                      d: null
+                      d: null,
                     };
                     return (
                       <div
@@ -976,8 +1042,13 @@ export function DigitalAnswerSheetView({
                         {(["a", "b", "c", "d"] as const).map((sk) => {
                           const val = qState[sk];
                           return (
-                            <div key={sk} className="grid grid-cols-3 items-center py-0.5 text-center">
-                              <span className="text-xs font-bold text-slate-800">{sk})</span>
+                            <div
+                              key={sk}
+                              className="grid grid-cols-3 items-center py-0.5 text-center"
+                            >
+                              <span className="text-xs font-bold text-slate-800">
+                                {sk})
+                              </span>
                               <button
                                 type="button"
                                 onClick={() => togglePart2Bubble(qNum, sk, true)}
@@ -991,7 +1062,9 @@ export function DigitalAnswerSheetView({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => togglePart2Bubble(qNum, sk, false)}
+                                onClick={() =>
+                                  togglePart2Bubble(qNum, sk, false)
+                                }
                                 className={`w-6 h-6 rounded-full mx-auto border flex items-center justify-center text-[9px] font-bold transition cursor-pointer ${
                                   val === false
                                     ? "bg-slate-800 border-slate-900 text-white shadow-inner scale-105"
@@ -1031,7 +1104,9 @@ export function DigitalAnswerSheetView({
                         className="border border-rose-300 rounded-xl p-2.5 bg-rose-50/10 space-y-1.5"
                       >
                         <div className="flex items-center justify-between border-b border-rose-200 pb-1">
-                          <span className="font-black text-xs text-slate-900">Câu {qNum}</span>
+                          <span className="font-black text-xs text-slate-900">
+                            Câu {qNum}
+                          </span>
                           <div className="flex gap-1">
                             {[0, 1, 2, 3].map((cIdx) => (
                               <span
@@ -1086,14 +1161,22 @@ export function DigitalAnswerSheetView({
                             key={digit}
                             className="grid grid-cols-5 items-center text-center text-[10px]"
                           >
-                            <span className="font-bold text-slate-600">{digit}</span>
+                            <span className="font-bold text-slate-600">
+                              {digit}
+                            </span>
                             {[0, 1, 2, 3].map((cIdx) => {
                               const isPicked = cols[cIdx] === String(digit);
                               return (
                                 <button
                                   key={cIdx}
                                   type="button"
-                                  onClick={() => togglePart3Bubble(qNum, cIdx, String(digit))}
+                                  onClick={() =>
+                                    togglePart3Bubble(
+                                      qNum,
+                                      cIdx,
+                                      String(digit)
+                                    )
+                                  }
                                   className={`w-5 h-5 rounded-full mx-auto border text-[9px] font-bold transition cursor-pointer ${
                                     isPicked
                                       ? "bg-slate-800 border-slate-900 text-white scale-105"
