@@ -20,11 +20,11 @@ export const CANONICAL_CORNER_TARGETS = {
   bottomLeft: { x: 42, y: 1658 },
 };
 
-// NGƯỠNG NHẬN DIỆN TÔ CHÌ TƯƠNG ĐỐI & TUYỆT ĐỐI (CÂN CHỈNH ĐỘ NHẠY CAO CHO BÚT CHÌ 2B & ẢNH ĐIỆN THOẠI)
-const MIN_FILLED_DENSITY = 0.25;
-const STRONG_FILLED_DENSITY = 0.39;
-const RELATIVE_DOMINANCE_RATIO = 1.28;
-const SBD_DOMINANCE_RATIO = 1.22;
+// NGƯỠNG NHẬN DIỆN TÔ CHÌ TƯƠNG ĐỐI & TUYỆT ĐỐI
+const MIN_FILLED_DENSITY = 0.24;
+const STRONG_FILLED_DENSITY = 0.38;
+const RELATIVE_DOMINANCE_RATIO = 1.25;
+const SBD_DOMINANCE_RATIO = 1.2;
 const AMBIGUOUS_DIFF_THRESHOLD = 0.075;
 
 export interface OMRPart1Block {
@@ -110,6 +110,13 @@ export interface DynamicExamSheetConfig {
   part1Count?: number;
   part2Count?: number;
   part3Count?: number;
+}
+
+export interface CustomFourCornersInput {
+  topLeft: OMRCornerPoint;
+  topRight: OMRCornerPoint;
+  bottomRight: OMRCornerPoint;
+  bottomLeft: OMRCornerPoint;
 }
 
 export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
@@ -516,7 +523,7 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
 }
 
 /**
- * THUẬT TOÁN AUTO-PAGINATION FLOW ENGINE (TRIỆT TIÊU 100% LỖI CHỒNG ĐÈ KHỐI TRANG 2)
+ * THUẬT TOÁN AUTO-PAGINATION FLOW ENGINE
  */
 export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBlueprint {
   const resolved = resolveCompleteExamObject(examOrConfig);
@@ -793,8 +800,7 @@ export function computeAdaptiveBinaryMask(imageData: ImageData): {
 }
 
 /**
- * PHASE 1A: TÁCH BIÊN NỀN GIẤY TRẮNG (PAPER WHITE BOUNDARY ANALYSIS)
- * Loại bỏ hoàn toàn viền mặt bàn tối màu và ngón tay ở mép ngoài tờ giấy trước khi tìm mốc góc
+ * TÁCH BIÊN NỀN GIẤY TRẮNG (PAPER WHITE BOUNDARY ANALYSIS)
  */
 function detectWhitePaperBoundingBox(
   gray: Uint8Array,
@@ -808,7 +814,7 @@ function detectWhitePaperBoundingBox(
     let brightCount = 0;
     const rowOffset = y * width;
     for (let x = 0; x < width; x += 2) {
-      if (gray[rowOffset + x] >= 142) brightCount++;
+      if (gray[rowOffset + x] >= 140) brightCount++;
     }
     rowBrightRatio[y] = brightCount / Math.ceil(width / 2);
   }
@@ -816,34 +822,35 @@ function detectWhitePaperBoundingBox(
   for (let x = 0; x < width; x++) {
     let brightCount = 0;
     for (let y = 0; y < height; y += 2) {
-      if (gray[y * width + x] >= 142) brightCount++;
+      if (gray[y * width + x] >= 140) brightCount++;
     }
     colBrightRatio[x] = brightCount / Math.ceil(height / 2);
   }
 
   let top = 0;
-  while (top < height * 0.35 && rowBrightRatio[top] < 0.44) top++;
+  while (top < height * 0.35 && rowBrightRatio[top] < 0.42) top++;
 
   let bottom = height - 1;
-  while (bottom > height * 0.65 && rowBrightRatio[bottom] < 0.44) bottom--;
+  while (bottom > height * 0.65 && rowBrightRatio[bottom] < 0.42) bottom--;
 
   let left = 0;
-  while (left < width * 0.35 && colBrightRatio[left] < 0.44) left++;
+  while (left < width * 0.35 && colBrightRatio[left] < 0.42) left++;
 
   let right = width - 1;
-  while (right > width * 0.65 && colBrightRatio[right] < 0.44) right--;
+  while (right > width * 0.65 && colBrightRatio[right] < 0.42) right--;
 
   return {
-    left: Math.max(0, left - 6),
-    right: Math.min(width - 1, right + 6),
-    top: Math.max(0, top - 6),
-    bottom: Math.min(height - 1, bottom + 6),
+    left: Math.max(0, left - 4),
+    right: Math.min(width - 1, right + 4),
+    top: Math.max(0, top - 4),
+    bottom: Math.min(height - 1, bottom + 4),
   };
 }
 
 /**
- * PHASE 1B: TÌM 4 MỐC GÓC LỚN VỚI KIỂM TRA TỶ LỆ CẠNH VUÔNG (0.85 <= W/H <= 1.18),
- * VIỀN TRẮNG BẢO VỆ (QUIET ZONE RING) & CÔNG THỨC NỘI SUY GÓC THỨ 4 THEO TỶ LỆ 1 : SQRT(2)
+ * KIỂM ĐỊNH 4 MỐC ĐỊNH VỊ GÓC (FAIL-FAST QUALITY GATE)
+ * - Tuyệt đối không nội suy bừa nếu thiếu 2 góc trên hoặc góc bị cắt lẹm!
+ * - Nếu thiếu mốc góc, đánh dấu `detected: false` và trả về vị trí 4 góc tờ giấy trắng để giáo viên dùng 4 chốt ghim (Pin Adjuster) kéo chỉnh trực quan.
  */
 export function detectOMRCornerMarkers(
   binary: Uint8Array,
@@ -856,6 +863,7 @@ export function detectOMRCornerMarkers(
   bottomRight: OMRCornerPoint;
   bottomLeft: OMRCornerPoint;
   detected: boolean;
+  missingCornersError?: boolean;
   geometryWarning?: string;
 } {
   const paperBox = optionalGray
@@ -865,7 +873,7 @@ export function detectOMRCornerMarkers(
   const paperW = Math.max(120, paperBox.right - paperBox.left);
   const paperH = Math.max(120, paperBox.bottom - paperBox.top);
 
-  const findIsolatedSquareMarker = (
+  const findCornerSquareCentroid = (
     minX: number,
     maxX: number,
     minY: number,
@@ -896,30 +904,30 @@ export function detectOMRCornerMarkers(
         const centerX = Math.round(x + patchSize / 2);
         const centerY = Math.round(y + patchSize / 2);
 
-        // Kiểm tra tỷ lệ cạnh thực tế của khối đen (0.85 <= W/H <= 1.18) bằng tia quét ngang/dọc
+        // Đo chiều rộng và chiều cao thực tế của khối đen qua tâm
         let spanLeft = 0;
-        while (spanLeft < patchSize * 1.4 && centerX - spanLeft >= 0 && binary[centerY * width + (centerX - spanLeft)] === 1) {
+        while (spanLeft < patchSize * 1.45 && centerX - spanLeft >= 0 && binary[centerY * width + (centerX - spanLeft)] === 1) {
           spanLeft++;
         }
         let spanRight = 0;
-        while (spanRight < patchSize * 1.4 && centerX + spanRight < width && binary[centerY * width + (centerX + spanRight)] === 1) {
+        while (spanRight < patchSize * 1.45 && centerX + spanRight < width && binary[centerY * width + (centerX + spanRight)] === 1) {
           spanRight++;
         }
         let spanUp = 0;
-        while (spanUp < patchSize * 1.4 && centerY - spanUp >= 0 && binary[(centerY - spanUp) * width + centerX] === 1) {
+        while (spanUp < patchSize * 1.45 && centerY - spanUp >= 0 && binary[(centerY - spanUp) * width + centerX] === 1) {
           spanUp++;
         }
         let spanDown = 0;
-        while (spanDown < patchSize * 1.4 && centerY + spanDown < height && binary[(centerY + spanDown) * width + centerX] === 1) {
+        while (spanDown < patchSize * 1.45 && centerY + spanDown < height && binary[(centerY + spanDown) * width + centerX] === 1) {
           spanDown++;
         }
 
         const blobW = Math.max(1, spanLeft + spanRight);
         const blobH = Math.max(1, spanUp + spanDown);
         const aspectRatio = blobW / blobH;
-        if (aspectRatio < 0.78 || aspectRatio > 1.28) continue;
+        if (aspectRatio < 0.75 || aspectRatio > 1.32) continue;
 
-        // Kiểm tra Viền Trắng Bảo Vệ (Quiet Zone Ring Check)
+        // Kiểm tra Viền Trắng Bảo Vệ (Quiet Zone Ring)
         let ringWhiteCount = 0;
         let ringSamples = 0;
         const ringDirs = [
@@ -939,7 +947,7 @@ export function detectOMRCornerMarkers(
           if (rx >= 0 && rx < width && ry >= 0 && ry < height) {
             ringSamples++;
             const isWhiteBinary = binary[ry * width + rx] === 0;
-            const isBrightGray = optionalGray ? optionalGray[ry * width + rx] >= 132 : true;
+            const isBrightGray = optionalGray ? optionalGray[ry * width + rx] >= 130 : true;
             if (isWhiteBinary && isBrightGray) {
               ringWhiteCount++;
             }
@@ -947,9 +955,12 @@ export function detectOMRCornerMarkers(
         }
 
         const quietZoneRatio = ringWhiteCount / Math.max(1, ringSamples);
-        if (quietZoneRatio < 0.64) continue;
+        if (quietZoneRatio < 0.62) continue;
 
-        const distToCorner = Math.hypot(centerX - targetCornerX, centerY - targetCornerY);
+        const refinedCx = Math.round(centerX + (spanRight - spanLeft) * 0.5);
+        const refinedCy = Math.round(centerY + (spanDown - spanUp) * 0.5);
+
+        const distToCorner = Math.hypot(refinedCx - targetCornerX, refinedCy - targetCornerY);
         const maxDist = Math.hypot(paperW, paperH);
         const proximityScore = 1 - distToCorner / maxDist;
         const squarenessScore = 1 - Math.min(0.4, Math.abs(1 - aspectRatio));
@@ -961,11 +972,7 @@ export function detectOMRCornerMarkers(
           squarenessScore * 0.15;
 
         if (!bestCandidate || totalScore > bestCandidate.score) {
-          bestCandidate = {
-            x: Math.round(centerX + (spanRight - spanLeft) * 0.25),
-            y: Math.round(centerY + (spanDown - spanUp) * 0.25),
-            score: totalScore,
-          };
+          bestCandidate = { x: refinedCx, y: refinedCy, score: totalScore };
         }
       }
     }
@@ -973,10 +980,11 @@ export function detectOMRCornerMarkers(
     return bestCandidate ? { x: bestCandidate.x, y: bestCandidate.y } : null;
   };
 
-  const searchW = Math.floor(paperW * 0.23);
-  const searchH = Math.floor(paperH * 0.21);
+  // Chỉ tìm mốc góc trong phạm vi 18% sát 4 góc của tờ giấy để không bao giờ bắt nhầm nội dung bên trong
+  const searchW = Math.floor(paperW * 0.18);
+  const searchH = Math.floor(paperH * 0.16);
 
-  const tl = findIsolatedSquareMarker(
+  const tl = findCornerSquareCentroid(
     paperBox.left + 2,
     paperBox.left + searchW,
     paperBox.top + 2,
@@ -985,7 +993,7 @@ export function detectOMRCornerMarkers(
     paperBox.top
   );
 
-  const tr = findIsolatedSquareMarker(
+  const tr = findCornerSquareCentroid(
     paperBox.right - searchW,
     paperBox.right - 2,
     paperBox.top + 2,
@@ -994,7 +1002,7 @@ export function detectOMRCornerMarkers(
     paperBox.top
   );
 
-  const br = findIsolatedSquareMarker(
+  const br = findCornerSquareCentroid(
     paperBox.right - searchW,
     paperBox.right - 2,
     paperBox.bottom - searchH,
@@ -1003,7 +1011,7 @@ export function detectOMRCornerMarkers(
     paperBox.bottom
   );
 
-  const bl = findIsolatedSquareMarker(
+  const bl = findCornerSquareCentroid(
     paperBox.left + 2,
     paperBox.left + searchW,
     paperBox.bottom - searchH,
@@ -1012,6 +1020,7 @@ export function detectOMRCornerMarkers(
     paperBox.bottom
   );
 
+  // Kiểm tra khắt khe tứ giác 4 góc (Fail-Fast Quality Gate)
   if (tl && tr && br && bl) {
     const topEdge = Math.hypot(tr.x - tl.x, tr.y - tl.y);
     const bottomEdge = Math.hypot(br.x - bl.x, br.y - bl.y);
@@ -1021,100 +1030,111 @@ export function detectOMRCornerMarkers(
     const widthRatio = Math.min(topEdge, bottomEdge) / Math.max(1, Math.max(topEdge, bottomEdge));
     const heightRatio = Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
 
-    if (widthRatio >= 0.74 && heightRatio >= 0.74 && topEdge > width * 0.42 && leftEdge > height * 0.42) {
+    if (
+      widthRatio >= 0.78 &&
+      heightRatio >= 0.78 &&
+      topEdge > width * 0.45 &&
+      leftEdge > height * 0.52
+    ) {
       return {
         topLeft: tl,
         topRight: tr,
         bottomRight: br,
         bottomLeft: bl,
         detected: true,
+        missingCornersError: false,
       };
     }
   }
 
-  // CÔNG THỨC NỘI SUY GÓC THỨ 4 CHUẨN HÌNH HỌC VECTOR BÌNH HÀNH & TỶ LỆ A4 (1 : SQRT(2))
-  // Tránh tuyệt đối việc nhân chiều cao sai làm méo phối cảnh nửa dưới tờ giấy
-  if (tl && tr && (bl || br)) {
-    const vTopX = tr.x - tl.x;
-    const vTopY = tr.y - tl.y;
-    const topLen = Math.hypot(vTopX, vTopY);
-
-    if (bl && !br) {
-      // Có TL, TR, BL -> Góc BR = BL + (TR - TL) kết hợp hiệu chỉnh nhẹ tỷ lệ A4
-      const leftVecX = bl.x - tl.x;
-      const leftVecY = bl.y - tl.y;
-      const leftLen = Math.hypot(leftVecX, leftVecY);
-      const a4ExpectedLen = topLen * Math.SQRT2;
-      const scaleFix =
-        leftLen > a4ExpectedLen * 0.82 && leftLen < a4ExpectedLen * 1.18
-          ? 1.0
-          : a4ExpectedLen / Math.max(1, leftLen);
-
-      const adjBL = {
-        x: Math.round(tl.x + leftVecX * scaleFix),
-        y: Math.round(tl.y + leftVecY * scaleFix),
-      };
-      const inferredBR = {
-        x: Math.round(tr.x + leftVecX * scaleFix),
-        y: Math.round(tr.y + leftVecY * scaleFix),
-      };
-
-      return {
-        topLeft: tl,
-        topRight: tr,
-        bottomRight: inferredBR,
-        bottomLeft: adjBL,
-        detected: true,
-        geometryWarning:
-          "Hệ thống phát hiện 1 góc dưới bị che khuất và đã nội suy chuẩn xác theo vector bình hành A4 (1 : √2).",
-      };
-    }
-
-    if (br && !bl) {
-      // Có TL, TR, BR -> Góc BL = TL + (BR - TR)
-      const rightVecX = br.x - tr.x;
-      const rightVecY = br.y - tr.y;
-      const rightLen = Math.hypot(rightVecX, rightVecY);
-      const a4ExpectedLen = topLen * Math.SQRT2;
-      const scaleFix =
-        rightLen > a4ExpectedLen * 0.82 && rightLen < a4ExpectedLen * 1.18
-          ? 1.0
-          : a4ExpectedLen / Math.max(1, rightLen);
-
-      const adjBR = {
-        x: Math.round(tr.x + rightVecX * scaleFix),
-        y: Math.round(tr.y + rightVecY * scaleFix),
-      };
-      const inferredBL = {
-        x: Math.round(tl.x + rightVecX * scaleFix),
-        y: Math.round(tl.y + rightVecY * scaleFix),
-      };
-
-      return {
-        topLeft: tl,
-        topRight: tr,
-        bottomRight: adjBR,
-        bottomLeft: inferredBL,
-        detected: true,
-        geometryWarning:
-          "Hệ thống phát hiện 1 góc dưới bị che khuất và đã nội suy chuẩn xác theo vector bình hành A4 (1 : √2).",
-      };
-    }
-  }
+  // NẾU ẢNH BỊ CẮT MẤT GÓC TRÊN HOẶC BỊ TAY CHE MỐC -> BÁO LỖI NGAY (FAIL-FAST),
+  // ĐẶT 4 CHỐT GHIM Ở 4 GÓC BIÊN GIẤY ĐỂ GIÁO VIÊN KÉO CHỈNH 4 GÓC THỦ CÔNG!
+  const missingList: string[] = [];
+  if (!tl) missingList.push("Trên-Trái");
+  if (!tr) missingList.push("Trên-Phải");
+  if (!bl) missingList.push("Dưới-Trái");
+  if (!br) missingList.push("Dưới-Phải");
 
   return {
-    topLeft: { x: paperBox.left + paperW * 0.035, y: paperBox.top + paperH * 0.025 },
-    topRight: { x: paperBox.right - paperW * 0.035, y: paperBox.top + paperH * 0.025 },
-    bottomRight: { x: paperBox.right - paperW * 0.035, y: paperBox.bottom - paperH * 0.025 },
-    bottomLeft: { x: paperBox.left + paperW * 0.035, y: paperBox.bottom - paperH * 0.025 },
+    topLeft: tl || { x: Math.round(paperBox.left + paperW * 0.035), y: Math.round(paperBox.top + paperH * 0.025) },
+    topRight: tr || { x: Math.round(paperBox.right - paperW * 0.035), y: Math.round(paperBox.top + paperH * 0.025) },
+    bottomRight: br || { x: Math.round(paperBox.right - paperW * 0.035), y: Math.round(paperBox.bottom - paperH * 0.025) },
+    bottomLeft: bl || { x: Math.round(paperBox.left + paperW * 0.035), y: Math.round(paperBox.bottom - paperH * 0.025) },
     detected: false,
-    geometryWarning:
-      "Chưa bắt đủ 4 ô vuông đen ở 4 góc phiếu. Vui lòng chụp thẳng toàn bộ tờ giấy và không đặt tay đè lên góc!",
+    missingCornersError: true,
+    geometryWarning: `⚠️ CẢNH BÁO: Ảnh chụp bị thiếu mốc góc định vị (${missingList.join(", ") || "méo tỷ lệ khung"}). Vui lòng dùng chuột KÉO 4 CHỐT GHIM MÀU XANH trên ảnh vào đúng 4 góc phiếu rồi bấm [⚡ Nắn phẳng & Quét lại], hoặc chụp lại đủ 4 góc!`,
   };
 }
 
 /**
- * PHASE 1C: NẮN PHẲNG TOÀN TRANG VỀ CANVAS CHUẨN A4 1200 x 1700 PX
+ * GIẢI HỆ PHƯƠNG TRÌNH TUYẾN TÍNH 8x8 BẰNG KHỬ GAUSS (GAUSSIAN ELIMINATION WITH PARTIAL PIVOTING)
+ * Tìm Ma trận Homography 3x3 ánh xạ từ Khung Chuẩn A4 (dst) sang Ảnh Chụp Gốc (src)
+ */
+export function solvePerspectiveHomography3x3(
+  dstPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint],
+  srcPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint]
+): number[] {
+  const A: number[][] = [];
+  for (let i = 0; i < 4; i++) {
+    const x = dstPts[i].x;
+    const y = dstPts[i].y;
+    const u = srcPts[i].x;
+    const v = srcPts[i].y;
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u]);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+
+  const n = 8;
+  for (let col = 0; col < n; col++) {
+    let maxRow = col;
+    let maxVal = Math.abs(A[col][col]);
+    for (let row = col + 1; row < n; row++) {
+      const absVal = Math.abs(A[row][col]);
+      if (absVal > maxVal) {
+        maxVal = absVal;
+        maxRow = row;
+      }
+    }
+
+    if (maxRow !== col) {
+      const tmp = A[col];
+      A[col] = A[maxRow];
+      A[maxRow] = tmp;
+    }
+
+    const pivot = A[col][col];
+    if (Math.abs(pivot) < 1e-10) continue;
+
+    for (let j = col; j <= n; j++) {
+      A[col][j] /= pivot;
+    }
+
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = A[row][col];
+      if (Math.abs(factor) < 1e-12) continue;
+      for (let j = col; j <= n; j++) {
+        A[row][j] -= factor * A[col][j];
+      }
+    }
+  }
+
+  return [
+    A[0][8],
+    A[1][8],
+    A[2][8],
+    A[3][8],
+    A[4][8],
+    A[5][8],
+    A[6][8],
+    A[7][8],
+    1,
+  ];
+}
+
+/**
+ * NẮN PHẲNG ẢNH BẰNG MA TRẬN HOMOGRAPHY 3x3 THỰC THỤ (TRUE PERSPECTIVE HOMOGRAPHY WARP)
+ * Khắc phục 100% lỗi vặn xoắn parabol của phép nội suy Bilinear cũ!
  */
 export function warpPerspectiveToCanonical(
   sourceImageData: ImageData,
@@ -1134,29 +1154,35 @@ export function warpPerspectiveToCanonical(
   const dstImageData = new ImageData(dstWidth, dstHeight);
   const dstPixels = dstImageData.data;
 
-  const padX = CANONICAL_CORNER_TARGETS.topLeft.x;
-  const padY = CANONICAL_CORNER_TARGETS.topLeft.y;
-  const innerW = CANONICAL_CORNER_TARGETS.topRight.x - padX;
-  const innerH = CANONICAL_CORNER_TARGETS.bottomLeft.y - padY;
+  const dstTargets: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint] = [
+    CANONICAL_CORNER_TARGETS.topLeft,
+    CANONICAL_CORNER_TARGETS.topRight,
+    CANONICAL_CORNER_TARGETS.bottomRight,
+    CANONICAL_CORNER_TARGETS.bottomLeft,
+  ];
 
-  const { topLeft, topRight, bottomRight, bottomLeft } = corners;
+  const srcCorners: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint] = [
+    corners.topLeft,
+    corners.topRight,
+    corners.bottomRight,
+    corners.bottomLeft,
+  ];
+
+  const H = solvePerspectiveHomography3x3(dstTargets, srcCorners);
+  const h00 = H[0], h01 = H[1], h02 = H[2];
+  const h10 = H[3], h11 = H[4], h12 = H[5];
+  const h20 = H[6], h21 = H[7];
 
   for (let y = 0; y < dstHeight; y++) {
-    const v = (y - padY) / innerH;
+    const rowBaseX = h01 * y + h02;
+    const rowBaseY = h11 * y + h12;
+    const rowBaseW = h21 * y + 1.0;
+
     for (let x = 0; x < dstWidth; x++) {
-      const u = (x - padX) / innerW;
-
-      const srcX =
-        (1 - u) * (1 - v) * topLeft.x +
-        u * (1 - v) * topRight.x +
-        u * v * bottomRight.x +
-        (1 - u) * v * bottomLeft.x;
-
-      const srcY =
-        (1 - u) * (1 - v) * topLeft.y +
-        u * (1 - v) * topRight.y +
-        u * v * bottomRight.y +
-        (1 - u) * v * bottomLeft.y;
+      const w = h20 * x + rowBaseW;
+      const invW = Math.abs(w) > 1e-8 ? 1.0 / w : 1.0;
+      const srcX = (h00 * x + rowBaseX) * invW;
+      const srcY = (h10 * x + rowBaseY) * invW;
 
       const dstIdx = (y * dstWidth + x) * 4;
 
@@ -1193,153 +1219,95 @@ export function warpPerspectiveToCanonical(
 }
 
 /**
- * PHASE 2A: TÁI CĂN CHỈNH TỌA ĐỘ KHUNG HỘP CỤC BỘ (LOCAL SUB-GRID BOUNDING BOX RE-CALIBRATION)
- * Tìm chính xác 4 cạnh đường viền hình chữ nhật bao quanh một khối (như Hộp SBD 6x10, Hộp Mã đề 3x10, hoặc Cột câu hỏi)
- * để bù trừ hoàn toàn sai số co giãn lề máy in (Print Margin Scaling)
+ * NEO TỌA ĐỘ THEO VẠCH NHỊP BƯỚC (TIMING TRACKS) & NHÃN CÂU HỎI (SEMANTIC ANCHOR CALIBRATION)
+ * Quét dải Timing Tracks ở mép phải (X ≈ 1146, Y từ 225..470) để đo độ lệch dọc ΔY thực tế sau khi in
  */
-function detectLocalBoxBounds(
+function measureTimingTrackVerticalOffset(
   binary: Uint8Array,
   width: number,
-  height: number,
-  expectedLeft: number,
-  expectedTop: number,
-  expectedWidth: number,
-  expectedHeight: number,
-  searchMargin: number = 22
-): {
-  left: number;
-  top: number;
-  boxWidth: number;
-  boxHeight: number;
-  calibrated: boolean;
-} {
-  const expRight = expectedLeft + expectedWidth;
-  const expBottom = expectedTop + expectedHeight;
+  height: number
+): number {
+  const expectedYs = [225, 252, 279, 306, 333, 360, 387, 414, 441, 468];
+  const diffs: number[] = [];
 
-  // 1. Dò cạnh trái (Vertical Line Segment gần expectedLeft)
-  let bestLeft = expectedLeft;
-  let maxLeftScore = 0;
-  const ySampleStart = Math.max(0, Math.floor(expectedTop + expectedHeight * 0.12));
-  const ySampleEnd = Math.min(height - 1, Math.ceil(expBottom - expectedHeight * 0.12));
-  const ySampleTotal = Math.max(1, ySampleEnd - ySampleStart);
-
-  for (
-    let x = Math.max(0, Math.floor(expectedLeft - searchMargin));
-    x <= Math.min(width - 2, Math.ceil(expectedLeft + searchMargin));
-    x++
-  ) {
-    let darkPixels = 0;
-    for (let y = ySampleStart; y <= ySampleEnd; y += 2) {
-      if (binary[y * width + x] === 1 || binary[y * width + x + 1] === 1) {
-        darkPixels++;
+  for (const expY of expectedYs) {
+    let bestY = expY;
+    let maxDark = 0;
+    for (let dy = -12; dy <= 12; dy++) {
+      const y = expY + dy;
+      if (y < 5 || y >= height - 5) continue;
+      let darkCount = 0;
+      for (let py = -3; py <= 3; py++) {
+        const rowOff = (y + py) * width;
+        for (let x = 1142; x <= 1164; x++) {
+          if (x < width && binary[rowOff + x] === 1) darkCount++;
+        }
+      }
+      if (darkCount > maxDark) {
+        maxDark = darkCount;
+        bestY = y;
       }
     }
-    const ratio = darkPixels / Math.ceil(ySampleTotal / 2);
-    if (ratio > maxLeftScore) {
-      maxLeftScore = ratio;
-      bestLeft = x;
+    if (maxDark >= 35) {
+      diffs.push(bestY - expY);
     }
   }
 
-  // 2. Dò cạnh phải (Vertical Line Segment gần expRight)
-  let bestRight = expRight;
-  let maxRightScore = 0;
-  for (
-    let x = Math.max(1, Math.floor(expRight - searchMargin));
-    x <= Math.min(width - 1, Math.ceil(expRight + searchMargin));
-    x++
-  ) {
-    let darkPixels = 0;
-    for (let y = ySampleStart; y <= ySampleEnd; y += 2) {
-      if (binary[y * width + x] === 1 || binary[y * width + x - 1] === 1) {
-        darkPixels++;
-      }
-    }
-    const ratio = darkPixels / Math.ceil(ySampleTotal / 2);
-    if (ratio > maxRightScore) {
-      maxRightScore = ratio;
-      bestRight = x;
-    }
-  }
-
-  // 3. Dò cạnh trên (Horizontal Line Segment gần expectedTop - tách biệt với ô viết số tay bên trên)
-  let bestTop = expectedTop;
-  let maxTopScore = 0;
-  const xSampleStart = Math.max(0, Math.floor(bestLeft + expectedWidth * 0.12));
-  const xSampleEnd = Math.min(width - 1, Math.ceil(bestRight - expectedWidth * 0.12));
-  const xSampleTotal = Math.max(1, xSampleEnd - xSampleStart);
-
-  for (
-    let y = Math.max(0, Math.floor(expectedTop - searchMargin));
-    y <= Math.min(height - 2, Math.ceil(expectedTop + searchMargin));
-    y++
-  ) {
-    let darkPixels = 0;
-    const rowOff = y * width;
-    const nextRowOff = (y + 1) * width;
-    for (let x = xSampleStart; x <= xSampleEnd; x += 2) {
-      if (binary[rowOff + x] === 1 || binary[nextRowOff + x] === 1) {
-        darkPixels++;
-      }
-    }
-    const ratio = darkPixels / Math.ceil(xSampleTotal / 2);
-    if (ratio > maxTopScore) {
-      maxTopScore = ratio;
-      bestTop = y;
-    }
-  }
-
-  // 4. Dò cạnh dưới (Horizontal Line Segment gần expBottom)
-  let bestBottom = expBottom;
-  let maxBottomScore = 0;
-  for (
-    let y = Math.max(1, Math.floor(expBottom - searchMargin));
-    y <= Math.min(height - 1, Math.ceil(expBottom + searchMargin));
-    y++
-  ) {
-    let darkPixels = 0;
-    const rowOff = y * width;
-    const prevRowOff = (y - 1) * width;
-    for (let x = xSampleStart; x <= xSampleEnd; x += 2) {
-      if (binary[rowOff + x] === 1 || binary[prevRowOff + x] === 1) {
-        darkPixels++;
-      }
-    }
-    const ratio = darkPixels / Math.ceil(xSampleTotal / 2);
-    if (ratio > maxBottomScore) {
-      maxBottomScore = ratio;
-      bestBottom = y;
-    }
-  }
-
-  const detectedW = bestRight - bestLeft;
-  const detectedH = bestBottom - bestTop;
-
-  // Kiểm tra kích thước hộp tìm được có hợp lý (sai lệch không quá 14% so với khung thiết kế)
-  const validW =
-    maxLeftScore >= 0.42 &&
-    maxRightScore >= 0.42 &&
-    detectedW >= expectedWidth * 0.86 &&
-    detectedW <= expectedWidth * 1.14;
-
-  const validH =
-    maxTopScore >= 0.42 &&
-    maxBottomScore >= 0.42 &&
-    detectedH >= expectedHeight * 0.86 &&
-    detectedH <= expectedHeight * 1.14;
-
-  return {
-    left: validW ? bestLeft : expectedLeft,
-    top: validH ? bestTop : expectedTop,
-    boxWidth: validW ? detectedW : expectedWidth,
-    boxHeight: validH ? detectedH : expectedHeight,
-    calibrated: validW || validH,
-  };
+  if (diffs.length < 4) return 0;
+  diffs.sort((a, b) => a - b);
+  return diffs[Math.floor(diffs.length / 2)];
 }
 
 /**
- * PHASE 2B: ĐO MẬT ĐỘ ĐIỂM TỐI KÈM DÒ ĐỈNH TƯƠNG ĐỐI (ADAPTIVE DYNAMIC PEAK SEARCH R ± 4PX)
- * Trả về cả mật độ cực đại lẫn tọa độ tâm thực tế (peakX, peakY) để vẽ vòng tròn nhận diện trúng khít vết chì
+ * TÌM VECTOR DỊCH CHUYỂN TỐI ƯU (ΔX, ΔY) CHO MỘT KHỐI LƯỚI BẰNG CÁCH HỘI TỤ TÂM CÁC Ô TRÒN (CENTROID GRID SNAPPING)
+ * Quét dịch chuyển nhẹ toàn khối trong phạm vi [-14..+14] px để tìm vị trí mà tại đó các ô được tô chì rơi đúng vào chính giữa tâm vòng tròn!
+ */
+function snapSubGridOffsetToBubbleCentroids(
+  binary: Uint8Array,
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  sampleCenters: { x: number; y: number; r: number }[],
+  maxShiftX: number = 14,
+  maxShiftY: number = 14
+): { dx: number; dy: number } {
+  if (sampleCenters.length === 0) return { dx: 0, dy: 0 };
+
+  let bestDx = 0;
+  let bestDy = 0;
+  let bestContrastScore = -1;
+
+  for (let dy = -maxShiftY; dy <= maxShiftY; dy += 2) {
+    for (let dx = -maxShiftX; dx <= maxShiftX; dx += 2) {
+      let score = 0;
+      for (let i = 0; i < sampleCenters.length; i++) {
+        const c = sampleCenters[i];
+        const cx = Math.round(c.x + dx);
+        const cy = Math.round(c.y + dy);
+        if (cx < 10 || cx >= width - 10 || cy < 10 || cy >= height - 10) continue;
+
+        const centerIdx = cy * width + cx;
+        const darkVal = 255 - gray[centerIdx];
+        if (darkVal > 75) {
+          score += darkVal * (binary[centerIdx] === 1 ? 1.5 : 0.8);
+        }
+      }
+      // Ưu tiên độ dịch chuyển nhỏ nếu điểm tương đương
+      const penalty = (Math.abs(dx) + Math.abs(dy)) * 1.2;
+      const total = score - penalty;
+      if (total > bestContrastScore) {
+        bestContrastScore = total;
+        bestDx = dx;
+        bestDy = dy;
+      }
+    }
+  }
+
+  return { dx: bestDx, dy: bestDy };
+}
+
+/**
+ * ĐO MẬT ĐỘ ĐIỂM TỐI KÈM DÒ ĐỈNH TƯƠNG ĐỐI (ADAPTIVE DYNAMIC PEAK SEARCH R ± 3PX)
  */
 export function measureBubbleWithLocalPeak(
   binary: Uint8Array,
@@ -1384,9 +1352,8 @@ export function measureBubbleWithLocalPeak(
   let bestX = centerX;
   let bestY = centerY;
 
-  // Quét tìm đỉnh độ đậm trong vùng lân cận [-4, -2, 0, 2, 4] px để bắt trúng vết tô chì lệch tâm
   if (bestDensity >= 0.14) {
-    const offsets = [-4, -2, 0, 2, 4];
+    const offsets = [-3, -1.5, 0, 1.5, 3];
     for (const ox of offsets) {
       for (const oy of offsets) {
         if (ox === 0 && oy === 0) continue;
@@ -1420,9 +1387,6 @@ export function measureBubbleDensity(
     .density;
 }
 
-/**
- * THUẬT TOÁN SO SÁNH TƯƠNG QUAN CỘT / HÀNG (COLUMN ARGMAX WITH DOMINANCE RATIO)
- */
 function pickDominantBubble<T extends { key: string; density: number }>(
   candidates: T[],
   minThreshold: number = MIN_FILLED_DENSITY,
@@ -1466,12 +1430,13 @@ function pickDominantBubble<T extends { key: string; density: number }>(
 }
 
 /**
- * QUÉT TOÀN BỘ PHIẾU TRẢ LỜI TRẮC NGHIỆM TỪ CANVAS HOẶC IMAGEDATA VỚI KIẾN TRÚC 2-PHASE ALIGNMENT
+ * QUÉT TOÀN BỘ PHIẾU TRẢ LỜI TRẮC NGHIỆM VỚI MA TRẬN HOMOGRAPHY 3x3 + HỖ TRỢ 4 GÓC THỦ CÔNG (customCorners)
  */
 export function scanOMRSheetFromCanvas(
   sourceCanvasOrImageData: HTMLCanvasElement | ImageData,
   blueprintOrExam?: OMRTemplateBlueprint | any,
-  targetPageIndex: number = 1
+  targetPageIndex: number = 1,
+  customCorners?: CustomFourCornersInput | null
 ): OMRResultData {
   const blueprint: OMRTemplateBlueprint =
     blueprintOrExam && blueprintOrExam.sbd && blueprintOrExam.part1
@@ -1495,14 +1460,25 @@ export function scanOMRSheetFromCanvas(
     );
   }
 
-  // ================= PHASE 1: CĂN CHỈNH TOÀN CỤC (GLOBAL WARP) =================
   const initialMask = computeAdaptiveBinaryMask(rawImageData);
-  const cornerResult = detectOMRCornerMarkers(
-    initialMask.binary,
-    initialMask.width,
-    initialMask.height,
-    initialMask.gray
-  );
+
+  // Nếu Giáo viên đã kéo chỉnh 4 chốt ghim góc thủ công (customCorners), sử dụng trực tiếp 4 góc đó!
+  const cornerResult = customCorners
+    ? {
+        topLeft: customCorners.topLeft,
+        topRight: customCorners.topRight,
+        bottomRight: customCorners.bottomRight,
+        bottomLeft: customCorners.bottomLeft,
+        detected: true,
+        missingCornersError: false,
+        geometryWarning: undefined,
+      }
+    : detectOMRCornerMarkers(
+        initialMask.binary,
+        initialMask.width,
+        initialMask.height,
+        initialMask.gray
+      );
 
   const warpedImageData = warpPerspectiveToCanonical(
     rawImageData,
@@ -1520,7 +1496,7 @@ export function scanOMRSheetFromCanvas(
       const tempCtx = tempCanvas.getContext("2d");
       if (tempCtx) {
         tempCtx.putImageData(warpedImageData, 0, 0);
-        warpedDataUrl = tempCanvas.toDataURL("image/jpeg", 0.88);
+        warpedDataUrl = tempCanvas.toDataURL("image/jpeg", 0.9);
       }
     } catch {}
   }
@@ -1528,42 +1504,40 @@ export function scanOMRSheetFromCanvas(
   const canonicalMask = computeAdaptiveBinaryMask(warpedImageData);
   const { binary, gray, width, height } = canonicalMask;
 
+  // Đo độ lệch dọc từ dải Timing Tracks bên mép phải
+  const timingTrackDy = measureTimingTrackVerticalOffset(binary, width, height);
+
   const bubbleCoordinates: OMRBubbleCoordinate[] = [];
   const flaggedQuestionsSet = new Set<number>();
   let confidenceSum = 0;
   let confidenceCount = 0;
 
-  // ================= PHASE 2: TÁI CĂN CHỈNH CỤC BỘ TỪNG KHỐI (LOCAL SUB-GRID) =================
-
-  // 1. KHÓA KHUNG HỘP SỐ BÁO DANH (6 CỘT x 10 HÀNG)
+  // 1. QUÉT KHUNG SỐ BÁO DANH (6 CỘT x 10 HÀNG) VỚI CENTROID SNAPPING
   const sbdDigits: string[] = [];
   if (targetPageIndex === 1) {
-    const expSbdBoxLeft = blueprint.sbd.startX - 18;
-    const expSbdBoxTop = 200;
-    const expSbdBoxW = blueprint.sbd.cols * blueprint.sbd.colStep + 8; // 176px
-    const expSbdBoxH = 10 * blueprint.sbd.rowStep + 14; // 284px
-
-    const localSbdBox = detectLocalBoxBounds(
+    const sbdPreviewCenters: { x: number; y: number; r: number }[] = [];
+    for (let col = 0; col < blueprint.sbd.cols; col++) {
+      for (let digit = 0; digit <= 9; digit++) {
+        sbdPreviewCenters.push({
+          x: blueprint.sbd.startX + col * blueprint.sbd.colStep,
+          y: blueprint.sbd.startY + digit * blueprint.sbd.rowStep + timingTrackDy,
+          r: blueprint.sbd.radius,
+        });
+      }
+    }
+    const sbdShift = snapSubGridOffsetToBubbleCentroids(
       binary,
+      gray,
       width,
       height,
-      expSbdBoxLeft,
-      expSbdBoxTop,
-      expSbdBoxW,
-      expSbdBoxH,
-      24
+      sbdPreviewCenters,
+      10,
+      10
     );
 
-    // Chia lưới tương đối bên trong khung hộp SBD đã khóa
-    const scaleX = localSbdBox.boxWidth / expSbdBoxW;
-    const scaleY = localSbdBox.boxHeight / expSbdBoxH;
-    const sbdOriginX = localSbdBox.left + 18 * scaleX;
-    const sbdOriginY = localSbdBox.top + 25 * scaleY;
-    const sbdStepX = blueprint.sbd.colStep * scaleX;
-    const sbdStepY = blueprint.sbd.rowStep * scaleY;
-
     for (let col = 0; col < blueprint.sbd.cols; col++) {
-      const theoreticalCx = sbdOriginX + col * sbdStepX;
+      const theoreticalCx =
+        blueprint.sbd.startX + col * blueprint.sbd.colStep + sbdShift.dx;
       const colCandidates: {
         key: string;
         density: number;
@@ -1572,7 +1546,11 @@ export function scanOMRSheetFromCanvas(
       }[] = [];
 
       for (let digit = 0; digit <= 9; digit++) {
-        const theoreticalCy = sbdOriginY + digit * sbdStepY;
+        const theoreticalCy =
+          blueprint.sbd.startY +
+          digit * blueprint.sbd.rowStep +
+          timingTrackDy +
+          sbdShift.dy;
         const measured = measureBubbleWithLocalPeak(
           binary,
           gray,
@@ -1592,7 +1570,7 @@ export function scanOMRSheetFromCanvas(
 
       const { selected } = pickDominantBubble(
         colCandidates,
-        0.22,
+        0.21,
         SBD_DOMINANCE_RATIO
       );
       sbdDigits.push(selected ? selected.key : "");
@@ -1605,7 +1583,7 @@ export function scanOMRSheetFromCanvas(
           section: "sbd",
           optionKey: cand.key,
           x: isSel ? cand.x : Math.round(theoreticalCx * 10) / 10,
-          y: isSel ? cand.y : cand.y,
+          y: cand.y,
           r: blueprint.sbd.radius,
           density: cand.density,
           isSelected: isSel,
@@ -1615,34 +1593,32 @@ export function scanOMRSheetFromCanvas(
     }
   }
 
-  // 2. KHÓA KHUNG HỘP MÃ ĐỀ THI (3 CỘT x 10 HÀNG)
+  // 2. QUÉT KHUNG MÃ ĐỀ THI (3 CỘT x 10 HÀNG)
   const examCodeDigits: string[] = [];
   if (targetPageIndex === 1) {
-    const expCodeBoxLeft = blueprint.examCode.startX - 18;
-    const expCodeBoxTop = 200;
-    const expCodeBoxW = blueprint.examCode.cols * blueprint.examCode.colStep + 8; // 92px
-    const expCodeBoxH = 10 * blueprint.examCode.rowStep + 14; // 284px
-
-    const localCodeBox = detectLocalBoxBounds(
+    const codePreviewCenters: { x: number; y: number; r: number }[] = [];
+    for (let col = 0; col < blueprint.examCode.cols; col++) {
+      for (let digit = 0; digit <= 9; digit++) {
+        codePreviewCenters.push({
+          x: blueprint.examCode.startX + col * blueprint.examCode.colStep,
+          y: blueprint.examCode.startY + digit * blueprint.examCode.rowStep + timingTrackDy,
+          r: blueprint.examCode.radius,
+        });
+      }
+    }
+    const codeShift = snapSubGridOffsetToBubbleCentroids(
       binary,
+      gray,
       width,
       height,
-      expCodeBoxLeft,
-      expCodeBoxTop,
-      expCodeBoxW,
-      expCodeBoxH,
-      24
+      codePreviewCenters,
+      10,
+      10
     );
 
-    const scaleX = localCodeBox.boxWidth / expCodeBoxW;
-    const scaleY = localCodeBox.boxHeight / expCodeBoxH;
-    const codeOriginX = localCodeBox.left + 18 * scaleX;
-    const codeOriginY = localCodeBox.top + 25 * scaleY;
-    const codeStepX = blueprint.examCode.colStep * scaleX;
-    const codeStepY = blueprint.examCode.rowStep * scaleY;
-
     for (let col = 0; col < blueprint.examCode.cols; col++) {
-      const theoreticalCx = codeOriginX + col * codeStepX;
+      const theoreticalCx =
+        blueprint.examCode.startX + col * blueprint.examCode.colStep + codeShift.dx;
       const colCandidates: {
         key: string;
         density: number;
@@ -1651,7 +1627,11 @@ export function scanOMRSheetFromCanvas(
       }[] = [];
 
       for (let digit = 0; digit <= 9; digit++) {
-        const theoreticalCy = codeOriginY + digit * codeStepY;
+        const theoreticalCy =
+          blueprint.examCode.startY +
+          digit * blueprint.examCode.rowStep +
+          timingTrackDy +
+          codeShift.dy;
         const measured = measureBubbleWithLocalPeak(
           binary,
           gray,
@@ -1671,7 +1651,7 @@ export function scanOMRSheetFromCanvas(
 
       const { selected } = pickDominantBubble(
         colCandidates,
-        0.22,
+        0.21,
         SBD_DOMINANCE_RATIO
       );
       examCodeDigits.push(selected ? selected.key : "");
@@ -1694,40 +1674,39 @@ export function scanOMRSheetFromCanvas(
     }
   }
 
-  // 3. KHÓA KHUNG CỤC BỘ & QUÉT PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D)
+  // 3. QUÉT PHẦN I: TRẮC NGHIỆM 4 PHƯƠNG ÁN (A, B, C, D) VỚI CENTROID SNAPPING TỪNG CỘT
   const part1Answers: Record<number, string> = {};
   const optionKeys = ["A", "B", "C", "D"];
 
   blueprint.part1.blocks
     .filter((b) => (b.pageIndex || 1) === targetPageIndex)
     .forEach((block) => {
-      const numRows = block.endQuestion - block.startQuestion + 1;
-      const expBoxLeft = block.startX - 48;
-      const expBoxTop = block.startY - 46;
-      const expBoxW = 232;
-      const expBoxH = Math.max(70, numRows * block.rowStepY + 38);
+      const p1PreviewCenters: { x: number; y: number; r: number }[] = [];
+      for (let qNum = block.startQuestion; qNum <= block.endQuestion; qNum++) {
+        const rowIdx = qNum - block.startQuestion;
+        const cy = block.startY + rowIdx * block.rowStepY;
+        optionKeys.forEach((_, optIdx) => {
+          p1PreviewCenters.push({
+            x: block.startX + optIdx * block.optionStepX,
+            y: cy,
+            r: block.radius,
+          });
+        });
+      }
 
-      const localP1Box = detectLocalBoxBounds(
+      const p1Shift = snapSubGridOffsetToBubbleCentroids(
         binary,
+        gray,
         width,
         height,
-        expBoxLeft,
-        expBoxTop,
-        expBoxW,
-        expBoxH,
-        22
+        p1PreviewCenters,
+        12,
+        12
       );
-
-      const scaleX = localP1Box.boxWidth / expBoxW;
-      const scaleY = localP1Box.boxHeight / expBoxH;
-      const blockStartX = localP1Box.left + 48 * scaleX;
-      const blockStartY = localP1Box.top + 46 * scaleY;
-      const optStepX = block.optionStepX * scaleX;
-      const rowStepY = block.rowStepY * scaleY;
 
       for (let qNum = block.startQuestion; qNum <= block.endQuestion; qNum++) {
         const rowIdx = qNum - block.startQuestion;
-        const theoreticalCy = blockStartY + rowIdx * rowStepY;
+        const theoreticalCy = block.startY + rowIdx * block.rowStepY + p1Shift.dy;
         const rowCandidates: {
           key: string;
           density: number;
@@ -1736,7 +1715,7 @@ export function scanOMRSheetFromCanvas(
         }[] = [];
 
         optionKeys.forEach((optKey, optIdx) => {
-          const theoreticalCx = blockStartX + optIdx * optStepX;
+          const theoreticalCx = block.startX + optIdx * block.optionStepX + p1Shift.dx;
           const measured = measureBubbleWithLocalPeak(
             binary,
             gray,
@@ -1786,7 +1765,7 @@ export function scanOMRSheetFromCanvas(
       }
     });
 
-  // 4. KHÓA KHUNG CỤC BỘ & QUÉT PHẦN II: TRẮC NGHIỆM ĐÚNG / SAI (4 Ý a, b, c, d)
+  // 4. QUÉT PHẦN II: TRẮC NGHIỆM ĐÚNG / SAI (4 Ý a, b, c, d)
   const part2Answers: Record<number, Record<"a" | "b" | "c" | "d", boolean | null>> = {};
   const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
   const p1Offset = blueprint.part1TotalQuestions ?? 40;
@@ -1798,37 +1777,31 @@ export function scanOMRSheetFromCanvas(
       const globalQOrder = p1Offset + qNum;
       part2Answers[qNum] = { a: null, b: null, c: null, d: null };
 
-      const expBoxLeft = block.trueX - 42;
-      const expBoxTop = block.startY - 52;
-      const expBoxW = 118;
-      const expBoxH = 174;
+      const p2PreviewCenters: { x: number; y: number; r: number }[] = [];
+      subKeys.forEach((_, subIdx) => {
+        const cy = block.startY + subIdx * block.rowStepY;
+        p2PreviewCenters.push({ x: block.trueX, y: cy, r: block.radius });
+        p2PreviewCenters.push({ x: block.falseX, y: cy, r: block.radius });
+      });
 
-      const localP2Box = detectLocalBoxBounds(
+      const p2Shift = snapSubGridOffsetToBubbleCentroids(
         binary,
+        gray,
         width,
         height,
-        expBoxLeft,
-        expBoxTop,
-        expBoxW,
-        expBoxH,
-        20
+        p2PreviewCenters,
+        12,
+        12
       );
 
-      const scaleX = localP2Box.boxWidth / expBoxW;
-      const scaleY = localP2Box.boxHeight / expBoxH;
-      const localTrueX = localP2Box.left + 42 * scaleX;
-      const localFalseX = localP2Box.left + (42 + (block.falseX - block.trueX)) * scaleX;
-      const localStartY = localP2Box.top + 52 * scaleY;
-      const localRowStepY = block.rowStepY * scaleY;
-
       subKeys.forEach((subK, subIdx) => {
-        const theoreticalCy = localStartY + subIdx * localRowStepY;
+        const theoreticalCy = block.startY + subIdx * block.rowStepY + p2Shift.dy;
         const measuredTrue = measureBubbleWithLocalPeak(
           binary,
           gray,
           width,
           height,
-          localTrueX,
+          block.trueX + p2Shift.dx,
           theoreticalCy,
           block.radius
         );
@@ -1837,7 +1810,7 @@ export function scanOMRSheetFromCanvas(
           gray,
           width,
           height,
-          localFalseX,
+          block.falseX + p2Shift.dx,
           theoreticalCy,
           block.radius
         );
@@ -1880,7 +1853,7 @@ export function scanOMRSheetFromCanvas(
       });
     });
 
-  // 5. KHÓA KHUNG CỤC BỘ & QUÉT PHẦN III: TRẢ LỜI NGẮN (4 CỘT SỐ MỖI CÂU)
+  // 5. QUÉT PHẦN III: TRẢ LỜI NGẮN (4 CỘT SỐ MỖI CÂU)
   const part3Answers: Record<number, string> = {};
   const p2Offset = p1Offset + (blueprint.part2TotalQuestions ?? 8);
 
@@ -1891,33 +1864,30 @@ export function scanOMRSheetFromCanvas(
       const globalQOrder = p2Offset + qNum;
       const chars: string[] = [];
 
-      const expBoxLeft = block.startX - 36;
-      const expBoxTop = block.minusY - 54;
-      const expBoxW = 152;
-      const expBoxH = 388;
+      const p3PreviewCenters: { x: number; y: number; r: number }[] = [];
+      for (let col = 0; col < 4; col++) {
+        const cx = block.startX + col * block.colStepX;
+        for (let d = 0; d <= 9; d++) {
+          p3PreviewCenters.push({
+            x: cx,
+            y: block.digit0Y + d * block.rowStepY,
+            r: block.radius,
+          });
+        }
+      }
 
-      const localP3Box = detectLocalBoxBounds(
+      const p3Shift = snapSubGridOffsetToBubbleCentroids(
         binary,
+        gray,
         width,
         height,
-        expBoxLeft,
-        expBoxTop,
-        expBoxW,
-        expBoxH,
-        22
+        p3PreviewCenters,
+        12,
+        12
       );
 
-      const scaleX = localP3Box.boxWidth / expBoxW;
-      const scaleY = localP3Box.boxHeight / expBoxH;
-      const localStartX = localP3Box.left + 36 * scaleX;
-      const localColStepX = block.colStepX * scaleX;
-      const localMinusY = localP3Box.top + 54 * scaleY;
-      const localCommaY = localP3Box.top + (54 + (block.commaY - block.minusY)) * scaleY;
-      const localDigit0Y = localP3Box.top + (54 + (block.digit0Y - block.minusY)) * scaleY;
-      const localRowStepY = block.rowStepY * scaleY;
-
       for (let col = 0; col < 4; col++) {
-        const theoreticalCx = localStartX + col * localColStepX;
+        const theoreticalCx = block.startX + col * block.colStepX + p3Shift.dx;
         const colCandidates: {
           key: string;
           density: number;
@@ -1932,7 +1902,7 @@ export function scanOMRSheetFromCanvas(
             width,
             height,
             theoreticalCx,
-            localMinusY,
+            block.minusY + p3Shift.dy,
             block.radius
           );
           colCandidates.push({
@@ -1950,7 +1920,7 @@ export function scanOMRSheetFromCanvas(
             width,
             height,
             theoreticalCx,
-            localCommaY,
+            block.commaY + p3Shift.dy,
             block.radius
           );
           colCandidates.push({
@@ -1962,7 +1932,7 @@ export function scanOMRSheetFromCanvas(
         }
 
         for (let digit = 0; digit <= 9; digit++) {
-          const theoreticalCy = localDigit0Y + digit * localRowStepY;
+          const theoreticalCy = block.digit0Y + digit * block.rowStepY + p3Shift.dy;
           const mDigit = measureBubbleWithLocalPeak(
             binary,
             gray,
@@ -2466,7 +2436,8 @@ export function gradeOMRSubmission(
 }
 
 /**
- * DỰNG MÃ SVG CHO TỪNG TRANG A4 (CÓ LOGO TCT NỔI BẬT + AUTO-PAGINATION BẺ TRANG CHUẨN XÁC)
+ * DỰNG MÃ SVG CHO TỪNG TRANG A4 (CHỈ GIỮ ĐÚNG 4 MỐC VUÔNG ĐEN LỚN 32x32 Ở 4 GÓC TRANG,
+ * KHÔNG VẼ CÁC Ô VUÔNG ĐEN PHỤ Ở GIỮA TRANG ĐỂ TRÁNH BẮT NHẦM KHI ẢNH BỊ CẮT GÓC)
  */
 export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string[] {
   const resolved = resolveCompleteExamObject(examOrConfig);
@@ -2500,7 +2471,8 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
   for (let pageIdx = 1; pageIdx <= totalPages; pageIdx++) {
     let svgElements = "";
 
-    const markerSize = 28;
+    // 4 Mốc vuông đen định vị góc cỡ lớn 32x32
+    const markerSize = 32;
     [
       corners.topLeft,
       corners.topRight,
@@ -2540,7 +2512,7 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         <text x="275" y="385" font-family="Arial, sans-serif" font-size="13" fill="#0f172a">6. Chữ ký của thí sinh: ..............................................................</text>
         <text x="275" y="432" font-family="Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#1D4ED8">Cấu trúc đề: ${p1Max + p2Max + p3Max} câu (Phần I: ${p1Max} câu • Phần II: ${p2Max} câu • Phần III: ${p3Max} câu)</text>
         <text x="275" y="460" font-family="Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#dc2626">* Học sinh tra cứu đúng SBD theo STT lớp (VD: 000001, 000002...) để tô vào mục 7.</text>
-        <text x="415" y="512" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Không đặt ngón tay đè lên 4 ô vuông đen ở 4 góc phiếu khi chụp ảnh chấm điểm.</text>
+        <text x="415" y="512" font-family="Arial, sans-serif" font-size="11.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#0f172a">Chú ý: Chụp rõ cả 4 ô vuông đen ở 4 góc phiếu và không để tay che góc.</text>
       `;
 
       svgElements += `
@@ -2714,9 +2686,6 @@ export function generatePrintableAnswerSheetSVG(examOrConfig?: any): string {
   return pages.join("");
 }
 
-/**
- * MỞ CỬA SỔ IN TRỰC TIẾP PHIẾU TRẢ LỜI TRẮC NGHIỆM A4 ĐỘNG THEO CẤU TRÚC ĐỀ THI
- */
 export function openPrintableDynamicAnswerSheet(examOrConfig?: any) {
   if (typeof window === "undefined") return;
   const printWin = window.open("", "_blank");
