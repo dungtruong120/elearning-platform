@@ -3,6 +3,134 @@ export type StudyMode = "online" | "offline";
 export type TargetMode = "online" | "offline" | "all";
 export type TargetAudience = "online" | "offline" | "all";
 export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type SubmissionType = "web" | "paper";
+
+export type OMRBubbleStatus =
+  | "correct"
+  | "wrong"
+  | "expected_missed"
+  | "unfilled"
+  | "ambiguous"
+  | "detected";
+
+export interface OMRBubbleCoordinate {
+  id: string;
+  section: "sbd" | "exam_code" | "part1" | "part2" | "part3";
+  questionNumber?: number;
+  subKey?: string;
+  optionKey: string;
+  x: number;
+  y: number;
+  r: number;
+  density: number;
+  isSelected: boolean;
+  status: OMRBubbleStatus;
+}
+
+export interface OMRCornerPoint {
+  x: number;
+  y: number;
+}
+
+export interface OMRResultData {
+  detected_sbd: string;
+  detected_exam_code: string;
+  confidence: number;
+  warp_matrix_applied: boolean;
+  canonical_width: number;
+  canonical_height: number;
+  warped_image_data_url?: string;
+  corner_points?: {
+    topLeft: OMRCornerPoint;
+    topRight: OMRCornerPoint;
+    bottomRight: OMRCornerPoint;
+    bottomLeft: OMRCornerPoint;
+  };
+  part1_answers: Record<number, string>;
+  part2_answers: Record<number, Record<"a" | "b" | "c" | "d", boolean | null>>;
+  part3_answers: Record<number, string>;
+  flagged_questions: number[];
+  bubble_coordinates: OMRBubbleCoordinate[];
+}
+
+export interface OMRQuestionGradeDetail {
+  questionOrder: number;
+  part: 1 | 2 | 3;
+  questionId: string;
+  type: QuestionType;
+  studentAnswerDisplay: string;
+  correctAnswerDisplay: string;
+  status: "correct" | "wrong" | "partial" | "skipped";
+  pointsEarned: number;
+  maxPoints: number;
+  isFlagged?: boolean;
+}
+
+export interface OMRGradingSummary {
+  score: number;
+  rawPointsEarned: number;
+  maxPossiblePoints: number;
+  totalQuestions: number;
+  correctCount: number;
+  wrongCount: number;
+  skippedCount: number;
+  part1Score: number;
+  part2Score: number;
+  part3Score: number;
+  normalizedAnswers: Record<string, any>;
+  questionDetails: OMRQuestionGradeDetail[];
+  updatedOmrData: OMRResultData;
+}
+
+export interface ExamAttempt {
+  id: string;
+  quiz_id?: string;
+  quizId?: string;
+  exam_id?: string;
+  quiz_title?: string;
+  quizTitle?: string;
+  exam_title?: string;
+  examTitle?: string;
+  student_id?: string;
+  studentId?: string;
+  user_id?: string;
+  student_name?: string;
+  studentName?: string;
+  full_name?: string;
+  user_name?: string;
+  username?: string;
+  school?: string;
+  score: number;
+  points?: number;
+  total_questions?: number;
+  totalQuestions?: number;
+  correct_count?: number;
+  correctCount?: number;
+  time_spent?: string;
+  timeSpent?: string;
+  duration_seconds?: number;
+  durationSeconds?: number;
+  is_homework?: boolean;
+  isHomework?: boolean;
+  type?: "homework" | "test" | "practice";
+  answers?: Record<string, any>;
+  userAnswers?: Record<string, any>;
+  user_answers?: Record<string, any>;
+  submission_type?: SubmissionType;
+  paper_scan_url?: string | null;
+  omr_raw_data?: OMRResultData | null;
+  recognition_confidence?: number;
+  flagged_questions?: number[];
+  feedback?: string;
+  assigned_month?: number;
+  assigned_week?: number;
+  created_at?: string;
+  createdAt?: string;
+  submittedAt?: string;
+  [key: string]: any;
+}
+
+export type QuizResult = ExamAttempt;
 
 export interface Profile {
   id: string;
@@ -101,6 +229,7 @@ export interface ExamSettings {
   driveUrl?: string;
   solutionVideoUrl?: string;
   allowViewFile?: boolean;
+  allowPaperScan?: boolean;
 }
 
 export interface Lesson {
@@ -110,6 +239,8 @@ export interface Lesson {
   duration?: number;
   format?: string;
   target_mode?: TargetMode;
+  assigned_month?: number;
+  assigned_week?: number;
   lecture_files?: any[];
   homework_files?: any[];
   handwritten_notes?: any[];
@@ -122,6 +253,8 @@ export interface Chapter {
   id: string;
   title: string;
   target_mode?: TargetMode;
+  assigned_month?: number;
+  assigned_week?: number;
   lessons: Lesson[];
 }
 
