@@ -13,10 +13,13 @@ import {
   ZoomOut,
   SwitchCamera,
   Edit3,
-  CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Crosshair,
+  Zap,
+  RotateCcw
 } from "lucide-react";
 import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
+import { OMRCornerPoint } from "@/types";
 import {
   scanOMRSheetFromCanvas,
   gradeOMRSubmission,
@@ -24,6 +27,7 @@ import {
   detectOMRCornerMarkers,
   deriveExamCode3Digits,
   formatStudentAutoSBD,
+  CustomFourCornersInput,
   OMR_CANONICAL_WIDTH,
   OMR_CANONICAL_HEIGHT
 } from "@/lib/omrEngine";
@@ -59,6 +63,11 @@ export interface AdminBulkOMRScannerModalProps {
 interface ScannedSheetItem {
   tempId: string;
   fileName: string;
+  originalImageUrl: string;
+  originalWidth: number;
+  originalHeight: number;
+  cornerPoints: CustomFourCornersInput;
+  warpMatrixApplied: boolean;
   detectedSbd: string;
   detectedExamCode: string;
   matchedStudentId: string;
@@ -122,10 +131,19 @@ export function AdminBulkOMRScannerModal({
   const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
   const [showQuickAdjustPanel, setShowQuickAdjustPanel] = useState<boolean>(true);
 
+  // STATE CHO CHẾ ĐỘ KÉO CHỈNH 4 GÓC THỦ CÔNG (MANUAL 4-CORNER PIN ADJUSTER)
+  const [isManualCornerMode, setIsManualCornerMode] = useState<boolean>(false);
+  const [editingCorners, setEditingCorners] = useState<CustomFourCornersInput | null>(null);
+  const [draggingCornerKey, setDraggingCornerKey] = useState<
+    "topLeft" | "topRight" | "bottomRight" | "bottomLeft" | null
+  >(null);
+  const [isRewarpingManual, setIsRewarpingManual] = useState<boolean>(false);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const lastAutoCaptureTimeRef = useRef<number>(0);
+  const manualSvgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     if (effectiveInitialQuiz?.id) {
@@ -133,7 +151,7 @@ export function AdminBulkOMRScannerModal({
     }
   }, [effectiveInitialQuiz]);
 
-  // 1. TỔNG HỢP DANH MỤC TẤT CẢ ĐỀ THI (BTVN + ĐỀ KT + LUYỆN ĐỀ) ĐỂ TỰ ĐỘNG KHỚP MÃ ĐỀ
+  // 1. TỔNG HỢP DANH MỤC TẤT CẢ ĐỀ THI (BTVN + ĐỀ KT + LUYỆN ĐỀ)
   const allQuizzesPool = useMemo(() => {
     const list: {
       id: string;
@@ -269,15 +287,25 @@ export function AdminBulkOMRScannerModal({
     return () => stopCamera();
   }, [isOpen, inputMode, startCamera, stopCamera]);
 
-  // HÀM XỬ LÝ 1 CANVAS ẢNH CHỤP -> TRÍCH XUẤT SBD, MÃ ĐỀ & CHẤM ĐIỂM BẰNG 2-PHASE ALIGNMENT
+  // HÀM XỬ LÝ 1 CANVAS ẢNH CHỤP -> TRÍCH XUẤT SBD, MÃ ĐỀ & CHẤM ĐIỂM
   const processSingleCanvas = useCallback(
-    (canvas: HTMLCanvasElement, labelName: string): ScannedSheetItem | null => {
+    (
+      canvas: HTMLCanvasElement,
+      labelName: string,
+      originalDataUrl?: string,
+      customCorners?: CustomFourCornersInput | null
+    ): ScannedSheetItem | null => {
       let targetQuizEntry =
         selectedQuizId !== "auto"
           ? allQuizzesPool.find((q) => q.id === selectedQuizId) || allQuizzesPool[0]
           : allQuizzesPool[0];
 
-      const preliminaryOmr = scanOMRSheetFromCanvas(canvas, targetQuizEntry?.rawObj);
+      const preliminaryOmr = scanOMRSheetFromCanvas(
+        canvas,
+        targetQuizEntry?.rawObj,
+        1,
+        customCorners
+      );
 
       if (selectedQuizId === "auto" && preliminaryOmr.detected_exam_code !== "Chưa tô") {
         const byCode = allQuizzesPool.find(
@@ -290,7 +318,7 @@ export function AdminBulkOMRScannerModal({
 
       const finalOmr =
         targetQuizEntry && selectedQuizId === "auto"
-          ? scanOMRSheetFromCanvas(canvas, targetQuizEntry.rawObj)
+          ? scanOMRSheetFromCanvas(canvas, targetQuizEntry.rawObj, 1, customCorners)
           : preliminaryOmr;
 
       const graded = gradeOMRSubmission(finalOmr, targetQuizEntry?.rawObj);
@@ -302,9 +330,21 @@ export function AdminBulkOMRScannerModal({
         (!isNaN(parsedStt) ? sbdLookupMap.get(String(parsedStt)) : undefined) ||
         null;
 
+      const fallbackCorners: CustomFourCornersInput = finalOmr.corner_points || {
+        topLeft: { x: Math.round(canvas.width * 0.04), y: Math.round(canvas.height * 0.03) },
+        topRight: { x: Math.round(canvas.width * 0.96), y: Math.round(canvas.height * 0.03) },
+        bottomRight: { x: Math.round(canvas.width * 0.96), y: Math.round(canvas.height * 0.97) },
+        bottomLeft: { x: Math.round(canvas.width * 0.04), y: Math.round(canvas.height * 0.97) }
+      };
+
       const item: ScannedSheetItem = {
         tempId: `scan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         fileName: labelName,
+        originalImageUrl: originalDataUrl || canvas.toDataURL("image/jpeg", 0.9),
+        originalWidth: canvas.width,
+        originalHeight: canvas.height,
+        cornerPoints: fallbackCorners,
+        warpMatrixApplied: Boolean(finalOmr.warp_matrix_applied),
         detectedSbd: cleanSbd || "Chưa tô",
         detectedExamCode: finalOmr.detected_exam_code || targetQuizEntry?.examCode || "101",
         matchedStudentId: matchedStu?.id || `sbd_${cleanSbd || Date.now()}`,
@@ -380,6 +420,7 @@ export function AdminBulkOMRScannerModal({
           if (resultItem) {
             setScannedItems((prev) => [resultItem, ...prev]);
             setActiveInspectId(resultItem.tempId);
+            setIsManualCornerMode(false);
             setCameraStatusText(
               `✓ Đã chấm: ${resultItem.matchedStudentName} (${resultItem.score}đ) — Mời đưa phiếu tiếp theo vào!`
             );
@@ -410,6 +451,8 @@ export function AdminBulkOMRScannerModal({
     if (resultItem) {
       setScannedItems((prev) => [resultItem, ...prev]);
       setActiveInspectId(resultItem.tempId);
+      setIsManualCornerMode(!resultItem.warpMatrixApplied);
+      setEditingCorners(resultItem.cornerPoints);
     }
   };
 
@@ -452,7 +495,8 @@ export function AdminBulkOMRScannerModal({
         if (!ctx) continue;
         ctx.drawImage(img, 0, 0, w, h);
 
-        const scanned = processSingleCanvas(canvas, f.name);
+        const resizedOriginalDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+        const scanned = processSingleCanvas(canvas, f.name, resizedOriginalDataUrl);
         if (scanned) {
           newResults.push(scanned);
         }
@@ -463,7 +507,11 @@ export function AdminBulkOMRScannerModal({
 
     if (newResults.length > 0) {
       setScannedItems((prev) => [...newResults, ...prev]);
-      setActiveInspectId(newResults[0].tempId);
+      const first = newResults[0];
+      setActiveInspectId(first.tempId);
+      setEditingCorners(first.cornerPoints);
+      // Nếu ảnh đầu tiên bị thiếu góc trên (như ảnh test vừa rồi), tự động bật khung Kéo chỉnh 4 góc để Giáo viên thấy ngay!
+      setIsManualCornerMode(!first.warpMatrixApplied);
     }
 
     setIsProcessing(false);
@@ -479,7 +527,97 @@ export function AdminBulkOMRScannerModal({
     );
   };
 
-  // TÍNH NĂNG CLICK-TO-ADJUST: CHỈNH SỬA NHANH SBD TRỰC TIẾP VÀ CẬP NHẬT LẠI BUBBLE SBD + TÊN HỌC SINH
+  const activeInspectItem =
+    scannedItems.find((i) => i.tempId === activeInspectId) || scannedItems[0] || null;
+
+  // Đồng bộ 4 góc khi đổi bài đang chọn
+  useEffect(() => {
+    if (activeInspectItem) {
+      setEditingCorners(activeInspectItem.cornerPoints);
+    }
+  }, [activeInspectItem?.tempId]);
+
+  // XỬ LÝ KÉO THẢ 4 CHỐT GHIM GÓC TRÊN SVG (POINTER MOVE)
+  const handleCornerSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!draggingCornerKey || !manualSvgRef.current || !activeInspectItem || !editingCorners) {
+      return;
+    }
+    const rect = manualSvgRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const relX = (e.clientX - rect.left) / rect.width;
+    const relY = (e.clientY - rect.top) / rect.height;
+
+    const newX = Math.max(
+      0,
+      Math.min(activeInspectItem.originalWidth, Math.round(relX * activeInspectItem.originalWidth))
+    );
+    const newY = Math.max(
+      0,
+      Math.min(activeInspectItem.originalHeight, Math.round(relY * activeInspectItem.originalHeight))
+    );
+
+    setEditingCorners((prev) =>
+      prev
+        ? {
+            ...prev,
+            [draggingCornerKey]: { x: newX, y: newY }
+          }
+        : null
+    );
+  };
+
+  // CHẠY LẠI HOMOGRAPHY 3x3 & CHẤM ĐIỂM THEO 4 CHỐT GHIM GIÁO VIÊN VỪA KÉO CHỈNH
+  const handleApplyManualCornersAndRescan = async () => {
+    if (!activeInspectItem || !editingCorners || isRewarpingManual) return;
+    setIsRewarpingManual(true);
+
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = reject;
+        im.src = activeInspectItem.originalImageUrl;
+      });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = activeInspectItem.originalWidth || img.naturalWidth || OMR_CANONICAL_WIDTH;
+      canvas.height = activeInspectItem.originalHeight || img.naturalHeight || OMR_CANONICAL_HEIGHT;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const rescanned = processSingleCanvas(
+          canvas,
+          activeInspectItem.fileName,
+          activeInspectItem.originalImageUrl,
+          editingCorners
+        );
+
+        if (rescanned) {
+          handleUpdateScannedItem(activeInspectItem.tempId, {
+            ...rescanned,
+            tempId: activeInspectItem.tempId,
+            cornerPoints: editingCorners,
+            warpMatrixApplied: true,
+            geometryWarning: undefined
+          });
+          setIsManualCornerMode(false);
+          if (showToast) {
+            showToast(
+              `✓ Đã nắn phẳng theo 4 góc mới! SBD: ${rescanned.detectedSbd} — Điểm: ${rescanned.score}đ`,
+              "success"
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Lỗi quét lại theo 4 góc thủ công:", err);
+    } finally {
+      setIsRewarpingManual(false);
+    }
+  };
+
+  // CLICK-TO-ADJUST: SỬA NHANH SBD
   const handleManualSbdEdit = (item: ScannedSheetItem, newSbdRaw: string) => {
     const cleanSbd = newSbdRaw.replace(/[^0-9]/g, "").slice(0, 6);
     const parsedStt = parseInt(cleanSbd, 10);
@@ -517,7 +655,7 @@ export function AdminBulkOMRScannerModal({
     });
   };
 
-  // TÍNH NĂNG CLICK-TO-ADJUST: CLICK ĐỔI NHANH ĐÁP ÁN PHẦN I / PHẦN II / PHẦN III VÀ TỰ ĐỘNG CHẤM LẠI ĐIỂM
+  // CLICK-TO-ADJUST: CLICK ĐỔI NHANH ĐÁP ÁN PHẦN I / PHẦN II / PHẦN III
   const handleQuickAdjustAnswer = (
     item: ScannedSheetItem,
     part: 1 | 2 | 3,
@@ -586,7 +724,7 @@ export function AdminBulkOMRScannerModal({
     });
   };
 
-  // LƯU TẤT CẢ ĐIỂM VÀO HỆ THỐNG (SUPABASE & LOCALSTORAGE)
+  // LƯU TẤT CẢ ĐIỂM VÀO HỆ THỐNG
   const handleSaveAllScannedToSystem = async () => {
     if (scannedItems.length === 0 || isSavingAll) return;
     setIsSavingAll(true);
@@ -703,9 +841,6 @@ export function AdminBulkOMRScannerModal({
 
   if (!isOpen) return null;
 
-  const activeInspectItem =
-    scannedItems.find((i) => i.tempId === activeInspectId) || scannedItems[0] || null;
-
   return (
     <AnimatePresence>
       <div
@@ -739,7 +874,7 @@ export function AdminBulkOMRScannerModal({
               </div>
               <div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-purple-300 block">
-                  2-PHASE ALIGNMENT OMR ENGINE (LOCAL SUB-GRID & CLICK-TO-ADJUST)
+                  HOMOGRAPHY 3X3 OMR ENGINE + MANUAL 4-CORNER PIN ADJUSTER
                 </span>
                 <h3 className="text-sm sm:text-base font-black text-white">
                   Chấm bài thi giấy cả lớp & Đối soát SBD tự động
@@ -820,7 +955,7 @@ export function AdminBulkOMRScannerModal({
                         Kéo thả 20–50 ảnh phiếu trả lời vào đây hoặc Bấm để chọn ảnh
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        Đã kích hoạt 2-Phase Sub-grid Alignment: Tự động khóa viền hộp SBD 6x10 và từng khung câu hỏi, đọc chuẩn SBD 100%.
+                        Ma trận Homography 3x3 + Centroid Snapping + Hỗ trợ Kéo 4 chốt ghim góc thủ công nếu ảnh chụp mất góc.
                       </p>
                     </>
                   )}
@@ -872,6 +1007,23 @@ export function AdminBulkOMRScannerModal({
                 </div>
               )}
 
+              {/* CẢNH BÁO NẾU ẢNH ĐANG CHỌN BỊ CẮT MẤT MỐC GÓC TRÊN */}
+              {activeInspectItem?.geometryWarning && (
+                <div className="p-3.5 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-900 text-xs font-bold flex items-start justify-between gap-3 shadow-2xs">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="leading-relaxed">{activeInspectItem.geometryWarning}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsManualCornerMode(true)}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black shrink-0 cursor-pointer"
+                  >
+                    🎯 Chỉnh 4 góc ngay
+                  </button>
+                </div>
+              )}
+
               {/* DANH SÁCH KẾT QUẢ VỪA QUÉT */}
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col shrink-0">
                 <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
@@ -900,7 +1052,7 @@ export function AdminBulkOMRScannerModal({
                   )}
                 </div>
 
-                <div className="max-h-[210px] overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
+                <div className="max-h-[200px] overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
                   {scannedItems.length === 0 ? (
                     <div className="py-10 text-center text-slate-400 text-xs italic">
                       Chưa có phiếu nào được quét trong phiên này.
@@ -922,7 +1074,6 @@ export function AdminBulkOMRScannerModal({
                                 #{idx + 1}
                               </span>
 
-                              {/* Ô SBD CHO PHÉP CLICK GÕ SỬA NHANH TRỰC TIẾP */}
                               <div
                                 onClick={(e) => e.stopPropagation()}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[11px]"
@@ -969,10 +1120,12 @@ export function AdminBulkOMRScannerModal({
                             <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-2 flex-wrap">
                               <span>Đề: {item.matchedQuizTitle}</span>
                               <span>• Đúng: {item.correctCount}/{item.totalQuestions}</span>
-                              <span>• P1: {item.part1Score}đ | P2: {item.part2Score}đ | P3: {item.part3Score}đ</span>
-                              {item.flaggedQuestions.length > 0 && (
-                                <span className="text-amber-700 font-bold">
-                                  ⚠️ Lem chì câu {item.flaggedQuestions.join(", ")}
+                              <span>
+                                • P1: {item.part1Score}đ | P2: {item.part2Score}đ | P3: {item.part3Score}đ
+                              </span>
+                              {!item.warpMatrixApplied && (
+                                <span className="text-rose-600 font-black">
+                                  ⚠️ Thiếu góc (Cần kéo 4 góc)
                                 </span>
                               )}
                             </div>
@@ -1038,7 +1191,7 @@ export function AdminBulkOMRScannerModal({
                   </div>
 
                   {showQuickAdjustPanel && (
-                    <div className="p-3 max-h-[190px] overflow-y-auto custom-scrollbar space-y-2">
+                    <div className="p-3 max-h-[180px] overflow-y-auto custom-scrollbar space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {(activeInspectItem.questionDetails || []).map((qd: any) => {
                           const isRight = qd.status === "correct";
@@ -1134,16 +1287,40 @@ export function AdminBulkOMRScannerModal({
               )}
             </div>
 
-            {/* CỘT PHẢI (5 CỘT): ẢNH ĐỐI SOÁT OMR CỦA BÀI ĐANG CHỌN (HIỂN THỊ CHUẨN CẢ VÒNG TRÒN SBD, MÃ ĐỀ & CÂU HỎI) */}
+            {/* CỘT PHẢI (5 CỘT): XEM ẢNH ĐÃ CHẤM HOẶC KÉO CHỈNH 4 CHỐT GHIM GÓC THỦ CÔNG */}
             <div className="lg:col-span-5 bg-slate-900 flex flex-col min-h-0">
-              <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs text-slate-300 shrink-0">
-                <div className="truncate">
-                  <span className="font-bold text-white">
-                    {activeInspectItem
-                      ? `${activeInspectItem.matchedStudentName} — SBD: ${activeInspectItem.detectedSbd} (${activeInspectItem.score}đ)`
-                      : "Xem chi tiết ảnh chấm OMR"}
-                  </span>
+              <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300 shrink-0">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsManualCornerMode((v) => !v)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 transition cursor-pointer ${
+                      isManualCornerMode
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30"
+                    }`}
+                  >
+                    <Crosshair className="w-3.5 h-3.5" />
+                    <span>{isManualCornerMode ? "Đang chỉnh 4 góc" : "🎯 Kéo chỉnh 4 góc"}</span>
+                  </button>
+
+                  {isManualCornerMode && (
+                    <button
+                      type="button"
+                      disabled={isRewarpingManual}
+                      onClick={handleApplyManualCornersAndRescan}
+                      className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-black flex items-center gap-1 shadow-md cursor-pointer"
+                    >
+                      {isRewarpingManual ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 fill-slate-950" />
+                      )}
+                      <span>⚡ Nắn phẳng & Quét lại</span>
+                    </button>
+                  )}
                 </div>
+
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
@@ -1163,81 +1340,170 @@ export function AdminBulkOMRScannerModal({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-auto p-4 custom-scrollbar flex items-start justify-center">
-                {activeInspectItem?.warpedImageUrl ? (
-                  <div
-                    style={{
-                      width: `${Math.round(440 * zoomScale)}px`,
-                      transition: "width 0.18s ease-out"
-                    }}
-                    className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
-                  >
-                    <img
-                      src={activeInspectItem.warpedImageUrl}
-                      alt="Phiếu đã chấm"
-                      className="w-full h-auto block select-none"
-                    />
-                    {activeInspectItem.omrRawData?.bubble_coordinates && (
-                      <svg
-                        viewBox={`0 0 ${OMR_CANONICAL_WIDTH} ${OMR_CANONICAL_HEIGHT}`}
-                        className="absolute inset-0 w-full h-full"
+              <div className="flex-1 overflow-auto p-4 custom-scrollbar flex flex-col items-center justify-start">
+                {activeInspectItem ? (
+                  isManualCornerMode && editingCorners ? (
+                    /* CHẾ ĐỘ 1: KÉO CHỈNH 4 CHỐT GHIM GÓC TRỰC TIẾP TRÊN ẢNH GỐC */
+                    <div className="w-full space-y-2">
+                      <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 text-[11px] font-semibold text-center">
+                        Kéo 4 chốt tròn màu xanh (<strong>TL, TR, BR, BL</strong>) đặt vào đúng 4 góc của tờ phiếu rồi bấm{" "}
+                        <strong className="text-amber-300">[⚡ Nắn phẳng & Quét lại]</strong>
+                      </div>
+
+                      <div
+                        style={{
+                          width: `${Math.round(430 * zoomScale)}px`,
+                          aspectRatio: `${activeInspectItem.originalWidth} / ${activeInspectItem.originalHeight}`
+                        }}
+                        className="relative mx-auto rounded-xl overflow-hidden border-2 border-emerald-500 bg-black shadow-2xl select-none touch-none"
                       >
-                        {activeInspectItem.omrRawData.bubble_coordinates
-                          .filter((b: any) => b.status !== "unfilled")
-                          .map((b: any) => {
-                            const isSbdOrCode =
-                              b.section === "sbd" || b.section === "exam_code";
+                        <img
+                          src={activeInspectItem.originalImageUrl}
+                          alt="Ảnh chụp gốc"
+                          className="w-full h-full object-fill block pointer-events-none select-none"
+                        />
 
-                            const strokeColor = isSbdOrCode
-                              ? "#7C3AED"
-                              : b.status === "correct"
-                              ? "#10B981"
-                              : b.status === "wrong"
-                              ? "#EF4444"
-                              : b.status === "expected_missed"
-                              ? "#3B82F6"
-                              : "#F59E0B";
+                        <svg
+                          ref={manualSvgRef}
+                          viewBox={`0 0 ${activeInspectItem.originalWidth} ${activeInspectItem.originalHeight}`}
+                          preserveAspectRatio="none"
+                          onPointerMove={handleCornerSvgPointerMove}
+                          onPointerUp={() => setDraggingCornerKey(null)}
+                          onPointerLeave={() => setDraggingCornerKey(null)}
+                          className="absolute inset-0 w-full h-full cursor-crosshair"
+                        >
+                          {/* Đường nối tứ giác 4 góc */}
+                          <polygon
+                            points={`${editingCorners.topLeft.x},${editingCorners.topLeft.y} ${editingCorners.topRight.x},${editingCorners.topRight.y} ${editingCorners.bottomRight.x},${editingCorners.bottomRight.y} ${editingCorners.bottomLeft.x},${editingCorners.bottomLeft.y}`}
+                            fill="rgba(16, 185, 129, 0.12)"
+                            stroke="#10B981"
+                            strokeWidth={Math.max(3, Math.round(activeInspectItem.originalWidth * 0.004))}
+                            strokeDasharray="10 6"
+                          />
 
+                          {(
+                            [
+                              { key: "topLeft", label: "TL", pt: editingCorners.topLeft },
+                              { key: "topRight", label: "TR", pt: editingCorners.topRight },
+                              { key: "bottomRight", label: "BR", pt: editingCorners.bottomRight },
+                              { key: "bottomLeft", label: "BL", pt: editingCorners.bottomLeft }
+                            ] as const
+                          ).map((corner) => {
+                            const pinR = Math.max(
+                              16,
+                              Math.round(activeInspectItem.originalWidth * 0.024)
+                            );
                             return (
                               <g
-                                key={b.id}
-                                className="cursor-pointer"
-                                onClick={() => {
-                                  if (b.section === "part1" && b.questionNumber) {
-                                    handleQuickAdjustAnswer(
-                                      activeInspectItem,
-                                      1,
-                                      b.questionNumber,
-                                      b.optionKey
-                                    );
-                                  }
+                                key={corner.key}
+                                onPointerDown={(e) => {
+                                  e.stopPropagation();
+                                  setDraggingCornerKey(corner.key);
                                 }}
+                                className="cursor-grab active:cursor-grabbing"
                               >
                                 <circle
-                                  cx={b.x}
-                                  cy={b.y}
-                                  r={b.r + 2.5}
-                                  fill={
-                                    isSbdOrCode
-                                      ? "rgba(124, 58, 237, 0.24)"
-                                      : b.status === "correct"
-                                      ? "rgba(16,185,129,0.24)"
-                                      : b.status === "wrong"
-                                      ? "rgba(239,68,68,0.24)"
-                                      : "none"
-                                  }
-                                  stroke={strokeColor}
-                                  strokeWidth={2.4}
-                                  strokeDasharray={
-                                    b.status === "expected_missed" ? "4 2" : undefined
-                                  }
+                                  cx={corner.pt.x}
+                                  cy={corner.pt.y}
+                                  r={pinR}
+                                  fill="#10B981"
+                                  stroke="#FFFFFF"
+                                  strokeWidth={4}
                                 />
+                                <text
+                                  x={corner.pt.x}
+                                  y={corner.pt.y + 5}
+                                  fontSize={Math.max(12, Math.round(pinR * 0.75))}
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                  fill="#FFFFFF"
+                                >
+                                  {corner.label}
+                                </text>
                               </g>
                             );
                           })}
-                      </svg>
-                    )}
-                  </div>
+                        </svg>
+                      </div>
+                    </div>
+                  ) : (
+                    /* CHẾ ĐỘ 2: HIỂN THỊ ẢNH ĐÃ NẮN PHẲNG (KHÓA CỨNG TỶ LỆ 1200/1700 TRÙNG KHÍT 100%) */
+                    <div
+                      style={{
+                        width: `${Math.round(430 * zoomScale)}px`,
+                        aspectRatio: `${OMR_CANONICAL_WIDTH} / ${OMR_CANONICAL_HEIGHT}`,
+                        transition: "width 0.18s ease-out"
+                      }}
+                      className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
+                    >
+                      <img
+                        src={activeInspectItem.warpedImageUrl}
+                        alt="Phiếu đã chấm"
+                        className="w-full h-full object-fill block select-none"
+                      />
+                      {activeInspectItem.omrRawData?.bubble_coordinates && (
+                        <svg
+                          viewBox={`0 0 ${OMR_CANONICAL_WIDTH} ${OMR_CANONICAL_HEIGHT}`}
+                          preserveAspectRatio="none"
+                          className="absolute inset-0 w-full h-full"
+                        >
+                          {activeInspectItem.omrRawData.bubble_coordinates
+                            .filter((b: any) => b.status !== "unfilled")
+                            .map((b: any) => {
+                              const isSbdOrCode =
+                                b.section === "sbd" || b.section === "exam_code";
+
+                              const strokeColor = isSbdOrCode
+                                ? "#7C3AED"
+                                : b.status === "correct"
+                                ? "#10B981"
+                                : b.status === "wrong"
+                                ? "#EF4444"
+                                : b.status === "expected_missed"
+                                ? "#3B82F6"
+                                : "#F59E0B";
+
+                              return (
+                                <g
+                                  key={b.id}
+                                  className="cursor-pointer"
+                                  onClick={() => {
+                                    if (b.section === "part1" && b.questionNumber) {
+                                      handleQuickAdjustAnswer(
+                                        activeInspectItem,
+                                        1,
+                                        b.questionNumber,
+                                        b.optionKey
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <circle
+                                    cx={b.x}
+                                    cy={b.y}
+                                    r={b.r + 2.5}
+                                    fill={
+                                      isSbdOrCode
+                                        ? "rgba(124, 58, 237, 0.25)"
+                                        : b.status === "correct"
+                                        ? "rgba(16,185,129,0.24)"
+                                        : b.status === "wrong"
+                                        ? "rgba(239,68,68,0.24)"
+                                        : "none"
+                                    }
+                                    stroke={strokeColor}
+                                    strokeWidth={2.4}
+                                    strokeDasharray={
+                                      b.status === "expected_missed" ? "4 2" : undefined
+                                    }
+                                  />
+                                </g>
+                              );
+                            })}
+                        </svg>
+                      )}
+                    </div>
+                  )
                 ) : (
                   <div className="my-auto text-center text-slate-500 text-xs p-6">
                     Hãy tải ảnh phiếu hoặc chụp bằng Camera ở khung bên trái để xem kết quả khoanh vùng OMR.
