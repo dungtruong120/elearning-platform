@@ -13,15 +13,17 @@ import { supabase } from "@/lib/supabaseClient";
 import { STANDARD_SHIFTS } from "@/types";
 import { AdminTab, INITIAL_CHAPTERS } from "@/types/admin";
 import AdminStudentReportPanel from "@/components/admin/AdminStudentReportPanel";
-import AdminSidebar from "@/components/admin/AdminSidebar";
+import AdminSidebar from "@/components/admin/Sidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
 import LessonsTab from "@/components/admin/tabs/LessonsTab";
 import PracticeTab from "@/components/admin/tabs/PracticeTab";
+import PaperExamManagerTab from "@/components/admin/tabs/PaperExamManagerTab";
 import AnalyticsTab from "@/components/admin/tabs/AnalyticsTab";
 import NotificationsTab from "@/components/admin/tabs/NotificationsTab";
 import StudentsTab from "@/components/admin/tabs/StudentsTab";
 import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
+import { AdminBulkOMRScannerModal } from "@/components/admin/paper/AdminBulkOMRScannerModal";
 
 // DYNAMIC IMPORT AZOTA MODAL
 const AzotaExamConfigModal: any = dynamic(
@@ -168,7 +170,6 @@ async function sanitizeAndUploadAllMediaRecursively(
   if (!target) return target;
 
   if (typeof target === "string") {
-    // Nếu bản thân là chuỗi Base64
     if (target.startsWith("data:image")) {
       if (!urlMap.has(target)) {
         const url = await uploadSingleImageToStorage(supabaseClient, target, folder);
@@ -177,7 +178,6 @@ async function sanitizeAndUploadAllMediaRecursively(
       }
       return urlMap.get(target);
     }
-    // Nếu là HTML có chứa Base64 bên trong
     if (target.includes("data:image/")) {
       const regex = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=\r\n]+/g;
       const matches = Array.from(new Set(target.match(regex) || []));
@@ -244,6 +244,17 @@ function safeSavePracticeExamsToStorage(examsList: any[]) {
   }
 }
 
+const VALID_ADMIN_TABS = [
+  "lessons",
+  "practice",
+  "paper-exams",
+  "analytics",
+  "notifications",
+  "students",
+  "online_schedule",
+  "reports"
+];
+
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
@@ -279,17 +290,20 @@ function AdminDashboardContent() {
     return false;
   }, []);
 
-  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+  const [activeTab, setActiveTab] = useState<AdminTab | "paper-exams" | string>(() => {
     if (typeof window !== "undefined") {
-      const hash = window.location.hash.replace("#", "") as AdminTab;
-      const validTabs: AdminTab[] = ["lessons", "analytics", "practice", "notifications", "students", "online_schedule", "reports"];
-      if (validTabs.includes(hash)) return hash;
+      const hash = window.location.hash.replace("#", "").trim();
+      if (VALID_ADMIN_TABS.includes(hash)) return hash;
     }
     return "lessons";
   });
 
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
+
+  // STATE MỞ MODAL CHẤM THI GIẤY HÀNG LOẠT (ADMIN BULK OMR SCANNER)
+  const [bulkOmrScannerQuiz, setBulkOmrScannerQuiz] = useState<any | null>(null);
+  const [isBulkOmrScannerOpen, setIsBulkOmrScannerOpen] = useState<boolean>(false);
 
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
@@ -510,7 +524,7 @@ function AdminDashboardContent() {
     setTimeout(() => setToastNotification(null), 3500); 
   }, []);
 
-  const handleSwitchTab = useCallback((newTab: AdminTab) => {
+  const handleSwitchTab = useCallback((newTab: AdminTab | "paper-exams" | string) => {
     setActiveTab(newTab);
     if (typeof window !== "undefined") {
       window.history.pushState({ tab: newTab }, "", "#" + newTab);
@@ -557,7 +571,6 @@ function AdminDashboardContent() {
       studentId && createdAt ? `${studentId}_${createdAt}` : "",
     ].filter(Boolean);
 
-    // 1. Thêm vào danh sách đen chặn sync tái nạp
     keysToBlock.forEach((k) => deletedAttemptIdsRef.current.add(k));
 
     if (typeof window !== "undefined") {
@@ -576,7 +589,6 @@ function AdminDashboardContent() {
       } catch (e) {}
     }
 
-    // 2. Lọc bỏ ngay lập tức khỏi State gốc allAttempts
     setAllAttempts((prev: any[]) => {
       const updated = (prev || []).filter((item: any) => {
         if (!item) return false;
@@ -585,7 +597,6 @@ function AdminDashboardContent() {
         if (isAttemptBlacklisted(item)) return false;
         return true;
       });
-      // 3. Cập nhật đè ngay vào localStorage để F5 không bao giờ lôi bản ghi cũ lên
       if (typeof window !== "undefined") {
         try {
           localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
@@ -595,8 +606,7 @@ function AdminDashboardContent() {
     });
   }, [isAttemptBlacklisted]);
 
-  // HÀM ĐỒNG BỘ BÀI HỌC / BTVN (`syncCoursesToSupabase` / `notifyAndSync`):
-  // QUÉT SẠCH & UPLOAD TOÀN BỘ ẢNH BASE64 TRONG COURSES LÊN SUPABASE STORAGE TRƯỚC KHI LƯU DB & LOCALSTORAGE
+  // HÀM ĐỒNG BỘ BÀI HỌC / BTVN (`syncCoursesToSupabase`)
   const syncCoursesToSupabase = useCallback((coursesData: any[], taskName: string = "bài học"): Promise<boolean> => {
     latestChaptersRef.current = coursesData;
 
@@ -617,7 +627,6 @@ function AdminDashboardContent() {
 
     syncTimeoutRef.current = setTimeout(async () => {
       try {
-        // 1. Quét sạch và upload toàn bộ ảnh Base64 trong courses lên Storage bucket 'exam-media'
         const mediaUrlMap = new Map<string, string>();
         let uploadedCount = 0;
 
@@ -638,7 +647,6 @@ function AdminDashboardContent() {
           }
         );
 
-        // 2. Cập nhật state courses bằng bản đã làm sạch (chỉ chứa Public URL ngắn gọn)
         latestChaptersRef.current = cleanCoursesData;
         startTransition(() => {
           setChapters(cleanCoursesData);
@@ -650,7 +658,6 @@ function AdminDashboardContent() {
           message: `Đang lưu ${taskName} lên đám mây Supabase... [80%]`,
         }));
 
-        // 3. Ghi vào Supabase (Bản ghi lúc này chỉ toàn URL ngắn, dung lượng cực nhẹ, dưới 100KB)
         const nowIso = new Date().toISOString();
         const { error: sbErr } = await supabase
           .from("courses")
@@ -662,7 +669,6 @@ function AdminDashboardContent() {
           });
 
         if (sbErr) {
-          // Fallback: nếu bảng dùng cột data hoặc id khác thì kiểm tra dòng đầu tiên
           const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
           const targetId = existingRows && existingRows.length > 0
             ? existingRows[0].id
@@ -679,7 +685,6 @@ function AdminDashboardContent() {
           }
         }
 
-        // 4. Lưu vào LocalStorage an toàn (chỉ lưu bản cleanCoursesData đã bóc ảnh)
         try {
           localStorage.setItem("edunexus_course_data", JSON.stringify(cleanCoursesData));
           window.dispatchEvent(new Event("storage"));
@@ -712,10 +717,6 @@ function AdminDashboardContent() {
 
     return Promise.resolve(true);
   }, [showToast]);
-
-  const notifyAndSync = syncCoursesToSupabase;
-  const handleOptimisticUpdateChapters = syncCoursesToSupabase;
-  const saveToStorage = syncCoursesToSupabase;
 
   const handleRetrySync = () => {
     if (latestChaptersRef.current) {
@@ -773,22 +774,35 @@ function AdminDashboardContent() {
 
         const map = new Map();
 
-        // Chỉ lấy dữ liệu chuẩn từ Server (examAttempts + quizResults) và lọc qua Blacklist đã xóa
         const combinedServerAttempts = [
           ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
           ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : []),
         ];
 
+        // Bổ sung các lượt nộp trên giấy đang có trong localStorage chưa kịp đồng bộ
+        if (typeof window !== "undefined") {
+          try {
+            const localSaved = JSON.parse(localStorage.getItem("edunexus_attempts") || "[]");
+            if (Array.isArray(localSaved)) {
+              localSaved.forEach((loc: any) => {
+                if (loc && (loc.submission_type === "paper" || loc.paper_scan_url || loc.omr_raw_data)) {
+                  combinedServerAttempts.push(loc);
+                }
+              });
+            }
+          } catch {}
+        }
+
         combinedServerAttempts.forEach((item: any) => {
           if (!item) return;
-          const quizId = String(item.quiz_id || item.exam_id || "").trim();
-          const studentId = String(item.student_id || item.user_id || "").trim();
+          const quizId = String(item.quiz_id || item.quizId || item.exam_id || "").trim();
+          const studentId = String(item.student_id || item.studentId || item.user_id || "").trim();
           
           const matchedProfile = (apiData.profiles || []).find((p: any) => p.id === studentId);
-          const studentName = matchedProfile?.full_name || item.student_name || item.full_name || item.user_name || "Học sinh";
-          const examTitle = String(item.exam_title || item.quiz_title || "").trim();
+          const studentName = matchedProfile?.full_name || item.student_name || item.studentName || item.full_name || item.user_name || "Học sinh";
+          const examTitle = String(item.exam_title || item.examTitle || item.quiz_title || item.quizTitle || "").trim();
           const score = Number(item.score ?? item.points ?? 0);
-          const createdAt = item.created_at || new Date().toISOString();
+          const createdAt = item.created_at || item.createdAt || new Date().toISOString();
 
           const normalized = {
             ...item,
@@ -804,7 +818,7 @@ function AdminDashboardContent() {
             score,
             points: score,
             type: item.type || (item.is_homework ? "homework" : "practice"),
-            timeSpent: item.time_spent || (item.duration_seconds ? `${Math.floor(item.duration_seconds / 60)}p` : "15 phút"),
+            timeSpent: item.time_spent || item.timeSpent || (item.duration_seconds ? `${Math.floor(item.duration_seconds / 60)}p` : "15 phút"),
             createdAt,
             created_at: createdAt,
             feedback: item.feedback || "",
@@ -949,9 +963,8 @@ function AdminDashboardContent() {
 
     const handlePopState = () => {
       if (typeof window !== "undefined") {
-        const hash = window.location.hash.replace("#", "") as AdminTab;
-        const validTabs: AdminTab[] = ["lessons", "analytics", "practice", "notifications", "students", "online_schedule", "reports"];
-        if (validTabs.includes(hash)) {
+        const hash = window.location.hash.replace("#", "").trim();
+        if (VALID_ADMIN_TABS.includes(hash)) {
           setActiveTab(hash);
         } else {
           setActiveTab("lessons");
@@ -1776,7 +1789,6 @@ function AdminDashboardContent() {
         const urlMap = new Map<string, string>();
         let uploadedCount = 0;
 
-        // A. Đệ quy upload toàn bộ ảnh trong mediaMap & sections lên Storage bucket 'exam-media'
         const cleanedMediaMap = await sanitizeAndUploadAllMediaRecursively(
           incomingMediaMap,
           supabase,
@@ -1994,14 +2006,14 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       <AdminSidebar
-        activeTab={activeTab}
+        activeTab={activeTab as any}
         onSwitchTab={handleSwitchTab}
         onLogout={handleAdminLogout}
       />
 
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <AdminHeader
-          activeTab={activeTab}
+          activeTab={activeTab as any}
           onSyncData={async () => {
             await loadStorageData();
             showToast("Đã đồng bộ toàn bộ dữ liệu tức thì từ Server!", "success");
@@ -2114,6 +2126,22 @@ function AdminDashboardContent() {
             />
           )}
 
+          {/* TAB MỚI ĐỘC LẬP: CHẤM THI & QUẢN LÝ BÀI GIẤY (HỖ TRỢ BTVN, ĐỀ KT & LUYỆN ĐỀ) */}
+          {activeTab === "paper-exams" && (
+            <PaperExamManagerTab
+              chapters={chapters || []}
+              practiceExams={practiceExams || []}
+              registeredStudents={registeredStudents || []}
+              allAttempts={allAttempts || []}
+              setAllAttempts={setAllAttempts}
+              showToast={showToast}
+              onOpenBulkScannerModal={(selectedQuiz) => {
+                setBulkOmrScannerQuiz(selectedQuiz || null);
+                setIsBulkOmrScannerOpen(true);
+              }}
+            />
+          )}
+
           {activeTab === "analytics" && (
             <AnalyticsTab
               analyticsData={analyticsData || []}
@@ -2127,6 +2155,9 @@ function AdminDashboardContent() {
               setSelectedLessonId={setSelectedLessonId}
               chapters={chapters || []}
               isLoadingAnalytics={isLoadingAnalytics}
+              allAttempts={allAttempts || []}
+              registeredStudents={registeredStudents || []}
+              practiceExams={practiceExams || []}
             />
           )}
 
@@ -2199,6 +2230,29 @@ function AdminDashboardContent() {
           )}
         </div>
       </main>
+
+      {/* MODAL CHẤM OMR HÀNG LOẠT CHO CẢ LỚP */}
+      <AdminBulkOMRScannerModal
+        isOpen={isBulkOmrScannerOpen}
+        onClose={() => setIsBulkOmrScannerOpen(false)}
+        initialSelectedQuiz={bulkOmrScannerQuiz}
+        chapters={chapters || []}
+        practiceExams={practiceExams || []}
+        registeredStudents={registeredStudents || []}
+        showToast={showToast}
+        onSavedBatchAttempts={(newAttempts) => {
+          setAllAttempts((prev: any[]) => {
+            const merged = [...newAttempts, ...(prev || [])];
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem("edunexus_attempts", JSON.stringify(merged));
+                window.dispatchEvent(new Event("storage"));
+              } catch {}
+            }
+            return merged;
+          });
+        }}
+      />
 
       <AdminModals
         azotaScoreViewModal={azotaScoreViewModal}
