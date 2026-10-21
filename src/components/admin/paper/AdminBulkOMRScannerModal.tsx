@@ -6,20 +6,14 @@ import {
   Camera,
   Upload,
   X,
-  CheckCircle2,
-  AlertTriangle,
   Loader2,
-  Eye,
   Trash2,
   Save,
   ZoomIn,
   ZoomOut,
-  SwitchCamera,
-  Sparkles,
-  FileCheck2,
-  Users
+  SwitchCamera
 } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
   scanOMRSheetFromCanvas,
   gradeOMRSubmission,
@@ -31,13 +25,30 @@ import {
   OMR_CANONICAL_HEIGHT
 } from "@/lib/omrEngine";
 
+export interface StudentSBDRecord {
+  id?: string;
+  studentId?: string;
+  username?: string;
+  full_name?: string;
+  studentName?: string;
+  sbd: string;
+  stt?: number;
+  school?: string;
+  grade?: string;
+  learningMode?: string;
+  [key: string]: any;
+}
+
 export interface AdminBulkOMRScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialSelectedQuiz?: any;
+  defaultSelectedExam?: any;
   chapters?: any[];
   practiceExams?: any[];
   registeredStudents?: any[];
+  studentsList?: StudentSBDRecord[];
+  supabase?: any;
   onSavedBatchAttempts?: (newAttempts: any[]) => void;
   showToast?: (msg: string, type?: "success" | "error") => void;
 }
@@ -75,12 +86,18 @@ export function AdminBulkOMRScannerModal({
   isOpen,
   onClose,
   initialSelectedQuiz,
+  defaultSelectedExam,
   chapters = [],
   practiceExams = [],
   registeredStudents = [],
+  studentsList = [],
+  supabase: propSupabase,
   onSavedBatchAttempts,
   showToast
 }: AdminBulkOMRScannerModalProps) {
+  const effectiveSupabase = propSupabase || defaultSupabaseClient;
+  const effectiveInitialQuiz = initialSelectedQuiz || defaultSelectedExam || null;
+
   const [inputMode, setInputMode] = useState<"upload" | "camera">("upload");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState<boolean>(true);
@@ -89,7 +106,7 @@ export function AdminBulkOMRScannerModal({
   );
 
   const [selectedQuizId, setSelectedQuizId] = useState<string>(
-    initialSelectedQuiz?.id ? String(initialSelectedQuiz.id) : "auto"
+    effectiveInitialQuiz?.id ? String(effectiveInitialQuiz.id) : "auto"
   );
 
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -105,10 +122,10 @@ export function AdminBulkOMRScannerModal({
   const lastAutoCaptureTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    if (initialSelectedQuiz?.id) {
-      setSelectedQuizId(String(initialSelectedQuiz.id));
+    if (effectiveInitialQuiz?.id) {
+      setSelectedQuizId(String(effectiveInitialQuiz.id));
     }
-  }, [initialSelectedQuiz]);
+  }, [effectiveInitialQuiz]);
 
   // 1. TỔNG HỢP DANH MỤC TẤT CẢ ĐỀ THI (BTVN + ĐỀ KT + LUYỆN ĐỀ) ĐỂ TỰ ĐỘNG KHỚP MÃ ĐỀ
   const allQuizzesPool = useMemo(() => {
@@ -171,23 +188,30 @@ export function AdminBulkOMRScannerModal({
     return list;
   }, [chapters, practiceExams]);
 
-  // 2. BẢNG TRA CỨU HỌC SINH THEO SBD (000001 -> 0000NN)
+  // 2. BẢNG TRA CỨU HỌC SINH THEO SBD (000001 -> 0000NN) HỖ TRỢ CẢ studentsList LẪN registeredStudents
   const studentDirectory = useMemo(() => {
-    const pool = [...(registeredStudents || [])].filter(Boolean);
+    const sourceArr =
+      Array.isArray(studentsList) && studentsList.length > 0
+        ? studentsList
+        : Array.isArray(registeredStudents)
+        ? registeredStudents
+        : [];
+
+    const pool = [...sourceArr].filter(Boolean);
     pool.sort((a, b) =>
-      String(a.full_name || a.name || "").localeCompare(
-        String(b.full_name || b.name || ""),
+      String(a.full_name || a.studentName || a.name || "").localeCompare(
+        String(b.full_name || b.studentName || b.name || ""),
         "vi"
       )
     );
     return pool.map((stu, idx) => ({
-      id: String(stu.id),
-      full_name: String(stu.full_name || stu.name || "Học sinh"),
+      id: String(stu.id || stu.studentId || `stu_${idx + 1}`),
+      full_name: String(stu.full_name || stu.studentName || stu.name || "Học sinh"),
       school: String(stu.school || "THPT"),
-      stt: idx + 1,
-      sbd: formatStudentAutoSBD(idx + 1)
+      stt: stu.stt || idx + 1,
+      sbd: stu.sbd ? String(stu.sbd).padStart(6, "0").slice(-6) : formatStudentAutoSBD(idx + 1)
     }));
-  }, [registeredStudents]);
+  }, [studentsList, registeredStudents]);
 
   const sbdLookupMap = useMemo(() => {
     const map = new Map<string, (typeof studentDirectory)[0]>();
@@ -242,13 +266,11 @@ export function AdminBulkOMRScannerModal({
   // HÀM XỬ LÝ 1 CANVAS ẢNH CHỤP -> TRÍCH XUẤT SBD, MÃ ĐỀ & CHẤM ĐIỂM
   const processSingleCanvas = useCallback(
     (canvas: HTMLCanvasElement, labelName: string): ScannedSheetItem | null => {
-      // Tìm đề thi mục tiêu
       let targetQuizEntry =
         selectedQuizId !== "auto"
           ? allQuizzesPool.find((q) => q.id === selectedQuizId) || allQuizzesPool[0]
           : allQuizzesPool[0];
 
-      // Quét sơ bộ để lấy Mã đề nếu để chế độ "auto"
       const preliminaryOmr = scanOMRSheetFromCanvas(canvas, targetQuizEntry?.rawObj);
 
       if (selectedQuizId === "auto" && preliminaryOmr.detected_exam_code !== "Chưa tô") {
@@ -267,7 +289,6 @@ export function AdminBulkOMRScannerModal({
 
       const graded = gradeOMRSubmission(finalOmr, targetQuizEntry?.rawObj);
 
-      // Khớp học sinh từ SBD
       const cleanSbd = String(finalOmr.detected_sbd || "").trim();
       const parsedStt = parseInt(cleanSbd.replace(/\D/g, ""), 10);
       const matchedStu =
@@ -362,7 +383,6 @@ export function AdminBulkOMRScannerModal({
     return () => clearInterval(interval);
   }, [isOpen, inputMode, autoCaptureEnabled, processSingleCanvas]);
 
-  // CHỤP BẰNG TAY TỪ CAMERA
   const handleManualCameraCapture = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -385,7 +405,6 @@ export function AdminBulkOMRScannerModal({
     }
   };
 
-  // XỬ LÝ KÉO THẢ / CHỌN NHIỀU FILE ẢNH CÙNG LÚC
   const handleMultipleFilesSelect = async (filesList: FileList | null) => {
     if (!filesList || filesList.length === 0) return;
     setIsProcessing(true);
@@ -443,7 +462,6 @@ export function AdminBulkOMRScannerModal({
     setProgressText("");
   };
 
-  // CẬP NHẬT ĐIỂM HOẶC ĐỔI HỌC SINH TRONG DANH SÁCH TẠM TRƯỚC KHI LƯU
   const handleUpdateScannedItem = (
     tempId: string,
     updates: Partial<ScannedSheetItem>
@@ -453,7 +471,6 @@ export function AdminBulkOMRScannerModal({
     );
   };
 
-  // LƯU TẤT CẢ ĐIỂM VÀO HỆ THỐNG (SUPABASE & LOCALSTORAGE)
   const handleSaveAllScannedToSystem = async () => {
     if (scannedItems.length === 0 || isSavingAll) return;
     setIsSavingAll(true);
@@ -534,11 +551,23 @@ export function AdminBulkOMRScannerModal({
     }
 
     try {
-      await Promise.allSettled([
-        supabase.from("exam_attempts").insert(formattedAttempts),
-        supabase.from("quiz_results").insert(formattedAttempts)
-      ]);
+      if (effectiveSupabase) {
+        await Promise.allSettled([
+          effectiveSupabase.from("exam_attempts").insert(formattedAttempts),
+          effectiveSupabase.from("quiz_results").insert(formattedAttempts)
+        ]);
+      }
     } catch {}
+
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_attempts");
+        const parsed = saved ? JSON.parse(saved) : [];
+        const merged = [...formattedAttempts, ...(Array.isArray(parsed) ? parsed : [])];
+        localStorage.setItem("edunexus_attempts", JSON.stringify(merged));
+        window.dispatchEvent(new Event("storage"));
+      } catch {}
+    }
 
     if (onSavedBatchAttempts) {
       onSavedBatchAttempts(formattedAttempts);
@@ -647,7 +676,7 @@ export function AdminBulkOMRScannerModal({
             </div>
           </div>
 
-          {/* BODY CHIA 2 CỘT: CỘT TRÁI (UPLOAD / CAMERA + DANH SÁCH KẾT QUẢ) & CỘT PHẢI (ẢNH PHÚC KHẢO) */}
+          {/* BODY CHIA 2 CỘT */}
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden bg-slate-50">
             {/* CỘT TRÁI (7 CỘT) */}
             <div className="lg:col-span-7 border-r border-slate-200 flex flex-col min-h-0 p-4 space-y-4 overflow-y-auto custom-scrollbar">
@@ -695,9 +724,7 @@ export function AdminBulkOMRScannerModal({
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
-                        setAutoCaptureEnabled((prev) => !prev)
-                      }
+                      onClick={() => setAutoCaptureEnabled((prev) => !prev)}
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase cursor-pointer ${
                         autoCaptureEnabled
                           ? "bg-emerald-600 text-white"
@@ -782,7 +809,6 @@ export function AdminBulkOMRScannerModal({
                                 SBD: {item.detectedSbd}
                               </span>
 
-                              {/* Cho phép giáo viên chọn lại học sinh nếu học sinh tô nhầm SBD */}
                               <select
                                 value={item.matchedStudentId}
                                 onClick={(e) => e.stopPropagation()}
