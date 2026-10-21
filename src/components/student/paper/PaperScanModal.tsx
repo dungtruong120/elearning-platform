@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera,
@@ -9,18 +9,19 @@ import {
   RotateCcw,
   CheckCircle2,
   AlertTriangle,
-  Sparkles,
   Loader2,
-  Maximize2,
-  FileCheck2,
   SwitchCamera,
-  Eye,
-  Send
+  Send,
+  Printer,
+  Hand
 } from "lucide-react";
 import { Profile, ExamAttempt, OMRGradingSummary } from "@/types";
 import {
   scanOMRSheetFromCanvas,
   gradeOMRSubmission,
+  buildDynamicOMRBlueprint,
+  openPrintableDynamicAnswerSheet,
+  formatStudentAutoSBD,
   OMR_CANONICAL_WIDTH,
   OMR_CANONICAL_HEIGHT
 } from "@/lib/omrEngine";
@@ -33,6 +34,9 @@ export interface PaperScanModalProps {
   profile: Profile;
   isHomework?: boolean;
   onScanComplete?: (attemptRecord: ExamAttempt, gradingSummary: OMRGradingSummary) => void;
+  onSubmitted?: (attemptRecord: ExamAttempt, gradingSummary: OMRGradingSummary) => void;
+  onScanSuccess?: (attemptRecord: ExamAttempt, gradingSummary: OMRGradingSummary) => void;
+  onComplete?: (attemptRecord: ExamAttempt, gradingSummary: OMRGradingSummary) => void;
 }
 
 export function PaperScanModal({
@@ -41,7 +45,10 @@ export function PaperScanModal({
   exam,
   profile,
   isHomework = false,
-  onScanComplete
+  onScanComplete,
+  onSubmitted,
+  onScanSuccess,
+  onComplete
 }: PaperScanModalProps) {
   const [mode, setMode] = useState<"camera" | "upload" | "scanning" | "preview_result">("camera");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
@@ -53,17 +60,19 @@ export function PaperScanModal({
   const [scanProgress, setScanProgress] = useState<number>(0);
   const [isSavingSubmission, setIsSavingSubmission] = useState<boolean>(false);
 
-  // Cho phép học sinh chỉnh sửa nhanh đáp án nếu ảnh chụp bị bóng mờ ở một vài câu
   const [gradingResult, setGradingResult] = useState<OMRGradingSummary | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const dynamicBlueprint = useMemo(() => buildDynamicOMRBlueprint(exam), [exam]);
+  const studentAutoSbd = useMemo(() => formatStudentAutoSBD(profile), [profile]);
+
   const SCAN_MESSAGES = [
-    "Đang nhận diện 4 điểm định vị góc phiếu...",
-    "Đang nắn thẳng bề mặt giấy và khử bóng mờ...",
-    "Đang bóc tách Số báo danh, Mã đề và đáp án tô chì..."
+    "Đang tách biên tờ giấy trắng & lọc bỏ bóng bàn tay...",
+    "Đang kiểm tra viền trắng 4 mốc định vị góc & nắn phẳng A4...",
+    "Đang bóc tách Số báo danh, Mã đề và chấm điểm từng câu..."
   ];
 
   const stopCameraStream = useCallback(() => {
@@ -96,8 +105,10 @@ export function PaperScanModal({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-    } catch (err) {
-      setCameraError("Không thể truy cập Camera (Chưa cấp quyền hoặc thiết bị không có Camera). Bạn có thể tải ảnh từ máy.");
+    } catch {
+      setCameraError(
+        "Không thể truy cập Camera (Chưa cấp quyền hoặc thiết bị không có Camera). Bạn có thể tải ảnh chụp sẵn từ máy."
+      );
       setMode("upload");
     }
   }, [facingMode, stopCameraStream]);
@@ -113,12 +124,12 @@ export function PaperScanModal({
     };
   }, [isOpen, mode, startCameraStream, stopCameraStream]);
 
-  // HÀM CHẠY TIẾN TRÌNH QUÉT OMR VÀ CHẤM ĐIỂM TỰ ĐỘNG
+  // HÀM CHẠY TIẾN TRÌNH QUÉT OMR VÀ CHẤM ĐIỂM TỰ ĐỘNG (ÁP DỤNG OMR ENGINE MỚI CHỐNG BẮT NHẦM BÀN TAY)
   const executeOMRProcessing = async (imgElement: HTMLImageElement) => {
     setMode("scanning");
     setScanWarning(null);
     setScanStepIndex(0);
-    setScanProgress(15);
+    setScanProgress(18);
 
     const workCanvas = document.createElement("canvas");
     const maxDim = 1800;
@@ -142,26 +153,28 @@ export function PaperScanModal({
 
     ctx.drawImage(imgElement, 0, 0, targetW, targetH);
 
-    // Bước 1: Định vị 4 góc
-    await new Promise((r) => setTimeout(r, 550));
+    // Bước 1: Tách biên tờ giấy & kiểm tra 4 góc
+    await new Promise((r) => setTimeout(r, 500));
     setScanStepIndex(1);
-    setScanProgress(52);
+    setScanProgress(55);
 
-    // Bước 2: Nắn thẳng bề mặt giấy
-    await new Promise((r) => setTimeout(r, 600));
+    // Bước 2: Nắn phẳng bề mặt giấy
+    await new Promise((r) => setTimeout(r, 550));
     setScanStepIndex(2);
-    setScanProgress(85);
+    setScanProgress(86);
 
     try {
-      const omrRaw = scanOMRSheetFromCanvas(workCanvas);
+      const omrRaw = scanOMRSheetFromCanvas(workCanvas, dynamicBlueprint, 1);
       const graded = gradeOMRSubmission(omrRaw, exam);
 
-      await new Promise((r) => setTimeout(r, 450));
+      await new Promise((r) => setTimeout(r, 400));
       setScanProgress(100);
 
-      if (!omrRaw.warp_matrix_applied) {
+      if (omrRaw.geometry_warning) {
+        setScanWarning(omrRaw.geometry_warning);
+      } else if (!omrRaw.warp_matrix_applied) {
         setScanWarning(
-          "Không tìm thấy đủ 4 mốc góc đen, hệ thống đã tự động căn khung chuẩn. Nếu kết quả lệch, vui lòng chụp toàn bộ mặt trước của phiếu!"
+          "Chưa bắt đủ 4 mốc góc đen (có thể do ngón tay che góc giấy hoặc chụp thiếu góc). Nếu điểm lệch, vui lòng chụp lại rõ cả 4 góc đen!"
         );
       } else if (omrRaw.flagged_questions.length > 0) {
         setScanWarning(
@@ -177,7 +190,9 @@ export function PaperScanModal({
       setMode("preview_result");
     } catch (error) {
       console.error("Lỗi xử lý OMR:", error);
-      setScanWarning("Không tìm thấy đủ 4 mốc góc, vui lòng chụp toàn bộ mặt trước của phiếu!");
+      setScanWarning(
+        "Không tìm thấy đủ 4 mốc góc hợp lệ, vui lòng chụp toàn bộ mặt trước của phiếu và không để tay che góc!"
+      );
       setMode("upload");
     }
   };
@@ -238,12 +253,12 @@ export function PaperScanModal({
     const attemptId = "att-paper-" + Date.now();
     const studentId = String(profile?.id || profile?.username || "student");
     const studentName = String(profile?.full_name || profile?.username || "Học sinh");
-    const quizId = String(exam?.id || "quiz-paper");
+    const quizId = String(exam?.quiz_id || exam?.exam_id || exam?.id || "quiz-paper");
     const quizTitle = String(exam?.title || "Đề thi trên giấy");
 
-    let finalScanImageUrl = gradingResult.updatedOmrData.warped_image_data_url || capturedImageSrc || "";
+    let finalScanImageUrl =
+      gradingResult.updatedOmrData.warped_image_data_url || capturedImageSrc || "";
 
-    // Thử tải ảnh phiếu đã nắn phẳng lên Supabase Storage bucket "exam-paper-scans"
     if (finalScanImageUrl && finalScanImageUrl.startsWith("data:image/")) {
       try {
         const res = await fetch(finalScanImageUrl);
@@ -265,13 +280,16 @@ export function PaperScanModal({
             finalScanImageUrl = publicUrlData.publicUrl;
           }
         }
-      } catch (storageErr) {
-        // Giữ nguyên DataURL nếu bucket chưa được tạo
-      }
+      } catch {}
     }
 
     const updatedOmrPayload = {
       ...gradingResult.updatedOmrData,
+      detected_sbd:
+        gradingResult.updatedOmrData.detected_sbd &&
+        gradingResult.updatedOmrData.detected_sbd !== "Chưa tô"
+          ? gradingResult.updatedOmrData.detected_sbd
+          : studentAutoSbd,
       warped_image_data_url: finalScanImageUrl
     };
 
@@ -317,7 +335,6 @@ export function PaperScanModal({
       submittedAt: nowIso
     };
 
-    // 1. Lưu vào localStorage
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_attempts");
@@ -325,15 +342,28 @@ export function PaperScanModal({
         const updated = [attemptRecord, ...parsed];
         localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
         window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
+      } catch {}
     }
 
-    // 2. Đồng bộ lên API Backend & Supabase
     try {
-      await fetch("/api/student/submit-quiz", {
+      await fetch("/api/student/scan-paper", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(attemptRecord)
+        body: JSON.stringify({
+          attemptId: attemptRecord.id,
+          examId: quizId,
+          examTitle: quizTitle,
+          studentId,
+          studentName,
+          school: profile?.school || "THPT",
+          score: gradingResult.score,
+          totalQuestions: gradingResult.totalQuestions,
+          correctCount: gradingResult.correctCount,
+          isHomework,
+          answers: gradingResult.normalizedAnswers,
+          omrData: updatedOmrPayload,
+          imageBase64: finalScanImageUrl
+        })
       });
     } catch {}
 
@@ -356,11 +386,14 @@ export function PaperScanModal({
 
     setIsSavingSubmission(false);
 
-    if (onScanComplete) {
-      onScanComplete(attemptRecord, {
-        ...gradingResult,
-        updatedOmrData: updatedOmrPayload
-      });
+    const finalGradingSummary: OMRGradingSummary = {
+      ...gradingResult,
+      updatedOmrData: updatedOmrPayload
+    };
+
+    const callbackFn = onScanComplete || onSubmitted || onScanSuccess || onComplete;
+    if (callbackFn) {
+      callbackFn(attemptRecord, finalGradingSummary);
     }
   };
 
@@ -406,6 +439,23 @@ export function PaperScanModal({
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  openPrintableDynamicAnswerSheet({
+                    ...exam,
+                    examTitle: exam?.title,
+                    studentSbd: studentAutoSbd,
+                    studentName: profile?.full_name || ""
+                  })
+                }
+                className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                title="In phiếu trả lời A4 tương ứng với đề này"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">In phiếu A4</span>
+              </button>
+
               {mode === "camera" && (
                 <button
                   type="button"
@@ -419,6 +469,7 @@ export function PaperScanModal({
                   <span className="hidden sm:inline">Đổi Camera</span>
                 </button>
               )}
+
               <button
                 type="button"
                 onClick={onClose}
@@ -431,6 +482,22 @@ export function PaperScanModal({
 
           {/* BODY MODAL */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar space-y-4 bg-slate-50">
+            {/* NHẮC NHỞ QUAN TRỌNG VỀ 4 GÓC PHIẾU & TRÁNH ĐỂ NGÓN TAY CHE GÓC */}
+            {(mode === "camera" || mode === "upload") && (
+              <div className="p-3 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Hand className="w-4 h-4 text-[#1D4ED8] shrink-0" />
+                  <span>
+                    <strong>Lưu ý khi chụp:</strong> Đặt 4 ô vuông đen ở 4 góc phiếu vào bên trong khung ngắm,{" "}
+                    <strong className="text-rose-600 underline">không để ngón tay che mất các góc giấy!</strong>
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-white text-[#1D4ED8] border border-blue-200 text-[10px] font-black shrink-0">
+                  SBD: {studentAutoSbd}
+                </span>
+              </div>
+            )}
+
             {/* THÔNG BÁO CẢNH BÁO NẾU CÓ */}
             {scanWarning && (
               <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-xs font-semibold flex items-start gap-2.5 shadow-2xs">
@@ -442,7 +509,7 @@ export function PaperScanModal({
             {/* CHẾ ĐỘ 1 & 2: CAMERA STREAM HOẶC TẢI ẢNH LÊN */}
             {(mode === "camera" || mode === "upload") && (
               <div className="space-y-4">
-                <div className="relative bg-slate-950 rounded-2xl overflow-hidden border-2 border-slate-300 aspect-[3/4] max-h-[58vh] mx-auto flex items-center justify-center shadow-inner">
+                <div className="relative bg-slate-950 rounded-2xl overflow-hidden border-2 border-slate-300 aspect-[3/4] max-h-[56vh] mx-auto flex items-center justify-center shadow-inner">
                   {mode === "camera" && !cameraError ? (
                     <>
                       <video
@@ -453,20 +520,28 @@ export function PaperScanModal({
                         className="w-full h-full object-cover"
                       />
 
-                      {/* KHUNG NGẮM CĂN CHỈNH 4 GÓC (TARGET RETICLE) */}
-                      <div className="absolute inset-5 sm:inset-7 pointer-events-none border border-emerald-400/40 rounded-xl flex flex-col justify-between p-2">
+                      {/* KHUNG NGẮM CĂN CHỈNH 4 GÓC THÔNG MINH (SMART CORNER RETICLE OVERLAY) */}
+                      <div className="absolute inset-4 sm:inset-6 pointer-events-none border border-emerald-400/40 rounded-xl flex flex-col justify-between p-2">
                         <div className="flex justify-between">
-                          <div className="w-7 h-7 border-t-4 border-l-4 border-emerald-400 rounded-tl-md shadow-sm" />
-                          <div className="w-7 h-7 border-t-4 border-r-4 border-emerald-400 rounded-tr-md shadow-sm" />
+                          <div className="w-9 h-9 border-t-4 border-l-4 border-emerald-400 rounded-tl-md bg-emerald-500/10 flex items-center justify-center">
+                            <span className="w-2.5 h-2.5 bg-emerald-400/80 rounded-2xs" />
+                          </div>
+                          <div className="w-9 h-9 border-t-4 border-r-4 border-emerald-400 rounded-tr-md bg-emerald-500/10 flex items-center justify-center">
+                            <span className="w-2.5 h-2.5 bg-emerald-400/80 rounded-2xs" />
+                          </div>
                         </div>
 
-                        <div className="mx-auto px-3 py-1 rounded-full bg-slate-900/75 text-emerald-300 text-[11px] font-bold tracking-wide border border-emerald-400/30 backdrop-blur-xs text-center">
-                          Đặt 4 ô vuông đen ở 4 góc phiếu khớp vào 4 góc khung xanh
+                        <div className="mx-auto px-3 py-1 rounded-full bg-slate-900/80 text-emerald-300 text-[11px] font-bold tracking-wide border border-emerald-400/40 backdrop-blur-xs text-center shadow-md">
+                          Căn 4 ô vuông đen ở 4 góc tờ giấy vào đúng 4 góc khung xanh
                         </div>
 
                         <div className="flex justify-between">
-                          <div className="w-7 h-7 border-b-4 border-l-4 border-emerald-400 rounded-bl-md shadow-sm" />
-                          <div className="w-7 h-7 border-b-4 border-r-4 border-emerald-400 rounded-br-md shadow-sm" />
+                          <div className="w-9 h-9 border-b-4 border-l-4 border-emerald-400 rounded-bl-md bg-emerald-500/10 flex items-center justify-center">
+                            <span className="w-2.5 h-2.5 bg-emerald-400/80 rounded-2xs" />
+                          </div>
+                          <div className="w-9 h-9 border-b-4 border-r-4 border-emerald-400 rounded-br-md bg-emerald-500/10 flex items-center justify-center">
+                            <span className="w-2.5 h-2.5 bg-emerald-400/80 rounded-2xs" />
+                          </div>
                         </div>
                       </div>
                     </>
@@ -480,7 +555,7 @@ export function PaperScanModal({
                       </h4>
                       <p className="text-xs text-slate-400 leading-relaxed">
                         {cameraError ||
-                          "Hãy chụp thẳng mặt trước của tờ phiếu A4 ở nơi đủ ánh sáng, đảm bảo rõ cả 4 ô vuông đen ở 4 góc phiếu."}
+                          "Hãy đặt tờ phiếu phẳng trên bàn ở nơi đủ ánh sáng, chụp thẳng mặt trước sao cho rõ cả 4 ô vuông đen ở 4 góc phiếu và không bị ngón tay che góc."}
                       </p>
                       <button
                         type="button"
@@ -501,7 +576,7 @@ export function PaperScanModal({
                       onClick={handleCaptureFromVideo}
                       className="w-full sm:w-auto px-8 py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-2xl font-black text-xs sm:text-sm shadow-lg transition flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Camera className="w-4 h-4" /> 📸 Chụp phiếu
+                      <Camera className="w-4 h-4" /> 📸 Chụp phiếu ngay
                     </button>
                   ) : (
                     <button
@@ -539,7 +614,6 @@ export function PaperScanModal({
                     />
                   )}
 
-                  {/* TIA LASER QUÉT DỌC MÀN HÌNH */}
                   <motion.div
                     initial={{ top: "2%" }}
                     animate={{ top: ["4%", "94%", "4%"] }}
@@ -634,28 +708,53 @@ export function PaperScanModal({
                         Đã quét thành công
                       </span>
                       <h4 className="text-sm sm:text-base font-black text-slate-900 mt-1">
-                        Điểm chấm tự động: <span className="text-[#1D4ED8]">{gradingResult.score.toFixed(2)} / 10</span>
+                        Điểm chấm tự động:{" "}
+                        <span className="text-[#1D4ED8]">{gradingResult.score.toFixed(2)} / 10</span>
                       </h4>
                     </div>
 
                     <div className="text-right text-xs font-bold text-slate-500">
-                      <div>SBD: <strong className="text-slate-800">{gradingResult.updatedOmrData.detected_sbd}</strong></div>
-                      <div>Mã đề: <strong className="text-[#1D4ED8]">{gradingResult.updatedOmrData.detected_exam_code}</strong></div>
+                      <div>
+                        SBD:{" "}
+                        <strong className="text-slate-800">
+                          {gradingResult.updatedOmrData.detected_sbd !== "Chưa tô"
+                            ? gradingResult.updatedOmrData.detected_sbd
+                            : studentAutoSbd}
+                        </strong>
+                      </div>
+                      <div>
+                        Mã đề:{" "}
+                        <strong className="text-[#1D4ED8]">
+                          {gradingResult.updatedOmrData.detected_exam_code}
+                        </strong>
+                      </div>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-2.5 text-center">
                     <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
-                      <span className="text-[10px] font-bold text-emerald-700 uppercase block">Câu đúng</span>
-                      <span className="text-base font-black text-emerald-700">{gradingResult.correctCount}</span>
+                      <span className="text-[10px] font-bold text-emerald-700 uppercase block">
+                        Câu đúng
+                      </span>
+                      <span className="text-base font-black text-emerald-700">
+                        {gradingResult.correctCount}
+                      </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200">
-                      <span className="text-[10px] font-bold text-rose-700 uppercase block">Câu sai</span>
-                      <span className="text-base font-black text-rose-700">{gradingResult.wrongCount}</span>
+                      <span className="text-[10px] font-bold text-rose-700 uppercase block">
+                        Câu sai
+                      </span>
+                      <span className="text-base font-black text-rose-700">
+                        {gradingResult.wrongCount}
+                      </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200">
-                      <span className="text-[10px] font-bold text-slate-600 uppercase block">Bỏ trống</span>
-                      <span className="text-base font-black text-slate-700">{gradingResult.skippedCount}</span>
+                      <span className="text-[10px] font-bold text-slate-600 uppercase block">
+                        Bỏ trống
+                      </span>
+                      <span className="text-base font-black text-slate-700">
+                        {gradingResult.skippedCount}
+                      </span>
                     </div>
                   </div>
 
@@ -666,7 +765,8 @@ export function PaperScanModal({
                         className="px-3 py-2 text-xs flex items-center justify-between hover:bg-slate-50"
                       >
                         <span className="font-bold text-slate-700">
-                          Câu {qd.questionOrder} <span className="text-[10px] text-slate-400">(Phần {qd.part})</span>
+                          Câu {qd.questionOrder}{" "}
+                          <span className="text-[10px] text-slate-400">(Phần {qd.part})</span>
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500">
