@@ -1,27 +1,21 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Printer,
   Camera,
   Users,
   Search,
-  Filter,
   Eye,
   Trash2,
   CheckCircle2,
   AlertTriangle,
-  FileText,
-  BookOpen,
-  Award,
-  Target,
-  Upload,
   X,
   Save,
   ZoomIn,
   ZoomOut,
   Loader2,
-  ScanLine
+  RefreshCw
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -91,7 +85,7 @@ export default function PaperExamManagerTab({
   const [selectedQuizId, setSelectedQuizId] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // STATE MODAL XEM TRƯỚC PHIẾU IN A4, BẢNG SBD LỚP, CHẤM HÀNG LOẠT & PHÚC KHẢO
+  // STATE MODAL XEM TRƯỚC PHIẾU IN A4, BẢNG SBD LỚP, CHẤM NỘI BỘ & PHÚC KHẢO
   const [showSheetPreviewModal, setShowSheetPreviewModal] = useState<boolean>(false);
   const [showSbdDirectoryModal, setShowSbdDirectoryModal] = useState<boolean>(false);
   const [showInternalBulkScanner, setShowInternalBulkScanner] = useState<boolean>(false);
@@ -105,15 +99,14 @@ export default function PaperExamManagerTab({
   const [isSavingScore, setIsSavingScore] = useState<boolean>(false);
   const [zoomScale, setZoomScale] = useState<number>(1);
 
-  // STATE MÁY QUÉT HÀNG LOẠT NỘI BỘ
   const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
   const [batchProgressText, setBatchProgressText] = useState<string>("");
-  const [batchScannedResults, setBatchScannedResults] = useState<any[]>([]);
+  const [isSyncingFromSupabase, setIsSyncingFromSupabase] = useState<boolean>(false);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Nạp dự phòng từ localStorage nếu props trống
   const [localAttempts, setLocalAttempts] = useState<any[]>([]);
   const [localStudents, setLocalStudents] = useState<any[]>([]);
+  const [supabasePaperAttempts, setSupabasePaperAttempts] = useState<any[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -138,11 +131,6 @@ export default function PaperExamManagerTab({
       }
     } catch {}
   }, [propAttempts, registeredStudents]);
-
-  const effectiveAttempts = useMemo(() => {
-    if (Array.isArray(propAttempts) && propAttempts.length > 0) return propAttempts;
-    return localAttempts;
-  }, [propAttempts, localAttempts]);
 
   const effectiveStudents = useMemo(() => {
     if (Array.isArray(registeredStudents) && registeredStudents.length > 0) {
@@ -202,11 +190,197 @@ export default function PaperExamManagerTab({
     sbdDirectoryList.forEach((item) => {
       map.set(item.sbd, item);
       map.set(String(item.stt), item);
+      map.set(item.id.trim().toLowerCase(), item);
     });
     return map;
   }, [sbdDirectoryList]);
 
-  // 2. TỔNG HỢP TOÀN BỘ ĐỀ THI TỪ 3 NGUỒN: BTVN, ĐỀ KIỂM TRA ĐỊNH KỲ & KHO LUYỆN ĐỀ
+  // 2. HÀM NẠP TRỰC TIẾP DỮ LIỆU TỪ SUPABASE (ĐỒNG BỘ TỨC THÌ TỪ IPAD VỀ LAPTOP)
+  const fetchPaperSubmissions = useCallback(
+    async (showNotification: boolean = false) => {
+      setIsSyncingFromSupabase(true);
+      try {
+        const delIds =
+          typeof window !== "undefined"
+            ? new Set<string>(
+                JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]")
+              )
+            : new Set<string>();
+
+        const collected: any[] = [];
+
+        // Truy vấn trực tiếp bảng exam_attempts từ Supabase
+        const { data: sbAttempts, error: sbErr } = await supabase
+          .from("exam_attempts")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (!sbErr && Array.isArray(sbAttempts)) {
+          collected.push(...sbAttempts);
+        }
+
+        // Truy vấn bổ sung qua API Admin để lấy đầy đủ dữ liệu vượt RLS (nếu có)
+        try {
+          const res = await fetch("/api/admin/data", { cache: "no-store" });
+          if (res.ok) {
+            const apiJson = await res.json();
+            if (Array.isArray(apiJson.examAttempts)) {
+              collected.push(...apiJson.examAttempts);
+            }
+            if (Array.isArray(apiJson.quizResults)) {
+              collected.push(...apiJson.quizResults);
+            }
+          }
+        } catch {}
+
+        const paperMap = new Map<string, any>();
+
+        collected.forEach((row: any) => {
+          if (!row) return;
+          const meta = row.answers?.__paper_omr_meta || row.user_answers?.__paper_omr_meta || null;
+          const isPaperRow =
+            row.submission_type === "paper" ||
+            row.submission_type === "digital_sheet" ||
+            Boolean(row.scanned_image_url) ||
+            Boolean(row.paper_scan_url) ||
+            Boolean(row.omr_raw_data) ||
+            Boolean(meta) ||
+            String(row.id || "").startsWith("paper_") ||
+            String(row.id || "").startsWith("att-paper-");
+
+          if (!isPaperRow) return;
+
+          const quizId = String(row.exam_id || row.quiz_id || row.quizId || "").trim();
+          const studentId = String(row.student_id || row.studentId || row.user_id || "").trim();
+          const uniqueKey = String(row.id || `paper_${quizId}_${studentId}`);
+          if (delIds.has(uniqueKey)) return;
+
+          const matchedStu = sbdToStudentMap.get(studentId.toLowerCase());
+          const normalizedRow = {
+            ...row,
+            id: uniqueKey,
+            quiz_id: quizId,
+            quizId: quizId,
+            exam_id: quizId,
+            student_id: studentId,
+            studentId: studentId,
+            student_name:
+              row.student_name ||
+              row.studentName ||
+              meta?.student_name ||
+              matchedStu?.full_name ||
+              "Học sinh",
+            studentName:
+              row.student_name ||
+              row.studentName ||
+              meta?.student_name ||
+              matchedStu?.full_name ||
+              "Học sinh",
+            exam_title: row.exam_title || row.examTitle || row.quiz_title || meta?.exam_title || "",
+            examTitle: row.exam_title || row.examTitle || row.quiz_title || meta?.exam_title || "",
+            score: Number(row.score ?? row.points ?? 0),
+            points: Number(row.score ?? row.points ?? 0),
+            correct_count: Number(
+              row.correct_answers_count ?? row.correct_count ?? row.correctCount ?? 0
+            ),
+            correctCount: Number(
+              row.correct_answers_count ?? row.correct_count ?? row.correctCount ?? 0
+            ),
+            total_questions: Number(row.total_questions ?? row.totalQuestions ?? 0),
+            totalQuestions: Number(row.total_questions ?? row.totalQuestions ?? 0),
+            submission_type: "paper",
+            paper_scan_url:
+              row.scanned_image_url ||
+              row.paper_scan_url ||
+              meta?.scanned_image_url ||
+              row.omr_raw_data?.warped_image_data_url ||
+              "",
+            omr_raw_data: row.omr_raw_data || {
+              detected_sbd: meta?.detected_sbd || matchedStu?.sbd || "",
+              detected_exam_code: meta?.detected_exam_code || "",
+              flagged_questions: meta?.flagged_questions || [],
+              bubble_coordinates: meta?.bubble_coordinates || [],
+              confidence: meta?.confidence || 98
+            },
+            created_at: row.created_at || row.createdAt || new Date().toISOString(),
+            createdAt: row.created_at || row.createdAt || new Date().toISOString()
+          };
+
+          paperMap.set(uniqueKey, normalizedRow);
+        });
+
+        const freshPaperList = Array.from(paperMap.values());
+        setSupabasePaperAttempts(freshPaperList);
+
+        if (freshPaperList.length > 0) {
+          const freshIds = new Set(freshPaperList.map((x) => String(x.id)));
+          const mergedGlobal = [
+            ...freshPaperList,
+            ...(Array.isArray(propAttempts) && propAttempts.length > 0
+              ? propAttempts
+              : localAttempts
+            ).filter((a: any) => !freshIds.has(String(a?.id)))
+          ];
+
+          setLocalAttempts(mergedGlobal);
+          if (typeof setAllAttempts === "function") {
+            (setAllAttempts as any)(mergedGlobal);
+          }
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_attempts", JSON.stringify(mergedGlobal));
+            } catch {}
+          }
+        }
+
+        if (showNotification && showToast) {
+          showToast(
+            `Đã đồng bộ ${freshPaperList.length} bài thi giấy mới nhất từ Supabase!`,
+            "success"
+          );
+        }
+      } catch (err) {
+        console.warn("Lỗi fetchPaperSubmissions:", err);
+      } finally {
+        setIsSyncingFromSupabase(false);
+      }
+    },
+    [sbdToStudentMap, propAttempts, localAttempts, setAllAttempts, showToast]
+  );
+
+  // Tự động tải dữ liệu từ Supabase khi mở tab và lắng nghe Realtime từ iPad
+  useEffect(() => {
+    fetchPaperSubmissions(false);
+
+    const channel = supabase
+      .channel("paper-exams-realtime-sync")
+      .on("broadcast", { event: "new_attempt" }, () => {
+        fetchPaperSubmissions(false);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => {
+        fetchPaperSubmissions(false);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchPaperSubmissions]);
+
+  const effectiveAttempts = useMemo(() => {
+    const map = new Map<string, any>();
+    (Array.isArray(propAttempts) && propAttempts.length > 0 ? propAttempts : localAttempts).forEach(
+      (a: any) => {
+        if (a && a.id) map.set(String(a.id), a);
+      }
+    );
+    supabasePaperAttempts.forEach((a: any) => {
+      if (a && a.id) map.set(String(a.id), a);
+    });
+    return Array.from(map.values());
+  }, [propAttempts, localAttempts, supabasePaperAttempts]);
+
+  // 3. TỔNG HỢP TOÀN BỘ ĐỀ THI TỪ 3 NGUỒN: BTVN, ĐỀ KIỂM TRA ĐỊNH KỲ & KHO LUYỆN ĐỀ
   const allUnifiedQuizzes = useMemo<UnifiedQuizSourceItem[]>(() => {
     const list: UnifiedQuizSourceItem[] = [];
 
@@ -250,7 +424,7 @@ export default function PaperExamManagerTab({
             id: String(tq.id),
             title: String(tq.title || "Đề kiểm tra định kỳ"),
             sourceType: "test",
-            sourceLabel: "Đề KT định kỳ",
+            sourceLabel: "Đề KT",
             chapterId: cId,
             chapterTitle: cTitle,
             lessonId: lId,
@@ -273,7 +447,7 @@ export default function PaperExamManagerTab({
       const counts = extractExamQuestionCounts(pe);
       list.push({
         id: String(pe.id),
-        title: String(pe.title || "Đề luyện thi thực chiến"),
+        title: String(pe.title || "Đề luyện thi"),
         sourceType: "practice",
         sourceLabel: pe.category || "Luyện đề",
         assignedMonth: Number(pe.assigned_month) || undefined,
@@ -290,14 +464,12 @@ export default function PaperExamManagerTab({
     return list;
   }, [chapters, practiceExams]);
 
-  // Danh sách bài học thuộc chương đang chọn
   const lessonsInSelectedChapter = useMemo(() => {
     if (selectedChapterId === "all") return [];
     const found = (chapters || []).find((c: any) => String(c?.id) === selectedChapterId);
     return found?.lessons || [];
   }, [chapters, selectedChapterId]);
 
-  // Lọc danh sách các bài thi thỏa mãn bộ lọc Nguồn + Tháng + Chương + Bài học
   const filteredQuizzes = useMemo(() => {
     return allUnifiedQuizzes.filter((q) => {
       if (sourceFilter !== "all" && q.sourceType !== sourceFilter) return false;
@@ -310,7 +482,6 @@ export default function PaperExamManagerTab({
     });
   }, [allUnifiedQuizzes, sourceFilter, monthFilter, selectedChapterId, selectedLessonId]);
 
-  // Bài thi đang được chọn để Xuất phiếu in A4 hoặc Chấm bài giấy
   const activeSelectedQuiz = useMemo<UnifiedQuizSourceItem | null>(() => {
     if (selectedQuizId !== "all") {
       const exact = allUnifiedQuizzes.find((q) => q.id === selectedQuizId);
@@ -319,13 +490,11 @@ export default function PaperExamManagerTab({
     return filteredQuizzes[0] || allUnifiedQuizzes[0] || null;
   }, [selectedQuizId, filteredQuizzes, allUnifiedQuizzes]);
 
-  // Đề thi đang được chọn trong Modal Bảng SBD để hiện Cột Điểm Số
   const sbdModalSelectedQuizObj = useMemo<UnifiedQuizSourceItem | null>(() => {
     if (!sbdModalSelectedQuizId || sbdModalSelectedQuizId === "none") return null;
     return allUnifiedQuizzes.find((q) => q.id === sbdModalSelectedQuizId) || null;
   }, [sbdModalSelectedQuizId, allUnifiedQuizzes]);
 
-  // Map tra cứu điểm số cao nhất của từng học sinh theo bài thi đã chọn trong Modal SBD
   const sbdStudentScoreMap = useMemo(() => {
     const map = new Map<string, number>();
     if (!sbdModalSelectedQuizObj) return map;
@@ -369,7 +538,6 @@ export default function PaperExamManagerTab({
     return map;
   }, [sbdModalSelectedQuizObj, effectiveAttempts]);
 
-  // Danh sách học sinh hiển thị trong Modal SBD (Lọc theo phân hệ nhưng GIỮ NGUYÊN STT & SBD gốc)
   const filteredSbdDirectoryForModal = useMemo(() => {
     return sbdDirectoryList
       .filter((stu) => {
@@ -394,7 +562,7 @@ export default function PaperExamManagerTab({
       });
   }, [sbdDirectoryList, sbdModalModeFilter, sbdStudentScoreMap]);
 
-  // 3. LỌC DANH SÁCH CÁC BÀI THI TRÊN GIẤY ĐÃ NỘP
+  // 4. LỌC DANH SÁCH CÁC BÀI THI TRÊN GIẤY ĐÃ NỘP
   const paperSubmissionsList = useMemo(() => {
     const quizMapById = new Map<string, UnifiedQuizSourceItem>();
     const quizMapByTitle = new Map<string, UnifiedQuizSourceItem>();
@@ -406,16 +574,22 @@ export default function PaperExamManagerTab({
     return (effectiveAttempts || [])
       .filter((att: any) => {
         if (!att) return false;
+        const meta = att.answers?.__paper_omr_meta || att.user_answers?.__paper_omr_meta;
         const isPaper =
           att.submission_type === "paper" ||
           att.submission_type === "digital_sheet" ||
+          Boolean(att.scanned_image_url) ||
           Boolean(att.paper_scan_url) ||
-          Boolean(att.omr_raw_data);
+          Boolean(att.omr_raw_data) ||
+          Boolean(meta);
         return isPaper;
       })
       .map((att: any) => {
+        const meta = att.answers?.__paper_omr_meta || att.user_answers?.__paper_omr_meta || {};
         const qId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
-        const qTitle = normalizeStr(att.examTitle || att.quizTitle || att.quiz_title || att.title || "");
+        const qTitle = normalizeStr(
+          att.examTitle || att.quizTitle || att.quiz_title || att.title || meta.exam_title || ""
+        );
         const matchedQuiz =
           (qId && quizMapById.get(qId)) ||
           (qTitle && quizMapByTitle.get(qTitle)) ||
@@ -423,21 +597,30 @@ export default function PaperExamManagerTab({
 
         const sourceType: "homework" | "test" | "practice" = matchedQuiz
           ? matchedQuiz.sourceType
-          : att.isHomework || att.is_homework || att.type === "homework"
-          ? "homework"
-          : att.type === "test"
-          ? "test"
-          : "practice";
+          : meta.source_type ||
+            (att.isHomework || att.is_homework || att.type === "homework"
+              ? "homework"
+              : att.type === "test"
+              ? "test"
+              : "practice");
 
         const rawDate = att.createdAt || att.created_at || att.submittedAt;
         const validDate = rawDate ? new Date(rawDate) : new Date();
-        const month = Number(att.assigned_month) || matchedQuiz?.assignedMonth || (validDate.getMonth() + 1);
+        const month =
+          Number(att.assigned_month) || matchedQuiz?.assignedMonth || validDate.getMonth() + 1;
+
+        const stuIdStr = String(att.studentId || att.student_id || "").trim();
+        const matchedStu = sbdToStudentMap.get(stuIdStr.toLowerCase());
 
         const detectedSbd =
           att.omr_raw_data?.detected_sbd ||
-          formatStudentAutoSBD(att.studentId || att.student_id || 1);
+          meta.detected_sbd ||
+          matchedStu?.sbd ||
+          formatStudentAutoSBD(stuIdStr || 1);
+
         const detectedCode =
           att.omr_raw_data?.detected_exam_code ||
+          meta.detected_exam_code ||
           matchedQuiz?.examCode ||
           "101";
 
@@ -445,6 +628,8 @@ export default function PaperExamManagerTab({
           ? att.flagged_questions
           : Array.isArray(att.omr_raw_data?.flagged_questions)
           ? att.omr_raw_data.flagged_questions
+          : Array.isArray(meta.flagged_questions)
+          ? meta.flagged_questions
           : [];
 
         return {
@@ -455,7 +640,7 @@ export default function PaperExamManagerTab({
             sourceType === "homework"
               ? "BTVN"
               : sourceType === "test"
-              ? "Đề KT định kỳ"
+              ? "Đề KT"
               : "Luyện đề",
           chapterId: matchedQuiz?.chapterId || "",
           lessonId: matchedQuiz?.lessonId || "",
@@ -464,13 +649,27 @@ export default function PaperExamManagerTab({
           detectedCode,
           flaggedList,
           paperScanUrl:
-            att.paper_scan_url || att.omr_raw_data?.warped_image_data_url || "",
+            att.scanned_image_url ||
+            att.paper_scan_url ||
+            meta.scanned_image_url ||
+            att.omr_raw_data?.warped_image_data_url ||
+            "",
           studentDisplayName:
-            att.studentName || att.student_name || att.full_name || "Học sinh",
+            matchedStu?.full_name ||
+            att.studentName ||
+            att.student_name ||
+            meta.student_name ||
+            "Học sinh",
           examDisplayTitle:
-            att.examTitle || att.quizTitle || matchedQuiz?.title || "Bài thi giấy",
+            matchedQuiz?.title ||
+            att.examTitle ||
+            att.quizTitle ||
+            meta.exam_title ||
+            "Bài thi giấy",
           scoreVal: Number(att.score ?? att.points ?? 0),
-          correctVal: Number(att.correctCount ?? att.correct_count ?? 0),
+          correctVal: Number(
+            att.correct_answers_count ?? att.correctCount ?? att.correct_count ?? 0
+          ),
           totalQVal: Number(
             att.totalQuestions ?? att.total_questions ?? matchedQuiz?.totalQuestions ?? 0
           ),
@@ -490,7 +689,7 @@ export default function PaperExamManagerTab({
         if (selectedLessonId !== "all" && item.lessonId !== selectedLessonId) return false;
         if (
           selectedQuizId !== "all" &&
-          String(item.quizId || item.quiz_id || "") !== selectedQuizId
+          String(item.quizId || item.quiz_id || item.exam_id || "") !== selectedQuizId
         ) {
           return false;
         }
@@ -506,6 +705,7 @@ export default function PaperExamManagerTab({
   }, [
     effectiveAttempts,
     allUnifiedQuizzes,
+    sbdToStudentMap,
     sourceFilter,
     monthFilter,
     selectedChapterId,
@@ -514,7 +714,6 @@ export default function PaperExamManagerTab({
     searchQuery
   ]);
 
-  // IN DANH SÁCH SBD / PHIẾU ĐIỂM CỦA LỚP RA GIẤY A4 (ẨN HOÀN TOÀN CỘT PHÂN HỆ ONLINE/OFFLINE)
   const handlePrintSbdDirectory = () => {
     if (typeof window === "undefined") return;
     const win = window.open("", "_blank");
@@ -530,13 +729,13 @@ export default function PaperExamManagerTab({
       .map((stu) => {
         const scoreCellText =
           stu.examScore !== undefined
-            ? `<strong style="color:#be123c; font-size:14px;">${stu.examScore.toFixed(2)}đ</strong>`
+            ? `<strong style="color:#0f172a; font-size:14px;">${stu.examScore.toFixed(2)}đ</strong>`
             : `<span style="color:#94a3b8; letter-spacing:2px;">....................</span>`;
 
         return `
           <tr>
             <td style="text-align:center; font-weight:bold;">${stu.stt}</td>
-            <td style="text-align:center; font-weight:900; color:#1D4ED8; font-size:15px; letter-spacing:1px; font-family:monospace;">${stu.sbd}</td>
+            <td style="text-align:center; font-weight:bold; color:#1D4ED8; font-size:15px; letter-spacing:1px; font-family:monospace;">${stu.sbd}</td>
             <td style="font-weight:bold;">${stu.full_name}</td>
             <td>${stu.school}</td>
             <td style="text-align:center;">${scoreCellText}</td>
@@ -559,7 +758,7 @@ export default function PaperExamManagerTab({
           p { margin: 0 0 14px 0; font-size: 13px; color: #475569; text-align: center; font-style: italic; }
           table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
           th, td { border: 1px solid #94a3b8; padding: 8px 12px; text-align: left; }
-          th { background: #eff6ff; color: #1e40af; text-transform: uppercase; font-size: 11.5px; }
+          th { background: #f8fafc; color: #1e293b; text-transform: uppercase; font-size: 11.5px; }
           tr:nth-child(even) { background: #f8fafc; }
         </style>
       </head>
@@ -585,7 +784,6 @@ export default function PaperExamManagerTab({
     win.document.close();
   };
 
-  // XỬ LÝ QUÉT HÀNG LOẠT ẢNH PHIẾU TRONG TRƯỜNG HỢP CHẤM TRỰC TIẾP TẠI TAB NÀY
   const handleBatchFilesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !activeSelectedQuiz) return;
@@ -633,9 +831,41 @@ export default function PaperExamManagerTab({
         const studentName =
           matchedStudent?.full_name || `Thí sinh SBD ${omrRaw.detected_sbd}`;
         const nowIso = new Date().toISOString();
+        const attemptId = `paper_${activeSelectedQuiz.id}_${studentId}`;
+
+        const enrichedAnswers = {
+          ...(graded.normalizedAnswers || {}),
+          __paper_omr_meta: {
+            submission_type: "paper",
+            detected_sbd: omrRaw.detected_sbd,
+            detected_exam_code: omrRaw.detected_exam_code,
+            student_name: studentName,
+            school: matchedStudent?.school || "THPT",
+            exam_title: activeSelectedQuiz.title,
+            source_type: activeSelectedQuiz.sourceType,
+            scanned_image_url: graded.updatedOmrData.warped_image_data_url || dataUrl,
+            flagged_questions: graded.updatedOmrData.flagged_questions
+          }
+        };
+
+        await supabase.from("exam_attempts").upsert(
+          {
+            exam_id: activeSelectedQuiz.id,
+            student_id: studentId,
+            score: graded.score,
+            total_questions: graded.totalQuestions,
+            correct_answers_count: graded.correctCount,
+            answers: enrichedAnswers,
+            submission_type: "paper",
+            scanned_image_url: graded.updatedOmrData.warped_image_data_url || null,
+            created_at: nowIso,
+            updated_at: nowIso
+          },
+          { onConflict: "exam_id, student_id" }
+        );
 
         const attemptRecord: any = {
-          id: `att-paper-bulk-${Date.now()}-${i}`,
+          id: attemptId,
           quiz_id: activeSelectedQuiz.id,
           quizId: activeSelectedQuiz.id,
           exam_id: activeSelectedQuiz.id,
@@ -666,59 +896,21 @@ export default function PaperExamManagerTab({
           omr_raw_data: graded.updatedOmrData,
           recognition_confidence: graded.updatedOmrData.confidence,
           flagged_questions: graded.updatedOmrData.flagged_questions,
-          answers: graded.normalizedAnswers,
-          userAnswers: graded.normalizedAnswers,
-          user_answers: graded.normalizedAnswers,
-          assigned_month: activeSelectedQuiz.assignedMonth,
-          assigned_week: activeSelectedQuiz.assignedWeek,
+          answers: enrichedAnswers,
           created_at: nowIso,
-          createdAt: nowIso,
-          submittedAt: nowIso
+          createdAt: nowIso
         };
 
         newlyGraded.push(attemptRecord);
-
-        try {
-          await fetch("/api/student/scan-paper", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              attemptId: attemptRecord.id,
-              examId: activeSelectedQuiz.id,
-              examTitle: activeSelectedQuiz.title,
-              studentId,
-              studentName,
-              school: matchedStudent?.school || "THPT",
-              score: graded.score,
-              totalQuestions: graded.totalQuestions,
-              correctCount: graded.correctCount,
-              isHomework: activeSelectedQuiz.sourceType === "homework",
-              answers: graded.normalizedAnswers,
-              omrData: graded.updatedOmrData,
-              imageBase64: attemptRecord.paper_scan_url
-            })
-          });
-        } catch {}
       } catch (err) {
         console.error("Lỗi chấm ảnh:", file.name, err);
       }
     }
 
     if (newlyGraded.length > 0) {
-      const merged = [...newlyGraded, ...effectiveAttempts];
-      if (typeof setAllAttempts === "function") {
-        (setAllAttempts as any)(merged);
-      }
-      setLocalAttempts(merged);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("edunexus_attempts", JSON.stringify(merged));
-          window.dispatchEvent(new Event("storage"));
-        } catch {}
-      }
-      setBatchScannedResults((prev) => [...newlyGraded, ...prev]);
+      await fetchPaperSubmissions(false);
       if (showToast) {
-        showToast(`Đã chấm tự động thành công ${newlyGraded.length} phiếu trả lời!`, "success");
+        showToast(`Đã chấm và đồng bộ ${newlyGraded.length} phiếu trả lời!`, "success");
       }
     }
 
@@ -727,7 +919,6 @@ export default function PaperExamManagerTab({
     e.target.value = "";
   };
 
-  // LƯU ĐIỂM SỬA THỦ CÔNG KHI GIÁO VIÊN PHÚC KHẢO BÀI GIẤY
   const handleSaveInspectScore = async () => {
     if (!inspectingAttempt || isSavingScore) return;
     const newScore = Number(String(editScoreInput).replace(",", "."));
@@ -747,6 +938,11 @@ export default function PaperExamManagerTab({
       (setAllAttempts as any)(updatedList);
     }
     setLocalAttempts(updatedList);
+    setSupabasePaperAttempts((prev) =>
+      prev.map((a: any) =>
+        String(a?.id || "") === targetId ? { ...a, score: newScore, points: newScore } : a
+      )
+    );
     setInspectingAttempt((prev: any) =>
       prev ? { ...prev, score: newScore, scoreVal: newScore } : null
     );
@@ -762,11 +958,16 @@ export default function PaperExamManagerTab({
       await Promise.allSettled([
         supabase
           .from("exam_attempts")
-          .update({ score: newScore, points: newScore })
+          .update({ score: newScore, updated_at: new Date().toISOString() })
           .eq("id", targetId),
         supabase
+          .from("exam_attempts")
+          .update({ score: newScore, updated_at: new Date().toISOString() })
+          .eq("exam_id", inspectingAttempt.exam_id || inspectingAttempt.quiz_id)
+          .eq("student_id", inspectingAttempt.student_id || inspectingAttempt.studentId),
+        supabase
           .from("quiz_results")
-          .update({ score: newScore, points: newScore })
+          .update({ score: newScore })
           .eq("id", targetId)
       ]);
     } catch {}
@@ -777,7 +978,6 @@ export default function PaperExamManagerTab({
     }
   };
 
-  // XÓA 1 BÀI THI GIẤY
   const handleDeletePaperAttempt = async (att: any) => {
     if (!confirm(`Xác nhận xóa bài nộp trên giấy của ${att.studentDisplayName}?`)) return;
     const targetId = String(att.id || "");
@@ -787,9 +987,15 @@ export default function PaperExamManagerTab({
       (setAllAttempts as any)(updated);
     }
     setLocalAttempts(updated);
+    setSupabasePaperAttempts((prev) => prev.filter((a: any) => String(a?.id || "") !== targetId));
 
     if (typeof window !== "undefined") {
       try {
+        const delIds = JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+        localStorage.setItem(
+          "edunexus_deleted_attempt_ids",
+          JSON.stringify(Array.from(new Set([...delIds, targetId])))
+        );
         localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
         window.dispatchEvent(new Event("storage"));
       } catch {}
@@ -798,6 +1004,11 @@ export default function PaperExamManagerTab({
     try {
       await Promise.allSettled([
         supabase.from("exam_attempts").delete().eq("id", targetId),
+        supabase
+          .from("exam_attempts")
+          .delete()
+          .eq("exam_id", att.exam_id || att.quiz_id)
+          .eq("student_id", att.student_id || att.studentId),
         supabase.from("quiz_results").delete().eq("id", targetId)
       ]);
     } catch {}
@@ -813,31 +1024,21 @@ export default function PaperExamManagerTab({
   }, [showSheetPreviewModal, activeSelectedQuiz]);
 
   return (
-    <div className="space-y-5 max-w-6xl mx-auto text-left font-sans animate-in fade-in duration-200">
-      {/* 1. BANNER & 3 NÚT CÔNG CỤ NGHIỆP VỤ TRUNG TÂM */}
-      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
+    <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
+      {/* 1. HEADER & BỘ LỌC PHONG CÁCH CLEAN MINIMALIST SAAS */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-md shrink-0">
-              <ScanLine className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-black uppercase tracking-wider">
-                  TRUNG TÂM KHẢO THÍ OMR
-                </span>
-                <span className="text-xs font-bold text-emerald-600">
-                  • Đã đồng bộ {allUnifiedQuizzes.length} đề (BTVN, Đề KT & Luyện đề)
-                </span>
-              </div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight mt-0.5">
-                Chấm thi & Quản lý Bài làm trên Giấy (AI OMR)
-              </h2>
-            </div>
+          <div>
+            <h2 className="text-[20px] font-bold text-slate-800 tracking-tight">
+              Quản lý & Chấm thi Phiếu giấy (OMR)
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Quản lý SBD, in phiếu trả lời A4 và chấm bài tự động qua Camera.
+            </p>
           </div>
 
-          {/* 3 NÚT CHỨC NĂNG TRUNG TÂM */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* CỤM 3 NÚT HÀNH ĐỘNG CHÍNH NHÃ NHẶN */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => {
@@ -846,19 +1047,19 @@ export default function PaperExamManagerTab({
                 }
                 setShowSbdDirectoryModal(true);
               }}
-              className="px-3.5 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200/80 text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
             >
-              <Users className="w-4 h-4 text-[#1D4ED8]" />
+              <Users className="w-3.5 h-3.5 text-slate-500" />
               <span>📋 Bảng SBD Lớp ({sbdDirectoryList.length})</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowSheetPreviewModal(true)}
-              className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
             >
-              <Printer className="w-4 h-4" />
-              <span>📄 Xuất phiếu in theo bài đã chọn</span>
+              <Printer className="w-3.5 h-3.5" />
+              <span>📄 Xuất phiếu in</span>
             </button>
 
             <button
@@ -870,28 +1071,24 @@ export default function PaperExamManagerTab({
                   setShowInternalBulkScanner(true);
                 }
               }}
-              className="px-4 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black shadow-md transition flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
             >
-              <Camera className="w-4 h-4" />
-              <span>📷 Mở Camera Chấm OMR</span>
+              <Camera className="w-3.5 h-3.5" />
+              <span>📷 Mở Camera Chấm bài</span>
             </button>
           </div>
         </div>
 
-        {/* 2. THANH LỌC NGUỒN BÀI ĐA TẦNG */}
+        {/* 2. THANH LỌC BÀI THI PHẲNG & NHẸ NHÀNG */}
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
-                <Filter className="w-3.5 h-3.5 text-[#1D4ED8]" /> Nguồn bài:
-              </span>
               {[
-                { key: "all", label: "Tất cả nguồn", icon: FileText },
-                { key: "homework", label: "Bài tập về nhà (BTVN)", icon: BookOpen },
-                { key: "test", label: "Đề kiểm tra định kỳ", icon: Award },
-                { key: "practice", label: "Kho Luyện đề thực chiến", icon: Target }
+                { key: "all", label: "Tất cả" },
+                { key: "homework", label: "BTVN" },
+                { key: "test", label: "Đề KT" },
+                { key: "practice", label: "Luyện đề" }
               ].map((item) => {
-                const Icon = item.icon;
                 const active = sourceFilter === item.key;
                 return (
                   <button
@@ -901,28 +1098,27 @@ export default function PaperExamManagerTab({
                       setSourceFilter(item.key as any);
                       setSelectedQuizId("all");
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
                       active
-                        ? "bg-[#1D4ED8] text-white shadow-2xs"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{item.label}</span>
+                    {item.label}
                   </button>
                 );
               })}
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-slate-500">Tháng:</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500">Tháng:</span>
               <select
                 value={monthFilter}
                 onChange={(e) => {
                   setMonthFilter(e.target.value);
                   setSelectedQuizId("all");
                 }}
-                className="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-xs font-black text-[#1D4ED8] outline-none cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 outline-none cursor-pointer"
               >
                 <option value="all">Tất cả tháng</option>
                 {[8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7].map((m) => (
@@ -934,7 +1130,7 @@ export default function PaperExamManagerTab({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 pt-1">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
             {sourceFilter !== "practice" && (
               <>
                 <div className="md:col-span-3">
@@ -945,9 +1141,9 @@ export default function PaperExamManagerTab({
                       setSelectedLessonId("all");
                       setSelectedQuizId("all");
                     }}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
                   >
-                    <option value="all">-- Tất cả Chương học --</option>
+                    <option value="all">Tất cả Chương học</option>
                     {(chapters || []).map((c: any) => (
                       <option key={c.id} value={c.id}>
                         {c.title}
@@ -964,9 +1160,9 @@ export default function PaperExamManagerTab({
                       setSelectedQuizId("all");
                     }}
                     disabled={selectedChapterId === "all"}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 outline-none focus:border-[#1D4ED8] disabled:opacity-50 cursor-pointer"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-blue-600 disabled:opacity-50 cursor-pointer"
                   >
-                    <option value="all">-- Tất cả Bài học --</option>
+                    <option value="all">Tất cả Bài học</option>
                     {lessonsInSelectedChapter.map((l: any) => (
                       <option key={l.id} value={l.id}>
                         {l.title}
@@ -977,18 +1173,18 @@ export default function PaperExamManagerTab({
               </>
             )}
 
-            <div className={sourceFilter === "practice" ? "md:col-span-8" : "md:col-span-6"}>
+            <div className={sourceFilter === "practice" ? "md:col-span-12" : "md:col-span-6"}>
               <select
                 value={activeSelectedQuiz?.id || "all"}
                 onChange={(e) => setSelectedQuizId(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl bg-purple-50/70 border border-purple-200 text-xs font-black text-purple-900 outline-none focus:border-purple-600 cursor-pointer"
+                className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 outline-none focus:border-blue-600 cursor-pointer"
               >
                 {filteredQuizzes.length === 0 ? (
-                  <option value="all">-- Không có bài thi nào trong bộ lọc này --</option>
+                  <option value="all">Không có bài thi nào trong bộ lọc này</option>
                 ) : (
                   filteredQuizzes.map((q) => (
                     <option key={q.id} value={q.id}>
-                      [{q.sourceLabel} • Mã đề {q.examCode}] {q.title} ({q.totalQuestions} câu: P1={q.part1Count}, P2={q.part2Count}, P3={q.part3Count})
+                      [{q.sourceLabel} • Mã đề {q.examCode}] {q.title} ({q.totalQuestions} câu)
                     </option>
                   ))
                 )}
@@ -998,14 +1194,27 @@ export default function PaperExamManagerTab({
         </div>
       </div>
 
-      {/* 3. BẢNG TỔNG HỢP ĐIỂM BÀI THI TRÊN GIẤY & PHÚC KHẢO */}
-      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
-        <div className="p-4 sm:px-6 border-b border-slate-100 bg-slate-50/60 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-purple-600" />
-            <h3 className="font-extrabold text-slate-900 text-sm">
+      {/* 3. BẢNG DANH SÁCH BÀI THI GIẤY ĐÃ CHẤM (CÓ NÚT ĐỒNG BỘ SUPABASE TỨC THÌ) */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <h3 className="font-bold text-slate-800 text-sm">
               Danh sách Bài thi trên Giấy đã chấm ({paperSubmissionsList.length} bài)
             </h3>
+            <button
+              type="button"
+              disabled={isSyncingFromSupabase}
+              onClick={() => fetchPaperSubmissions(true)}
+              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              title="Kéo dữ liệu chấm mới nhất từ iPad / Supabase về máy"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 text-blue-600 ${
+                  isSyncingFromSupabase ? "animate-spin" : ""
+                }`}
+              />
+              <span>🔄 Đồng bộ</span>
+            </button>
           </div>
 
           <div className="relative min-w-[220px]">
@@ -1015,7 +1224,7 @@ export default function PaperExamManagerTab({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Tìm học sinh, SBD, tên đề..."
-              className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-purple-600"
+              className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-blue-600"
             />
             {searchQuery && (
               <button
@@ -1031,7 +1240,7 @@ export default function PaperExamManagerTab({
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
               <tr>
                 <th className="py-3 px-3 text-center w-12">STT</th>
                 <th className="py-3 px-4">Học sinh</th>
@@ -1040,15 +1249,15 @@ export default function PaperExamManagerTab({
                 <th className="py-3 px-3 text-center">Mã đề</th>
                 <th className="py-3 px-3 text-center">Câu đúng</th>
                 <th className="py-3 px-3 text-center">Điểm số</th>
-                <th className="py-3 px-3 text-center">Trạng thái OMR</th>
-                <th className="py-3 px-4 text-right">Phúc khảo & Sửa điểm</th>
+                <th className="py-3 px-3 text-center">Trạng thái</th>
+                <th className="py-3 px-4 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paperSubmissionsList.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-14 text-center text-slate-400 italic">
-                    Chưa có bài làm trên giấy nào trong bộ lọc này. Hãy bấm <strong>"📷 Mở Camera Chấm OMR"</strong> để quét phiếu của học sinh.
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                    Chưa có bài làm trên giấy nào. Hãy bấm <strong>"📷 Mở Camera Chấm bài"</strong> hoặc <strong>"🔄 Đồng bộ"</strong> để tải kết quả từ iPad.
                   </td>
                 </tr>
               ) : (
@@ -1056,54 +1265,48 @@ export default function PaperExamManagerTab({
                   const hasWarning = item.flaggedList && item.flaggedList.length > 0;
                   return (
                     <tr key={item.id || idx} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
-                      <td className="py-3 px-4 font-bold text-slate-900">
+                      <td className="py-3 px-3 text-center font-semibold text-slate-400">
+                        {idx + 1}
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-slate-800">
                         <div>{item.studentDisplayName}</div>
-                        <span className="text-[10px] text-slate-400 font-medium">
+                        <span className="text-[10px] text-slate-400 font-normal">
                           {item.dateFormatted}
                         </span>
                       </td>
                       <td className="py-3 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-mono font-black text-[11px] border border-slate-200">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-mono font-bold text-[11px] border border-slate-200">
                           {item.detectedSbd}
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="font-bold text-slate-800">{item.examDisplayTitle}</div>
-                        <span
-                          className={`inline-block mt-0.5 px-2 py-0.2 rounded text-[9px] font-black uppercase border ${
-                            item.sourceType === "homework"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : item.sourceType === "test"
-                              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                              : "bg-blue-50 text-blue-700 border-blue-200"
-                          }`}
-                        >
+                        <div className="font-semibold text-slate-800">{item.examDisplayTitle}</div>
+                        <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
                           {item.sourceLabel}
                         </span>
                       </td>
-                      <td className="py-3 px-3 text-center font-black text-[#1D4ED8]">
+                      <td className="py-3 px-3 text-center font-bold text-slate-700">
                         {item.detectedCode}
                       </td>
-                      <td className="py-3 px-3 text-center font-bold text-slate-700">
+                      <td className="py-3 px-3 text-center font-semibold text-slate-700">
                         {item.correctVal}/{item.totalQVal || "--"}
                       </td>
                       <td className="py-3 px-3 text-center">
-                        <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 border border-rose-200 font-black text-xs">
+                        <span className="px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs">
                           {item.scoreVal.toFixed(2)}đ
                         </span>
                       </td>
                       <td className="py-3 px-3 text-center">
                         {hasWarning ? (
                           <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-bold"
-                            title={`Các câu nghi ngờ tẩy lem: Câu ${item.flaggedList.join(", ")}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold"
+                            title={`Câu nghi ngờ: ${item.flaggedList.join(", ")}`}
                           >
                             <AlertTriangle className="w-3 h-3 text-amber-600" />
-                            Lem chì ({item.flaggedList.length} câu)
+                            Kiểm tra ({item.flaggedList.length})
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
                             <CheckCircle2 className="w-3 h-3" /> Hợp lệ
                           </span>
                         )}
@@ -1117,15 +1320,15 @@ export default function PaperExamManagerTab({
                               setEditScoreInput(item.scoreVal.toFixed(2));
                               setInspectingAttempt(item);
                             }}
-                            className="px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-600 text-purple-700 hover:text-white border border-purple-200 text-[11px] font-bold transition inline-flex items-center gap-1 cursor-pointer"
+                            className="px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
                           >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Xem phiếu & Sửa điểm</span>
+                            <Eye className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Xem & Sửa</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeletePaperAttempt(item)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
                             title="Xóa bài nộp này"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1141,23 +1344,18 @@ export default function PaperExamManagerTab({
         </div>
       </div>
 
-      {/* ===================================================================== */}
-      {/* MODAL 1: XEM TRƯỚC & IN PHIẾU TRẢ LỜI A4 ĐỘNG THEO BÀI ĐÃ CHỌN */}
-      {/* ===================================================================== */}
+      {/* MODAL 1: XEM TRƯỚC & IN PHIẾU TRẢ LỜI A4 */}
       {showSheetPreviewModal && activeSelectedQuiz && (
         <div
           onClick={() => setShowSheetPreviewModal(false)}
-          className="fixed inset-0 z-[500] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 cursor-pointer"
+          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl max-w-4xl w-full max-h-[94vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
+            className="bg-white rounded-2xl max-w-4xl w-full max-h-[94vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
           >
             <div className="px-5 py-3.5 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 shrink-0">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 block">
-                  MẪU PHIẾU A4 TỰ ĐỘNG CO GIÃN & BẺ TRANG ({previewSvgPages.length} TRANG A4)
-                </span>
                 <h3 className="text-sm font-bold text-white">
                   {activeSelectedQuiz.title} — Mã đề: {activeSelectedQuiz.examCode} ({activeSelectedQuiz.totalQuestions} câu)
                 </h3>
@@ -1173,29 +1371,29 @@ export default function PaperExamManagerTab({
                       examCode: activeSelectedQuiz.examCode
                     })
                   }
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-black shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Printer className="w-3.5 h-3.5" /> Mở cửa sổ In / Lưu PDF chuẩn A4
+                  <Printer className="w-3.5 h-3.5" /> In / Lưu PDF A4
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowSheetPreviewModal(false)}
-                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white transition cursor-pointer"
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-200/80 space-y-6 custom-scrollbar flex flex-col items-center">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-100 space-y-6 custom-scrollbar flex flex-col items-center">
               {previewSvgPages.map((svgMarkup, idx) => (
                 <div
                   key={idx}
-                  className="w-full max-w-[760px] bg-white rounded-xl shadow-xl border border-slate-300 overflow-hidden"
+                  className="w-full max-w-[760px] bg-white rounded-lg shadow-md border border-slate-200 overflow-hidden"
                 >
-                  <div className="px-4 py-1.5 bg-slate-800 text-slate-200 text-[11px] font-bold flex justify-between">
+                  <div className="px-4 py-1.5 bg-slate-800 text-slate-200 text-[11px] font-semibold flex justify-between">
                     <span>Trang {idx + 1} / {previewSvgPages.length}</span>
-                    <span>Chuẩn khổ A4 (4 góc định vị độc lập)</span>
+                    <span>Khổ chuẩn A4</span>
                   </div>
                   <div
                     className="w-full"
@@ -1208,69 +1406,65 @@ export default function PaperExamManagerTab({
         </div>
       )}
 
-      {/* ===================================================================== */}
-      {/* MODAL 2: BẢNG TRA CỨU SBD & PHIẾU GHI ĐIỂM LỚP (LỌC ONL/OFF & IN ẨN PHÂN HỆ) */}
-      {/* ===================================================================== */}
+      {/* MODAL 2: BẢNG TRA CỨU SBD & PHIẾU GHI ĐIỂM LỚP */}
       {showSbdDirectoryModal && (
         <div
           onClick={() => setShowSbdDirectoryModal(false)}
-          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 cursor-pointer"
+          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
+            className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
           >
-            {/* Header Modal Bảng SBD */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50 space-y-3.5">
+            <div className="p-4 sm:p-5 border-b border-slate-200 bg-white space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm sm:text-base font-black text-slate-900">
-                    Bảng Tra Cứu Số Báo Danh (SBD) & Phiếu Ghi Điểm ({filteredSbdDirectoryForModal.length} bạn)
+                  <h3 className="text-base font-bold text-slate-800">
+                    Bảng SBD Học Viên & Phiếu Ghi Điểm ({filteredSbdDirectoryForModal.length} bạn)
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    * Khi bấm In bảng SBD, hệ thống tự động ẩn cột Phân hệ và giữ nguyên SBD chuẩn của từng bạn.
+                    Khi in ra giấy A4, cột Phân hệ tự động được ẩn để làm bảng danh sách chuẩn.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handlePrintSbdDirectory}
-                    className="px-3.5 py-2 rounded-xl bg-[#1D4ED8] hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Printer className="w-3.5 h-3.5" /> 🖨 In bảng SBD
+                    <Printer className="w-3.5 h-3.5" /> In bảng SBD
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowSbdDirectoryModal(false)}
-                    className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 cursor-pointer"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              {/* Thanh lọc Phân hệ (Tất cả | Offline | Online) & Dropdown chọn bài thi để xem/in điểm */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
-                <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 w-fit">
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg w-fit">
                   {[
                     { key: "all", label: `Tất cả (${sbdDirectoryList.length})` },
                     {
                       key: "offline",
-                      label: `Học sinh Offline (${sbdDirectoryList.filter((x) => x.modeKey === "offline").length})`
+                      label: `Offline (${sbdDirectoryList.filter((x) => x.modeKey === "offline").length})`
                     },
                     {
                       key: "online",
-                      label: `Học sinh Online (${sbdDirectoryList.filter((x) => x.modeKey === "online").length})`
+                      label: `Online (${sbdDirectoryList.filter((x) => x.modeKey === "online").length})`
                     }
                   ].map((tab) => (
                     <button
                       key={tab.key}
                       type="button"
                       onClick={() => setSbdModalModeFilter(tab.key as any)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
                         sbdModalModeFilter === tab.key
-                          ? "bg-[#1D4ED8] text-white shadow-2xs"
-                          : "text-slate-600 hover:bg-slate-100"
+                          ? "bg-white text-slate-800 shadow-2xs"
+                          : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
                       {tab.label}
@@ -1278,13 +1472,13 @@ export default function PaperExamManagerTab({
                   ))}
                 </div>
 
-                <div className="flex items-center gap-2 flex-1 sm:max-w-[320px]">
+                <div className="flex items-center gap-2 flex-1 sm:max-w-[300px]">
                   <select
                     value={sbdModalSelectedQuizId}
                     onChange={(e) => setSbdModalSelectedQuizId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 cursor-pointer"
                   >
-                    <option value="none">-- Chọn bài thi để hiện cột Điểm số --</option>
+                    <option value="none">-- Chọn bài thi để hiện cột Điểm --</option>
                     {allUnifiedQuizzes.map((q) => (
                       <option key={q.id} value={q.id}>
                         [{q.sourceLabel}] {q.title}
@@ -1295,37 +1489,36 @@ export default function PaperExamManagerTab({
               </div>
             </div>
 
-            {/* Bảng danh sách SBD & Điểm số */}
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
-                <thead className="bg-slate-100 text-[10px] font-black uppercase text-slate-600 border-b border-slate-200">
+              <table className="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden">
+                <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200">
                   <tr>
                     <th className="py-2.5 px-3 text-center w-14">STT</th>
                     <th className="py-2.5 px-3 text-center w-32">SBD (6 chữ số)</th>
                     <th className="py-2.5 px-4">Họ và tên học sinh</th>
                     <th className="py-2.5 px-3">Trường</th>
                     <th className="py-2.5 px-3 text-center w-36">
-                      {sbdModalSelectedQuizObj ? "Điểm bài thi" : "Phân hệ / Điểm"}
+                      {sbdModalSelectedQuizObj ? "Điểm bài thi" : "Phân hệ"}
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredSbdDirectoryForModal.map((stu) => (
                     <tr key={stu.id} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-400">
+                      <td className="py-2.5 px-3 text-center font-semibold text-slate-400">
                         {stu.stt}
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        <span className="px-2.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 font-mono font-black text-xs">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs">
                           {stu.sbd}
                         </span>
                       </td>
-                      <td className="py-2.5 px-4 font-bold text-slate-800">{stu.full_name}</td>
+                      <td className="py-2.5 px-4 font-semibold text-slate-800">{stu.full_name}</td>
                       <td className="py-2.5 px-3 text-slate-500">{stu.school}</td>
                       <td className="py-2.5 px-3 text-center">
                         {sbdModalSelectedQuizObj ? (
                           stu.examScore !== undefined ? (
-                            <span className="px-2.5 py-0.5 rounded-lg bg-rose-50 text-rose-600 border border-rose-200 font-black text-xs">
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs">
                               {stu.examScore.toFixed(2)}đ
                             </span>
                           ) : (
@@ -1334,13 +1527,7 @@ export default function PaperExamManagerTab({
                             </span>
                           )
                         ) : (
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              stu.modeKey === "online"
-                                ? "bg-indigo-50 text-indigo-700 border border-indigo-100"
-                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                            }`}
-                          >
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
                             {stu.mode}
                           </span>
                         )}
@@ -1354,17 +1541,15 @@ export default function PaperExamManagerTab({
         </div>
       )}
 
-      {/* ===================================================================== */}
       {/* MODAL 3: CHẤM BÀI THI GIẤY NỘI BỘ DỰ PHÒNG */}
-      {/* ===================================================================== */}
       {showInternalBulkScanner && (
         <div
           onClick={() => setShowInternalBulkScanner(false)}
-          className="fixed inset-0 z-[500] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl max-w-2xl w-full p-6 border border-slate-200 shadow-2xl space-y-4 cursor-default"
+            className="bg-white rounded-2xl max-w-xl w-full p-6 border border-slate-200 shadow-2xl space-y-4 cursor-default"
           >
             <input
               ref={batchFileInputRef}
@@ -1377,18 +1562,13 @@ export default function PaperExamManagerTab({
             />
 
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <span className="text-[10px] font-black uppercase text-purple-600 block">
-                  CHẤM PHIẾU TRẮC NGHIỆM BẰNG CAMERA (AI OMR)
-                </span>
-                <h3 className="text-base font-black text-slate-900">
-                  Đang chấm cho bài: {activeSelectedQuiz?.title || "Chưa chọn bài"}
-                </h3>
-              </div>
+              <h3 className="text-base font-bold text-slate-800">
+                Chấm phiếu bài: {activeSelectedQuiz?.title || "Chưa chọn bài"}
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowInternalBulkScanner(false)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1396,26 +1576,19 @@ export default function PaperExamManagerTab({
 
             <div
               onClick={() => !isBatchProcessing && batchFileInputRef.current?.click()}
-              className="p-8 rounded-2xl border-2 border-dashed border-purple-300 bg-purple-50/40 hover:bg-purple-50 transition text-center space-y-3 cursor-pointer"
+              className="p-8 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 transition text-center space-y-2 cursor-pointer"
             >
               {isBatchProcessing ? (
                 <div className="space-y-2 py-4">
-                  <Loader2 className="w-8 h-8 animate-spin text-purple-600 mx-auto" />
-                  <p className="text-xs font-extrabold text-purple-900">{batchProgressText}</p>
+                  <Loader2 className="w-7 h-7 animate-spin text-blue-600 mx-auto" />
+                  <p className="text-xs font-semibold text-slate-700">{batchProgressText}</p>
                 </div>
               ) : (
                 <>
-                  <div className="w-14 h-14 rounded-2xl bg-purple-600 text-white flex items-center justify-center mx-auto shadow-md">
-                    <Camera className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black text-slate-900">
-                      Bấm để mở Camera chụp phiếu trả lời
-                    </h4>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Hệ thống tự động căn 4 góc đen, đọc SBD 6 số để nhận diện học sinh và chấm điểm tức thì.
-                    </p>
-                  </div>
+                  <Camera className="w-8 h-8 text-slate-500 mx-auto" />
+                  <h4 className="text-sm font-bold text-slate-800">
+                    Bấm để mở Camera hoặc chọn ảnh phiếu trả lời
+                  </h4>
                 </>
               )}
             </div>
@@ -1423,36 +1596,29 @@ export default function PaperExamManagerTab({
         </div>
       )}
 
-      {/* ===================================================================== */}
-      {/* MODAL 4: XEM PHIẾU GỐC CÓ VIỀN XANH / ĐỎ & CHỈNH SỬA ĐIỂM TRỰC TIẾP */}
-      {/* ===================================================================== */}
+      {/* MODAL 4: XEM PHIẾU ĐÃ CHẤM & SỬA ĐIỂM */}
       {inspectingAttempt && (
         <div
           onClick={() => setInspectingAttempt(null)}
-          className="fixed inset-0 z-[550] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 cursor-pointer"
+          className="fixed inset-0 z-[550] bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-slate-900 rounded-3xl max-w-4xl w-full max-h-[94vh] border border-slate-700 shadow-2xl flex flex-col overflow-hidden cursor-default"
+            className="bg-slate-900 rounded-2xl max-w-4xl w-full max-h-[94vh] border border-slate-700 shadow-2xl flex flex-col overflow-hidden cursor-default"
           >
-            <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-white">
+            <div className="px-5 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-white">
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-purple-600 text-white text-[10px] font-black uppercase">
-                    PHÚC KHẢO BÀI GIẤY OMR
-                  </span>
-                  <span className="text-xs text-slate-300 font-bold">
-                    SBD: {inspectingAttempt.detectedSbd} • Mã đề: {inspectingAttempt.detectedCode}
-                  </span>
-                </div>
+                <span className="text-xs text-slate-400 font-medium block">
+                  SBD: {inspectingAttempt.detectedSbd} • Mã đề: {inspectingAttempt.detectedCode}
+                </span>
                 <h4 className="text-sm font-bold text-white mt-0.5">
                   {inspectingAttempt.studentDisplayName} — {inspectingAttempt.examDisplayTitle}
                 </h4>
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="inline-flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700">
-                  <span className="text-xs font-bold text-slate-300">Điểm:</span>
+                <div className="inline-flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                  <span className="text-xs font-medium text-slate-300">Điểm:</span>
                   <input
                     type="number"
                     step="0.1"
@@ -1460,15 +1626,15 @@ export default function PaperExamManagerTab({
                     max="10"
                     value={editScoreInput}
                     onChange={(e) => setEditScoreInput(e.target.value)}
-                    className="w-14 bg-slate-950 text-white font-black text-xs text-center py-1 rounded border border-slate-600 outline-none focus:border-blue-400"
+                    className="w-14 bg-slate-950 text-white font-bold text-xs text-center py-1 rounded border border-slate-600 outline-none focus:border-blue-400"
                   />
                   <button
                     type="button"
                     disabled={isSavingScore}
                     onClick={handleSaveInspectScore}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1 cursor-pointer"
                   >
-                    <Save className="w-3.5 h-3.5" /> Lưu điểm
+                    <Save className="w-3.5 h-3.5" /> Lưu
                   </button>
                 </div>
 
@@ -1489,7 +1655,7 @@ export default function PaperExamManagerTab({
                 <button
                   type="button"
                   onClick={() => setInspectingAttempt(null)}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white transition cursor-pointer"
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1504,7 +1670,7 @@ export default function PaperExamManagerTab({
                     aspectRatio: `${OMR_CANONICAL_WIDTH} / ${OMR_CANONICAL_HEIGHT}`,
                     transition: "width 0.18s ease-out"
                   }}
-                  className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
+                  className="relative rounded-lg overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
                 >
                   <img
                     src={inspectingAttempt.paperScanUrl}
