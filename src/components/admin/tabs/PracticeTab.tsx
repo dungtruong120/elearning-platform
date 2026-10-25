@@ -26,11 +26,15 @@ import {
 } from "@/lib/omrEngine";
 import { AdminBulkOMRScannerModal } from "@/components/admin/paper/AdminBulkOMRScannerModal";
 
-const PRACTICE_CATEGORIES = [
+// DANH MỤC ĐẦY ĐỦ KHÔI PHỤC TẤT CẢ PHÂN LOẠI ĐỀ
+export const PRACTICE_CATEGORIES = [
   "Tất cả danh mục",
-  "Đề thi thử THPT Quốc Gia",
+  "Đề thi giữa kỳ",
+  "Đề thi học kỳ",
   "Đề kiểm tra định kỳ",
+  "Đề thi thử THPT Quốc Gia",
   "Đề luyện thi ĐGNL (HSA/TSA)",
+  "Bài tập về nhà (BTVN)",
   "Đề tổng ôn chuyên đề",
   "Tự do"
 ];
@@ -42,6 +46,92 @@ function normalizeStr(str: any): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * TỰ ĐỘNG NHẬN DIỆN DANH MỤC CHUẨN DỰA TRÊN TÊN ĐỀ & CATEGORY GỐC
+ */
+function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
+  const rawCat = String(exam?.category || fallbackCategory || "").trim();
+  const titleNorm = normalizeStr(exam?.title || "");
+  const catNorm = normalizeStr(rawCat);
+
+  if (
+    catNorm.includes("giữa kỳ") ||
+    catNorm.includes("giữa kì") ||
+    titleNorm.includes("giữa kỳ") ||
+    titleNorm.includes("giữa kì") ||
+    titleNorm.includes("gk1") ||
+    titleNorm.includes("gk2")
+  ) {
+    return "Đề thi giữa kỳ";
+  }
+
+  if (
+    catNorm.includes("học kỳ") ||
+    catNorm.includes("học kì") ||
+    catNorm.includes("cuối kỳ") ||
+    catNorm.includes("cuối kì") ||
+    titleNorm.includes("học kỳ") ||
+    titleNorm.includes("học kì") ||
+    titleNorm.includes("cuối kỳ") ||
+    titleNorm.includes("hk1") ||
+    titleNorm.includes("hk2")
+  ) {
+    return "Đề thi học kỳ";
+  }
+
+  if (
+    catNorm.includes("btvn") ||
+    catNorm.includes("bài tập") ||
+    exam?.isHomework ||
+    exam?.is_homework ||
+    titleNorm.includes("btvn")
+  ) {
+    return "Bài tập về nhà (BTVN)";
+  }
+
+  if (
+    catNorm.includes("định kỳ") ||
+    catNorm.includes("kiểm tra") ||
+    titleNorm.includes("kiểm tra")
+  ) {
+    return "Đề kiểm tra định kỳ";
+  }
+
+  if (
+    catNorm.includes("hsa") ||
+    catNorm.includes("tsa") ||
+    catNorm.includes("đgnl") ||
+    titleNorm.includes("hsa") ||
+    titleNorm.includes("tsa") ||
+    titleNorm.includes("đgnl")
+  ) {
+    return "Đề luyện thi ĐGNL (HSA/TSA)";
+  }
+
+  if (
+    catNorm.includes("thpt") ||
+    catNorm.includes("thi thử") ||
+    titleNorm.includes("thi thử") ||
+    titleNorm.includes("thpt")
+  ) {
+    return "Đề thi thử THPT Quốc Gia";
+  }
+
+  if (
+    catNorm.includes("tổng ôn") ||
+    catNorm.includes("chuyên đề") ||
+    titleNorm.includes("tổng ôn")
+  ) {
+    return "Đề tổng ôn chuyên đề";
+  }
+
+  if (rawCat && PRACTICE_CATEGORIES.includes(rawCat)) {
+    return rawCat;
+  }
+
+  return rawCat || "Tự do";
 }
 
 function safeSaveExamsToLocal(exams: any[]) {
@@ -110,7 +200,7 @@ export default function PracticeTab({
   practiceExams: propPracticeExams = [],
   allAttempts: propAllAttempts = [],
   registeredStudents: propRegisteredStudents = [],
-  chapters = [],
+  chapters: propChapters = [],
   isLoadingExams: propIsLoadingExams = false,
   uploadProgressText = null,
   setTestFile,
@@ -131,12 +221,44 @@ export default function PracticeTab({
 }: PracticeTabProps) {
   const effectiveSupabase = propSupabase || defaultSupabaseClient;
 
+  // 1. NẠP TOÀN BỘ CACHE ĐỀ THI TỪ MỌI KEY TRONG LOCALSTORAGE
   const [internalExams, setInternalExams] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
+      const merged: any[] = [];
+      const seenIds = new Set<string>();
+      const keys = [
+        "edunexus_practice_exams",
+        "edunexus_quizzes",
+        "tct_practice_exams"
+      ];
+      for (const k of keys) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((item: any) => {
+              const id = String(item?.id || "").trim();
+              if (id && !seenIds.has(id)) {
+                seenIds.add(id);
+                merged.push(item);
+              }
+            });
+          }
+        } catch {}
+      }
+      return merged;
+    }
+    return [];
+  });
+
+  // Nạp dự phòng chapters từ localStorage nếu propChapters chưa kịp truyền xuống
+  const [internalChapters, setInternalChapters] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
       try {
-        const cached = localStorage.getItem("edunexus_practice_exams");
-        if (cached) {
-          const parsed = JSON.parse(cached);
+        const raw = localStorage.getItem("edunexus_course_data");
+        if (raw) {
+          const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         }
       } catch {}
@@ -175,6 +297,16 @@ export default function PracticeTab({
     return [];
   });
 
+  const [deletedExamIds, setDeletedExamIds] = useState<Set<string>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("edunexus_deleted_exam_ids");
+        if (raw) return new Set(JSON.parse(raw));
+      } catch {}
+    }
+    return new Set();
+  });
+
   const [isSelfFetching, setIsSelfFetching] = useState<boolean>(false);
   const [searchKeyword, setSearchKeyword] = useState<string>("");
 
@@ -184,24 +316,33 @@ export default function PracticeTab({
   const [scannerTargetExam, setScannerTargetExam] = useState<any | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
 
+  // Gộp non-destructive khi propPracticeExams thay đổi
   useEffect(() => {
     if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
-      setInternalExams(propPracticeExams);
-      safeSaveExamsToLocal(propPracticeExams);
+      setInternalExams((prev) => {
+        const map = new Map<string, any>();
+        prev.forEach((ex) => {
+          if (ex?.id) map.set(String(ex.id), ex);
+        });
+        propPracticeExams.forEach((ex) => {
+          if (ex?.id) map.set(String(ex.id), { ...map.get(String(ex.id)), ...ex });
+        });
+        const merged = Array.from(map.values());
+        safeSaveExamsToLocal(merged);
+        return merged;
+      });
     }
   }, [propPracticeExams]);
 
   useEffect(() => {
+    if (Array.isArray(propChapters) && propChapters.length > 0) {
+      setInternalChapters(propChapters);
+    }
+  }, [propChapters]);
+
+  useEffect(() => {
     if (Array.isArray(propRegisteredStudents) && propRegisteredStudents.length > 0) {
       setInternalStudents(propRegisteredStudents);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem(
-            "edunexus_registered_students",
-            JSON.stringify(propRegisteredStudents)
-          );
-        } catch {}
-      }
     }
   }, [propRegisteredStudents]);
 
@@ -211,21 +352,37 @@ export default function PracticeTab({
     }
   }, [propAllAttempts]);
 
-  // HÀM TRUY VẤN AN TOÀN VỚI LOG CHI TIẾT (KHÔNG BAO GIỜ XÓA CACHE NẾU SUPABASE BÁO LỖI 500)
+  // 2. HÀM SMART MERGE FETCHING: TRUY VẤN SIÊU NHẸ TỪ SUPABASE + COURSES + API MÀ KHÔNG BỊ TIMEOUT 500
   const fetchExamsAndStudentsSafely = useCallback(
     async (notifyUser: boolean = false) => {
       setIsSelfFetching(true);
-      let recoveredExams: any[] = [];
+      const collectedExamsMap = new Map<string, any>();
       let recoveredStudents: any[] = [];
       let recoveredAttempts: any[] = [];
 
-      // 1. Gọi API Server Route
+      const addExamToCollector = (ex: any, defaultCategory?: string) => {
+        if (!ex) return;
+        const id = String(ex.id || ex.quiz_id || "").trim();
+        if (!id) return;
+        const existing = collectedExamsMap.get(id);
+        collectedExamsMap.set(id, {
+          ...existing,
+          ...ex,
+          id,
+          category: resolveSmartCategory(ex, existing?.category || defaultCategory)
+        });
+      };
+
+      // Giữ lại toàn bộ đề đang có trong internalExams trước khi merge
+      internalExams.forEach((ex) => addExamToCollector(ex));
+
+      // Bước 1: Gọi API `/api/admin/data`
       try {
         const res = await fetch("/api/admin/data", { cache: "no-store" });
         if (res.ok) {
           const apiData = await res.json();
-          if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
-            recoveredExams = apiData.practiceExams;
+          if (Array.isArray(apiData.practiceExams)) {
+            apiData.practiceExams.forEach((ex: any) => addExamToCollector(ex));
           }
           if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
             recoveredStudents = apiData.profiles;
@@ -237,75 +394,116 @@ export default function PracticeTab({
           if (combinedAtt.length > 0) {
             recoveredAttempts = combinedAtt;
           }
-        } else {
-          console.error("Supabase Error Details (API /api/admin/data HTTP Status):", res.status);
         }
       } catch (apiErr) {
-        console.error("Supabase Error Details (API /api/admin/data Exception):", apiErr);
+        console.error("Supabase Error Details (API /api/admin/data):", apiErr);
       }
 
-      // 2. Truy vấn trực tiếp Supabase nếu API chưa có dữ liệu
+      // Bước 2: Truy vấn bảng `practice_exams` trên Supabase (Bỏ cột media_map siêu nặng để tránh lỗi 500/Timeout)
       if (effectiveSupabase) {
-        if (recoveredExams.length === 0) {
-          try {
-            const { data: sbExams, error: examErr } = await effectiveSupabase
-              .from("practice_exams")
-              .select("*")
-              .order("created_at", { ascending: false });
+        try {
+          const { data: sbExamsLight, error: lightErr } = await effectiveSupabase
+            .from("practice_exams")
+            .select(
+              "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
+            )
+            .order("created_at", { ascending: false });
 
-            if (examErr) {
-              console.error("Supabase Error Details (practice_exams):", examErr);
-            } else if (Array.isArray(sbExams) && sbExams.length > 0) {
-              recoveredExams = sbExams;
+          if (!lightErr && Array.isArray(sbExamsLight) && sbExamsLight.length > 0) {
+            sbExamsLight.forEach((ex: any) => addExamToCollector(ex));
+          } else {
+            // Fallback: Nếu thiếu cột phụ, chỉ select các cột cốt lõi
+            const { data: sbExamsMin, error: minErr } = await effectiveSupabase
+              .from("practice_exams")
+              .select("id, title, category, duration_minutes, data, created_at");
+
+            if (!minErr && Array.isArray(sbExamsMin)) {
+              sbExamsMin.forEach((ex: any) => addExamToCollector(ex));
+            } else if (minErr) {
+              console.error("Supabase Error Details (practice_exams minimal):", minErr);
             }
-          } catch (err) {
-            console.error("Supabase Error Details (practice_exams exception):", err);
           }
+        } catch (err) {
+          console.error("Supabase Error Details (practice_exams exception):", err);
+        }
+
+        // Bước 3: Truy vấn bảng `courses` để lấy toàn bộ đề Kiểm tra chương, Giữa kỳ, Học kỳ & BTVN nằm trong các bài học
+        try {
+          const { data: courseRows, error: courseErr } = await effectiveSupabase
+            .from("courses")
+            .select("id, chapters")
+            .limit(1);
+
+          if (!courseErr && Array.isArray(courseRows) && courseRows.length > 0) {
+            const loadedChaps = courseRows[0]?.chapters;
+            if (Array.isArray(loadedChaps) && loadedChaps.length > 0) {
+              setInternalChapters(loadedChaps);
+              loadedChaps.forEach((chap: any) => {
+                (chap?.lessons || []).forEach((les: any) => {
+                  (les?.test_quizzes || []).forEach((tq: any) => {
+                    if (tq && !tq.is_drive_file) {
+                      addExamToCollector(
+                        {
+                          ...tq,
+                          duration_minutes: tq.duration_minutes || 90
+                        },
+                        "Đề kiểm tra định kỳ"
+                      );
+                    }
+                  });
+                  (les?.homework_files || []).forEach((hw: any) => {
+                    if (hw && !hw.is_drive_file) {
+                      addExamToCollector(
+                        {
+                          ...hw,
+                          isHomework: true,
+                          duration_minutes: hw.duration_minutes || 45
+                        },
+                        "Bài tập về nhà (BTVN)"
+                      );
+                    }
+                  });
+                });
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Supabase Error Details (courses recovery):", err);
         }
 
         if (recoveredStudents.length === 0) {
           try {
-            const { data: sbProfiles, error: profErr } = await effectiveSupabase
+            const { data: sbProfiles } = await effectiveSupabase
               .from("profiles")
               .select("*");
-
-            if (profErr) {
-              console.error("Supabase Error Details (profiles):", profErr);
-            } else if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
+            if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
               recoveredStudents = sbProfiles.filter(
                 (p: any) => p.role !== "admin" && p.role !== "teacher"
               );
             }
-          } catch (err) {
-            console.error("Supabase Error Details (profiles exception):", err);
-          }
+          } catch {}
         }
 
         if (recoveredAttempts.length === 0) {
           try {
-            const { data: sbAtt, error: attErr } = await effectiveSupabase
+            const { data: sbAtt } = await effectiveSupabase
               .from("exam_attempts")
               .select("*")
               .order("created_at", { ascending: false });
-
-            if (attErr) {
-              console.error("Supabase Error Details (exam_attempts):", attErr);
-            } else if (Array.isArray(sbAtt) && sbAtt.length > 0) {
+            if (Array.isArray(sbAtt) && sbAtt.length > 0) {
               recoveredAttempts = sbAtt;
             }
-          } catch (err) {
-            console.error("Supabase Error Details (exam_attempts exception):", err);
-          }
+          } catch {}
         }
       }
 
-      // 3. Chỉ ghi nhận khi có dữ liệu > 0 (Bảo toàn dữ liệu hiện tại nếu lỗi 500)
-      if (recoveredExams.length > 0) {
-        setInternalExams(recoveredExams);
-        safeSaveExamsToLocal(recoveredExams);
+      const finalMergedExams = Array.from(collectedExamsMap.values());
+      if (finalMergedExams.length > 0) {
+        setInternalExams(finalMergedExams);
+        safeSaveExamsToLocal(finalMergedExams);
         if (typeof savePracticeExams === "function") {
           try {
-            savePracticeExams(recoveredExams);
+            savePracticeExams(finalMergedExams);
           } catch {}
         }
       }
@@ -335,48 +533,112 @@ export default function PracticeTab({
 
       if (notifyUser && showToast) {
         showToast(
-          `Đã đồng bộ dữ liệu: ${
-            recoveredExams.length || internalExams.length
-          } đề thi & ${recoveredStudents.length || internalStudents.length} học sinh!`,
+          `Đã khôi phục & hợp nhất thành công ${finalMergedExams.length} đề thi!`,
           "success"
         );
       }
     },
-    [effectiveSupabase, savePracticeExams, showToast, internalExams.length, internalStudents.length]
+    [effectiveSupabase, internalExams, savePracticeExams, showToast]
   );
 
   useEffect(() => {
     fetchExamsAndStudentsSafely(false);
   }, []);
 
-  // Trích xuất dự phòng các đề kiểm tra từ `chapters` nếu cả Supabase & LocalStorage đều trống
-  const fallbackQuizzesFromChapters = useMemo(() => {
-    const list: any[] = [];
-    (chapters || []).forEach((chap: any) => {
+  // 3. HỢP NHẤT TOÀN DIỆN (SMART MULTI-SOURCE MERGE): GỘP TẤT CẢ ĐỀ TỪ PROPS + SUPABASE + CHAPTERS (TEST & BTVN)
+  const effectiveChapters = useMemo(() => {
+    if (Array.isArray(propChapters) && propChapters.length > 0) return propChapters;
+    return internalChapters;
+  }, [propChapters, internalChapters]);
+
+  const effectiveExams = useMemo(() => {
+    const unifiedMap = new Map<string, any>();
+
+    const pushExam = (ex: any, fallbackCategory?: string) => {
+      if (!ex || ex.is_drive_file) return;
+      const id = String(ex.id || ex.quiz_id || "").trim();
+      if (!id || deletedExamIds.has(id)) return;
+
+      const existing = unifiedMap.get(id);
+      const resolvedCat = resolveSmartCategory(ex, existing?.category || fallbackCategory);
+
+      unifiedMap.set(id, {
+        ...existing,
+        ...ex,
+        id,
+        title: String(ex.title || existing?.title || "Đề luyện thi"),
+        category: resolvedCat,
+        duration_minutes: Number(ex.duration_minutes || existing?.duration_minutes || 90)
+      });
+    };
+
+    // Nguồn 1: Đề từ propPracticeExams (bảng practice_exams truyền từ Admin)
+    (propPracticeExams || []).forEach((ex) => pushExam(ex));
+
+    // Nguồn 2: Đề từ internalExams (đã lấy từ Supabase + LocalStorage)
+    (internalExams || []).forEach((ex) => pushExam(ex));
+
+    // Nguồn 3: Toàn bộ Đề kiểm tra định kỳ, Giữa kỳ, Học kỳ & BTVN trong các Chương/Bài học
+    (effectiveChapters || []).forEach((chap: any) => {
       (chap?.lessons || []).forEach((les: any) => {
         (les?.test_quizzes || []).forEach((tq: any) => {
-          if (tq && !tq.is_drive_file) {
-            list.push({
-              ...tq,
-              category: tq.category || "Đề kiểm tra định kỳ",
-              duration_minutes: tq.duration_minutes || 45
-            });
-          }
+          pushExam(tq, "Đề kiểm tra định kỳ");
+        });
+        (les?.homework_files || []).forEach((hw: any) => {
+          pushExam(
+            {
+              ...hw,
+              isHomework: true,
+              duration_minutes: hw?.duration_minutes || 45
+            },
+            "Bài tập về nhà (BTVN)"
+          );
         });
       });
     });
-    return list;
-  }, [chapters]);
 
-  const effectiveExams = useMemo(() => {
-    if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
-      return propPracticeExams;
-    }
-    if (internalExams.length > 0) {
-      return internalExams;
-    }
-    return fallbackQuizzesFromChapters;
-  }, [propPracticeExams, internalExams, fallbackQuizzesFromChapters]);
+    // Nguồn 4: Khôi phục thêm các đề đã từng có học sinh nộp bài trong lịch sử `allAttempts` nhưng bị thiếu trong danh mục
+    const allAtt =
+      Array.isArray(propAllAttempts) && propAllAttempts.length > 0
+        ? propAllAttempts
+        : internalAttempts;
+
+    const existingTitlesNorm = new Set(
+      Array.from(unifiedMap.values()).map((x) => normalizeStr(x.title))
+    );
+
+    (allAtt || []).forEach((att: any) => {
+      if (!att) return;
+      const qId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
+      const qTitle = String(
+        att.examTitle || att.exam_title || att.quizTitle || att.quiz_title || ""
+      ).trim();
+      if (!qId || !qTitle || deletedExamIds.has(qId)) return;
+
+      if (!unifiedMap.has(qId) && !existingTitlesNorm.has(normalizeStr(qTitle))) {
+        existingTitlesNorm.add(normalizeStr(qTitle));
+        pushExam(
+          {
+            id: qId,
+            title: qTitle,
+            isHomework: Boolean(att.isHomework || att.is_homework || att.type === "homework"),
+            duration_minutes: 90,
+            data: []
+          },
+          att.isHomework || att.is_homework ? "Bài tập về nhà (BTVN)" : "Đề luyện thi thực chiến"
+        );
+      }
+    });
+
+    return Array.from(unifiedMap.values());
+  }, [
+    propPracticeExams,
+    internalExams,
+    effectiveChapters,
+    propAllAttempts,
+    internalAttempts,
+    deletedExamIds
+  ]);
 
   const effectiveAttempts = useMemo(() => {
     if (Array.isArray(propAllAttempts) && propAllAttempts.length > 0) {
@@ -385,7 +647,6 @@ export default function PracticeTab({
     return internalAttempts;
   }, [propAllAttempts, internalAttempts]);
 
-  // Khôi phục danh sách Học sinh từ cả prop, cache và lịch sử làm bài
   const effectiveStudents = useMemo(() => {
     if (Array.isArray(propRegisteredStudents) && propRegisteredStudents.length > 0) {
       return propRegisteredStudents;
@@ -457,10 +718,29 @@ export default function PracticeTab({
     return directory;
   }, [effectiveStudents]);
 
+  // Đếm số lượng đề theo từng danh mục để hiển thị trực quan trên Dropdown lọc
+  const categoryCountsMap = useMemo(() => {
+    const counts: Record<string, number> = {
+      "Tất cả danh mục": effectiveExams.length
+    };
+    PRACTICE_CATEGORIES.forEach((cat) => {
+      if (cat !== "Tất cả danh mục") counts[cat] = 0;
+    });
+    effectiveExams.forEach((ex) => {
+      const cat = ex?.category || "Tự do";
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    return counts;
+  }, [effectiveExams]);
+
   const computedExamsWithScores = useMemo(() => {
     let list = Array.isArray(effectiveExams) ? [...effectiveExams] : [];
     if (practiceCategoryFilter && practiceCategoryFilter !== "Tất cả danh mục") {
-      list = list.filter((ex) => (ex?.category || "Tự do") === practiceCategoryFilter);
+      list = list.filter((ex) => {
+        const cat = ex?.category || "Tự do";
+        if (cat === practiceCategoryFilter) return true;
+        return resolveSmartCategory(ex) === practiceCategoryFilter;
+      });
     }
 
     if (searchKeyword.trim()) {
@@ -655,9 +935,46 @@ export default function PracticeTab({
     win.document.close();
   };
 
+  const handleLocalChangeCategory = async (examId: string, newCat: string) => {
+    setInternalExams((prev) => {
+      const exists = prev.some((x) => String(x?.id) === String(examId));
+      const baseList = exists ? prev : effectiveExams;
+      const updated = baseList.map((ex) =>
+        String(ex?.id) === String(examId) ? { ...ex, category: newCat } : ex
+      );
+      safeSaveExamsToLocal(updated);
+      return updated;
+    });
+
+    if (handleChangeExamCategory) {
+      handleChangeExamCategory(examId, newCat);
+    } else if (effectiveSupabase) {
+      try {
+        await effectiveSupabase
+          .from("practice_exams")
+          .update({ category: newCat })
+          .eq("id", examId);
+      } catch {}
+    }
+  };
+
   const handleDeletePracticeExam = async (exam: any) => {
     if (!confirm(`Bạn có chắc chắn muốn xóa đề thi "${exam.title}"?`)) return;
-    const updated = effectiveExams.filter((ex) => String(ex?.id) !== String(exam.id));
+    const targetId = String(exam.id);
+
+    const nextDeleted = new Set(deletedExamIds);
+    nextDeleted.add(targetId);
+    setDeletedExamIds(nextDeleted);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(
+          "edunexus_deleted_exam_ids",
+          JSON.stringify(Array.from(nextDeleted))
+        );
+      } catch {}
+    }
+
+    const updated = effectiveExams.filter((ex) => String(ex?.id) !== targetId);
     setInternalExams(updated);
     safeSaveExamsToLocal(updated);
     if (typeof savePracticeExams === "function") {
@@ -700,7 +1017,7 @@ export default function PracticeTab({
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Tải đề Word/PDF cấu hình Azota, xuất phiếu tô trắc nghiệm A4 chuẩn Bộ GD&ĐT và chấm tự động qua Camera.
+              Quản lý toàn bộ Đề thi giữa kỳ, học kỳ, định kỳ, luyện đề thực chiến & BTVN.
             </p>
           </div>
 
@@ -736,7 +1053,7 @@ export default function PracticeTab({
             <button
               type="button"
               onClick={() => {
-                setScannerTargetExam(effectiveExams[0] || null);
+                setScannerTargetExam(computedExamsWithScores[0] || effectiveExams[0] || null);
                 setIsScannerOpen(true);
               }}
               className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
@@ -766,6 +1083,7 @@ export default function PracticeTab({
           </div>
         </div>
 
+        {/* THANH CHUYỂN TAB & BỘ LỌC DANH MỤC ĐẦY ĐỦ */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg w-fit">
             <button
@@ -777,7 +1095,7 @@ export default function PracticeTab({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              Danh sách Đề thi ({effectiveExams.length})
+              Danh sách Đề thi ({computedExamsWithScores.length}/{effectiveExams.length})
             </button>
             <button
               type="button"
@@ -802,7 +1120,7 @@ export default function PracticeTab({
             >
               {PRACTICE_CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
-                  {cat}
+                  {cat} ({categoryCountsMap[cat] ?? 0})
                 </option>
               ))}
             </select>
@@ -836,7 +1154,7 @@ export default function PracticeTab({
           <div className="py-14 text-center space-y-2">
             <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
             <p className="text-xs font-semibold text-slate-500">
-              {uploadProgressText || "Đang tải danh sách đề thi từ đám mây..."}
+              {uploadProgressText || "Đang tải danh sách đề thi..."}
             </p>
           </div>
         ) : computedExamsWithScores.length === 0 ? (
@@ -844,20 +1162,34 @@ export default function PracticeTab({
             <FolderOpen className="w-8 h-8 text-slate-300 mx-auto" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-slate-700">
-                Chưa có đề thi nào trong bộ lọc hiện tại
+                Không có đề thi nào khớp với danh mục "{practiceCategoryFilter}"
               </h4>
               <p className="text-xs text-slate-400">
-                Hãy chạy Script SQL sửa lỗi RLS 500 trên Supabase và bấm{" "}
-                <strong>"🔄 Đồng bộ"</strong> để tải lại.
+                Hãy chuyển bộ lọc về <strong>"Tất cả danh mục"</strong> hoặc bấm{" "}
+                <strong>"🔄 Đồng bộ"</strong>.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => fetchExamsAndStudentsSafely(true)}
-              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Tải lại từ Supabase
-            </button>
+            <div className="flex items-center justify-center gap-2">
+              {practiceCategoryFilter !== "Tất cả danh mục" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPracticeCategoryFilter &&
+                    setPracticeCategoryFilter("Tất cả danh mục")
+                  }
+                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer"
+                >
+                  Xem tất cả ({effectiveExams.length} đề)
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => fetchExamsAndStudentsSafely(true)}
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Tải lại từ Supabase
+              </button>
+            </div>
           </div>
         ) : practiceSubTab === "manage" ? (
           <div className="overflow-x-auto">
@@ -906,10 +1238,7 @@ export default function PracticeTab({
                     <td className="py-3.5 px-3">
                       <select
                         value={exam.category || "Tự do"}
-                        onChange={(e) =>
-                          handleChangeExamCategory &&
-                          handleChangeExamCategory(exam.id, e.target.value)
-                        }
+                        onChange={(e) => handleLocalChangeCategory(exam.id, e.target.value)}
                         className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
                       >
                         {PRACTICE_CATEGORIES.filter((c) => c !== "Tất cả danh mục").map(
@@ -1245,7 +1574,7 @@ export default function PracticeTab({
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
         initialSelectedQuiz={scannerTargetExam}
-        chapters={chapters}
+        chapters={effectiveChapters}
         practiceExams={effectiveExams}
         registeredStudents={effectiveStudents}
         supabase={effectiveSupabase}
