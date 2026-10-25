@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
-  Plus,
   FileUp,
   Search,
   Video,
@@ -10,19 +9,13 @@ import {
   Edit3,
   Play,
   Eye,
-  CheckCircle2,
-  AlertCircle,
   Loader2,
   FolderOpen,
-  Award,
   Users,
   Printer,
   Camera,
   RefreshCw,
-  FileText,
-  ExternalLink,
-  X,
-  BarChart3
+  X
 } from "lucide-react";
 import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -136,10 +129,8 @@ export default function PracticeTab({
   setPracticeCategoryFilter,
   practiceSyncStatus
 }: PracticeTabProps) {
-  // 1. ĐẢM BẢO SUPABASE CLIENT LUÔN TỒN TẠI (FALLBACK NỘI BỘ AN TOÀN)
   const effectiveSupabase = propSupabase || defaultSupabaseClient;
 
-  // 2. STATE BACKUP NỘI BỘ CHỐNG MẤT DỮ LIỆU KHI PROPS BỊ RỖNG (0 ĐỀ / 0 HỌC SINH)
   const [internalExams, setInternalExams] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -187,14 +178,12 @@ export default function PracticeTab({
   const [isSelfFetching, setIsSelfFetching] = useState<boolean>(false);
   const [searchKeyword, setSearchKeyword] = useState<string>("");
 
-  // STATE CHO MODAL BẢNG SBD LỚP & CAMERA CHẤM OMR NGAY TẠI KHO LUYỆN ĐỀ
   const [showSbdModal, setShowSbdModal] = useState<boolean>(false);
   const [sbdModeFilter, setSbdModeFilter] = useState<"all" | "offline" | "online">("all");
   const [sbdSelectedExamId, setSbdSelectedExamId] = useState<string>("none");
   const [scannerTargetExam, setScannerTargetExam] = useState<any | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
 
-  // Đồng bộ từ props nếu props có dữ liệu thực (> 0 phần tử)
   useEffect(() => {
     if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
       setInternalExams(propPracticeExams);
@@ -222,7 +211,7 @@ export default function PracticeTab({
     }
   }, [propAllAttempts]);
 
-  // 3. HÀM TỰ ĐỘNG KHÔI PHỤC DỮ LIỆU TỪ SUPABASE & API SERVER (KHÔNG BAO GIỜ SET VỀ RỖNG NẾU LỖI)
+  // HÀM TRUY VẤN AN TOÀN VỚI LOG CHI TIẾT (KHÔNG BAO GIỜ XÓA CACHE NẾU SUPABASE BÁO LỖI 500)
   const fetchExamsAndStudentsSafely = useCallback(
     async (notifyUser: boolean = false) => {
       setIsSelfFetching(true);
@@ -230,7 +219,7 @@ export default function PracticeTab({
       let recoveredStudents: any[] = [];
       let recoveredAttempts: any[] = [];
 
-      // Bước 1: Gọi API tổng hợp `/api/admin/data` (Sử dụng Service Role vượt mọi lỗi chặn RLS)
+      // 1. Gọi API Server Route
       try {
         const res = await fetch("/api/admin/data", { cache: "no-store" });
         if (res.ok) {
@@ -248,12 +237,14 @@ export default function PracticeTab({
           if (combinedAtt.length > 0) {
             recoveredAttempts = combinedAtt;
           }
+        } else {
+          console.error("Supabase Error Details (API /api/admin/data HTTP Status):", res.status);
         }
       } catch (apiErr) {
-        console.error("Lỗi fetch API /api/admin/data trong PracticeTab:", apiErr);
+        console.error("Supabase Error Details (API /api/admin/data Exception):", apiErr);
       }
 
-      // Bước 2: Nếu API chưa trả về đủ, truy vấn trực tiếp bằng Supabase Client với log chi tiết
+      // 2. Truy vấn trực tiếp Supabase nếu API chưa có dữ liệu
       if (effectiveSupabase) {
         if (recoveredExams.length === 0) {
           try {
@@ -263,12 +254,12 @@ export default function PracticeTab({
               .order("created_at", { ascending: false });
 
             if (examErr) {
-              console.error("Lỗi fetch practice_exams từ Supabase:", examErr);
+              console.error("Supabase Error Details (practice_exams):", examErr);
             } else if (Array.isArray(sbExams) && sbExams.length > 0) {
               recoveredExams = sbExams;
             }
           } catch (err) {
-            console.error("Ngoại lệ khi query bảng practice_exams:", err);
+            console.error("Supabase Error Details (practice_exams exception):", err);
           }
         }
 
@@ -276,18 +267,17 @@ export default function PracticeTab({
           try {
             const { data: sbProfiles, error: profErr } = await effectiveSupabase
               .from("profiles")
-              .select("*")
-              .order("created_at", { ascending: false });
+              .select("*");
 
             if (profErr) {
-              console.error("Lỗi fetch profiles từ Supabase:", profErr);
+              console.error("Supabase Error Details (profiles):", profErr);
             } else if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
               recoveredStudents = sbProfiles.filter(
                 (p: any) => p.role !== "admin" && p.role !== "teacher"
               );
             }
           } catch (err) {
-            console.error("Ngoại lệ khi query bảng profiles:", err);
+            console.error("Supabase Error Details (profiles exception):", err);
           }
         }
 
@@ -299,17 +289,17 @@ export default function PracticeTab({
               .order("created_at", { ascending: false });
 
             if (attErr) {
-              console.error("Lỗi fetch exam_attempts từ Supabase:", attErr);
+              console.error("Supabase Error Details (exam_attempts):", attErr);
             } else if (Array.isArray(sbAtt) && sbAtt.length > 0) {
               recoveredAttempts = sbAtt;
             }
           } catch (err) {
-            console.error("Ngoại lệ khi query bảng exam_attempts:", err);
+            console.error("Supabase Error Details (exam_attempts exception):", err);
           }
         }
       }
 
-      // Bước 3: Chỉ cập nhật State & parent khi có dữ liệu thật (> 0), tuyệt đối KHÔNG ghi đè mảng rỗng!
+      // 3. Chỉ ghi nhận khi có dữ liệu > 0 (Bảo toàn dữ liệu hiện tại nếu lỗi 500)
       if (recoveredExams.length > 0) {
         setInternalExams(recoveredExams);
         safeSaveExamsToLocal(recoveredExams);
@@ -345,11 +335,9 @@ export default function PracticeTab({
 
       if (notifyUser && showToast) {
         showToast(
-          `Đã khôi phục & đồng bộ ${
+          `Đã đồng bộ dữ liệu: ${
             recoveredExams.length || internalExams.length
-          } đề luyện thi và ${
-            recoveredStudents.length || internalStudents.length
-          } học sinh!`,
+          } đề thi & ${recoveredStudents.length || internalStudents.length} học sinh!`,
           "success"
         );
       }
@@ -357,33 +345,38 @@ export default function PracticeTab({
     [effectiveSupabase, savePracticeExams, showToast, internalExams.length, internalStudents.length]
   );
 
-  // Tự động kích hoạt khôi phục ngay khi mở PracticeTab nếu danh sách đang bị trống
   useEffect(() => {
-    if (
-      (propPracticeExams.length === 0 && internalExams.length === 0) ||
-      (propRegisteredStudents.length === 0 && internalStudents.length === 0)
-    ) {
-      fetchExamsAndStudentsSafely(false);
-    } else {
-      // Vẫn đồng bộ ngầm để lấy dữ liệu mới nhất từ Supabase mà không xóa cache cũ
-      fetchExamsAndStudentsSafely(false);
-    }
+    fetchExamsAndStudentsSafely(false);
   }, []);
 
-  // Dữ liệu đề thi, học sinh và lượt làm bài hiệu lực (Ưu tiên mảng nào có dữ liệu > 0)
+  // Trích xuất dự phòng các đề kiểm tra từ `chapters` nếu cả Supabase & LocalStorage đều trống
+  const fallbackQuizzesFromChapters = useMemo(() => {
+    const list: any[] = [];
+    (chapters || []).forEach((chap: any) => {
+      (chap?.lessons || []).forEach((les: any) => {
+        (les?.test_quizzes || []).forEach((tq: any) => {
+          if (tq && !tq.is_drive_file) {
+            list.push({
+              ...tq,
+              category: tq.category || "Đề kiểm tra định kỳ",
+              duration_minutes: tq.duration_minutes || 45
+            });
+          }
+        });
+      });
+    });
+    return list;
+  }, [chapters]);
+
   const effectiveExams = useMemo(() => {
     if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
       return propPracticeExams;
     }
-    return internalExams;
-  }, [propPracticeExams, internalExams]);
-
-  const effectiveStudents = useMemo(() => {
-    if (Array.isArray(propRegisteredStudents) && propRegisteredStudents.length > 0) {
-      return propRegisteredStudents;
+    if (internalExams.length > 0) {
+      return internalExams;
     }
-    return internalStudents;
-  }, [propRegisteredStudents, internalStudents]);
+    return fallbackQuizzesFromChapters;
+  }, [propPracticeExams, internalExams, fallbackQuizzesFromChapters]);
 
   const effectiveAttempts = useMemo(() => {
     if (Array.isArray(propAllAttempts) && propAllAttempts.length > 0) {
@@ -392,7 +385,31 @@ export default function PracticeTab({
     return internalAttempts;
   }, [propAllAttempts, internalAttempts]);
 
-  // 4. DANH MỤC BẢNG SBD LỚP CỐ ĐỊNH (KHÔI PHỤC ĐỦ 23 HỌC SINH)
+  // Khôi phục danh sách Học sinh từ cả prop, cache và lịch sử làm bài
+  const effectiveStudents = useMemo(() => {
+    if (Array.isArray(propRegisteredStudents) && propRegisteredStudents.length > 0) {
+      return propRegisteredStudents;
+    }
+    if (internalStudents.length > 0) {
+      return internalStudents;
+    }
+    const fromAttemptsMap = new Map<string, any>();
+    (effectiveAttempts || []).forEach((att: any) => {
+      if (!att) return;
+      const sId = String(att.studentId || att.student_id || att.user_id || "").trim();
+      const sName = String(att.studentName || att.student_name || att.full_name || "").trim();
+      if (sId && sName && !fromAttemptsMap.has(sId)) {
+        fromAttemptsMap.set(sId, {
+          id: sId,
+          full_name: sName,
+          school: att.school || "THPT",
+          learning_mode: "offline"
+        });
+      }
+    });
+    return Array.from(fromAttemptsMap.values());
+  }, [propRegisteredStudents, internalStudents, effectiveAttempts]);
+
   const sbdDirectoryList = useMemo(() => {
     const pool: {
       id: string;
@@ -440,7 +457,6 @@ export default function PracticeTab({
     return directory;
   }, [effectiveStudents]);
 
-  // 5. TÍNH TOÁN DANH SÁCH ĐỀ KÈM THỐNG KÊ ĐIỂM SỐ
   const computedExamsWithScores = useMemo(() => {
     let list = Array.isArray(effectiveExams) ? [...effectiveExams] : [];
     if (practiceCategoryFilter && practiceCategoryFilter !== "Tất cả danh mục") {
@@ -511,7 +527,6 @@ export default function PracticeTab({
     });
   }, [effectiveExams, practiceCategoryFilter, searchKeyword, effectiveAttempts]);
 
-  // Điểm của từng học sinh trong Modal Bảng SBD theo đề đã chọn
   const selectedSbdExamObj = useMemo(() => {
     if (!sbdSelectedExamId || sbdSelectedExamId === "none") return null;
     return effectiveExams.find((ex) => String(ex?.id) === sbdSelectedExamId) || null;
@@ -572,7 +587,6 @@ export default function PracticeTab({
       });
   }, [sbdDirectoryList, sbdModeFilter, selectedSbdExamObj, effectiveAttempts]);
 
-  // IN BẢNG SBD RA GIẤY A4 (ẨN HOÀN TOÀN CỘT PHÂN HỆ ONLINE/OFFLINE)
   const handlePrintSbdTable = () => {
     if (typeof window === "undefined") return;
     const win = window.open("", "_blank");
@@ -641,7 +655,6 @@ export default function PracticeTab({
     win.document.close();
   };
 
-  // XÓA 1 ĐỀ LUYỆN THI
   const handleDeletePracticeExam = async (exam: any) => {
     if (!confirm(`Bạn có chắc chắn muốn xóa đề thi "${exam.title}"?`)) return;
     const updated = effectiveExams.filter((ex) => String(ex?.id) !== String(exam.id));
@@ -654,7 +667,7 @@ export default function PracticeTab({
       try {
         await effectiveSupabase.from("practice_exams").delete().eq("id", exam.id);
       } catch (err) {
-        console.error("Lỗi xóa đề trên Supabase:", err);
+        console.error("Supabase Error Details (delete practice_exam):", err);
       }
     }
     if (showToast) {
@@ -662,33 +675,8 @@ export default function PracticeTab({
     }
   };
 
-  // BẬT/TẮT CHO PHÉP THI LẠI HOẶC XEM FILE ĐỀ
-  const handleToggleExamFlag = async (
-    exam: any,
-    field: "allowRetake" | "allowViewFile"
-  ) => {
-    const nextVal = !(exam[field] ?? true);
-    const updated = effectiveExams.map((ex) =>
-      String(ex?.id) === String(exam.id) ? { ...ex, [field]: nextVal } : ex
-    );
-    setInternalExams(updated);
-    safeSaveExamsToLocal(updated);
-    if (typeof savePracticeExams === "function") {
-      await savePracticeExams(updated);
-    }
-    if (effectiveSupabase) {
-      try {
-        await effectiveSupabase
-          .from("practice_exams")
-          .update({ [field]: nextVal })
-          .eq("id", exam.id);
-      } catch {}
-    }
-  };
-
   return (
     <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
-      {/* THANH TRẠNG THÁI ĐỒNG BỘ KHO LUYỆN ĐỀ */}
       {practiceSyncStatus && practiceSyncStatus.isSyncing && (
         <div className="bg-blue-50 border border-blue-300 p-3.5 rounded-xl flex items-center justify-between text-xs font-bold text-blue-900">
           <div className="flex items-center gap-2">
@@ -699,7 +687,7 @@ export default function PracticeTab({
         </div>
       )}
 
-      {/* 1. HEADER THỐNG KÊ & CỤM NÚT HÀNH ĐỘNG CHÍNH (CLEAN MINIMALIST UI) */}
+      {/* 1. HEADER THỐNG KÊ & CỤM NÚT HÀNH ĐỘNG CHÍNH */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
@@ -716,14 +704,12 @@ export default function PracticeTab({
             </p>
           </div>
 
-          {/* CỤM NÚT CÔNG CỤ */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               disabled={isSelfFetching}
               onClick={() => fetchExamsAndStudentsSafely(true)}
               className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-              title="Khôi phục & Đồng bộ đề thi, học sinh từ Supabase"
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 text-blue-600 ${
@@ -780,7 +766,6 @@ export default function PracticeTab({
           </div>
         </div>
 
-        {/* 2. THANH CHUYỂN CHẾ ĐỘ (QUẢN LÝ ĐỀ | BẢNG ĐIỂM) & LỌC DANH MỤC */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg w-fit">
             <button
@@ -862,8 +847,8 @@ export default function PracticeTab({
                 Chưa có đề thi nào trong bộ lọc hiện tại
               </h4>
               <p className="text-xs text-slate-400">
-                Bấm nút <strong>"🔄 Đồng bộ"</strong> để tải lại từ máy chủ hoặc bấm{" "}
-                <strong>"+ Tải Đề Mới (Word/PDF)"</strong> để thêm đề.
+                Hãy chạy Script SQL sửa lỗi RLS 500 trên Supabase và bấm{" "}
+                <strong>"🔄 Đồng bộ"</strong> để tải lại.
               </p>
             </div>
             <button
@@ -871,7 +856,7 @@ export default function PracticeTab({
               onClick={() => fetchExamsAndStudentsSafely(true)}
               className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Khôi phục dữ liệu từ Supabase
+              <RefreshCw className="w-3.5 h-3.5" /> Tải lại từ Supabase
             </button>
           </div>
         ) : practiceSubTab === "manage" ? (
@@ -960,7 +945,6 @@ export default function PracticeTab({
 
                     <td className="py-3.5 px-4 text-right">
                       <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
-                        {/* Nút In Phiếu A4 chuẩn Bộ GD&ĐT của riêng đề này */}
                         <button
                           type="button"
                           onClick={() =>
@@ -971,13 +955,11 @@ export default function PracticeTab({
                             })
                           }
                           className="px-2.5 py-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                          title="In phiếu trả lời A4 chuẩn Bộ GD&ĐT cho đề này"
                         >
                           <Printer className="w-3.5 h-3.5 text-blue-600" />
                           <span>Phiếu A4</span>
                         </button>
 
-                        {/* Nút Mở Camera Chấm OMR cho đề này */}
                         <button
                           type="button"
                           onClick={() => {
@@ -985,13 +967,11 @@ export default function PracticeTab({
                             setIsScannerOpen(true);
                           }}
                           className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                          title="Chấm phiếu trả lời bằng Camera cho đề này"
                         >
                           <Camera className="w-3.5 h-3.5" />
                           <span>Chấm OMR</span>
                         </button>
 
-                        {/* Nút Chỉnh sửa Đáp án / Câu hỏi */}
                         {onOpenExamEditor && (
                           <button
                             type="button"
@@ -1003,7 +983,6 @@ export default function PracticeTab({
                           </button>
                         )}
 
-                        {/* Nút Gắn Video Chữa Đề */}
                         {setVideoModalExam && (
                           <button
                             type="button"
@@ -1020,7 +999,6 @@ export default function PracticeTab({
                           </button>
                         )}
 
-                        {/* Nút Thi thử (Test Admin) */}
                         {onTestExam && (
                           <button
                             type="button"
@@ -1032,7 +1010,6 @@ export default function PracticeTab({
                           </button>
                         )}
 
-                        {/* Nút Xóa đề */}
                         <button
                           type="button"
                           onClick={() => handleDeletePracticeExam(exam)}
@@ -1049,7 +1026,6 @@ export default function PracticeTab({
             </table>
           </div>
         ) : (
-          /* TAB PHỤ 2: THỐNG KÊ ĐIỂM SỐ & LƯỢT NỘP CỦA TỪNG ĐỀ */
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
@@ -1123,7 +1099,7 @@ export default function PracticeTab({
         )}
       </div>
 
-      {/* MODAL BẢNG SBD LỚP & PHIẾU GHI ĐIỂM (LỌC ONLINE/OFFLINE & ẨN CỘT PHÂN HỆ KHI IN) */}
+      {/* MODAL BẢNG SBD LỚP & PHIẾU GHI ĐIỂM */}
       {showSbdModal && (
         <div
           onClick={() => setShowSbdModal(false)}
@@ -1264,7 +1240,7 @@ export default function PracticeTab({
         </div>
       )}
 
-      {/* MODAL CAMERA CHẤM OMR TRỰC TIẾP TẠI TAB KHO LUYỆN ĐỀ */}
+      {/* MODAL CAMERA CHẤM OMR */}
       <AdminBulkOMRScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
