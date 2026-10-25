@@ -3,10 +3,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useTransition, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  CheckCircle2, AlertCircle, Loader2, RefreshCw, Cloud, Check,
-  LayoutDashboard, BookOpen, Users, Award, Trophy, 
-  Plus, FileText, Video, PenTool, ClipboardCheck, 
-  Trash2, LinkIcon, X, FileUp, FileSignature, FolderPlus, GraduationCap
+  CheckCircle2, AlertCircle, Loader2, RefreshCw, Cloud,
+  X, Menu, PanelLeftClose, PanelLeftOpen, Camera
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabaseClient";
@@ -258,7 +256,11 @@ const VALID_ADMIN_TABS = [
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
-  // DANH SÁCH ĐEN CHẶN TÁI NẠP CÁC LƯỢT NỘP BÀI ĐÃ XÓA (GIỮ TRẠNG THÁI QUA F5 & REALTIME SYNC)
+  // STATE QUẢN LÝ ĐÓNG/MỞ SIDEBAR RESPONSIVE TRÊN MOBILE, IPAD & DESKTOP
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(false);
+
+  // DANH SÁCH ĐEN CHẶN TÁI NẠP CÁC LƯỢT NỘP BÀI ĐÃ XÓA
   const deletedAttemptIdsRef = useRef<Set<string>>(new Set());
 
   const loadDeletedBlacklistFromStorage = useCallback(() => {
@@ -366,7 +368,6 @@ function AdminDashboardContent() {
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState<boolean>(false);
   const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
 
-  // TIẾN TRÌNH ĐỒNG BỘ CHO BÀI HỌC
   const [syncStatus, setSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
@@ -379,7 +380,6 @@ function AdminDashboardContent() {
     type: "idle",
   });
 
-  // TIẾN TRÌNH ĐỒNG BỘ CHO KHO LUYỆN ĐỀ
   const [practiceSyncStatus, setPracticeSyncStatus] = useState<{
     isSyncing: boolean;
     progress: number;
@@ -526,6 +526,7 @@ function AdminDashboardContent() {
 
   const handleSwitchTab = useCallback((newTab: AdminTab | "paper-exams" | string) => {
     setActiveTab(newTab);
+    setIsMobileSidebarOpen(false);
     if (typeof window !== "undefined") {
       window.history.pushState({ tab: newTab }, "", "#" + newTab);
     }
@@ -743,7 +744,7 @@ function AdminDashboardContent() {
     return null;
   }, []);
 
-  // NẠP DỮ LIỆU TỪ SERVER (KÈM LỌC BLACKLIST CHẶN TÁI NẠP CÁC LƯỢT NỘP ĐÃ XÓA)
+  // NẠP DỮ LIỆU TỪ SERVER
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -779,7 +780,6 @@ function AdminDashboardContent() {
           ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : []),
         ];
 
-        // Bổ sung các lượt nộp trên giấy đang có trong localStorage chưa kịp đồng bộ
         if (typeof window !== "undefined") {
           try {
             const localSaved = JSON.parse(localStorage.getItem("edunexus_attempts") || "[]");
@@ -1255,7 +1255,6 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
-  // HÀM DUYỆT HỌC VIÊN
   const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
     const isApproved = status === "approved";
 
@@ -1300,7 +1299,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM XÓA HỌC SINH
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
 
@@ -1763,7 +1761,6 @@ function AdminDashboardContent() {
     });
   }, [practiceExams, practiceCategoryFilter, allAttempts, isAttemptBlacklisted]);
 
-  // HÀM LƯU ĐỀ THI: DÙNG ĐỆ QUY sanitizeAndUploadAllMediaRecursively ĐẨY 100% ẢNH LÊN SUPABASE STORAGE
   const handleSaveAzotaExam = async (examData: any) => {
     if (uploadMode === "practice") {
       const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
@@ -1928,7 +1925,6 @@ function AdminDashboardContent() {
       }
 
     } else {
-      // NHÁNH NẠP ĐỀ BTVN / ĐỀ KIỂM TRA VÀO BÀI HỌC (COURSES)
       if (!azotaTarget) return;
       const isHw = azotaTarget.type === "homework_files";
       const targetLessonId = azotaTarget.lessonId;
@@ -1968,7 +1964,7 @@ function AdminDashboardContent() {
   if (!mounted) {
     return (
       <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative">
-        <aside className="w-64 bg-[#1E40AF] border-r border-[#1E40AF] text-white/90 flex flex-col shrink-0 p-5">
+        <aside className="hidden lg:flex w-64 bg-[#1E40AF] border-r border-[#1E40AF] text-white/90 flex-col shrink-0 p-5">
           <div className="flex items-center gap-3 mb-8"> 
             <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">TCT</div>
             <div>
@@ -1988,7 +1984,7 @@ function AdminDashboardContent() {
   }
 
   return (
-    <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20">
+    <div className="min-h-screen w-full flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20 overflow-x-hidden">
       <AnimatePresence>
         {toastNotification && (
           <motion.div 
@@ -2005,13 +2001,104 @@ function AdminDashboardContent() {
         )}
       </AnimatePresence>
 
-      <AdminSidebar
-        activeTab={activeTab as any}
-        onSwitchTab={handleSwitchTab}
-        onLogout={handleAdminLogout}
-      />
+      {/* SIDEBAR TRÊN DESKTOP / IPAD NGANG (CÓ HỖ TRỢ THU GỌN) */}
+      {!isDesktopSidebarCollapsed && (
+        <div className="hidden lg:block shrink-0">
+          <AdminSidebar
+            activeTab={activeTab as any}
+            onSwitchTab={handleSwitchTab}
+            onLogout={handleAdminLogout}
+          />
+        </div>
+      )}
 
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      {/* DRAWER SIDEBAR TRÊN MOBILE & IPAD DỌC (< 1024px) */}
+      <AnimatePresence>
+        {isMobileSidebarOpen && (
+          <div
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="fixed inset-0 z-[480] bg-slate-950/60 backdrop-blur-xs lg:hidden flex"
+          >
+            <motion.div
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ type: "spring", damping: 26, stiffness: 260 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative h-full flex"
+            >
+              <AdminSidebar
+                activeTab={activeTab as any}
+                onSwitchTab={handleSwitchTab}
+                onLogout={handleAdminLogout}
+              />
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(false)}
+                className="absolute top-3 right-3 p-2 rounded-xl bg-blue-900/80 text-white hover:bg-rose-600 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <main className="flex-1 flex flex-col min-w-0 w-full min-h-screen lg:h-screen overflow-hidden">
+        {/* THANH ĐIỀU KHIỂN RESPONSIVE CHO MOBILE & IPAD + NÚT THU GỌN SIDEBAR */}
+        <div className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            {/* Nút Hamburger mở Drawer Sidebar trên Mobile/iPad */}
+            <button
+              type="button"
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="lg:hidden p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 cursor-pointer flex items-center gap-1.5 text-xs font-extrabold"
+            >
+              <Menu className="w-4 h-4 text-[#1D4ED8]" />
+              <span>Menu</span>
+            </button>
+
+            {/* Nút thu gọn/mở rộng Sidebar trên Desktop & iPad ngang */}
+            <button
+              type="button"
+              onClick={() => setIsDesktopSidebarCollapsed((prev) => !prev)}
+              className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+              title={isDesktopSidebarCollapsed ? "Mở thanh menu trái" : "Thu gọn thanh menu trái để rộng màn hình"}
+            >
+              {isDesktopSidebarCollapsed ? (
+                <>
+                  <PanelLeftOpen className="w-4 h-4 text-[#1D4ED8]" />
+                  <span>Mở Menu</span>
+                </>
+              ) : (
+                <>
+                  <PanelLeftClose className="w-4 h-4 text-slate-500" />
+                  <span>Thu gọn Menu</span>
+                </>
+              )}
+            </button>
+
+            <span className="text-xs font-black text-slate-800 sm:hidden truncate">
+              TCT EduNexus Admin
+            </span>
+          </div>
+
+          {/* Nút truy cập nhanh Camera Chấm OMR ngay trên thanh đỉnh Mobile/iPad */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("paper-exams");
+                setIsBulkOmrScannerOpen(true);
+              }}
+              className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>📷 Camera Chấm OMR</span>
+            </button>
+          </div>
+        </div>
+
         <AdminHeader
           activeTab={activeTab as any}
           onSyncData={async () => {
@@ -2020,7 +2107,7 @@ function AdminDashboardContent() {
           }}
         />
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-50/30">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 custom-scrollbar bg-slate-50/30">
           {activeTab === "lessons" && (
             <div className="space-y-4">
               {!syncStatus.isSyncing && syncStatus.type === "idle" && (
@@ -2126,7 +2213,6 @@ function AdminDashboardContent() {
             />
           )}
 
-          {/* TAB MỚI ĐỘC LẬP: CHẤM THI & QUẢN LÝ BÀI GIẤY (HỖ TRỢ BTVN, ĐỀ KT & LUYỆN ĐỀ) */}
           {activeTab === "paper-exams" && (
             <PaperExamManagerTab
               chapters={chapters || []}
@@ -2231,7 +2317,7 @@ function AdminDashboardContent() {
         </div>
       </main>
 
-      {/* MODAL CHẤM OMR HÀNG LOẠT CHO CẢ LỚP */}
+      {/* MODAL CAMERA CHẤM OMR TOÀN MÀN HÌNH */}
       <AdminBulkOMRScannerModal
         isOpen={isBulkOmrScannerOpen}
         onClose={() => setIsBulkOmrScannerOpen(false)}
