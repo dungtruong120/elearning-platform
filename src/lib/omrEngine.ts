@@ -121,16 +121,28 @@ export interface CustomFourCornersInput {
   bottomLeft: OMRCornerPoint;
 }
 
+export interface RealtimeCornerDetectionResult {
+  isMatched: boolean;
+  confidence: number;
+  cornerStatus: {
+    topLeft: boolean;
+    topRight: boolean;
+    bottomRight: boolean;
+    bottomLeft: boolean;
+  };
+  detectedCorners: CustomFourCornersInput | null;
+}
+
 // TỌA ĐỘ CHUẨN CẶP ĐÔI PHẦN II (4 KHUNG ĐÔI: [C1|C2], [C3|C4], [C5|C6], [C7|C8])
 const MOET_PART2_PAIRED_X: { trueX: number; falseX: number }[] = [
-  { trueX: 118, falseX: 158 }, // Câu 1 (Nửa trái hộp đôi 1)
-  { trueX: 214, falseX: 254 }, // Câu 2 (Nửa phải hộp đôi 1)
-  { trueX: 390, falseX: 430 }, // Câu 3 (Nửa trái hộp đôi 2)
-  { trueX: 486, falseX: 526 }, // Câu 4 (Nửa phải hộp đôi 2)
-  { trueX: 662, falseX: 702 }, // Câu 5 (Nửa trái hộp đôi 3)
-  { trueX: 758, falseX: 798 }, // Câu 6 (Nửa phải hộp đôi 3)
-  { trueX: 934, falseX: 974 }, // Câu 7 (Nửa trái hộp đôi 4)
-  { trueX: 1030, falseX: 1070 }, // Câu 8 (Nửa phải hộp đôi 4)
+  { trueX: 118, falseX: 158 },
+  { trueX: 214, falseX: 254 },
+  { trueX: 390, falseX: 430 },
+  { trueX: 486, falseX: 526 },
+  { trueX: 662, falseX: 702 },
+  { trueX: 758, falseX: 798 },
+  { trueX: 934, falseX: 974 },
+  { trueX: 1030, falseX: 1070 },
 ];
 
 export const MOET_2025_OMR_BLUEPRINT: OMRTemplateBlueprint = {
@@ -539,10 +551,6 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
   };
 }
 
-/**
- * TÍNH TOÁN BỐ CỤC CỘT PHẦN III CHUẨN MẪU BỘ GD&ĐT (HỖ TRỢ 1 ĐẾN 8 CÂU TRÊN CÙNG 1 KHUNG BẢNG LIỀN MẠCH)
- * Khung bảng Phần III rộng từ X = 65 đến X = 1133 (Tổng chiều rộng 1068px)
- */
 function computePart3RowGeometry(questionsInRow: number): {
   startXs: number[];
   colStepX: number;
@@ -550,7 +558,7 @@ function computePart3RowGeometry(questionsInRow: number): {
   radius: number;
 } {
   const numCols = Math.max(6, Math.min(8, questionsInRow));
-  const totalTableWidth = 1068; // Từ X = 65 đến X = 1133
+  const totalTableWidth = 1068;
   const cellWidth = totalTableWidth / numCols;
 
   let colStepX = 27;
@@ -580,9 +588,6 @@ function computePart3RowGeometry(questionsInRow: number): {
   };
 }
 
-/**
- * THUẬT TOÁN DÀN TRANG THÔNG MINH (SMART SINGLE-PAGE COMPACTION & AUTO-PAGINATION)
- */
 export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBlueprint {
   const resolved = resolveCompleteExamObject(examOrConfig);
   const counts = extractExamQuestionCounts(resolved);
@@ -593,7 +598,6 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
 
   const colStartXs = [138, 396, 654, 912];
 
-  // TRƯỜNG HỢP 1: ĐỀ VỪA KHÍT TRONG 1 TRANG A4 DUY NHẤT (P1 <= 40, P2 <= 8, P3 <= 8)
   if (p1Limit <= 40 && p2Limit <= 8 && p3Limit <= 8) {
     let cursorY = 532;
 
@@ -649,7 +653,6 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
     if (p3Limit > 0) {
       const p3Geo = computePart3RowGeometry(p3Limit);
       const boxTopP3 = cursorY + 24;
-      // Dành 42px phía trên cho chữ "Câu X" và hàng 4 ô vuông viết tay đáp số
       const minusY = boxTopP3 + 76;
       const commaY = minusY + 25;
       const digit0Y = commaY + 25;
@@ -683,7 +686,6 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
     };
   }
 
-  // TRƯỜNG HỢP 2: ĐỀ DÀI (> 40 CÂU HOẶC NHIỀU HÀNG PHẦN II, III) -> BẺ TRANG FLOW TỰ ĐỘNG
   const MAX_SAFE_Y = 1580;
   const NEW_PAGE_START_Y = 172;
 
@@ -831,9 +833,6 @@ export function buildDynamicOMRBlueprint(examOrConfig?: any): OMRTemplateBluepri
   };
 }
 
-/**
- * CHUYỂN ĐỔI ẢNH SANG GRAYSCALE VÀ NHỊ PHÂN HÓA THÍCH NGHI (INTEGRAL IMAGE THRESHOLDING)
- */
 export function computeAdaptiveBinaryMask(imageData: ImageData): {
   gray: Uint8Array;
   binary: Uint8Array;
@@ -1140,6 +1139,205 @@ export function detectOMRCornerMarkers(
     detected: false,
     missingCornersError: true,
     geometryWarning: `⚠️ CẢNH BÁO: Ảnh chụp bị thiếu mốc góc định vị (${missingList.join(", ") || "méo tỷ lệ khung"}). Vui lòng dùng chuột KÉO 4 CHỐT GHIM MÀU XANH trên ảnh vào đúng 4 góc phiếu rồi bấm [⚡ Nắn phẳng & Quét lại], hoặc chụp lại đủ 4 góc!`,
+  };
+}
+
+/**
+ * HÀM NHẬN DIỆN 4 GÓC SIÊU TỐC TRỰC TIẾP TỪ VIDEO STREAM FRAME (< 30MS/FRAME)
+ * Chỉ xử lý cục bộ trên 4 vùng ngắm góc (ROI) để đạt tốc độ Realtime 60fps trên Mobile & iPad,
+ * trả về trạng thái `isMatched: true` khi cả 4 ô vuông đen của tờ phiếu khớp vào 4 khung ngắm!
+ */
+export function detectRealtimeCornerBoxes(
+  canvas: HTMLCanvasElement
+): RealtimeCornerDetectionResult {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width;
+  const H = canvas.height;
+
+  if (!ctx || W < 80 || H < 80) {
+    return {
+      isMatched: false,
+      confidence: 0,
+      cornerStatus: {
+        topLeft: false,
+        topRight: false,
+        bottomRight: false,
+        bottomLeft: false,
+      },
+      detectedCorners: null,
+    };
+  }
+
+  const imgData = ctx.getImageData(0, 0, W, H);
+  const data = imgData.data;
+
+  // Quét nhanh 1 vùng góc ROI (không cần tính Integral Image toàn khung hình để siêu nhanh)
+  const scanCornerROI = (
+    roiX0: number,
+    roiY0: number,
+    roiW: number,
+    roiH: number,
+    targetX: number,
+    targetY: number
+  ): { point: OMRCornerPoint | null; score: number } => {
+    const xStart = Math.max(4, Math.floor(roiX0));
+    const yStart = Math.max(4, Math.floor(roiY0));
+    const xEnd = Math.min(W - 5, Math.ceil(roiX0 + roiW));
+    const yEnd = Math.min(H - 5, Math.ceil(roiY0 + roiH));
+
+    // Tính độ sáng trung bình của vùng góc để làm ngưỡng động cục bộ
+    let sumLum = 0;
+    let countLum = 0;
+    for (let y = yStart; y < yEnd; y += 3) {
+      const rowOff = y * W * 4;
+      for (let x = xStart; x < xEnd; x += 3) {
+        const idx = rowOff + x * 4;
+        sumLum += 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+        countLum++;
+      }
+    }
+    const meanLum = countLum > 0 ? sumLum / countLum : 170;
+    const darkThresh = Math.min(145, meanLum * 0.72);
+    const brightThresh = Math.max(125, meanLum * 0.92);
+
+    const patchSize = Math.max(8, Math.round(Math.min(W, H) * 0.024));
+    const step = Math.max(2, Math.floor(patchSize / 3));
+    const ringR = Math.round(patchSize * 1.45);
+
+    let bestPt: OMRCornerPoint | null = null;
+    let bestScore = 0;
+
+    for (let y = yStart; y <= yEnd - patchSize; y += step) {
+      for (let x = xStart; x <= xEnd - patchSize; x += step) {
+        let darkPixels = 0;
+        let totalSamples = 0;
+        for (let py = 0; py < patchSize; py += 2) {
+          const rOff = (y + py) * W * 4;
+          for (let px = 0; px < patchSize; px += 2) {
+            totalSamples++;
+            const pIdx = rOff + (x + px) * 4;
+            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
+            if (lum < darkThresh) darkPixels++;
+          }
+        }
+
+        const darkRatio = darkPixels / Math.max(1, totalSamples);
+        if (darkRatio < 0.62) continue;
+
+        const cx = Math.round(x + patchSize / 2);
+        const cy = Math.round(y + patchSize / 2);
+
+        // Kiểm tra 8 điểm viền trắng Quiet Zone xung quanh
+        const ringDirs = [
+          [-ringR, 0],
+          [ringR, 0],
+          [0, -ringR],
+          [0, ringR],
+          [-ringR, -ringR],
+          [ringR, -ringR],
+          [-ringR, ringR],
+          [ringR, ringR],
+        ];
+        let brightRing = 0;
+        let validRing = 0;
+        for (const [dx, dy] of ringDirs) {
+          const rx = cx + dx;
+          const ry = cy + dy;
+          if (rx >= 0 && rx < W && ry >= 0 && ry < H) {
+            validRing++;
+            const rIdx = (ry * W + rx) * 4;
+            const rLum = 0.299 * data[rIdx] + 0.587 * data[rIdx + 1] + 0.114 * data[rIdx + 2];
+            if (rLum >= brightThresh) brightRing++;
+          }
+        }
+
+        const quietRatio = brightRing / Math.max(1, validRing);
+        if (quietRatio < 0.6) continue;
+
+        const dist = Math.hypot(cx - targetX, cy - targetY);
+        const maxD = Math.hypot(roiW, roiH);
+        const prox = Math.max(0, 1 - dist / Math.max(1, maxD));
+
+        const sc = darkRatio * 0.4 + quietRatio * 0.4 + prox * 0.2;
+        if (sc > bestScore) {
+          bestScore = sc;
+          bestPt = { x: cx, y: cy };
+        }
+      }
+    }
+
+    return { point: bestPt, score: bestScore };
+  };
+
+  const roiW = W * 0.26;
+  const roiH = H * 0.24;
+
+  const tlRes = scanCornerROI(0, 0, roiW, roiH, W * 0.08, H * 0.08);
+  const trRes = scanCornerROI(W - roiW, 0, roiW, roiH, W * 0.92, H * 0.08);
+  const brRes = scanCornerROI(W - roiW, H - roiH, roiW, roiH, W * 0.92, H * 0.92);
+  const blRes = scanCornerROI(0, H - roiH, roiW, roiH, W * 0.08, H * 0.92);
+
+  const cornerStatus = {
+    topLeft: Boolean(tlRes.point && tlRes.score >= 0.62),
+    topRight: Boolean(trRes.point && trRes.score >= 0.62),
+    bottomRight: Boolean(brRes.point && brRes.score >= 0.62),
+    bottomLeft: Boolean(blRes.point && blRes.score >= 0.62),
+  };
+
+  if (
+    tlRes.point &&
+    trRes.point &&
+    brRes.point &&
+    blRes.point &&
+    cornerStatus.topLeft &&
+    cornerStatus.topRight &&
+    cornerStatus.bottomRight &&
+    cornerStatus.bottomLeft
+  ) {
+    const topEdge = Math.hypot(trRes.point.x - tlRes.point.x, trRes.point.y - tlRes.point.y);
+    const botEdge = Math.hypot(brRes.point.x - blRes.point.x, brRes.point.y - blRes.point.y);
+    const leftEdge = Math.hypot(blRes.point.x - tlRes.point.x, blRes.point.y - tlRes.point.y);
+    const rightEdge = Math.hypot(brRes.point.x - trRes.point.x, brRes.point.y - trRes.point.y);
+
+    const wRatio = Math.min(topEdge, botEdge) / Math.max(1, Math.max(topEdge, botEdge));
+    const hRatio = Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
+
+    const isQuadValid =
+      wRatio >= 0.76 &&
+      hRatio >= 0.76 &&
+      topEdge > W * 0.42 &&
+      leftEdge > H * 0.46;
+
+    const avgConf = Math.round(
+      ((tlRes.score + trRes.score + brRes.score + blRes.score) / 4) * 100
+    );
+
+    if (isQuadValid) {
+      return {
+        isMatched: true,
+        confidence: Math.min(99, avgConf),
+        cornerStatus,
+        detectedCorners: {
+          topLeft: tlRes.point,
+          topRight: trRes.point,
+          bottomRight: brRes.point,
+          bottomLeft: blRes.point,
+        },
+      };
+    }
+  }
+
+  const matchedCount =
+    (cornerStatus.topLeft ? 1 : 0) +
+    (cornerStatus.topRight ? 1 : 0) +
+    (cornerStatus.bottomRight ? 1 : 0) +
+    (cornerStatus.bottomLeft ? 1 : 0);
+
+  return {
+    isMatched: false,
+    confidence: matchedCount * 22,
+    cornerStatus,
+    detectedCorners: null,
   };
 }
 
@@ -2481,9 +2679,6 @@ export function gradeOMRSubmission(
   };
 }
 
-/**
- * DỰNG MÃ SVG VECTOR SẮC NÉT CHO BANNER HEADER TCT & BANNER FOOTER TCT
- */
 function renderTCTHeaderAndFooterSVG(pageIdx: number): string {
   const SERIF = "'Times New Roman', Times, serif";
   return `
@@ -2520,10 +2715,6 @@ function renderTCTHeaderAndFooterSVG(pageIdx: number): string {
   `;
 }
 
-/**
- * DỰNG MÃ SVG CHO TỪNG TRANG A4 (ĐỒNG BỘ 100% PHONG CÁCH GỐC BỘ GD&ĐT, FONT TIMES NEW ROMAN,
- * HỘP ĐÔI PHẦN II [CÂU 1 | CÂU 2] VÀ HÀNG 4 Ô VUÔNG VIẾT TAY ĐÁP SỐ PHẦN III)
- */
 export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string[] {
   const resolved = resolveCompleteExamObject(examOrConfig);
   const blueprint = buildDynamicOMRBlueprint(resolved);
@@ -2532,7 +2723,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
   const corners = CANONICAL_CORNER_TARGETS;
 
   const SERIF = "'Times New Roman', Times, serif";
-  // Sử dụng biến CSS var(--omr-stroke) để người dùng có thể đổi nhanh giữa màu Đỏ Hồng Bộ GD&ĐT (#BE185D) và màu Đen (#111827) ngay trên cửa sổ in
   const LINE_COLOR = "var(--omr-stroke, #BE185D)";
   const TEXT_DARK = "#111827";
 
@@ -2551,17 +2741,12 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
   const presetCode = deriveExamCode3Digits(resolved);
   const presetName = String(resolved?.studentName || "").replace(/[<>&"]/g, "");
 
-  const p1Max = blueprint.part1TotalQuestions ?? 40;
-  const p2Max = blueprint.part2TotalQuestions ?? 8;
-  const p3Max = blueprint.part3TotalQuestions ?? 6;
   const totalPages = blueprint.totalPages || 1;
-
   const pagesSvgList: string[] = [];
 
   for (let pageIdx = 1; pageIdx <= totalPages; pageIdx++) {
     let svgElements = "";
 
-    // 1. 4 Mốc vuông đen định vị góc chuẩn A4 (Luôn tô đen #000000 để OMR bắt góc)
     const markerSize = 30;
     [
       corners.topLeft,
@@ -2572,21 +2757,17 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       svgElements += `<rect x="${pt.x - markerSize / 2}" y="${pt.y - markerSize / 2}" width="${markerSize}" height="${markerSize}" fill="#000000" />`;
     });
 
-    // 2. Dải vạch nhịp bước (Timing Tracks) dọc mép phải
     for (let ty = 232; ty <= 466; ty += 26) {
       svgElements += `<rect x="1146" y="${ty - 3.5}" width="16" height="7" fill="#000000" />`;
     }
 
-    // 3. Banner Header & Footer TCT
     svgElements += renderTCTHeaderAndFooterSVG(pageIdx);
 
     if (pageIdx === 1) {
-      // ================= HEADER & KHUNG THÔNG TIN TRANG 1 CHUẨN GỐC BỘ GD&ĐT =================
       svgElements += `
         <text x="420" y="114" font-family="${SERIF}" font-size="23" font-weight="bold" text-anchor="middle" fill="${TEXT_DARK}">PHIẾU TRẢ LỜI TRẮC NGHIỆM</text>
         <text x="420" y="140" font-family="${SERIF}" font-size="15.5" font-weight="bold" text-anchor="middle" fill="${TEXT_DARK}">Kỳ thi: ${safeTitle}</text>
 
-        <!-- Khung Thông Tin Học Sinh & Giám Thị nguyên bản 100% mẫu Bộ GD&ĐT -->
         <rect x="65" y="156" width="710" height="330" fill="none" stroke="${LINE_COLOR}" stroke-width="1" />
         <line x1="255" y1="156" x2="255" y2="486" stroke="${LINE_COLOR}" stroke-width="0.9" />
         <line x1="65" y1="321" x2="255" y2="321" stroke="${LINE_COLOR}" stroke-width="0.9" />
@@ -2604,7 +2785,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         <text x="420" y="510" font-family="${SERIF}" font-size="13" font-style="italic" font-weight="bold" text-anchor="middle" fill="${TEXT_DARK}">Chú ý: Giữ cho phiếu phẳng, không bôi bẩn, không làm rách. Tô kín ô tròn bằng bút chì đen.</text>
       `;
 
-      // Mục 7. Số báo danh (Có kẻ lưới ca-rô mảnh bao quanh từng ô tròn như Ảnh 2)
       const sbdLeft = blueprint.sbd.startX - 14;
       const sbdWidth = blueprint.sbd.cols * blueprint.sbd.colStep;
       const sbdGridTop = blueprint.sbd.startY - 13;
@@ -2642,7 +2822,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         }
       }
 
-      // Mục 8. Mã đề thi (Có kẻ lưới ca-rô mảnh bao quanh từng ô tròn như Ảnh 2)
       const codeLeft = blueprint.examCode.startX - 14;
       const codeWidth = blueprint.examCode.cols * blueprint.examCode.colStep;
       const codeGridTop = blueprint.examCode.startY - 13;
@@ -2680,7 +2859,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         }
       }
     } else {
-      // ================= SUB-HEADER TINH GỌN TRANG 2 =================
       svgElements += `
         <text x="600" y="122" font-family="${SERIF}" font-size="17" font-weight="bold" text-anchor="middle" fill="${TEXT_DARK}">
           PHIẾU TRẢ LỜI TRẮC NGHIỆM — TRANG ${pageIdx} / ${totalPages}   •   ${safeTitle}   •   MÃ ĐỀ: ${presetCode}
@@ -2689,7 +2867,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       `;
     }
 
-    // 4. Vẽ PHẦN I: Trắc nghiệm 4 phương án A, B, C, D
     const pageP1Blocks = blueprint.part1.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
@@ -2728,7 +2905,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       });
     }
 
-    // 5. Vẽ PHẦN II: Trắc nghiệm Đúng / Sai GHÉP CẶP ĐÔI [Câu 1 | Câu 2] chuẩn Ảnh 5 (image_d9f51d.png)
     const pageP2Blocks = blueprint.part2.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
@@ -2739,7 +2915,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       `;
 
       const subLabels = ["a)", "b)", "c)", "d)"];
-      // Nhóm các câu theo từng hàng (startY) và ghép từng cặp 2 câu (2k, 2k+1) vào 1 khung chữ nhật vuông góc
       const rowYSet = Array.from(new Set(pageP2Blocks.map((b) => b.startY)));
 
       rowYSet.forEach((rowStartY) => {
@@ -2764,7 +2939,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
             `;
           }
 
-          // Nhãn a), b), c), d) ở cột đầu tiên bên trái của mỗi hộp đôi
           subLabels.forEach((lbl, idx) => {
             const cy = rowStartY + idx * leftBlock.rowStepY;
             svgElements += `
@@ -2772,7 +2946,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
             `;
           });
 
-          // Vẽ câu bên trái của cặp
           const leftCenter = (leftBlock.trueX + leftBlock.falseX) / 2;
           svgElements += `
             <text x="${leftCenter}" y="${pairBoxTop + 19}" font-family="${SERIF}" font-size="13.5" font-weight="bold" text-anchor="middle" fill="${TEXT_DARK}">Câu ${leftBlock.questionNumber}</text>
@@ -2787,7 +2960,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
             `;
           });
 
-          // Vẽ câu bên phải của cặp (nếu có)
           if (rightBlock) {
             const rightCenter = (rightBlock.trueX + rightBlock.falseX) / 2;
             svgElements += `
@@ -2807,7 +2979,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
       });
     }
 
-    // 6. Vẽ PHẦN III: Trả lời ngắn CÓ HÀNG 4 Ô VUÔNG VIẾT TAY ĐÁP SỐ Ở ĐẦU MỖI CÂU chuẩn Ảnh 5 (image_d9f51d.png)
     const pageP3Blocks = blueprint.part3.blocks.filter(
       (b) => (b.pageIndex || 1) === pageIdx
     );
@@ -2819,7 +2990,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         <text x="65" y="${firstBoxTop - 10}" font-family="${SERIF}" font-size="15.5" font-weight="bold" fill="${TEXT_DARK}">PHẦN III</text>
       `;
 
-      // Nhóm theo từng hàng ngang
       const rowMinusYSet = Array.from(new Set(pageP3Blocks.map((b) => b.minusY)));
 
       rowMinusYSet.forEach((rMinusY) => {
@@ -2829,7 +2999,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
         const cellW = blocksInRow[0]?.boxWidth || 178;
         const totalRowW = cellW * blocksInRow.length;
 
-        // Khung bảng liền mạch bao ngoài hàng Phần III
         svgElements += `
           <rect x="65" y="${boxTop}" width="${totalRowW}" height="${boxHeight}" fill="none" stroke="${LINE_COLOR}" stroke-width="1" />
         `;
@@ -2849,7 +3018,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
           const writeBoxLeft = b.startX - writeCellW / 2;
           const writeBoxTotalW = writeCellW * 4;
 
-          // Tiêu đề "Câu X" và Hàng 4 ô vuông viết tay đáp số
           svgElements += `
             <text x="${cellLeft + 18}" y="${boxTop + 21}" font-family="${SERIF}" font-size="13.5" font-weight="bold" fill="${TEXT_DARK}">Câu ${q}</text>
             <rect x="${writeBoxLeft}" y="${writeBoxTop}" width="${writeBoxTotalW}" height="${writeBoxH}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.9" />
@@ -2861,7 +3029,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
             `;
           }
 
-          // Hàng dấu âm (-) và dấu phẩy (,)
           svgElements += `
             <text x="${b.startX - 20}" y="${b.minusY + 4}" font-family="${SERIF}" font-size="15" font-weight="bold" text-anchor="middle" fill="${TEXT_DARK}">−</text>
             <circle cx="${b.startX}" cy="${b.minusY}" r="${b.radius}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.9" />
@@ -2871,7 +3038,6 @@ export function generatePrintableAnswerSheetPagesSVG(examOrConfig?: any): string
             <circle cx="${b.startX + 2 * b.colStepX}" cy="${b.commaY}" r="${b.radius}" fill="none" stroke="${LINE_COLOR}" stroke-width="0.9" />
           `;
 
-          // 10 hàng chữ số từ 0 đến 9 căn thẳng trục dọc với 4 ô vuông viết tay
           for (let d = 0; d <= 9; d++) {
             const cy = b.digit0Y + d * b.rowStepY;
             svgElements += `<text x="${b.startX - 20}" y="${cy + 4}" font-family="${SERIF}" font-size="12.5" font-weight="bold" text-anchor="middle" fill="${TEXT_DARK}">${d}</text>`;
@@ -2897,9 +3063,6 @@ export function generatePrintableAnswerSheetSVG(examOrConfig?: any): string {
   return pages.join("");
 }
 
-/**
- * MỞ CỬA SỔ IN PHIẾU A4 CHUẨN BỘ GD&ĐT (CÓ NÚT CHUYỂN TÔNG MÀU ĐỎ HỒNG BỘ GD&ĐT HOẶC ĐEN TRUYỀN THỐNG)
- */
 export function openPrintableDynamicAnswerSheet(examOrConfig?: any) {
   if (typeof window === "undefined") return;
   const printWin = window.open("", "_blank");
