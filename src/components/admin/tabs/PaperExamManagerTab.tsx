@@ -21,9 +21,7 @@ import {
   ZoomIn,
   ZoomOut,
   Loader2,
-  Sparkles,
-  ScanLine,
-  Download
+  ScanLine
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -98,6 +96,10 @@ export default function PaperExamManagerTab({
   const [showSbdDirectoryModal, setShowSbdDirectoryModal] = useState<boolean>(false);
   const [showInternalBulkScanner, setShowInternalBulkScanner] = useState<boolean>(false);
 
+  // STATE BỘ LỌC PHÂN HỆ & BÀI THI TRONG MODAL BẢNG SBD LỚP
+  const [sbdModalModeFilter, setSbdModalModeFilter] = useState<"all" | "offline" | "online">("all");
+  const [sbdModalSelectedQuizId, setSbdModalSelectedQuizId] = useState<string>("none");
+
   const [inspectingAttempt, setInspectingAttempt] = useState<any | null>(null);
   const [editScoreInput, setEditScoreInput] = useState<string>("");
   const [isSavingScore, setIsSavingScore] = useState<boolean>(false);
@@ -149,9 +151,16 @@ export default function PaperExamManagerTab({
     return localStudents;
   }, [registeredStudents, localStudents]);
 
-  // 1. TẠO DANH MỤC SỐ BÁO DANH (SBD) TỰ ĐỘNG CHO CẢ LỚP (000001 -> 0000NN)
+  // 1. TẠO DANH MỤC SỐ BÁO DANH (SBD) TỰ ĐỘNG CỐ ĐỊNH CHO CẢ LỚP (000001 -> 0000NN)
   const sbdDirectoryList = useMemo(() => {
-    const pool: { id: string; username: string; full_name: string; school: string; mode: string }[] = [];
+    const pool: {
+      id: string;
+      username: string;
+      full_name: string;
+      school: string;
+      mode: "Online" | "Offline";
+      modeKey: "online" | "offline";
+    }[] = [];
     const seen = new Set<string>();
 
     (effectiveStudents || []).forEach((s: any) => {
@@ -159,14 +168,15 @@ export default function PaperExamManagerTab({
       const key = String(s.id || s.username || s.full_name || "").trim();
       if (!key || seen.has(key.toLowerCase())) return;
       seen.add(key.toLowerCase());
+      const rawMode = String(s.learning_mode || s.study_mode || "offline").toLowerCase();
+      const isOnline = rawMode.includes("on");
       pool.push({
         id: String(s.id || key),
         username: String(s.username || ""),
         full_name: String(s.full_name || s.name || s.username || "Học sinh"),
         school: String(s.school || "THPT"),
-        mode: String(s.learning_mode || s.study_mode || "offline").toLowerCase().includes("on")
-          ? "Online"
-          : "Offline"
+        mode: isOnline ? "Online" : "Offline",
+        modeKey: isOnline ? "online" : "offline"
       });
     });
 
@@ -309,6 +319,81 @@ export default function PaperExamManagerTab({
     return filteredQuizzes[0] || allUnifiedQuizzes[0] || null;
   }, [selectedQuizId, filteredQuizzes, allUnifiedQuizzes]);
 
+  // Đề thi đang được chọn trong Modal Bảng SBD để hiện Cột Điểm Số
+  const sbdModalSelectedQuizObj = useMemo<UnifiedQuizSourceItem | null>(() => {
+    if (!sbdModalSelectedQuizId || sbdModalSelectedQuizId === "none") return null;
+    return allUnifiedQuizzes.find((q) => q.id === sbdModalSelectedQuizId) || null;
+  }, [sbdModalSelectedQuizId, allUnifiedQuizzes]);
+
+  // Map tra cứu điểm số cao nhất của từng học sinh theo bài thi đã chọn trong Modal SBD
+  const sbdStudentScoreMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!sbdModalSelectedQuizObj) return map;
+
+    const targetIdNorm = sbdModalSelectedQuizObj.id.trim().toLowerCase();
+    const targetTitleNorm = normalizeStr(sbdModalSelectedQuizObj.title);
+
+    (effectiveAttempts || []).forEach((att: any) => {
+      if (!att) return;
+      const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
+      const attQuizTitle = normalizeStr(
+        att.examTitle || att.quizTitle || att.quiz_title || att.title || ""
+      );
+
+      const isQuizMatch =
+        (targetIdNorm && attQuizId === targetIdNorm) ||
+        (targetTitleNorm && attQuizTitle === targetTitleNorm);
+      if (!isQuizMatch) return;
+
+      const sc = Number(att.score ?? att.points ?? 0);
+      if (isNaN(sc)) return;
+
+      const stuId = String(att.studentId || att.student_id || att.user_id || "").trim().toLowerCase();
+      const stuName = normalizeStr(att.studentName || att.student_name || att.full_name || "");
+      const stuSbd = String(att.omr_raw_data?.detected_sbd || "").trim();
+
+      if (stuId) {
+        const prev = map.get(`id:${stuId}`);
+        if (prev === undefined || sc > prev) map.set(`id:${stuId}`, sc);
+      }
+      if (stuName) {
+        const prev = map.get(`name:${stuName}`);
+        if (prev === undefined || sc > prev) map.set(`name:${stuName}`, sc);
+      }
+      if (stuSbd && stuSbd !== "Chưa tô") {
+        const prev = map.get(`sbd:${stuSbd}`);
+        if (prev === undefined || sc > prev) map.set(`sbd:${stuSbd}`, sc);
+      }
+    });
+
+    return map;
+  }, [sbdModalSelectedQuizObj, effectiveAttempts]);
+
+  // Danh sách học sinh hiển thị trong Modal SBD (Lọc theo phân hệ nhưng GIỮ NGUYÊN STT & SBD gốc)
+  const filteredSbdDirectoryForModal = useMemo(() => {
+    return sbdDirectoryList
+      .filter((stu) => {
+        if (sbdModalModeFilter === "all") return true;
+        return stu.modeKey === sbdModalModeFilter;
+      })
+      .map((stu) => {
+        const scoreById = sbdStudentScoreMap.get(`id:${stu.id.trim().toLowerCase()}`);
+        const scoreByName = sbdStudentScoreMap.get(`name:${normalizeStr(stu.full_name)}`);
+        const scoreBySbd = sbdStudentScoreMap.get(`sbd:${stu.sbd}`);
+        const resolvedScore =
+          scoreById !== undefined
+            ? scoreById
+            : scoreBySbd !== undefined
+            ? scoreBySbd
+            : scoreByName;
+
+        return {
+          ...stu,
+          examScore: resolvedScore
+        };
+      });
+  }, [sbdDirectoryList, sbdModalModeFilter, sbdStudentScoreMap]);
+
   // 3. LỌC DANH SÁCH CÁC BÀI THI TRÊN GIẤY ĐÃ NỘP
   const paperSubmissionsList = useMemo(() => {
     const quizMapById = new Map<string, UnifiedQuizSourceItem>();
@@ -429,24 +514,35 @@ export default function PaperExamManagerTab({
     searchQuery
   ]);
 
-  // IN DANH SÁCH SBD CỦA CẢ LỚP RA GIẤY A4
+  // IN DANH SÁCH SBD / PHIẾU ĐIỂM CỦA LỚP RA GIẤY A4 (ẨN HOÀN TOÀN CỘT PHÂN HỆ ONLINE/OFFLINE)
   const handlePrintSbdDirectory = () => {
     if (typeof window === "undefined") return;
     const win = window.open("", "_blank");
     if (!win) return;
 
-    const rowsHtml = sbdDirectoryList
-      .map(
-        (stu) => `
-        <tr>
-          <td style="text-align:center; font-weight:bold;">${stu.stt}</td>
-          <td style="text-align:center; font-weight:900; color:#1D4ED8; font-size:15px; letter-spacing:1px;">${stu.sbd}</td>
-          <td style="font-weight:bold;">${stu.full_name}</td>
-          <td>${stu.school}</td>
-          <td style="text-align:center;">${stu.mode}</td>
-        </tr>
-      `
-      )
+    const examHeaderTitle = sbdModalSelectedQuizObj
+      ? `BẢNG ĐIỂM & SỐ BÁO DANH: ${sbdModalSelectedQuizObj.title.toUpperCase()} (MÃ ĐỀ ${sbdModalSelectedQuizObj.examCode})`
+      : "BẢNG TRA CỨU SỐ BÁO DANH (SBD) HỌC VIÊN — TÂM CHÍ TÀI EDUNEXUS";
+
+    const lastColumnHeader = sbdModalSelectedQuizObj ? "ĐIỂM SỐ" : "GHI CHÚ / ĐIỂM";
+
+    const rowsHtml = filteredSbdDirectoryForModal
+      .map((stu) => {
+        const scoreCellText =
+          stu.examScore !== undefined
+            ? `<strong style="color:#be123c; font-size:14px;">${stu.examScore.toFixed(2)}đ</strong>`
+            : `<span style="color:#94a3b8; letter-spacing:2px;">....................</span>`;
+
+        return `
+          <tr>
+            <td style="text-align:center; font-weight:bold;">${stu.stt}</td>
+            <td style="text-align:center; font-weight:900; color:#1D4ED8; font-size:15px; letter-spacing:1px; font-family:monospace;">${stu.sbd}</td>
+            <td style="font-weight:bold;">${stu.full_name}</td>
+            <td>${stu.school}</td>
+            <td style="text-align:center;">${scoreCellText}</td>
+          </tr>
+        `;
+      })
       .join("");
 
     win.document.open();
@@ -455,28 +551,29 @@ export default function PaperExamManagerTab({
       <html lang="vi">
       <head>
         <meta charset="UTF-8" />
-        <title>Bảng Tra Cứu Số Báo Danh Lớp Học - TCT EduNexus</title>
+        <title>${examHeaderTitle}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
-          h2 { margin: 0 0 6px 0; color: #1e3a8a; text-transform: uppercase; }
-          p { margin: 0 0 16px 0; font-size: 13px; color: #475569; }
-          table { width: 100%; border-collapse: collapse; font-size: 13px; }
-          th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }
-          th { background: #eff6ff; color: #1e40af; text-transform: uppercase; font-size: 11px; }
+          @page { size: A4 portrait; margin: 10mm; }
+          body { font-family: 'Times New Roman', Times, serif; padding: 12px; color: #0f172a; }
+          h2 { margin: 0 0 6px 0; color: #1e3a8a; text-transform: uppercase; font-size: 18px; text-align: center; }
+          p { margin: 0 0 14px 0; font-size: 13px; color: #475569; text-align: center; font-style: italic; }
+          table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+          th, td { border: 1px solid #94a3b8; padding: 8px 12px; text-align: left; }
+          th { background: #eff6ff; color: #1e40af; text-transform: uppercase; font-size: 11.5px; }
           tr:nth-child(even) { background: #f8fafc; }
         </style>
       </head>
       <body>
-        <h2>BẢNG TRA CỨU SỐ BÁO DANH (SBD) HỌC VIÊN — TÂM CHÍ TÀI EDUNEXUS</h2>
-        <p>Học sinh dùng đúng 6 chữ số SBD của mình để tô vào mục 7 trên Phiếu trả lời trắc nghiệm A4.</p>
+        <h2>${examHeaderTitle}</h2>
+        <p>Học sinh tra cứu đúng 6 chữ số SBD theo STT của mình để tô vào mục 7 trên Phiếu trả lời trắc nghiệm A4.</p>
         <table>
           <thead>
             <tr>
               <th style="width:50px; text-align:center;">STT</th>
-              <th style="width:130px; text-align:center;">SỐ BÁO DANH (6 SỐ)</th>
+              <th style="width:140px; text-align:center;">SỐ BÁO DANH (6 SỐ)</th>
               <th>Họ và tên học sinh</th>
               <th>Trường THPT</th>
-              <th style="width:90px; text-align:center;">Phân hệ</th>
+              <th style="width:130px; text-align:center;">${lastColumnHeader}</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>
@@ -527,7 +624,6 @@ export default function PaperExamManagerTab({
         const omrRaw = scanOMRSheetFromCanvas(canvas, activeSelectedQuiz.rawQuizObj);
         const graded = gradeOMRSubmission(omrRaw, activeSelectedQuiz.rawQuizObj);
 
-        // Đối soát học sinh tự động từ SBD quét được
         const matchedStudent =
           sbdToStudentMap.get(omrRaw.detected_sbd) ||
           sbdToStudentMap.get(String(parseInt(omrRaw.detected_sbd, 10))) ||
@@ -719,14 +815,14 @@ export default function PaperExamManagerTab({
   return (
     <div className="space-y-5 max-w-6xl mx-auto text-left font-sans animate-in fade-in duration-200">
       {/* 1. BANNER & 3 NÚT CÔNG CỤ NGHIỆP VỤ TRUNG TÂM */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div className="flex items-center gap-3.5">
             <div className="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-md shrink-0">
               <ScanLine className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-black uppercase tracking-wider">
                   TRUNG TÂM KHẢO THÍ OMR
                 </span>
@@ -744,7 +840,12 @@ export default function PaperExamManagerTab({
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
-              onClick={() => setShowSbdDirectoryModal(true)}
+              onClick={() => {
+                if (activeSelectedQuiz && sbdModalSelectedQuizId === "none") {
+                  setSbdModalSelectedQuizId(activeSelectedQuiz.id);
+                }
+                setShowSbdDirectoryModal(true);
+              }}
               className="px-3.5 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200/80 text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer"
             >
               <Users className="w-4 h-4 text-[#1D4ED8]" />
@@ -772,12 +873,12 @@ export default function PaperExamManagerTab({
               className="px-4 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black shadow-md transition flex items-center gap-1.5 cursor-pointer"
             >
               <Camera className="w-4 h-4" />
-              <span>📷 Chấm bài thi giấy cả lớp</span>
+              <span>📷 Mở Camera Chấm OMR</span>
             </button>
           </div>
         </div>
 
-        {/* 2. THANH LỌC NGUỒN BÀI ĐA TẦNG (BTVN | ĐỀ KT | LUYỆN ĐỀ + THÁNG + CHƯƠNG/BÀI) */}
+        {/* 2. THANH LỌC NGUỒN BÀI ĐA TẦNG */}
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -813,7 +914,6 @@ export default function PaperExamManagerTab({
               })}
             </div>
 
-            {/* LỌC THEO THÁNG */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-slate-500">Tháng:</span>
               <select
@@ -834,7 +934,6 @@ export default function PaperExamManagerTab({
             </div>
           </div>
 
-          {/* CHỌN CHƯƠNG -> BÀI HỌC -> ĐỀ CỤ THỂ ĐỂ IN PHIẾU HOẶC CHẤM ĐIỂM */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 pt-1">
             {sourceFilter !== "practice" && (
               <>
@@ -949,7 +1048,7 @@ export default function PaperExamManagerTab({
               {paperSubmissionsList.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-14 text-center text-slate-400 italic">
-                    Chưa có bài làm trên giấy nào trong bộ lọc này. Hãy bấm <strong>"📷 Chấm bài thi giấy cả lớp"</strong> để quét phiếu của học sinh.
+                    Chưa có bài làm trên giấy nào trong bộ lọc này. Hãy bấm <strong>"📷 Mở Camera Chấm OMR"</strong> để quét phiếu của học sinh.
                   </td>
                 </tr>
               ) : (
@@ -1110,44 +1209,93 @@ export default function PaperExamManagerTab({
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL 2: BẢNG TRA CỨU SỐ BÁO DANH (SBD) CẢ LỚP */}
+      {/* MODAL 2: BẢNG TRA CỨU SBD & PHIẾU GHI ĐIỂM LỚP (LỌC ONL/OFF & IN ẨN PHÂN HỆ) */}
       {/* ===================================================================== */}
       {showSbdDirectoryModal && (
         <div
           onClick={() => setShowSbdDirectoryModal(false)}
-          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl max-w-2xl w-full max-h-[88vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
+            className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
           >
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-              <div>
-                <h3 className="text-sm sm:text-base font-black text-slate-900">
-                  Bảng Tra Cứu Số Báo Danh (SBD) Học Viên ({sbdDirectoryList.length} bạn)
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Khi chấm phiếu giấy, AI OMR đọc 6 số ở mục 7 để tự động gắn điểm vào đúng tên học sinh.
-                </p>
+            {/* Header Modal Bảng SBD */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50 space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-slate-900">
+                    Bảng Tra Cứu Số Báo Danh (SBD) & Phiếu Ghi Điểm ({filteredSbdDirectoryForModal.length} bạn)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    * Khi bấm In bảng SBD, hệ thống tự động ẩn cột Phân hệ và giữ nguyên SBD chuẩn của từng bạn.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintSbdDirectory}
+                    className="px-3.5 py-2 rounded-xl bg-[#1D4ED8] hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Printer className="w-3.5 h-3.5" /> 🖨 In bảng SBD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSbdDirectoryModal(false)}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrintSbdDirectory}
-                  className="px-3.5 py-2 rounded-xl bg-[#1D4ED8] hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5" /> In bảng SBD
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSbdDirectoryModal(false)}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+
+              {/* Thanh lọc Phân hệ (Tất cả | Offline | Online) & Dropdown chọn bài thi để xem/in điểm */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+                <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 w-fit">
+                  {[
+                    { key: "all", label: `Tất cả (${sbdDirectoryList.length})` },
+                    {
+                      key: "offline",
+                      label: `Học sinh Offline (${sbdDirectoryList.filter((x) => x.modeKey === "offline").length})`
+                    },
+                    {
+                      key: "online",
+                      label: `Học sinh Online (${sbdDirectoryList.filter((x) => x.modeKey === "online").length})`
+                    }
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setSbdModalModeFilter(tab.key as any)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                        sbdModalModeFilter === tab.key
+                          ? "bg-[#1D4ED8] text-white shadow-2xs"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2 flex-1 sm:max-w-[320px]">
+                  <select
+                    value={sbdModalSelectedQuizId}
+                    onChange={(e) => setSbdModalSelectedQuizId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                  >
+                    <option value="none">-- Chọn bài thi để hiện cột Điểm số --</option>
+                    {allUnifiedQuizzes.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        [{q.sourceLabel}] {q.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
+            {/* Bảng danh sách SBD & Điểm số */}
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
               <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
                 <thead className="bg-slate-100 text-[10px] font-black uppercase text-slate-600 border-b border-slate-200">
@@ -1156,19 +1304,47 @@ export default function PaperExamManagerTab({
                     <th className="py-2.5 px-3 text-center w-32">SBD (6 chữ số)</th>
                     <th className="py-2.5 px-4">Họ và tên học sinh</th>
                     <th className="py-2.5 px-3">Trường</th>
+                    <th className="py-2.5 px-3 text-center w-36">
+                      {sbdModalSelectedQuizObj ? "Điểm bài thi" : "Phân hệ / Điểm"}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {sbdDirectoryList.map((stu) => (
+                  {filteredSbdDirectoryForModal.map((stu) => (
                     <tr key={stu.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 text-center font-bold text-slate-400">{stu.stt}</td>
-                      <td className="py-2 px-3 text-center">
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-400">
+                        {stu.stt}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
                         <span className="px-2.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 font-mono font-black text-xs">
                           {stu.sbd}
                         </span>
                       </td>
-                      <td className="py-2 px-4 font-bold text-slate-800">{stu.full_name}</td>
-                      <td className="py-2 px-3 text-slate-500">{stu.school}</td>
+                      <td className="py-2.5 px-4 font-bold text-slate-800">{stu.full_name}</td>
+                      <td className="py-2.5 px-3 text-slate-500">{stu.school}</td>
+                      <td className="py-2.5 px-3 text-center">
+                        {sbdModalSelectedQuizObj ? (
+                          stu.examScore !== undefined ? (
+                            <span className="px-2.5 py-0.5 rounded-lg bg-rose-50 text-rose-600 border border-rose-200 font-black text-xs">
+                              {stu.examScore.toFixed(2)}đ
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-mono tracking-widest">
+                              ..........
+                            </span>
+                          )
+                        ) : (
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              stu.modeKey === "online"
+                                ? "bg-indigo-50 text-indigo-700 border border-indigo-100"
+                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                            }`}
+                          >
+                            {stu.mode}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1179,7 +1355,7 @@ export default function PaperExamManagerTab({
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL 3: CHẤM BÀI THI GIẤY HÀNG LOẠT CHO CẢ LỚP */}
+      {/* MODAL 3: CHẤM BÀI THI GIẤY NỘI BỘ DỰ PHÒNG */}
       {/* ===================================================================== */}
       {showInternalBulkScanner && (
         <div
@@ -1194,6 +1370,7 @@ export default function PaperExamManagerTab({
               ref={batchFileInputRef}
               type="file"
               accept="image/*"
+              capture="environment"
               multiple
               className="hidden"
               onChange={handleBatchFilesUpload}
@@ -1202,7 +1379,7 @@ export default function PaperExamManagerTab({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[10px] font-black uppercase text-purple-600 block">
-                  CHẤM PHIẾU TRẮC NGHIỆM HÀNG LOẠT (AI OMR)
+                  CHẤM PHIẾU TRẮC NGHIỆM BẰNG CAMERA (AI OMR)
                 </span>
                 <h3 className="text-base font-black text-slate-900">
                   Đang chấm cho bài: {activeSelectedQuiz?.title || "Chưa chọn bài"}
@@ -1229,14 +1406,14 @@ export default function PaperExamManagerTab({
               ) : (
                 <>
                   <div className="w-14 h-14 rounded-2xl bg-purple-600 text-white flex items-center justify-center mx-auto shadow-md">
-                    <Upload className="w-7 h-7" />
+                    <Camera className="w-7 h-7" />
                   </div>
                   <div>
                     <h4 className="text-sm font-black text-slate-900">
-                      Bấm để chọn nhiều ảnh chụp phiếu trả lời của cả lớp
+                      Bấm để mở Camera chụp phiếu trả lời
                     </h4>
                     <p className="text-xs text-slate-500 mt-1">
-                      Hệ thống tự động căn 4 góc đen (chống bắt nhầm bàn tay), đọc SBD 6 số để nhận diện học sinh và chấm điểm tức thì.
+                      Hệ thống tự động căn 4 góc đen, đọc SBD 6 số để nhận diện học sinh và chấm điểm tức thì.
                     </p>
                   </div>
                 </>
@@ -1324,6 +1501,7 @@ export default function PaperExamManagerTab({
                 <div
                   style={{
                     width: `${Math.round(560 * zoomScale)}px`,
+                    aspectRatio: `${OMR_CANONICAL_WIDTH} / ${OMR_CANONICAL_HEIGHT}`,
                     transition: "width 0.18s ease-out"
                   }}
                   className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-2xl shrink-0"
@@ -1331,7 +1509,7 @@ export default function PaperExamManagerTab({
                   <img
                     src={inspectingAttempt.paperScanUrl}
                     alt="Phiếu thi gốc của học sinh"
-                    className="w-full h-auto block"
+                    className="w-full h-full object-fill block"
                   />
                   {inspectingAttempt.omr_raw_data?.bubble_coordinates && (
                     <svg
@@ -1340,6 +1518,7 @@ export default function PaperExamManagerTab({
                       } ${
                         inspectingAttempt.omr_raw_data.canonical_height || OMR_CANONICAL_HEIGHT
                       }`}
+                      preserveAspectRatio="none"
                       className="absolute inset-0 w-full h-full pointer-events-none"
                     >
                       {inspectingAttempt.omr_raw_data.bubble_coordinates
