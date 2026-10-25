@@ -1,65 +1,108 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
-  Target,
-  UploadCloud,
-  ChevronDown,
-  ToggleRight,
-  ToggleLeft,
-  Link as LinkIcon,
+  Plus,
+  FileUp,
+  Search,
   Video,
-  BarChart2,
-  FileSignature,
-  Play,
   Trash2,
-  Filter,
+  Edit3,
+  Play,
   Eye,
-  Loader2,
-  Cloud,
   CheckCircle2,
   AlertCircle,
-  Calendar,
+  Loader2,
+  FolderOpen,
+  Award,
+  Users,
   Printer,
   Camera,
-  Users,
-  X
+  RefreshCw,
+  FileText,
+  ExternalLink,
+  X,
+  BarChart3
 } from "lucide-react";
-import { EXAM_CATEGORIES } from "@/types/admin";
+import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
-  openPrintableDynamicAnswerSheet,
-  formatStudentAutoSBD,
+  deriveExamCode3Digits,
   extractExamQuestionCounts,
-  buildDynamicOMRBlueprint,
-  deriveExamCode3Digits
+  formatStudentAutoSBD,
+  openPrintableDynamicAnswerSheet
 } from "@/lib/omrEngine";
-import {
-  AdminBulkOMRScannerModal,
-  StudentSBDRecord
-} from "@/components/admin/paper/AdminBulkOMRScannerModal";
+import { AdminBulkOMRScannerModal } from "@/components/admin/paper/AdminBulkOMRScannerModal";
 
-interface PracticeTabProps {
-  practiceSubTab: "manage" | "scores";
-  setPracticeSubTab: (tab: "manage" | "scores") => void;
-  practiceExams: any[];
-  allAttempts: any[];
+const PRACTICE_CATEGORIES = [
+  "Tất cả danh mục",
+  "Đề thi thử THPT Quốc Gia",
+  "Đề kiểm tra định kỳ",
+  "Đề luyện thi ĐGNL (HSA/TSA)",
+  "Đề tổng ôn chuyên đề",
+  "Tự do"
+];
+
+function normalizeStr(str: any): string {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function safeSaveExamsToLocal(exams: any[]) {
+  if (typeof window === "undefined" || !Array.isArray(exams) || exams.length === 0) return;
+  try {
+    localStorage.setItem("edunexus_practice_exams", JSON.stringify(exams));
+  } catch {
+    try {
+      const slim = exams.map((ex: any) => ({
+        id: ex?.id,
+        title: ex?.title,
+        category: ex?.category || "Tự do",
+        duration_minutes: ex?.duration_minutes || 90,
+        target_mode: ex?.target_mode || "all",
+        allowRetake: ex?.allowRetake ?? true,
+        allowViewFile: ex?.allowViewFile ?? true,
+        driveUrl: ex?.driveUrl || "",
+        solutionVideoUrl: ex?.solutionVideoUrl || "",
+        data: ex?.data || ex?.sections || [],
+        created_at: ex?.created_at || new Date().toISOString()
+      }));
+      localStorage.setItem("edunexus_practice_exams", JSON.stringify(slim));
+    } catch {}
+  }
+}
+
+export interface PracticeTabProps {
+  practiceSubTab?: "manage" | "scores";
+  setPracticeSubTab?: (tab: "manage" | "scores") => void;
+  practiceExams?: any[];
+  allAttempts?: any[];
+  registeredStudents?: any[];
+  chapters?: any[];
   isLoadingExams?: boolean;
   uploadProgressText?: string | null;
-  setTestFile: (file: File | null) => void;
-  setUploadMode: (mode: "course" | "practice") => void;
-  setEditingExamData: (data: any) => void;
-  handleChangeExamCategory: (examId: string, newCategory: string) => Promise<void>;
-  savePracticeExams: (newExams: any[]) => Promise<void>;
-  supabase: any;
-  showToast: (msg: string, type?: "success" | "error") => void;
-  setVideoModalExam: (exam: any) => void;
-  setSolutionVideoInput: (input: string) => void;
-  setAzotaScoreViewModal: (modal: any) => void;
-  onOpenExamEditor: (exam: any) => Promise<void>;
-  onTestExam: (exam: any) => Promise<void>;
-  practiceCategoryFilter: string;
-  setPracticeCategoryFilter: (cat: string) => void;
-  examsWithScoresData: any[];
+  setTestFile?: (file: File | null) => void;
+  setUploadMode?: (mode: "course" | "practice") => void;
+  setEditingExamData?: (data: any | null) => void;
+  handleChangeExamCategory?: (examId: string, newCategory: string) => void;
+  savePracticeExams?: (newExams: any[]) => Promise<void> | void;
+  supabase?: any;
+  showToast?: (msg: string, type?: "success" | "error") => void;
+  setVideoModalExam?: (exam: any | null) => void;
+  setSolutionVideoInput?: (val: string) => void;
+  setAzotaScoreViewModal?: (modal: {
+    isOpen: boolean;
+    examTitle: string;
+    attempts: any[];
+  }) => void;
+  onOpenExamEditor?: (exam: any) => void;
+  onTestExam?: (exam: any) => void;
+  practiceCategoryFilter?: string;
+  setPracticeCategoryFilter?: (cat: string) => void;
+  examsWithScoresData?: any[];
   practiceSyncStatus?: {
     isSyncing: boolean;
     progress: number;
@@ -69,162 +112,493 @@ interface PracticeTabProps {
 }
 
 export default function PracticeTab({
-  practiceSubTab,
+  practiceSubTab = "manage",
   setPracticeSubTab,
-  practiceExams,
-  allAttempts,
-  isLoadingExams = false,
+  practiceExams: propPracticeExams = [],
+  allAttempts: propAllAttempts = [],
+  registeredStudents: propRegisteredStudents = [],
+  chapters = [],
+  isLoadingExams: propIsLoadingExams = false,
   uploadProgressText = null,
   setTestFile,
   setUploadMode,
   setEditingExamData,
   handleChangeExamCategory,
   savePracticeExams,
-  supabase,
+  supabase: propSupabase,
   showToast,
   setVideoModalExam,
   setSolutionVideoInput,
   setAzotaScoreViewModal,
   onOpenExamEditor,
   onTestExam,
-  practiceCategoryFilter,
+  practiceCategoryFilter = "Tất cả danh mục",
   setPracticeCategoryFilter,
-  examsWithScoresData,
   practiceSyncStatus
 }: PracticeTabProps) {
-  const currentRealtimeMonth = useMemo(() => new Date().getMonth() + 1, []);
-  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("all");
+  // 1. ĐẢM BẢO SUPABASE CLIENT LUÔN TỒN TẠI (FALLBACK NỘI BỘ AN TOÀN)
+  const effectiveSupabase = propSupabase || defaultSupabaseClient;
 
-  // State phục vụ Chấm bài thi giấy hàng loạt (AdminBulkOMRScannerModal)
-  const [isBulkScannerOpen, setIsBulkScannerOpen] = useState<boolean>(false);
-  const [bulkScannerDefaultExam, setBulkScannerDefaultExam] = useState<any | null>(null);
+  // 2. STATE BACKUP NỘI BỘ CHỐNG MẤT DỮ LIỆU KHI PROPS BỊ RỖNG (0 ĐỀ / 0 HỌC SINH)
+  const [internalExams, setInternalExams] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("edunexus_practice_exams");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
 
-  // State phục vụ Modal Xuất Phiếu Trả Lời A4 Động & Bảng SBD Học Sinh
-  const [isExportSheetModalOpen, setIsExportSheetModalOpen] = useState<boolean>(false);
-  const [selectedExamForSheetId, setSelectedExamForSheetId] = useState<string>("");
-  const [isSbdDirectoryModalOpen, setIsSbdDirectoryModalOpen] = useState<boolean>(false);
-  const [studentsDirectory, setStudentsDirectory] = useState<StudentSBDRecord[]>([]);
+  const [internalStudents, setInternalStudents] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cachedStu = localStorage.getItem("edunexus_registered_students");
+        if (cachedStu) {
+          const parsed = JSON.parse(cachedStu);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+        const cachedSbd = localStorage.getItem("edunexus_sbd_directory");
+        if (cachedSbd) {
+          const parsedSbd = JSON.parse(cachedSbd);
+          if (Array.isArray(parsedSbd) && parsedSbd.length > 0) return parsedSbd;
+        }
+      } catch {}
+    }
+    return [];
+  });
 
-  // Tự động nạp danh sách học sinh, cấp SBD theo STT (000001, 000002...) và lưu đồng bộ vào localStorage
+  const [internalAttempts, setInternalAttempts] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cachedAtt = localStorage.getItem("edunexus_attempts");
+        if (cachedAtt) {
+          const parsed = JSON.parse(cachedAtt);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
+
+  const [isSelfFetching, setIsSelfFetching] = useState<boolean>(false);
+  const [searchKeyword, setSearchKeyword] = useState<string>("");
+
+  // STATE CHO MODAL BẢNG SBD LỚP & CAMERA CHẤM OMR NGAY TẠI KHO LUYỆN ĐỀ
+  const [showSbdModal, setShowSbdModal] = useState<boolean>(false);
+  const [sbdModeFilter, setSbdModeFilter] = useState<"all" | "offline" | "online">("all");
+  const [sbdSelectedExamId, setSbdSelectedExamId] = useState<string>("none");
+  const [scannerTargetExam, setScannerTargetExam] = useState<any | null>(null);
+  const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
+
+  // Đồng bộ từ props nếu props có dữ liệu thực (> 0 phần tử)
   useEffect(() => {
-    const loadStudentsForSBD = async () => {
-      const mergedMap = new Map<
-        string,
-        { id: string; username: string; full_name: string; school?: string; grade?: string }
-      >();
+    if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
+      setInternalExams(propPracticeExams);
+      safeSaveExamsToLocal(propPracticeExams);
+    }
+  }, [propPracticeExams]);
 
-      // 1. Lấy từ Supabase bảng profiles nếu có
-      if (supabase) {
-        try {
-          const { data: profs } = await supabase
-            .from("profiles")
-            .select("id, username, full_name, role, school, grade")
-            .neq("role", "admin");
-          if (Array.isArray(profs)) {
-            profs.forEach((p: any) => {
-              const key = String(p.id || p.username || "").trim();
-              if (key) {
-                mergedMap.set(key, {
-                  id: key,
-                  username: p.username || key,
-                  full_name: p.full_name || p.username || "Học sinh",
-                  school: p.school || "THPT",
-                  grade: p.grade || "Lớp 12"
-                });
-              }
-            });
-          }
-        } catch {}
-      }
-
-      // 2. Lấy thêm từ edunexus_registered_students trong localStorage nếu có
+  useEffect(() => {
+    if (Array.isArray(propRegisteredStudents) && propRegisteredStudents.length > 0) {
+      setInternalStudents(propRegisteredStudents);
       if (typeof window !== "undefined") {
         try {
-          const regRaw = localStorage.getItem("edunexus_registered_students");
-          if (regRaw) {
-            const regList = JSON.parse(regRaw);
-            if (Array.isArray(regList)) {
-              regList.forEach((p: any) => {
-                const key = String(p.id || p.username || "").trim();
-                if (key && !mergedMap.has(key)) {
-                  mergedMap.set(key, {
-                    id: key,
-                    username: p.username || key,
-                    full_name: p.full_name || p.name || p.username || "Học sinh",
-                    school: p.school || "THPT",
-                    grade: p.grade || "Lớp 12"
-                  });
-                }
-              });
+          localStorage.setItem(
+            "edunexus_registered_students",
+            JSON.stringify(propRegisteredStudents)
+          );
+        } catch {}
+      }
+    }
+  }, [propRegisteredStudents]);
+
+  useEffect(() => {
+    if (Array.isArray(propAllAttempts) && propAllAttempts.length > 0) {
+      setInternalAttempts(propAllAttempts);
+    }
+  }, [propAllAttempts]);
+
+  // 3. HÀM TỰ ĐỘNG KHÔI PHỤC DỮ LIỆU TỪ SUPABASE & API SERVER (KHÔNG BAO GIỜ SET VỀ RỖNG NẾU LỖI)
+  const fetchExamsAndStudentsSafely = useCallback(
+    async (notifyUser: boolean = false) => {
+      setIsSelfFetching(true);
+      let recoveredExams: any[] = [];
+      let recoveredStudents: any[] = [];
+      let recoveredAttempts: any[] = [];
+
+      // Bước 1: Gọi API tổng hợp `/api/admin/data` (Sử dụng Service Role vượt mọi lỗi chặn RLS)
+      try {
+        const res = await fetch("/api/admin/data", { cache: "no-store" });
+        if (res.ok) {
+          const apiData = await res.json();
+          if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
+            recoveredExams = apiData.practiceExams;
+          }
+          if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
+            recoveredStudents = apiData.profiles;
+          }
+          const combinedAtt = [
+            ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
+            ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : [])
+          ];
+          if (combinedAtt.length > 0) {
+            recoveredAttempts = combinedAtt;
+          }
+        }
+      } catch (apiErr) {
+        console.error("Lỗi fetch API /api/admin/data trong PracticeTab:", apiErr);
+      }
+
+      // Bước 2: Nếu API chưa trả về đủ, truy vấn trực tiếp bằng Supabase Client với log chi tiết
+      if (effectiveSupabase) {
+        if (recoveredExams.length === 0) {
+          try {
+            const { data: sbExams, error: examErr } = await effectiveSupabase
+              .from("practice_exams")
+              .select("*")
+              .order("created_at", { ascending: false });
+
+            if (examErr) {
+              console.error("Lỗi fetch practice_exams từ Supabase:", examErr);
+            } else if (Array.isArray(sbExams) && sbExams.length > 0) {
+              recoveredExams = sbExams;
             }
+          } catch (err) {
+            console.error("Ngoại lệ khi query bảng practice_exams:", err);
           }
-        } catch {}
+        }
+
+        if (recoveredStudents.length === 0) {
+          try {
+            const { data: sbProfiles, error: profErr } = await effectiveSupabase
+              .from("profiles")
+              .select("*")
+              .order("created_at", { ascending: false });
+
+            if (profErr) {
+              console.error("Lỗi fetch profiles từ Supabase:", profErr);
+            } else if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
+              recoveredStudents = sbProfiles.filter(
+                (p: any) => p.role !== "admin" && p.role !== "teacher"
+              );
+            }
+          } catch (err) {
+            console.error("Ngoại lệ khi query bảng profiles:", err);
+          }
+        }
+
+        if (recoveredAttempts.length === 0) {
+          try {
+            const { data: sbAtt, error: attErr } = await effectiveSupabase
+              .from("exam_attempts")
+              .select("*")
+              .order("created_at", { ascending: false });
+
+            if (attErr) {
+              console.error("Lỗi fetch exam_attempts từ Supabase:", attErr);
+            } else if (Array.isArray(sbAtt) && sbAtt.length > 0) {
+              recoveredAttempts = sbAtt;
+            }
+          } catch (err) {
+            console.error("Ngoại lệ khi query bảng exam_attempts:", err);
+          }
+        }
       }
 
-      // 3. Bổ sung từ danh sách lịch sử làm bài (allAttempts) để không bỏ sót học sinh nào
-      if (Array.isArray(allAttempts)) {
-        allAttempts.forEach((att: any) => {
-          const key = String(att.student_id || att.studentId || att.user_id || "").trim();
-          const name = String(
-            att.student_name || att.studentName || att.full_name || ""
-          ).trim();
-          if (key && name && !mergedMap.has(key)) {
-            mergedMap.set(key, {
-              id: key,
-              username: att.username || key,
-              full_name: name,
-              school: att.school || "THPT",
-              grade: "Lớp 12"
-            });
-          }
-        });
+      // Bước 3: Chỉ cập nhật State & parent khi có dữ liệu thật (> 0), tuyệt đối KHÔNG ghi đè mảng rỗng!
+      if (recoveredExams.length > 0) {
+        setInternalExams(recoveredExams);
+        safeSaveExamsToLocal(recoveredExams);
+        if (typeof savePracticeExams === "function") {
+          try {
+            savePracticeExams(recoveredExams);
+          } catch {}
+        }
       }
 
-      const sortedList = Array.from(mergedMap.values()).sort((a, b) =>
-        a.full_name.localeCompare(b.full_name, "vi")
+      if (recoveredStudents.length > 0) {
+        setInternalStudents(recoveredStudents);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(
+              "edunexus_registered_students",
+              JSON.stringify(recoveredStudents)
+            );
+          } catch {}
+        }
+      }
+
+      if (recoveredAttempts.length > 0) {
+        setInternalAttempts(recoveredAttempts);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("edunexus_attempts", JSON.stringify(recoveredAttempts));
+          } catch {}
+        }
+      }
+
+      setIsSelfFetching(false);
+
+      if (notifyUser && showToast) {
+        showToast(
+          `Đã khôi phục & đồng bộ ${
+            recoveredExams.length || internalExams.length
+          } đề luyện thi và ${
+            recoveredStudents.length || internalStudents.length
+          } học sinh!`,
+          "success"
+        );
+      }
+    },
+    [effectiveSupabase, savePracticeExams, showToast, internalExams.length, internalStudents.length]
+  );
+
+  // Tự động kích hoạt khôi phục ngay khi mở PracticeTab nếu danh sách đang bị trống
+  useEffect(() => {
+    if (
+      (propPracticeExams.length === 0 && internalExams.length === 0) ||
+      (propRegisteredStudents.length === 0 && internalStudents.length === 0)
+    ) {
+      fetchExamsAndStudentsSafely(false);
+    } else {
+      // Vẫn đồng bộ ngầm để lấy dữ liệu mới nhất từ Supabase mà không xóa cache cũ
+      fetchExamsAndStudentsSafely(false);
+    }
+  }, []);
+
+  // Dữ liệu đề thi, học sinh và lượt làm bài hiệu lực (Ưu tiên mảng nào có dữ liệu > 0)
+  const effectiveExams = useMemo(() => {
+    if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
+      return propPracticeExams;
+    }
+    return internalExams;
+  }, [propPracticeExams, internalExams]);
+
+  const effectiveStudents = useMemo(() => {
+    if (Array.isArray(propRegisteredStudents) && propRegisteredStudents.length > 0) {
+      return propRegisteredStudents;
+    }
+    return internalStudents;
+  }, [propRegisteredStudents, internalStudents]);
+
+  const effectiveAttempts = useMemo(() => {
+    if (Array.isArray(propAllAttempts) && propAllAttempts.length > 0) {
+      return propAllAttempts;
+    }
+    return internalAttempts;
+  }, [propAllAttempts, internalAttempts]);
+
+  // 4. DANH MỤC BẢNG SBD LỚP CỐ ĐỊNH (KHÔI PHỤC ĐỦ 23 HỌC SINH)
+  const sbdDirectoryList = useMemo(() => {
+    const pool: {
+      id: string;
+      username: string;
+      full_name: string;
+      school: string;
+      mode: "Online" | "Offline";
+      modeKey: "online" | "offline";
+    }[] = [];
+    const seen = new Set<string>();
+
+    (effectiveStudents || []).forEach((s: any) => {
+      if (!s) return;
+      const key = String(s.id || s.username || s.full_name || "").trim();
+      if (!key || seen.has(key.toLowerCase())) return;
+      seen.add(key.toLowerCase());
+      const rawMode = String(
+        s.learning_mode || s.study_mode || s.mode || "offline"
+      ).toLowerCase();
+      const isOnline = rawMode.includes("on");
+      pool.push({
+        id: String(s.id || key),
+        username: String(s.username || ""),
+        full_name: String(s.full_name || s.name || s.username || "Học sinh"),
+        school: String(s.school || "THPT"),
+        mode: isOnline ? "Online" : "Offline",
+        modeKey: isOnline ? "online" : "offline"
+      });
+    });
+
+    pool.sort((a, b) => a.full_name.localeCompare(b.full_name, "vi"));
+
+    const directory = pool.map((stu, idx) => ({
+      ...stu,
+      stt: idx + 1,
+      sbd: formatStudentAutoSBD(idx + 1)
+    }));
+
+    if (typeof window !== "undefined" && directory.length > 0) {
+      try {
+        localStorage.setItem("edunexus_sbd_directory", JSON.stringify(directory));
+      } catch {}
+    }
+
+    return directory;
+  }, [effectiveStudents]);
+
+  // 5. TÍNH TOÁN DANH SÁCH ĐỀ KÈM THỐNG KÊ ĐIỂM SỐ
+  const computedExamsWithScores = useMemo(() => {
+    let list = Array.isArray(effectiveExams) ? [...effectiveExams] : [];
+    if (practiceCategoryFilter && practiceCategoryFilter !== "Tất cả danh mục") {
+      list = list.filter((ex) => (ex?.category || "Tự do") === practiceCategoryFilter);
+    }
+
+    if (searchKeyword.trim()) {
+      const kw = normalizeStr(searchKeyword);
+      list = list.filter(
+        (ex) =>
+          normalizeStr(ex?.title).includes(kw) ||
+          normalizeStr(ex?.category).includes(kw) ||
+          deriveExamCode3Digits(ex).includes(kw)
       );
+    }
 
-      const withSbd: StudentSBDRecord[] = sortedList.map((stu, idx) => ({
-        stt: idx + 1,
-        sbd: formatStudentAutoSBD(idx + 1),
-        id: stu.id,
-        username: stu.username,
-        full_name: stu.full_name,
-        school: stu.school,
-        grade: stu.grade
-      }));
+    return list.map((ex) => {
+      const exId = String(ex?.id || "").trim().toLowerCase();
+      const exTitleNorm = normalizeStr(ex?.title);
+      const counts = extractExamQuestionCounts(ex);
+      const examCode = deriveExamCode3Digits(ex);
 
-      setStudentsDirectory(withSbd);
+      const matchingAttempts = (effectiveAttempts || []).filter((a: any) => {
+        if (!a) return false;
+        const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "")
+          .trim()
+          .toLowerCase();
+        const aTitleNorm = normalizeStr(
+          a.examTitle || a.exam_title || a.quizTitle || a.quiz_title || a.title
+        );
+        return (
+          (exId && aQuizId === exId) ||
+          (exTitleNorm && aTitleNorm && exTitleNorm === aTitleNorm)
+        );
+      });
 
-      // Lưu danh mục SBD chuẩn vào localStorage để mọi giao diện Học sinh lấy đúng SBD 100%
-      if (typeof window !== "undefined" && withSbd.length > 0) {
-        try {
-          localStorage.setItem("edunexus_sbd_directory", JSON.stringify(withSbd));
-        } catch {}
-      }
-    };
+      const studentBestMap = new Map<string, any>();
+      matchingAttempts.forEach((att: any) => {
+        const key = String(
+          att.studentId || att.student_id || att.studentName || att.id
+        )
+          .trim()
+          .toLowerCase();
+        const prev = studentBestMap.get(key);
+        if (!prev || Number(att.score ?? 0) > Number(prev.score ?? 0)) {
+          studentBestMap.set(key, att);
+        }
+      });
 
-    loadStudentsForSBD();
-  }, [supabase, allAttempts]);
+      const scores = matchingAttempts.map((a: any) => Number(a.score ?? a.points ?? 0));
+      const avgScore =
+        scores.length > 0 ? scores.reduce((sum, v) => sum + v, 0) / scores.length : 0;
+      const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
 
-  // Hàm in danh sách Số Báo Danh (SBD) của cả lớp ra giấy A4
-  const handlePrintClassSBDTable = () => {
+      return {
+        ...ex,
+        examCode,
+        totalQuestionsCount: counts.totalCount,
+        part1Count: counts.part1Count,
+        part2Count: counts.part2Count,
+        part3Count: counts.part3Count,
+        totalSubmissions: matchingAttempts.length,
+        uniqueStudentCount: studentBestMap.size,
+        avgScore: avgScore.toFixed(2),
+        maxScore: maxScore.toFixed(2),
+        attempts: matchingAttempts
+      };
+    });
+  }, [effectiveExams, practiceCategoryFilter, searchKeyword, effectiveAttempts]);
+
+  // Điểm của từng học sinh trong Modal Bảng SBD theo đề đã chọn
+  const selectedSbdExamObj = useMemo(() => {
+    if (!sbdSelectedExamId || sbdSelectedExamId === "none") return null;
+    return effectiveExams.find((ex) => String(ex?.id) === sbdSelectedExamId) || null;
+  }, [sbdSelectedExamId, effectiveExams]);
+
+  const filteredSbdStudentsForModal = useMemo(() => {
+    const scoreMap = new Map<string, number>();
+    if (selectedSbdExamObj) {
+      const targetId = String(selectedSbdExamObj.id || "").trim().toLowerCase();
+      const targetTitle = normalizeStr(selectedSbdExamObj.title);
+
+      (effectiveAttempts || []).forEach((att: any) => {
+        if (!att) return;
+        const aId = String(att.quizId || att.quiz_id || att.exam_id || "")
+          .trim()
+          .toLowerCase();
+        const aTitle = normalizeStr(
+          att.examTitle || att.exam_title || att.quizTitle || att.title || ""
+        );
+        if ((targetId && aId === targetId) || (targetTitle && aTitle === targetTitle)) {
+          const sc = Number(att.score ?? att.points ?? 0);
+          const stuId = String(att.studentId || att.student_id || "").trim().toLowerCase();
+          const stuName = normalizeStr(att.studentName || att.student_name || "");
+          const stuSbd = String(
+            att.omr_raw_data?.detected_sbd ||
+              att.answers?.__paper_omr_meta?.detected_sbd ||
+              ""
+          ).trim();
+
+          if (stuId) {
+            const p = scoreMap.get(`id:${stuId}`);
+            if (p === undefined || sc > p) scoreMap.set(`id:${stuId}`, sc);
+          }
+          if (stuName) {
+            const p = scoreMap.get(`name:${stuName}`);
+            if (p === undefined || sc > p) scoreMap.set(`name:${stuName}`, sc);
+          }
+          if (stuSbd) {
+            const p = scoreMap.get(`sbd:${stuSbd}`);
+            if (p === undefined || sc > p) scoreMap.set(`sbd:${stuSbd}`, sc);
+          }
+        }
+      });
+    }
+
+    return sbdDirectoryList
+      .filter((s) => (sbdModeFilter === "all" ? true : s.modeKey === sbdModeFilter))
+      .map((s) => {
+        const byId = scoreMap.get(`id:${s.id.trim().toLowerCase()}`);
+        const bySbd = scoreMap.get(`sbd:${s.sbd}`);
+        const byName = scoreMap.get(`name:${normalizeStr(s.full_name)}`);
+        const resolvedScore =
+          byId !== undefined ? byId : bySbd !== undefined ? bySbd : byName;
+        return {
+          ...s,
+          examScore: resolvedScore
+        };
+      });
+  }, [sbdDirectoryList, sbdModeFilter, selectedSbdExamObj, effectiveAttempts]);
+
+  // IN BẢNG SBD RA GIẤY A4 (ẨN HOÀN TOÀN CỘT PHÂN HỆ ONLINE/OFFLINE)
+  const handlePrintSbdTable = () => {
     if (typeof window === "undefined") return;
     const win = window.open("", "_blank");
     if (!win) return;
 
-    const rowsHtml = studentsDirectory
-      .map(
-        (st) => `
-        <tr>
-          <td style="text-align:center; font-weight:bold;">${st.stt}</td>
-          <td style="text-align:center; font-family:monospace; font-size:14px; font-weight:bold; color:#1d4ed8;">${st.sbd}</td>
-          <td style="font-weight:bold;">${st.full_name}</td>
-          <td>${st.school || "THPT"}</td>
-          <td></td>
-        </tr>
-      `
-      )
+    const headerTitle = selectedSbdExamObj
+      ? `BẢNG ĐIỂM & SỐ BÁO DANH: ${String(selectedSbdExamObj.title).toUpperCase()}`
+      : "BẢNG TRA CỨU SỐ BÁO DANH (SBD) HỌC VIÊN — TÂM CHÍ TÀI EDUNEXUS";
+
+    const rowsHtml = filteredSbdStudentsForModal
+      .map((stu) => {
+        const scoreDisplay =
+          stu.examScore !== undefined
+            ? `<strong style="color:#0f172a; font-size:14px;">${stu.examScore.toFixed(2)}đ</strong>`
+            : `<span style="color:#94a3b8; letter-spacing:2px;">....................</span>`;
+
+        return `
+          <tr>
+            <td style="text-align:center; font-weight:bold;">${stu.stt}</td>
+            <td style="text-align:center; font-weight:bold; color:#1D4ED8; font-size:15px; font-family:monospace; letter-spacing:1px;">${stu.sbd}</td>
+            <td style="font-weight:bold;">${stu.full_name}</td>
+            <td>${stu.school}</td>
+            <td style="text-align:center;">${scoreDisplay}</td>
+          </tr>
+        `;
+      })
       .join("");
 
     win.document.open();
@@ -233,32 +607,32 @@ export default function PracticeTab({
       <html lang="vi">
       <head>
         <meta charset="UTF-8" />
-        <title>Danh sách Số Báo Danh (SBD) Lớp Học</title>
+        <title>${headerTitle}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; color: #0f172a; }
-          h2 { text-align: center; margin-bottom: 4px; text-transform: uppercase; }
-          p { text-align: center; margin-top: 0; font-size: 13px; color: #475569; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
-          th, td { border: 1px solid #cbd5e1; padding: 8px 10px; }
-          th { background: #f1f5f9; text-transform: uppercase; font-size: 11px; }
+          @page { size: A4 portrait; margin: 10mm; }
+          body { font-family: 'Times New Roman', Times, serif; padding: 12px; color: #0f172a; }
+          h2 { margin: 0 0 6px 0; color: #1e3a8a; text-transform: uppercase; font-size: 18px; text-align: center; }
+          p { margin: 0 0 14px 0; font-size: 13px; color: #475569; text-align: center; font-style: italic; }
+          table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+          th, td { border: 1px solid #94a3b8; padding: 8px 12px; text-align: left; }
+          th { background: #f8fafc; color: #1e293b; text-transform: uppercase; font-size: 11.5px; }
+          tr:nth-child(even) { background: #f8fafc; }
         </style>
       </head>
       <body>
-        <h2>DANH SÁCH SỐ BÁO DANH (SBD) THI TRÊN GIẤY</h2>
-        <p>Học sinh tra cứu đúng Số Báo Danh (6 chữ số) theo STT của mình để tô vào Phiếu trả lời trắc nghiệm</p>
+        <h2>${headerTitle}</h2>
+        <p>Học sinh tra cứu đúng 6 chữ số SBD theo STT của mình để tô vào mục 7 trên Phiếu trả lời trắc nghiệm A4.</p>
         <table>
           <thead>
             <tr>
-              <th style="width:50px;">STT</th>
-              <th style="width:140px;">SỐ BÁO DANH (6 SỐ)</th>
-              <th>HỌ VÀ TÊN HỌC SINH</th>
-              <th>TRƯỜNG / LỚP</th>
-              <th style="width:140px;">CHỮ KÝ THÍ SINH</th>
+              <th style="width:50px; text-align:center;">STT</th>
+              <th style="width:140px; text-align:center;">SỐ BÁO DANH (6 SỐ)</th>
+              <th>Họ và tên học sinh</th>
+              <th>Trường THPT</th>
+              <th style="width:130px; text-align:center;">${selectedSbdExamObj ? "ĐIỂM SỐ" : "GHI CHÚ / ĐIỂM"}</th>
             </tr>
           </thead>
-          <tbody>
-            ${rowsHtml || '<tr><td colspan="5" style="text-align:center;">Chưa có học sinh</td></tr>'}
-          </tbody>
+          <tbody>${rowsHtml}</tbody>
         </table>
         <script>window.onload = () => window.print();</script>
       </body>
@@ -267,919 +641,620 @@ export default function PracticeTab({
     win.document.close();
   };
 
-  // Hàm xác định tháng của đề thi (ưu tiên assigned_month, nếu chưa có thì suy từ created_at hoặc tháng hiện tại)
-  const resolveExamMonth = (ex: any): number => {
-    if (ex?.assigned_month && !isNaN(Number(ex.assigned_month))) {
-      const m = Number(ex.assigned_month);
-      if (m >= 1 && m <= 12) return m;
+  // XÓA 1 ĐỀ LUYỆN THI
+  const handleDeletePracticeExam = async (exam: any) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa đề thi "${exam.title}"?`)) return;
+    const updated = effectiveExams.filter((ex) => String(ex?.id) !== String(exam.id));
+    setInternalExams(updated);
+    safeSaveExamsToLocal(updated);
+    if (typeof savePracticeExams === "function") {
+      await savePracticeExams(updated);
     }
-    const rawDate = ex?.created_at || ex?.createdAt;
-    if (rawDate) {
-      const d = new Date(rawDate);
-      if (!isNaN(d.getTime())) {
-        return d.getMonth() + 1;
+    if (effectiveSupabase) {
+      try {
+        await effectiveSupabase.from("practice_exams").delete().eq("id", exam.id);
+      } catch (err) {
+        console.error("Lỗi xóa đề trên Supabase:", err);
       }
     }
-    return currentRealtimeMonth;
+    if (showToast) {
+      showToast(`Đã xóa đề "${exam.title}" thành công!`, "success");
+    }
   };
 
-  // Đổi nhanh Tháng của đề thi ngay trên bảng
-  const handleChangeExamMonth = async (examId: string, newMonth: number) => {
-    const updated = (practiceExams || []).map((ex: any) =>
-      ex?.id === examId ? { ...ex, assigned_month: newMonth } : ex
+  // BẬT/TẮT CHO PHÉP THI LẠI HOẶC XEM FILE ĐỀ
+  const handleToggleExamFlag = async (
+    exam: any,
+    field: "allowRetake" | "allowViewFile"
+  ) => {
+    const nextVal = !(exam[field] ?? true);
+    const updated = effectiveExams.map((ex) =>
+      String(ex?.id) === String(exam.id) ? { ...ex, [field]: nextVal } : ex
     );
-    await savePracticeExams(updated);
-
-    try {
-      if (supabase) {
-        const { error } = await supabase
+    setInternalExams(updated);
+    safeSaveExamsToLocal(updated);
+    if (typeof savePracticeExams === "function") {
+      await savePracticeExams(updated);
+    }
+    if (effectiveSupabase) {
+      try {
+        await effectiveSupabase
           .from("practice_exams")
-          .update({ assigned_month: newMonth })
-          .eq("id", examId);
-
-        if (error) {
-          const targetExam = updated.find((e: any) => e?.id === examId);
-          if (targetExam) {
-            await fetch("/api/admin/data", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "save_practice_exam",
-                examData: targetExam
-              })
-            });
-          }
-        }
-      }
-    } catch (e) {}
-
-    showToast(`Đã chuyển đề sang Tháng ${newMonth < 10 ? "0" + newMonth : newMonth}!`, "success");
+          .update({ [field]: nextVal })
+          .eq("id", exam.id);
+      } catch {}
+    }
   };
-
-  // Danh sách đề ở sub-tab Quản lý đã lọc theo Tháng
-  const filteredManageExams = useMemo(() => {
-    const list = Array.isArray(practiceExams) ? practiceExams : [];
-    if (selectedMonthFilter === "all") return list;
-    const targetM = Number(selectedMonthFilter);
-    return list.filter((ex: any) => resolveExamMonth(ex) === targetM);
-  }, [practiceExams, selectedMonthFilter]);
-
-  // Danh sách đề ở sub-tab Điểm & Xếp hạng đã lọc theo Tháng
-  const filteredScoresExams = useMemo(() => {
-    const list = Array.isArray(examsWithScoresData) ? examsWithScoresData : [];
-    if (selectedMonthFilter === "all") return list;
-    const targetM = Number(selectedMonthFilter);
-    return list.filter((ex: any) => resolveExamMonth(ex) === targetM);
-  }, [examsWithScoresData, selectedMonthFilter]);
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-300 max-w-6xl mx-auto text-left font-sans">
-      {/* 1. KHỐI THANH TIẾN TRÌNH ĐỒNG BỘ ĐỀ THI (THEO DÕI REALTIME TIẾN TRÌNH UPLOAD) */}
-      {(!practiceSyncStatus ||
-        (!practiceSyncStatus.isSyncing && practiceSyncStatus.type === "idle")) && (
-        <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between text-xs text-slate-500 shadow-2xs">
-          <div className="flex items-center gap-2 font-medium">
-            <Cloud className="w-4 h-4 text-slate-400" />
-            <span>Hệ thống sẵn sàng: Chưa có đề thi nào đang tải lên</span>
+    <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
+      {/* THANH TRẠNG THÁI ĐỒNG BỘ KHO LUYỆN ĐỀ */}
+      {practiceSyncStatus && practiceSyncStatus.isSyncing && (
+        <div className="bg-blue-50 border border-blue-300 p-3.5 rounded-xl flex items-center justify-between text-xs font-bold text-blue-900">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+            <span>{practiceSyncStatus.message || "Đang đồng bộ đề thi lên đám mây..."}</span>
           </div>
-          <div className="flex items-center gap-1.5 font-bold text-emerald-600 text-[11px]">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Máy chủ hoạt động</span>
-          </div>
+          <span className="font-mono">{practiceSyncStatus.progress}%</span>
         </div>
       )}
 
-      {practiceSyncStatus?.isSyncing && practiceSyncStatus.type === "loading" && (
-        <div className="bg-blue-50/90 border-2 border-blue-400 p-3.5 rounded-2xl shadow-sm flex flex-col gap-2 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between text-xs font-bold text-blue-900">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-              <span>
-                {practiceSyncStatus.message ||
-                  `Đang xử lý & đăng tải đề thi: [ ${practiceSyncStatus.progress}% ]`}
+      {/* 1. HEADER THỐNG KÊ & CỤM NÚT HÀNH ĐỘNG CHÍNH (CLEAN MINIMALIST UI) */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h2 className="text-[20px] font-bold text-slate-800 tracking-tight">
+                Kho Luyện Đề Thực Chiến & Chấm Thi
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold">
+                TỔNG SỐ ĐỀ: {effectiveExams.length}
               </span>
             </div>
-            <span className="font-mono text-blue-700">{practiceSyncStatus.progress}%</span>
+            <p className="text-xs text-slate-500 mt-1">
+              Tải đề Word/PDF cấu hình Azota, xuất phiếu tô trắc nghiệm A4 chuẩn Bộ GD&ĐT và chấm tự động qua Camera.
+            </p>
           </div>
-          <div className="w-full bg-blue-200/60 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full transition-all duration-300 rounded-full"
-              style={{ width: `${practiceSyncStatus.progress}%` }}
-            />
-          </div>
-        </div>
-      )}
 
-      {practiceSyncStatus?.type === "success" && (
-        <div className="bg-emerald-50 border-2 border-emerald-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 animate-in fade-in duration-200 shadow-xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>
-              {practiceSyncStatus.message || "✓ Đã nạp và đồng bộ đề thi thành công! (100%)"}
-            </span>
-          </div>
-          <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-lg border border-emerald-300">
-            Hoàn tất
-          </span>
-        </div>
-      )}
-
-      {practiceSyncStatus?.type === "error" && (
-        <div className="bg-rose-50 border-2 border-rose-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-rose-900 shadow-xs">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600" />
-            <span>{practiceSyncStatus.message || "✕ Lỗi kết nối đám mây khi lưu đề thi!"}</span>
-          </div>
-        </div>
-      )}
-
-      {/* THANH THÔNG BÁO UPLOAD PHỤ (NẾU CÓ TRUYỀN TỪ PROPS) */}
-      {uploadProgressText && (
-        <div className="bg-blue-50 border-2 border-[#1D4ED8] p-3.5 rounded-2xl flex items-center gap-3 shadow-xs">
-          <Loader2 className="w-4 h-4 text-[#1D4ED8] animate-spin shrink-0" />
-          <div className="text-xs font-bold text-[#1D4ED8]">{uploadProgressText}</div>
-        </div>
-      )}
-
-      {/* 2. CỤM NÚT CHUYỂN TAB CON & THANH LỌC NHANH THEO THÁNG */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs w-fit">
-          <button
-            type="button"
-            onClick={() => setPracticeSubTab("manage")}
-            className={
-              "px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " +
-              (practiceSubTab === "manage"
-                ? "bg-[#1D4ED8] text-white shadow-xs"
-                : "text-slate-600 hover:bg-slate-100")
-            }
-          >
-            Kho Đề & Tải lên
-          </button>
-          <button
-            type="button"
-            onClick={() => setPracticeSubTab("scores")}
-            className={
-              "px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer " +
-              (practiceSubTab === "scores"
-                ? "bg-[#1D4ED8] text-white shadow-xs"
-                : "text-slate-600 hover:bg-slate-100")
-            }
-          >
-            Điểm & Xếp hạng Luyện đề
-          </button>
-        </div>
-
-        {/* THANH LỌC ĐỀ THEO THÁNG */}
-        <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs overflow-x-auto custom-scrollbar">
-          <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1 px-2 shrink-0">
-            <Calendar className="w-3.5 h-3.5 text-[#1D4ED8]" /> Tháng:
-          </span>
-          {[
-            { val: "all", label: "Tất cả" },
-            { val: "8", label: "Tháng 8" },
-            { val: "9", label: "Tháng 9" },
-            { val: "10", label: "Tháng 10" },
-            { val: "11", label: "Tháng 11" },
-            { val: "12", label: "Tháng 12" }
-          ].map((item) => (
+          {/* CỤM NÚT CÔNG CỤ */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              key={item.val}
               type="button"
-              onClick={() => setSelectedMonthFilter(item.val)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
-                selectedMonthFilter === item.val
-                  ? "bg-[#1D4ED8] text-white shadow-2xs"
-                  : "text-slate-600 hover:bg-slate-100"
+              disabled={isSelfFetching}
+              onClick={() => fetchExamsAndStudentsSafely(true)}
+              className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              title="Khôi phục & Đồng bộ đề thi, học sinh từ Supabase"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 text-blue-600 ${
+                  isSelfFetching ? "animate-spin" : ""
+                }`}
+              />
+              <span>🔄 Đồng bộ</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (effectiveExams.length > 0 && sbdSelectedExamId === "none") {
+                  setSbdSelectedExamId(String(effectiveExams[0].id));
+                }
+                setShowSbdModal(true);
+              }}
+              className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5 text-slate-500" />
+              <span>📋 Bảng SBD Lớp ({sbdDirectoryList.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setScannerTargetExam(effectiveExams[0] || null);
+                setIsScannerOpen(true);
+              }}
+              className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>📷 Mở Camera Chấm bài</span>
+            </button>
+
+            <label className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+              <FileUp className="w-3.5 h-3.5" />
+              <span>+ Tải Đề Mới (Word/PDF)</span>
+              <input
+                type="file"
+                accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (setUploadMode) setUploadMode("practice");
+                    if (setEditingExamData) setEditingExamData(null);
+                    if (setTestFile) setTestFile(file);
+                  }
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* 2. THANH CHUYỂN CHẾ ĐỘ (QUẢN LÝ ĐỀ | BẢNG ĐIỂM) & LỌC DANH MỤC */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg w-fit">
+            <button
+              type="button"
+              onClick={() => setPracticeSubTab && setPracticeSubTab("manage")}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                practiceSubTab === "manage"
+                  ? "bg-white text-slate-800 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              {item.label}
+              Danh sách Đề thi ({effectiveExams.length})
             </button>
-          ))}
-          <select
-            value={selectedMonthFilter}
-            onChange={(e) => setSelectedMonthFilter(e.target.value)}
-            className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer shrink-0"
-            title="Chọn tháng khác (Tháng 1 -> 12)"
-          >
-            <option value="all">12 Tháng</option>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-              <option key={m} value={String(m)}>
-                Tháng {m < 10 ? "0" + m : m}
-              </option>
-            ))}
-          </select>
+            <button
+              type="button"
+              onClick={() => setPracticeSubTab && setPracticeSubTab("scores")}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                practiceSubTab === "scores"
+                  ? "bg-white text-slate-800 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Thống kê Điểm số & Lượt nộp
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={practiceCategoryFilter}
+              onChange={(e) =>
+                setPracticeCategoryFilter && setPracticeCategoryFilter(e.target.value)
+              }
+              className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
+            >
+              {PRACTICE_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+
+            <div className="relative min-w-[210px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="Tìm tên đề, mã đề..."
+                className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-blue-600"
+              />
+              {searchKeyword && (
+                <button
+                  type="button"
+                  onClick={() => setSearchKeyword("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 3. NỘI DUNG SUBTAB 1: QUẢN LÝ KHO ĐỀ */}
-      {practiceSubTab === "manage" && (
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs flex items-center gap-4 min-w-[200px]">
-              <div className="w-12 h-12 bg-blue-50 text-[#1D4ED8] rounded-2xl flex items-center justify-center">
-                <Target className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                  {selectedMonthFilter === "all"
-                    ? "Tổng số đề"
-                    : `Số đề Tháng ${selectedMonthFilter}`}
-                </p>
-                {isLoadingExams ? (
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <Loader2 className="w-4 h-4 text-[#1D4ED8] animate-spin" />
-                    <span className="text-xs text-slate-400 font-semibold">Đang tải...</span>
-                  </div>
-                ) : (
-                  <p className="text-2xl font-black text-slate-900 mt-0.5">
-                    {filteredManageExams.length}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* CỤM CÔNG CỤ THI TRÊN GIẤY, SBD, CHẤM BÀI HÀNG LOẠT & TẢI ĐỀ MỚI */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => setIsSbdDirectoryModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-3.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 text-xs font-extrabold rounded-2xl shadow-2xs transition cursor-pointer"
-                title="Xem và in bảng Số Báo Danh (SBD) tự động theo STT học sinh"
-              >
-                <Users className="w-4 h-4 text-[#1D4ED8]" />
-                <span>📋 Bảng SBD Lớp ({studentsDirectory.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (practiceExams && practiceExams.length > 0 && !selectedExamForSheetId) {
-                    setSelectedExamForSheetId(String(practiceExams[0].id));
-                  }
-                  setIsExportSheetModalOpen(true);
-                }}
-                className="flex items-center gap-2 px-4 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-2xl shadow-sm transition cursor-pointer"
-              >
-                <Printer className="w-4 h-4" />
-                <span>📄 Xuất phiếu in theo đề</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setBulkScannerDefaultExam(practiceExams?.[0] || null);
-                  setIsBulkScannerOpen(true);
-                }}
-                className="flex items-center gap-2 px-5 py-3.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold rounded-2xl shadow-md transition cursor-pointer"
-              >
-                <Camera className="w-4 h-4" />
-                <span>📷 Chấm bài thi giấy cả lớp</span>
-              </button>
-
-              <label className="flex items-center gap-2 px-5 py-3.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-2xl shadow-md transition-all cursor-pointer">
-                <UploadCloud className="w-4 h-4" /> + Tải lên Đề thi mới (.docx / .pdf)
-                <input
-                  type="file"
-                  accept=".docx,.pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) {
-                      setTestFile(e.target.files[0]);
-                      setUploadMode("practice");
-                      setEditingExamData(null);
-                    }
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            </div>
+      {/* 3. DANH SÁCH ĐỀ LUYỆN THI HOẶC BẢNG THỐNG KÊ ĐIỂM */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        {(propIsLoadingExams || isSelfFetching) && computedExamsWithScores.length === 0 ? (
+          <div className="py-14 text-center space-y-2">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
+            <p className="text-xs font-semibold text-slate-500">
+              {uploadProgressText || "Đang tải danh sách đề thi từ đám mây..."}
+            </p>
           </div>
-
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-wrap justify-between items-center gap-2">
-              <h3 className="font-extrabold text-slate-900 text-[14px]">
-                Danh sách Kho Đề Thực Chiến{" "}
-                {selectedMonthFilter !== "all" ? `(Tháng ${selectedMonthFilter})` : ""}
-              </h3>
-              <span className="text-xs text-slate-400 font-semibold">
-                * Click vào thẻ Phân Loại, Tháng hoặc nút In phiếu A4 / Chấm giấy từng đề
-              </span>
+        ) : computedExamsWithScores.length === 0 ? (
+          <div className="py-14 text-center space-y-3 px-4">
+            <FolderOpen className="w-8 h-8 text-slate-300 mx-auto" />
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-700">
+                Chưa có đề thi nào trong bộ lọc hiện tại
+              </h4>
+              <p className="text-xs text-slate-400">
+                Bấm nút <strong>"🔄 Đồng bộ"</strong> để tải lại từ máy chủ hoặc bấm{" "}
+                <strong>"+ Tải Đề Mới (Word/PDF)"</strong> để thêm đề.
+              </p>
             </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                  <tr>
-                    <th className="py-3.5 px-5 font-bold w-1/4">Tiêu đề đề thi</th>
-                    <th className="py-3.5 px-3 font-bold text-center">Phân loại (Loại đề)</th>
-                    <th className="py-3.5 px-3 font-bold text-center">Tháng</th>
-                    <th className="py-3.5 px-3 font-bold text-center">Phân hệ lớp</th>
-                    <th className="py-3.5 px-3 font-bold text-center">Làm lại bài</th>
-                    <th className="py-3.5 px-4 font-bold text-center">Quyền xem file</th>
-                    <th className="py-3.5 px-4 font-bold text-center">Link đề Drive</th>
-                    <th className="py-3.5 px-4 font-bold text-center text-amber-700">
-                      Video chữa bài
-                    </th>
-                    <th className="py-3.5 px-5 font-bold text-right">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100/60">
-                  {isLoadingExams ? (
-                    <tr>
-                      <td colSpan={9} className="py-16 text-center">
-                        <div className="flex flex-col items-center justify-center gap-3">
-                          <Loader2 className="w-8 h-8 text-[#1D4ED8] animate-spin" />
-                          <p className="text-xs font-bold text-slate-500">
-                            Đang nạp danh mục kho đề thực chiến từ Supabase...
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : filteredManageExams.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="py-16 text-center text-slate-400 font-semibold">
-                        Chưa có đề thi nào trong bộ lọc này. Vui lòng bấm nút &quot;+ Tải lên Đề thi
-                        mới&quot; ở trên hoặc chọn &quot;Tất cả&quot; tháng.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredManageExams.map((ex, exIdx) => {
-                      const examMonth = resolveExamMonth(ex);
-                      const qCounts = extractExamQuestionCounts(ex);
-                      const exCode = deriveExamCode3Digits(ex);
-                      return (
-                        <tr
-                          key={ex?.id || exIdx}
-                          className="hover:bg-slate-50/50 transition-colors bg-white"
-                        >
-                          <td
-                            className="py-3.5 px-5 font-bold text-slate-800 max-w-[230px]"
-                            title={ex?.title}
-                          >
-                            <div className="truncate">{ex?.title || "Đề thi"}</div>
-                            <span className="text-[10px] text-slate-400 font-semibold">
-                              Mã đề: {exCode} • {qCounts.totalCount} câu
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-3 text-center">
-                            <div className="relative inline-block">
-                              <select
-                                value={ex?.category || "Luyện đề"}
-                                onChange={(e) => handleChangeExamCategory(ex.id, e.target.value)}
-                                className="appearance-none px-3 py-1.5 pr-6 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-black text-[10px] uppercase rounded-xl tracking-wider cursor-pointer outline-none transition"
-                              >
-                                {EXAM_CATEGORIES.map((cat) => (
-                                  <option key={cat} value={cat}>
-                                    {cat}
-                                  </option>
-                                ))}
-                              </select>
-                              <ChevronDown className="w-3 h-3 text-indigo-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                            </div>
-                          </td>
-
-                          {/* CỘT DROPDOWN CHỌN NHANH THÁNG (THÁNG 1 -> 12) */}
-                          <td className="py-3.5 px-3 text-center">
-                            <div className="relative inline-block">
-                              <select
-                                value={examMonth}
-                                onChange={(e) =>
-                                  handleChangeExamMonth(ex.id, Number(e.target.value))
-                                }
-                                className="appearance-none px-2.5 py-1.5 pr-6 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-black text-[10px] uppercase rounded-xl tracking-wider cursor-pointer outline-none transition"
-                                title="Chọn tháng cho đề thi này"
-                              >
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                                  <option key={m} value={m}>
-                                    Tháng {m < 10 ? "0" + m : m}
-                                  </option>
-                                ))}
-                              </select>
-                              <ChevronDown className="w-3 h-3 text-emerald-600 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const nextMode =
-                                  ex.target_mode === "all"
-                                    ? "online"
-                                    : ex.target_mode === "online"
-                                    ? "offline"
-                                    : "all";
-                                const newExams = practiceExams.map((e) =>
-                                  e?.id === ex?.id ? { ...e, target_mode: nextMode } : e
-                                );
-                                await savePracticeExams(newExams);
-                                try {
-                                  await supabase
-                                    .from("practice_exams")
-                                    .update({ target_mode: nextMode })
-                                    .eq("id", ex.id);
-                                } catch {}
-                                showToast(
-                                  "Đã chuyển đề sang: " +
-                                    (nextMode === "online"
-                                      ? "Lớp Online"
-                                      : nextMode === "offline"
-                                      ? "Lớp Offline"
-                                      : "Cả hai lớp"),
-                                  "success"
-                                );
-                              }}
-                              title="Click để chuyển phân hệ: Online -> Offline -> Cả hai"
-                              className="cursor-pointer"
-                            >
-                              <span
-                                className={
-                                  "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border " +
-                                  (ex.target_mode === "online"
-                                    ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                    : ex.target_mode === "offline"
-                                    ? "bg-purple-50 text-purple-700 border-purple-200"
-                                    : "bg-blue-50 text-[#1D4ED8] border-blue-200")
-                                }
-                              >
-                                {ex.target_mode === "online"
-                                  ? "Online"
-                                  : ex.target_mode === "offline"
-                                  ? "Offline"
-                                  : "Cả 2"}
-                              </span>
-                            </button>
-                          </td>
-                          <td className="py-3.5 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const newAllow = !(ex?.allowRetake ?? true);
-                                const newExams = practiceExams.map((e) =>
-                                  e?.id === ex?.id ? { ...e, allowRetake: newAllow } : e
-                                );
-                                await savePracticeExams(newExams);
-                                try {
-                                  await supabase
-                                    .from("practice_exams")
-                                    .update({ allowRetake: newAllow })
-                                    .eq("id", ex.id);
-                                } catch {}
-                                showToast("Đã thay đổi quyền làm lại.", "success");
-                              }}
-                              className="cursor-pointer"
-                            >
-                              {ex?.allowRetake ?? true ? (
-                                <ToggleRight className="w-7 h-7 text-emerald-500 mx-auto" />
-                              ) : (
-                                <ToggleLeft className="w-7 h-7 text-slate-300 mx-auto" />
-                              )}
-                            </button>
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const newAllow = !(ex?.allowViewFile ?? true);
-                                const newExams = practiceExams.map((e) =>
-                                  e?.id === ex?.id ? { ...e, allowViewFile: newAllow } : e
-                                );
-                                await savePracticeExams(newExams);
-                                try {
-                                  await supabase
-                                    .from("practice_exams")
-                                    .update({ allowViewFile: newAllow })
-                                    .eq("id", ex.id);
-                                } catch {}
-                                showToast("Đã cập nhật quyền xem file.", "success");
-                              }}
-                              className="cursor-pointer"
-                            >
-                              {ex?.allowViewFile ?? true ? (
-                                <ToggleRight className="w-7 h-7 text-[#1D4ED8] mx-auto" />
-                              ) : (
-                                <ToggleLeft className="w-7 h-7 text-slate-300 mx-auto" />
-                              )}
-                            </button>
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const url = prompt("Nhập link Google Drive mới:", ex?.driveUrl || "");
-                                if (url !== null) {
-                                  const newExams = practiceExams.map((e) =>
-                                    e?.id === ex?.id ? { ...e, driveUrl: url } : e
-                                  );
-                                  await savePracticeExams(newExams);
-                                  try {
-                                    await supabase
-                                      .from("practice_exams")
-                                      .update({ driveUrl: url })
-                                      .eq("id", ex.id);
-                                  } catch {}
-                                  showToast("Đã cập nhật link Drive.", "success");
-                                }
-                              }}
-                              className="text-[#1D4ED8] hover:underline flex items-center justify-center gap-1.5 font-semibold text-xs mx-auto cursor-pointer"
-                            >
-                              <LinkIcon className="w-3.5 h-3.5" />{" "}
-                              {ex?.driveUrl ? "Sửa link" : "Thêm link"}
-                            </button>
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setVideoModalExam(ex);
-                                setSolutionVideoInput(ex?.solutionVideoUrl || ex?.videoUrl || "");
-                              }}
-                              className={
-                                "px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 mx-auto cursor-pointer " +
-                                (ex?.solutionVideoUrl || ex?.videoUrl
-                                  ? "bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
-                                  : "bg-slate-100 text-slate-600 hover:bg-slate-200")
-                              }
-                            >
-                              <Video className="w-3.5 h-3.5 text-amber-600" />
-                              <span>
-                                {ex?.solutionVideoUrl || ex?.videoUrl
-                                  ? "Đã có video"
-                                  : "+ Gắn video"}
-                              </span>
-                            </button>
-                          </td>
-                          <td className="py-3.5 px-5 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* NÚT IN PHIẾU TRẢ LỜI A4 ĐỘNG CHO RIÊNG ĐỀ NÀY */}
-                              <button
-                                type="button"
-                                onClick={() => openPrintableDynamicAnswerSheet(ex)}
-                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
-                                title="In phiếu trả lời trắc nghiệm A4 tự co giãn theo số câu của đề này"
-                              >
-                                <Printer className="w-4 h-4" />
-                              </button>
-
-                              {/* NÚT CHẤM BÀI THI GIẤY HÀNG LOẠT CHO ĐỀ NÀY */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setBulkScannerDefaultExam(ex);
-                                  setIsBulkScannerOpen(true);
-                                }}
-                                className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-xl transition cursor-pointer"
-                                title="Chấm bài thi giấy cả lớp cho đề này"
-                              >
-                                <Camera className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAzotaScoreViewModal({
-                                    isOpen: true,
-                                    examTitle: ex.title,
-                                    attempts: ex.attempts || []
-                                  });
-                                }}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
-                                title="Xem bảng điểm học sinh làm đề này kiểu Azota"
-                              >
-                                <BarChart2 className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => onOpenExamEditor(ex)}
-                                className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-xl transition cursor-pointer"
-                                title="Sửa cấu trúc câu hỏi, lời giải & đáp án"
-                              >
-                                <FileSignature className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => onTestExam(ex)}
-                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                                title="Làm thử để kiểm tra đề & KaTeX"
-                              >
-                                <Play className="w-3 h-3 fill-indigo-600" /> Test
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (confirm("Xóa đề này khỏi kho?")) {
-                                    const updated = practiceExams.filter((e) => e?.id !== ex?.id);
-                                    await savePracticeExams(updated);
-                                    try {
-                                      await supabase
-                                        .from("practice_exams")
-                                        .delete()
-                                        .eq("id", ex.id);
-                                      showToast("Đã xóa đề thi khỏi kho.", "success");
-                                    } catch {}
-                                  }
-                                }}
-                                className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <button
+              type="button"
+              onClick={() => fetchExamsAndStudentsSafely(true)}
+              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Khôi phục dữ liệu từ Supabase
+            </button>
           </div>
-        </div>
-      )}
+        ) : practiceSubTab === "manage" ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-3 text-center w-12">STT</th>
+                  <th className="py-3 px-4">Tên đề luyện thi & Cấu trúc</th>
+                  <th className="py-3 px-3 text-center">Mã đề</th>
+                  <th className="py-3 px-3">Danh mục</th>
+                  <th className="py-3 px-3 text-center">Thời gian</th>
+                  <th className="py-3 px-3 text-center">Lượt nộp</th>
+                  <th className="py-3 px-4 text-right">Công cụ Khảo thí & OMR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {computedExamsWithScores.map((exam, idx) => (
+                  <tr key={exam.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
+                      {idx + 1}
+                    </td>
 
-      {/* 4. NỘI DUNG SUBTAB 2: ĐIỂM & XẾP HẠNG LUYỆN ĐỀ */}
-      {practiceSubTab === "scores" && (
-        <div className="space-y-6">
-          <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <h3 className="font-extrabold text-slate-900 text-[14px] flex items-center gap-2.5">
-              <Filter className="w-4 h-4 text-[#1D4ED8]" /> Bộ lọc danh mục đề thi
-            </h3>
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setBulkScannerDefaultExam(practiceExams?.[0] || null);
-                  setIsBulkScannerOpen(true);
-                }}
-                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <Camera className="w-3.5 h-3.5" /> + Chấm bài giấy cả lớp
-              </button>
+                    <td className="py-3.5 px-4">
+                      <div className="font-bold text-slate-800 text-xs sm:text-sm">
+                        {exam.title}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-slate-500">
+                        <span>
+                          {exam.totalQuestionsCount} câu (P1: {exam.part1Count} • P2:{" "}
+                          {exam.part2Count} • P3: {exam.part3Count})
+                        </span>
+                        {exam.solutionVideoUrl && (
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                            Có Video chữa
+                          </span>
+                        )}
+                      </div>
+                    </td>
 
-              <select
-                value={practiceCategoryFilter}
-                onChange={(e) => setPracticeCategoryFilter(e.target.value)}
-                className="px-4 py-2.5 text-xs font-bold text-[#1D4ED8] bg-blue-50/50 border border-blue-100 rounded-xl focus:border-blue-500 outline-none transition cursor-pointer"
-              >
-                <option value="Tất cả danh mục">Tất cả danh mục</option>
-                {EXAM_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+                    <td className="py-3.5 px-3 text-center">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs">
+                        {exam.examCode}
+                      </span>
+                    </td>
 
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-              <div>
-                <h3 className="font-extrabold text-slate-900 text-[14px]">
-                  Danh Sách Đề Thi & Bảng Điểm Học Sinh ({practiceCategoryFilter}
-                  {selectedMonthFilter !== "all" ? ` • Tháng ${selectedMonthFilter}` : ""})
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  * Bấm vào bất kỳ đề thi nào để mở toàn bộ học sinh đã làm đề thi đó (bao gồm cả
-                  Web & Thi giấy).
-                </p>
-              </div>
-              <span className="text-xs text-slate-500 font-bold">
-                {filteredScoresExams.length} đề thi
-              </span>
-            </div>
+                    <td className="py-3.5 px-3">
+                      <select
+                        value={exam.category || "Tự do"}
+                        onChange={(e) =>
+                          handleChangeExamCategory &&
+                          handleChangeExamCategory(exam.id, e.target.value)
+                        }
+                        className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
+                      >
+                        {PRACTICE_CATEGORIES.filter((c) => c !== "Tất cả danh mục").map(
+                          (cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </td>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                  <tr>
-                    <th className="py-3.5 px-5 w-14 font-bold text-center">STT</th>
-                    <th className="py-3.5 px-5 font-bold min-w-[240px]">Tên đề thi</th>
-                    <th className="py-3.5 px-3 font-bold text-center">Tháng</th>
-                    <th className="py-3.5 px-4 font-bold text-center">Phân loại</th>
-                    <th className="py-3.5 px-4 font-bold text-center">Số HS làm bài</th>
-                    <th className="py-3.5 px-4 font-bold text-center text-blue-700">
-                      Điểm TB cả lớp
-                    </th>
-                    <th className="py-3.5 px-4 font-bold text-center text-emerald-700">
-                      Điểm cao nhất
-                    </th>
-                    <th className="py-3.5 px-5 font-bold text-right">Chi tiết</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100/60">
-                  {filteredScoresExams.map((ex, i) => {
-                    const examMonth = resolveExamMonth(ex);
-                    return (
-                      <tr
-                        key={ex.id || i}
-                        onClick={() => {
+                    <td className="py-3.5 px-3 text-center font-semibold text-slate-600">
+                      {exam.duration_minutes || 90} phút
+                    </td>
+
+                    <td className="py-3.5 px-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAzotaScoreViewModal &&
                           setAzotaScoreViewModal({
                             isOpen: true,
-                            examTitle: ex.title,
-                            attempts: ex.attempts || []
-                          });
-                        }}
-                        className="hover:bg-blue-50/40 transition-colors bg-white cursor-pointer group"
+                            examTitle: exam.title,
+                            attempts: exam.attempts || []
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs cursor-pointer transition"
                       >
-                        <td className="py-3.5 px-5 font-bold text-slate-400 text-center">
-                          {i + 1}
-                        </td>
-                        <td className="py-3.5 px-5 font-bold text-slate-800 group-hover:text-[#1D4ED8] transition-colors">
-                          <div>{ex.title}</div>
-                          <span className="text-[10px] text-slate-400 font-normal">
-                            {ex.duration_minutes || 45} phút
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-3 text-center">
-                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-black uppercase">
-                            Tháng {examMonth < 10 ? "0" + examMonth : examMonth}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-[10px] font-black uppercase">
-                            {ex.category || "Luyện đề"}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center font-bold text-slate-700">
-                          {ex.uniqueStudentCount} bạn ({ex.totalSubmissions} lượt)
-                        </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold rounded-md border border-blue-100">
-                            {ex.avgScore}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 font-black rounded-md border border-emerald-100">
-                            {ex.maxScore}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-5 text-right">
+                        {exam.totalSubmissions} bài ({exam.uniqueStudentCount} HS)
+                      </button>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
+                        {/* Nút In Phiếu A4 chuẩn Bộ GD&ĐT của riêng đề này */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openPrintableDynamicAnswerSheet({
+                              ...exam,
+                              examTitle: exam.title,
+                              examCode: exam.examCode
+                            })
+                          }
+                          className="px-2.5 py-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          title="In phiếu trả lời A4 chuẩn Bộ GD&ĐT cho đề này"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Phiếu A4</span>
+                        </button>
+
+                        {/* Nút Mở Camera Chấm OMR cho đề này */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScannerTargetExam(exam);
+                            setIsScannerOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          title="Chấm phiếu trả lời bằng Camera cho đề này"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Chấm OMR</span>
+                        </button>
+
+                        {/* Nút Chỉnh sửa Đáp án / Câu hỏi */}
+                        {onOpenExamEditor && (
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAzotaScoreViewModal({
-                                isOpen: true,
-                                examTitle: ex.title,
-                                attempts: ex.attempts || []
-                              });
-                            }}
-                            className="px-3 py-1 bg-white border border-slate-200 hover:border-[#1D4ED8] hover:text-[#1D4ED8] text-slate-600 font-bold text-xs rounded-xl shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+                            onClick={() => onOpenExamEditor(exam)}
+                            className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                            title="Sửa câu hỏi & đáp án đề thi"
                           >
-                            <Eye className="w-3.5 h-3.5" /> Xem điểm
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
+                        )}
 
-      {/* 5. MODAL XUẤT PHIẾU TRẢ LỜI A4 ĐỘNG THEO ĐỀ */}
-      {isExportSheetModalOpen && (
+                        {/* Nút Gắn Video Chữa Đề */}
+                        {setVideoModalExam && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (setSolutionVideoInput) {
+                                setSolutionVideoInput(exam.solutionVideoUrl || "");
+                              }
+                              setVideoModalExam(exam);
+                            }}
+                            className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                            title="Gắn link Video chữa đề"
+                          >
+                            <Video className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {/* Nút Thi thử (Test Admin) */}
+                        {onTestExam && (
+                          <button
+                            type="button"
+                            onClick={() => onTestExam(exam)}
+                            className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                            title="Mở phòng thi thử"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {/* Nút Xóa đề */}
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePracticeExam(exam)}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                          title="Xóa đề thi"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* TAB PHỤ 2: THỐNG KÊ ĐIỂM SỐ & LƯỢT NỘP CỦA TỪNG ĐỀ */
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-3 text-center w-12">STT</th>
+                  <th className="py-3 px-4">Tên đề thi</th>
+                  <th className="py-3 px-3 text-center">Mã đề</th>
+                  <th className="py-3 px-3 text-center">Số học sinh dự thi</th>
+                  <th className="py-3 px-3 text-center">Điểm trung bình</th>
+                  <th className="py-3 px-3 text-center">Điểm cao nhất</th>
+                  <th className="py-3 px-4 text-right">Chi tiết bảng điểm</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {computedExamsWithScores.map((exam, idx) => (
+                  <tr key={exam.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
+                      {idx + 1}
+                    </td>
+                    <td className="py-3.5 px-4 font-bold text-slate-800">{exam.title}</td>
+                    <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-700">
+                      {exam.examCode}
+                    </td>
+                    <td className="py-3.5 px-3 text-center font-semibold text-slate-700">
+                      {exam.uniqueStudentCount} học sinh ({exam.totalSubmissions} lượt)
+                    </td>
+                    <td className="py-3.5 px-3 text-center">
+                      <span className="px-2.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
+                        {exam.avgScore}đ
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-3 text-center">
+                      <span className="px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                        {exam.maxScore}đ
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSbdSelectedExamId(String(exam.id));
+                            setShowSbdModal(true);
+                          }}
+                          className="px-3 py-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                        >
+                          📋 Phiếu điểm SBD lớp
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setAzotaScoreViewModal &&
+                            setAzotaScoreViewModal({
+                              isOpen: true,
+                              examTitle: exam.title,
+                              attempts: exam.attempts || []
+                            })
+                          }
+                          className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Xem chi tiết bài nộp</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* MODAL BẢNG SBD LỚP & PHIẾU GHI ĐIỂM (LỌC ONLINE/OFFLINE & ẨN CỘT PHÂN HỆ KHI IN) */}
+      {showSbdModal && (
         <div
-          onClick={() => setIsExportSheetModalOpen(false)}
-          className="fixed inset-0 z-[520] bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+          onClick={() => setShowSbdModal(false)}
+          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-slate-200 cursor-default"
+            className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <Printer className="w-5 h-5" />
-                </div>
+            <div className="p-4 sm:p-5 border-b border-slate-200 bg-white space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h4 className="text-sm font-extrabold text-slate-900">
-                    Xuất Phiếu Trả Lời A4 Động Theo Cấu Trúc Đề
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Tự động co giãn & sang trang thứ 2 nếu đề trên 40 câu (VD: 100+ câu)
+                  <h3 className="text-base font-bold text-slate-800">
+                    Bảng SBD Học Viên & Phiếu Ghi Điểm ({filteredSbdStudentsForModal.length} bạn)
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Khi bấm In bảng SBD, cột Phân hệ tự động được ẩn để in danh sách chuẩn.
                   </p>
                 </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintSbdTable}
+                    className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" /> 🖨 In bảng SBD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSbdModal(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsExportSheetModalOpen(false)}
-                className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="space-y-3">
-              <label className="text-xs font-bold text-slate-700 block">
-                Chọn đề thi cần xuất phiếu trả lời A4:
-              </label>
-              <select
-                value={selectedExamForSheetId}
-                onChange={(e) => setSelectedExamForSheetId(e.target.value)}
-                className="w-full p-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 outline-none focus:border-[#1D4ED8]"
-              >
-                {(practiceExams || []).map((ex) => {
-                  const counts = extractExamQuestionCounts(ex);
-                  const bp = buildDynamicOMRBlueprint(ex);
-                  return (
-                    <option key={ex.id} value={ex.id}>
-                      {ex.title} — ({counts.totalCount} câu • {bp.totalPages || 1} trang A4)
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg w-fit">
+                  {[
+                    { key: "all", label: `Tất cả (${sbdDirectoryList.length})` },
+                    {
+                      key: "offline",
+                      label: `Học sinh Offline (${
+                        sbdDirectoryList.filter((x) => x.modeKey === "offline").length
+                      })`
+                    },
+                    {
+                      key: "online",
+                      label: `Học sinh Online (${
+                        sbdDirectoryList.filter((x) => x.modeKey === "online").length
+                      })`
+                    }
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setSbdModeFilter(tab.key as any)}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                        sbdModeFilter === tab.key
+                          ? "bg-white text-slate-800 shadow-2xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsExportSheetModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 cursor-pointer"
-              >
-                Đóng
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const found = (practiceExams || []).find(
-                    (e) => String(e.id) === String(selectedExamForSheetId)
-                  );
-                  openPrintableDynamicAnswerSheet(found || practiceExams?.[0]);
-                  setIsExportSheetModalOpen(false);
-                }}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" /> Mở bản in Phiếu A4
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 6. MODAL BẢNG TRA CỨU & IN SỐ BÁO DANH (SBD) HỌC SINH THEO STT */}
-      {isSbdDirectoryModalOpen && (
-        <div
-          onClick={() => setIsSbdDirectoryModalOpen(false)}
-          className="fixed inset-0 z-[520] bg-slate-950/65 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden cursor-default"
-          >
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h4 className="text-base font-extrabold text-slate-900">
-                  Bảng Cấp Số Báo Danh (SBD) Tự Động Theo STT Lớp
-                </h4>
-                <p className="text-xs text-slate-500">
-                  Học sinh dùng mã SBD 6 chữ số này để tô vào mục 7. Số báo danh trên phiếu thi giấy
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrintClassSBDTable}
-                  className="px-3.5 py-2 rounded-xl bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5" /> In bảng SBD
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsSbdDirectoryModalOpen(false)}
-                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2 flex-1 sm:max-w-[300px]">
+                  <select
+                    value={sbdSelectedExamId}
+                    onChange={(e) => setSbdSelectedExamId(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 cursor-pointer"
+                  >
+                    <option value="none">-- Chọn đề thi để hiện cột Điểm --</option>
+                    {effectiveExams.map((ex: any) => (
+                      <option key={ex.id} value={ex.id}>
+                        [Mã {deriveExamCode3Digits(ex)}] {ex.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
-                <thead className="bg-slate-50 text-[11px] uppercase text-slate-500 border-b border-slate-200">
+              <table className="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden">
+                <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200">
                   <tr>
                     <th className="py-2.5 px-3 text-center w-14">STT</th>
-                    <th className="py-2.5 px-4 text-center">Số Báo Danh (6 số)</th>
+                    <th className="py-2.5 px-3 text-center w-32">SBD (6 chữ số)</th>
                     <th className="py-2.5 px-4">Họ và tên học sinh</th>
-                    <th className="py-2.5 px-4">Trường / Khối</th>
+                    <th className="py-2.5 px-3">Trường</th>
+                    <th className="py-2.5 px-3 text-center w-36">
+                      {selectedSbdExamObj ? "Điểm bài thi" : "Phân hệ"}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {studentsDirectory.map((st) => (
-                    <tr key={st.id} className="hover:bg-blue-50/40">
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-400">{st.stt}</td>
-                      <td className="py-2.5 px-4 text-center">
-                        <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#1D4ED8] border border-blue-200 font-mono font-black">
-                          {st.sbd}
+                  {filteredSbdStudentsForModal.map((stu) => (
+                    <tr key={stu.id} className="hover:bg-slate-50">
+                      <td className="py-2.5 px-3 text-center font-semibold text-slate-400">
+                        {stu.stt}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs">
+                          {stu.sbd}
                         </span>
                       </td>
-                      <td className="py-2.5 px-4 font-bold text-slate-900">{st.full_name}</td>
-                      <td className="py-2.5 px-4 text-slate-500">{st.school || "THPT"}</td>
+                      <td className="py-2.5 px-4 font-semibold text-slate-800">
+                        {stu.full_name}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-500">{stu.school}</td>
+                      <td className="py-2.5 px-3 text-center">
+                        {selectedSbdExamObj ? (
+                          stu.examScore !== undefined ? (
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs">
+                              {stu.examScore.toFixed(2)}đ
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-mono tracking-widest">
+                              ..........
+                            </span>
+                          )
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
+                            {stu.mode}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1189,15 +1264,20 @@ export default function PracticeTab({
         </div>
       )}
 
-      {/* 7. MODAL CHẤM BÀI THI GIẤY HÀNG LOẠT (ADMIN BULK OMR SCANNER) */}
+      {/* MODAL CAMERA CHẤM OMR TRỰC TIẾP TẠI TAB KHO LUYỆN ĐỀ */}
       <AdminBulkOMRScannerModal
-        isOpen={isBulkScannerOpen}
-        onClose={() => setIsBulkScannerOpen(false)}
-        practiceExams={practiceExams}
-        defaultSelectedExam={bulkScannerDefaultExam}
-        studentsList={studentsDirectory}
-        supabase={supabase}
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        initialSelectedQuiz={scannerTargetExam}
+        chapters={chapters}
+        practiceExams={effectiveExams}
+        registeredStudents={effectiveStudents}
+        supabase={effectiveSupabase}
         showToast={showToast}
+        onSavedSuccess={() => fetchExamsAndStudentsSafely(false)}
+        onSavedBatchAttempts={(newAttempts) => {
+          setInternalAttempts((prev) => [...newAttempts, ...prev]);
+        }}
       />
     </div>
   );
