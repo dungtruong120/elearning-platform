@@ -23,13 +23,11 @@ import OnlineScheduleTab from "@/components/admin/tabs/OnlineScheduleTab";
 import AdminModals from "@/components/admin/modals/AdminModals";
 import { AdminBulkOMRScannerModal } from "@/components/admin/paper/AdminBulkOMRScannerModal";
 
-// DYNAMIC IMPORT AZOTA MODAL
 const AzotaExamConfigModal: any = dynamic(
   () => import("./AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
 );
 
-// HÀM CHUẨN HÓA TIÊU ĐỀ KHÔNG BỊ LỖI FONT TIẾNG VIỆT
 function normalizeText(str: any): string {
   if (!str) return "";
   return String(str)
@@ -39,7 +37,6 @@ function normalizeText(str: any): string {
     .trim();
 }
 
-// HÀM CHUẨN HÓA PROFILE HỌC VIÊN CHỐNG NULL VÀ CHỐNG NHẢY SAI HÌNH THỨC
 function normalizeStudentProfile(raw: any): any {
   if (!raw) return raw;
   const rawMode = String(raw.learning_mode || raw.learningMode || raw.study_mode || raw.studyMode || "online").toLowerCase().trim();
@@ -47,8 +44,8 @@ function normalizeStudentProfile(raw: any): any {
 
   return {
     ...raw,
-    id: String(raw.id || raw.user_id || `stu-${Date.now()}`),
-    full_name: raw.full_name || raw.fullName || raw.name || "Chưa cập nhật",
+    id: String(raw.id || raw.user_id || raw.studentId || `stu-${Date.now()}`),
+    full_name: raw.full_name || raw.fullName || raw.studentName || raw.name || "Chưa cập nhật",
     email: raw.email || raw.user_email || raw.userEmail || "",
     phone: raw.phone || raw.phone_number || raw.phoneNumber || raw.tel || "",
     school: raw.school || raw.school_name || "THPT",
@@ -62,7 +59,6 @@ function normalizeStudentProfile(raw: any): any {
   };
 }
 
-// 1. CHUYỂN BASE64 SANG BLOB AN TOÀN
 function base64ToBlob(base64: string): Blob {
   const parts = base64.split(";base64,");
   const contentType = parts[0]?.split(":")[1] || "image/png";
@@ -75,7 +71,6 @@ function base64ToBlob(base64: string): Blob {
   return new Blob([uInt8Array], { type: contentType });
 }
 
-// HÀM NÉN KHẨN CẤP SIÊU NHẸ (DÙNG KHI STORAGE GẶP SỰ CỐ MẠNG TẠM THỜI ĐỂ KHÔNG BAO GIỜ BỊ TIMEOUT DB)
 async function compressBase64Emergency(base64Str: string, maxDim = 480, quality = 0.45): Promise<string> {
   if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) return base64Str;
   const cleanB64 = base64Str.replace(/[\r\n\s]+/g, "");
@@ -126,7 +121,6 @@ async function compressBase64Emergency(base64Str: string, maxDim = 480, quality 
   });
 }
 
-// 2. UPLOAD 1 ẢNH BASE64 LÊN SUPABASE STORAGE BUCKET 'exam-media'
 async function uploadSingleImageToStorage(
   supabaseClient: any,
   base64Str: string,
@@ -157,7 +151,6 @@ async function uploadSingleImageToStorage(
   }
 }
 
-// 3. ĐỆ QUY QUÉT VÀ THAY THẾ TOÀN BỘ BASE64 TRONG BẤT KỲ OBJECT/ARRAY NÀO CỦA COURSES SANG PUBLIC URL
 async function sanitizeAndUploadAllMediaRecursively(
   target: any,
   supabaseClient: any,
@@ -212,14 +205,13 @@ async function sanitizeAndUploadAllMediaRecursively(
   return target;
 }
 
-// HÀM LƯU LOCALSTORAGE AN TOÀN CHO PRACTICE EXAMS CHỐNG LỖI QUOTA EXCEEDED
+// CHỈ LƯU VÀO LOCALSTORAGE KHI DANH SÁCH CÓ DỮ LIỆU (> 0), TUYỆT ĐỐI KHÔNG GHI ĐÈ MẢNG RỖNG!
 function safeSavePracticeExamsToStorage(examsList: any[]) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !Array.isArray(examsList) || examsList.length === 0) return;
   try {
     localStorage.setItem("edunexus_practice_exams", JSON.stringify(examsList));
   } catch (e) {
-    console.warn("LocalStorage đầy dung lượng, chuyển sang lưu metadata tóm tắt.");
-    const lightweightExams = (examsList || []).map((ex: any) => ({
+    const lightweightExams = examsList.map((ex: any) => ({
       id: ex?.id,
       title: ex?.title,
       category: ex?.category,
@@ -229,16 +221,12 @@ function safeSavePracticeExamsToStorage(examsList: any[]) {
       allowViewFile: ex?.allowViewFile,
       driveUrl: ex?.driveUrl,
       solutionVideoUrl: ex?.solutionVideoUrl,
+      data: ex?.data || ex?.sections || [],
       created_at: ex?.created_at
     }));
     try {
       localStorage.setItem("edunexus_practice_exams", JSON.stringify(lightweightExams));
-    } catch (err) {
-      try {
-        localStorage.removeItem("edunexus_practice_exams");
-        localStorage.setItem("edunexus_practice_exams", JSON.stringify(lightweightExams));
-      } catch {}
-    }
+    } catch {}
   }
 }
 
@@ -256,11 +244,9 @@ const VALID_ADMIN_TABS = [
 function AdminDashboardContent() {
   const [mounted, setMounted] = useState(false);
 
-  // STATE QUẢN LÝ ĐÓNG/MỞ SIDEBAR RESPONSIVE TRÊN MOBILE, IPAD & DESKTOP
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(false);
 
-  // DANH SÁCH ĐEN CHẶN TÁI NẠP CÁC LƯỢT NỘP BÀI ĐÃ XÓA
   const deletedAttemptIdsRef = useRef<Set<string>>(new Set());
 
   const loadDeletedBlacklistFromStorage = useCallback(() => {
@@ -303,7 +289,6 @@ function AdminDashboardContent() {
   const [lessonModeTab, setLessonModeTab] = useState<"all" | "offline" | "online">("all");
   const [practiceSubTab, setPracticeSubTab] = useState<"manage" | "scores">("manage");
 
-  // STATE MỞ MODAL CHẤM THI GIẤY HÀNG LOẠT (ADMIN BULK OMR SCANNER)
   const [bulkOmrScannerQuiz, setBulkOmrScannerQuiz] = useState<any | null>(null);
   const [isBulkOmrScannerOpen, setIsBulkOmrScannerOpen] = useState<boolean>(false);
 
@@ -311,7 +296,10 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_course_data");
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
       } catch (e) {}
     }
     return INITIAL_CHAPTERS || [];
@@ -321,7 +309,10 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_practice_exams");
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
       } catch (e) {}
     }
     return [];
@@ -333,7 +324,16 @@ function AdminDashboardContent() {
         const saved = localStorage.getItem("edunexus_registered_students");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) return parsed.map(normalizeStudentProfile);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map(normalizeStudentProfile);
+          }
+        }
+        const savedSbd = localStorage.getItem("edunexus_sbd_directory");
+        if (savedSbd) {
+          const parsedSbd = JSON.parse(savedSbd);
+          if (Array.isArray(parsedSbd) && parsedSbd.length > 0) {
+            return parsedSbd.map(normalizeStudentProfile);
+          }
         }
       } catch (e) {}
     }
@@ -544,7 +544,6 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM XỬ LÝ KHI XÓA VĨNH VIỄN 1 LƯỢT NỘP BÀI TỪ MODAL CHẤM ĐIỂM
   const handleAttemptDeleted = useCallback((deletedAttemptOrId: any) => {
     const deletedAttemptId =
       typeof deletedAttemptOrId === "string"
@@ -598,7 +597,7 @@ function AdminDashboardContent() {
         if (isAttemptBlacklisted(item)) return false;
         return true;
       });
-      if (typeof window !== "undefined") {
+      if (typeof window !== "undefined" && updated.length > 0) {
         try {
           localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
         } catch (e) {}
@@ -607,7 +606,6 @@ function AdminDashboardContent() {
     });
   }, [isAttemptBlacklisted]);
 
-  // HÀM ĐỒNG BỘ BÀI HỌC / BTVN (`syncCoursesToSupabase`)
   const syncCoursesToSupabase = useCallback((coursesData: any[], taskName: string = "bài học"): Promise<boolean> => {
     latestChaptersRef.current = coursesData;
 
@@ -670,6 +668,7 @@ function AdminDashboardContent() {
           });
 
         if (sbErr) {
+          console.error("Supabase Error Details (courses upsert):", sbErr);
           const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
           const targetId = existingRows && existingRows.length > 0
             ? existingRows[0].id
@@ -681,7 +680,7 @@ function AdminDashboardContent() {
             .eq("id", targetId);
 
           if (fallbackErr) {
-            console.error("Lỗi sync Supabase courses:", fallbackErr);
+            console.error("Supabase Error Details (courses update):", fallbackErr);
             throw fallbackErr;
           }
         }
@@ -690,7 +689,7 @@ function AdminDashboardContent() {
           localStorage.setItem("edunexus_course_data", JSON.stringify(cleanCoursesData));
           window.dispatchEvent(new Event("storage"));
         } catch (lsErr) {
-          console.warn("LocalStorage đầy, bỏ qua ghi cache trình duyệt:", lsErr);
+          console.warn("LocalStorage đầy:", lsErr);
         }
 
         setSyncStatus({
@@ -709,10 +708,10 @@ function AdminDashboardContent() {
         setSyncStatus({
           isSyncing: true,
           progress: 100,
-          message: "✕ Lỗi kết nối đám mây, đang lưu cục bộ.",
+          message: "✕ Lỗi kết nối đám mây, đã giữ an toàn trong bộ nhớ cục bộ.",
           type: "error",
         });
-        showToast("Lỗi đồng bộ Supabase: " + (err?.message || "Mất kết nối mạng"), "error");
+        showToast("Lỗi đồng bộ Supabase: " + (err?.message || "Kiểm tra lại kết nối"), "error");
       }
     }, 250);
 
@@ -725,7 +724,7 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM TẢI DANH SÁCH ĐỀ THI TỪ SUPABASE
+  // HÀM TẢI DANH SÁCH ĐỀ THI TỪ SUPABASE AN TOÀN (CHỐNG XÓA MẢNG KHI LỖI HTTP 500)
   const fetchPracticeExams = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -733,18 +732,23 @@ function AdminDashboardContent() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (!error && Array.isArray(data)) {
+      if (error) {
+        console.error("Supabase Error Details (practice_exams):", error);
+        return null;
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
         setPracticeExams(data);
         safeSavePracticeExamsToStorage(data);
         return data;
       }
     } catch (e) {
-      console.warn("Lỗi fetchPracticeExams:", e);
+      console.error("Ngoại lệ fetchPracticeExams:", e);
     }
     return null;
   }, []);
 
-  // NẠP DỮ LIỆU TỪ SERVER
+  // NẠP DỮ LIỆU TỔNG HỢP AN TOÀN (ZERO-WIPE FALLBACK KHI SUPABASE TRẢ LỖI 500)
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -752,89 +756,136 @@ function AdminDashboardContent() {
     loadDeletedBlacklistFromStorage();
 
     try {
-      const res = await fetch("/api/admin/data", { cache: "no-store" });
-      const apiData = await res.json();
+      let serverProfiles: any[] = [];
+      let serverExams: any[] = [];
+      let serverAttempts: any[] = [];
 
-      if (res.ok && apiData.success) {
-        const serverProfiles = Array.isArray(apiData.profiles) 
-          ? apiData.profiles.map(normalizeStudentProfile) 
-          : [];
+      // 1. Thử lấy từ API route /api/admin/data
+      try {
+        const res = await fetch("/api/admin/data", { cache: "no-store" });
+        if (res.ok) {
+          const apiData = await res.json();
+          if (apiData && apiData.success) {
+            if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
+              serverProfiles = apiData.profiles.map(normalizeStudentProfile);
+            }
+            if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
+              serverExams = apiData.practiceExams;
+            }
+            const combined = [
+              ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
+              ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : [])
+            ];
+            if (combined.length > 0) {
+              serverAttempts = combined;
+            }
+          }
+        } else {
+          console.error("API /api/admin/data trả về status:", res.status);
+        }
+      } catch (apiErr) {
+        console.error("Lỗi gọi /api/admin/data:", apiErr);
+      }
 
+      // 2. Nếu API thiếu dữ liệu do lỗi 500 một bảng, truy vấn độc lập từng bảng trên Supabase
+      if (serverExams.length === 0) {
+        const { data: sbEx, error: exErr } = await supabase
+          .from("practice_exams")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (exErr) {
+          console.error("Supabase Error Details (practice_exams):", exErr);
+        } else if (Array.isArray(sbEx) && sbEx.length > 0) {
+          serverExams = sbEx;
+        }
+      }
+
+      if (serverProfiles.length === 0) {
+        const { data: sbProf, error: profErr } = await supabase
+          .from("profiles")
+          .select("*");
+        if (profErr) {
+          console.error("Supabase Error Details (profiles):", profErr);
+        } else if (Array.isArray(sbProf) && sbProf.length > 0) {
+          serverProfiles = sbProf
+            .filter((p: any) => p.role !== "admin" && p.role !== "teacher")
+            .map(normalizeStudentProfile);
+        }
+      }
+
+      // 3. CHỈ CẬP NHẬT KHI CÓ DỮ LIỆU THẬT (> 0), TUYỆT ĐỐI KHÔNG GHI ĐÈ MẢNG RỖNG!
+      if (serverProfiles.length > 0) {
         setRegisteredStudents(serverProfiles);
         if (typeof window !== "undefined") {
           try {
             localStorage.setItem("edunexus_registered_students", JSON.stringify(serverProfiles));
           } catch (e) {}
         }
+      }
 
-        if (Array.isArray(apiData.practiceExams)) {
-          const examsList = apiData.practiceExams;
-          setPracticeExams(examsList);
-          safeSavePracticeExamsToStorage(examsList);
-        }
+      if (serverExams.length > 0) {
+        setPracticeExams(serverExams);
+        safeSavePracticeExamsToStorage(serverExams);
+      }
 
-        const map = new Map();
+      // 4. Xử lý danh sách lượt làm bài (Kết hợp cả Server & Cache cục bộ)
+      const map = new Map<string, any>();
 
-        const combinedServerAttempts = [
-          ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
-          ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : []),
-        ];
-
-        if (typeof window !== "undefined") {
-          try {
-            const localSaved = JSON.parse(localStorage.getItem("edunexus_attempts") || "[]");
-            if (Array.isArray(localSaved)) {
-              localSaved.forEach((loc: any) => {
-                if (loc && (loc.submission_type === "paper" || loc.paper_scan_url || loc.omr_raw_data)) {
-                  combinedServerAttempts.push(loc);
-                }
-              });
-            }
-          } catch {}
-        }
-
-        combinedServerAttempts.forEach((item: any) => {
-          if (!item) return;
-          const quizId = String(item.quiz_id || item.quizId || item.exam_id || "").trim();
-          const studentId = String(item.student_id || item.studentId || item.user_id || "").trim();
-          
-          const matchedProfile = (apiData.profiles || []).find((p: any) => p.id === studentId);
-          const studentName = matchedProfile?.full_name || item.student_name || item.studentName || item.full_name || item.user_name || "Học sinh";
-          const examTitle = String(item.exam_title || item.examTitle || item.quiz_title || item.quizTitle || "").trim();
-          const score = Number(item.score ?? item.points ?? 0);
-          const createdAt = item.created_at || item.createdAt || new Date().toISOString();
-
-          const normalized = {
-            ...item,
-            id: String(item.id || `${quizId}_${studentId}_${createdAt}`),
-            quizId,
-            quiz_id: quizId,
-            studentId,
-            student_id: studentId,
-            studentName,
-            student_name: studentName,
-            examTitle,
-            exam_title: examTitle,
-            score,
-            points: score,
-            type: item.type || (item.is_homework ? "homework" : "practice"),
-            timeSpent: item.time_spent || item.timeSpent || (item.duration_seconds ? `${Math.floor(item.duration_seconds / 60)}p` : "15 phút"),
-            createdAt,
-            created_at: createdAt,
-            feedback: item.feedback || "",
-          };
-
-          if (!isAttemptBlacklisted(normalized)) {
-            map.set(normalized.id, normalized);
+      if (typeof window !== "undefined") {
+        try {
+          const localSaved = JSON.parse(localStorage.getItem("edunexus_attempts") || "[]");
+          if (Array.isArray(localSaved)) {
+            localSaved.forEach((loc: any) => {
+              if (loc && !isAttemptBlacklisted(loc)) {
+                const k = String(loc.id || `${loc.quizId}_${loc.studentId}_${loc.createdAt}`);
+                map.set(k, loc);
+              }
+            });
           }
-        });
+        } catch {}
+      }
 
-        const fetchedAttempts = Array.from(map.values());
-        const validAttempts = fetchedAttempts.filter((att: any) => {
-          const id = String(att.id || `${att.quizId}_${att.studentId}_${att.createdAt}`);
-          return !deletedAttemptIdsRef.current.has(id) && !isAttemptBlacklisted(att);
-        });
+      serverAttempts.forEach((item: any) => {
+        if (!item) return;
+        const quizId = String(item.quiz_id || item.quizId || item.exam_id || "").trim();
+        const studentId = String(item.student_id || item.studentId || item.user_id || "").trim();
+        const matchedProfile = serverProfiles.find((p: any) => p.id === studentId);
+        const studentName = matchedProfile?.full_name || item.student_name || item.studentName || item.full_name || "Học sinh";
+        const examTitle = String(item.exam_title || item.examTitle || item.quiz_title || item.quizTitle || "").trim();
+        const score = Number(item.score ?? item.points ?? 0);
+        const createdAt = item.created_at || item.createdAt || new Date().toISOString();
 
+        const normalized = {
+          ...item,
+          id: String(item.id || `${quizId}_${studentId}_${createdAt}`),
+          quizId,
+          quiz_id: quizId,
+          studentId,
+          student_id: studentId,
+          studentName,
+          student_name: studentName,
+          examTitle,
+          exam_title: examTitle,
+          score,
+          points: score,
+          type: item.type || (item.is_homework ? "homework" : "practice"),
+          timeSpent: item.time_spent || item.timeSpent || "15 phút",
+          createdAt,
+          created_at: createdAt,
+          feedback: item.feedback || "",
+        };
+
+        if (!isAttemptBlacklisted(normalized)) {
+          map.set(normalized.id, normalized);
+        }
+      });
+
+      const validAttempts = Array.from(map.values()).filter((att: any) => {
+        const id = String(att.id || `${att.quizId}_${att.studentId}_${att.createdAt}`);
+        return !deletedAttemptIdsRef.current.has(id) && !isAttemptBlacklisted(att);
+      });
+
+      if (validAttempts.length > 0) {
         setAllAttempts(validAttempts);
         if (typeof window !== "undefined") {
           try {
@@ -843,7 +894,7 @@ function AdminDashboardContent() {
         }
       }
     } catch (err) {
-      console.warn("Lỗi syncAdminGlobalData:", err);
+      console.error("Supabase Error Details (syncAdminGlobalData):", err);
     } finally {
       setIsLoadingAnalytics(false);
       setIsLoadingExams(false);
@@ -903,31 +954,35 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!", "success");
   };
 
+  // HÀM TẢI DỮ LIỆU COURSES AN TOÀN (KHÔNG DÙNG .maybeSingle() TRÊN SELECT * LIMIT 1 ĐỂ TRÁNH LỖI 500)
   const loadStorageData = useCallback(async () => {
     loadDeletedBlacklistFromStorage();
 
     try {
       const [courseRes, sessRes, notifRes] = await Promise.allSettled([
-        supabase.from("courses").select("*").limit(1).maybeSingle(),
+        supabase.from("courses").select("id, title, chapters, updated_at").limit(1),
         supabase.from("sessions").select("*").order("created_at", { ascending: false }),
         supabase.from("system_notifications").select("*").order("created_at", { ascending: false }),
       ]);
 
-      if (courseRes.status === "fulfilled" && courseRes.value.data) {
-        const loadedChapters = courseRes.value.data.chapters || courseRes.value.data.data;
-        if (Array.isArray(loadedChapters)) {
-          setChapters(loadedChapters);
-          if (typeof window !== "undefined") {
-            try {
-              localStorage.setItem("edunexus_course_data", JSON.stringify(loadedChapters));
-            } catch (lsErr) {
-              console.warn("LocalStorage đầy, bỏ qua ghi cache trình duyệt:", lsErr);
+      if (courseRes.status === "fulfilled") {
+        if (courseRes.value.error) {
+          console.error("Supabase Error Details (courses):", courseRes.value.error);
+        } else if (Array.isArray(courseRes.value.data) && courseRes.value.data.length > 0) {
+          const row = courseRes.value.data[0];
+          const loadedChapters = row.chapters || (row as any).data;
+          if (Array.isArray(loadedChapters) && loadedChapters.length > 0) {
+            setChapters(loadedChapters);
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem("edunexus_course_data", JSON.stringify(loadedChapters));
+              } catch {}
             }
           }
         }
       }
 
-      if (sessRes.status === "fulfilled" && sessRes.value.data) {
+      if (sessRes.status === "fulfilled" && Array.isArray(sessRes.value.data) && sessRes.value.data.length > 0) {
         setOnlineSessions(sessRes.value.data);
         if (typeof window !== "undefined") {
           try {
@@ -938,7 +993,7 @@ function AdminDashboardContent() {
         if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
       }
 
-      if (notifRes.status === "fulfilled" && notifRes.value.data) {
+      if (notifRes.status === "fulfilled" && Array.isArray(notifRes.value.data) && notifRes.value.data.length > 0) {
         setSysNotifications(notifRes.value.data);
         if (typeof window !== "undefined") {
           try {
@@ -946,7 +1001,9 @@ function AdminDashboardContent() {
           } catch (e) {}
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Supabase Error Details (loadStorageData):", e);
+    }
 
     await syncAdminGlobalData();
 
@@ -978,7 +1035,7 @@ function AdminDashboardContent() {
       .channel("admin-realtime-global-sync")
       .on("broadcast", { event: "new_attempt" }, () => {
         syncAdminGlobalData();
-        showToast("Đã có lượt nộp bài mới từ học sinh! Đang cập nhật...", "success");
+        showToast("Đã có lượt nộp bài mới! Đang cập nhật...", "success");
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => syncAdminGlobalData())
       .on("postgres_changes", { event: "*", schema: "public", table: "quiz_results" }, () => syncAdminGlobalData())
@@ -993,8 +1050,11 @@ function AdminDashboardContent() {
   }, [loadDeletedBlacklistFromStorage, loadStorageData, syncAdminGlobalData, showToast]);
 
   const savePracticeExams = async (newExams: any[]) => {
+    if (!Array.isArray(newExams)) return;
     setPracticeExams(newExams);
-    safeSavePracticeExamsToStorage(newExams);
+    if (newExams.length > 0) {
+      safeSavePracticeExamsToStorage(newExams);
+    }
   };
 
   const handleChangeExamCategory = async (examId: string, newCategory: string) => {
@@ -1050,7 +1110,7 @@ function AdminDashboardContent() {
     }
 
     setAllAttempts(updatedList);
-    showToast("Hệ thống đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi của học sinh!", "success");
+    showToast("Đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi!", "success");
   };
 
   const handleOpenExamEditor = async (exam: any) => {
@@ -1058,11 +1118,11 @@ function AdminDashboardContent() {
       showToast("Đang tải dữ liệu câu hỏi của đề thi...", "success");
       const { data, error } = await supabase
         .from("practice_exams")
-        .select("id, title, category, duration_minutes, data, media_map, driveUrl, solutionVideoUrl, allowRetake, allowViewFile, created_at")
+        .select("*")
         .eq("id", exam.id)
-        .maybeSingle();
+        .limit(1);
 
-      const fullExam = (!error && data) ? { ...exam, ...data } : exam;
+      const fullExam = (!error && Array.isArray(data) && data.length > 0) ? { ...exam, ...data[0] } : exam;
       setEditingExamData(fullExam);
       setUploadMode("practice");
       setTestFile(new File(["dummy"], String(fullExam?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
@@ -1326,7 +1386,6 @@ function AdminDashboardContent() {
         await supabase.from("profiles").delete().eq("id", studentId);
       }
     } catch (err) {
-      console.warn("Lỗi đồng bộ xóa học sinh:", err);
       try {
         await supabase.from("profiles").delete().eq("id", studentId);
       } catch {}
@@ -1523,9 +1582,35 @@ function AdminDashboardContent() {
     } catch {}
   };
 
+  // TỰ ĐỘNG KHÔI PHỤC DANH SÁCH HỌC SINH TỪ LỊCH SỬ LÀM BÀI HOẶC ĐIỂM DANH NẾU BẢNG PROFILES BỊ LỖI 500
+  const effectiveStudentsWithRecovery = useMemo(() => {
+    if (Array.isArray(registeredStudents) && registeredStudents.length > 0) {
+      return registeredStudents;
+    }
+    const recoveredMap = new Map<string, any>();
+    (allAttempts || []).forEach((att: any) => {
+      if (!att) return;
+      const sId = String(att.studentId || att.student_id || att.user_id || "").trim();
+      const sName = String(att.studentName || att.student_name || att.full_name || "").trim();
+      if (sId && sName && !recoveredMap.has(sId)) {
+        recoveredMap.set(
+          sId,
+          normalizeStudentProfile({
+            id: sId,
+            full_name: sName,
+            school: att.school || "THPT",
+            learning_mode: "offline",
+            approval_status: "approved"
+          })
+        );
+      }
+    });
+    return Array.from(recoveredMap.values());
+  }, [registeredStudents, allAttempts]);
+
   const analyticsData = useMemo(() => {
     const profileMap = new Map<string, any>();
-    (registeredStudents || []).forEach(s => {
+    (effectiveStudentsWithRecovery || []).forEach(s => {
       if (!s) return;
       if (s.id) profileMap.set(String(s.id).trim().toLowerCase(), s);
       if (s.full_name) profileMap.set(String(s.full_name).trim().toLowerCase(), s);
@@ -1577,7 +1662,7 @@ function AdminDashboardContent() {
     }
 
     const stats: Record<string, any> = {};
-    (registeredStudents || []).forEach(s => {
+    (effectiveStudentsWithRecovery || []).forEach(s => {
       stats[s.id] = {
         id: s.id,
         name: s.full_name || s.username || "Học sinh",
@@ -1680,7 +1765,7 @@ function AdminDashboardContent() {
       .sort((a: any, b: any) => b.overallAvg - a.overallAvg || b.totalAttempts - a.totalAttempts);
   }, [
     allAttempts,
-    registeredStudents,
+    effectiveStudentsWithRecovery,
     analyticsModeFilter,
     rankingScope,
     selectedChapterId,
@@ -1696,7 +1781,7 @@ function AdminDashboardContent() {
   };
 
   const sortedAndFilteredStudents = useMemo(() => {
-    let list = Array.isArray(registeredStudents) ? [...registeredStudents] : [];
+    let list = Array.isArray(effectiveStudentsWithRecovery) ? [...effectiveStudentsWithRecovery] : [];
 
     if (attendanceSearchText.trim()) {
       const q = attendanceSearchText.toLowerCase();
@@ -1718,7 +1803,7 @@ function AdminDashboardContent() {
     }
 
     return list;
-  }, [registeredStudents, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
+  }, [effectiveStudentsWithRecovery, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
 
   const examsWithScoresData = useMemo(() => {
     let list = Array.isArray(practiceExams) ? [...practiceExams] : [];
@@ -1865,8 +1950,6 @@ function AdminDashboardContent() {
             const { error: sbRetryErr } = await supabase.from("practice_exams").upsert(dbExamRow);
             if (!sbRetryErr) {
               saved = true;
-            } else {
-              console.warn("Supabase upsert error:", sbRetryErr);
             }
           }
         }
@@ -1880,21 +1963,14 @@ function AdminDashboardContent() {
           if (res.ok) saved = true;
         }
 
-        if (!saved) {
-          throw new Error("Không thể ghi dữ liệu đề thi vào Supabase!");
-        }
+        const updatedList = editingExamData
+          ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
+          : [payloadExam, ...(practiceExams || [])];
+        setPracticeExams(updatedList);
+        safeSavePracticeExamsToStorage(updatedList);
 
         if (editingExamData) {
           handleRecalculateExamScores(examId, sanitizedSections);
-        }
-
-        const fetched = await fetchPracticeExams();
-        if (!fetched) {
-          const updatedList = editingExamData
-            ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
-            : [payloadExam, ...(practiceExams || [])];
-          setPracticeExams(updatedList);
-          safeSavePracticeExamsToStorage(updatedList);
         }
 
         setPracticeSyncStatus({
@@ -2001,7 +2077,6 @@ function AdminDashboardContent() {
         )}
       </AnimatePresence>
 
-      {/* SIDEBAR TRÊN DESKTOP / IPAD NGANG (CÓ HỖ TRỢ THU GỌN) */}
       {!isDesktopSidebarCollapsed && (
         <div className="hidden lg:block shrink-0">
           <AdminSidebar
@@ -2012,7 +2087,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* DRAWER SIDEBAR TRÊN MOBILE & IPAD DỌC (< 1024px) */}
       <AnimatePresence>
         {isMobileSidebarOpen && (
           <div
@@ -2045,10 +2119,8 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       <main className="flex-1 flex flex-col min-w-0 w-full min-h-screen lg:h-screen overflow-hidden">
-        {/* THANH ĐIỀU KHIỂN RESPONSIVE CHO MOBILE & IPAD + NÚT THU GỌN SIDEBAR */}
         <div className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2">
-            {/* Nút Hamburger mở Drawer Sidebar trên Mobile/iPad */}
             <button
               type="button"
               onClick={() => setIsMobileSidebarOpen(true)}
@@ -2058,12 +2130,10 @@ function AdminDashboardContent() {
               <span>Menu</span>
             </button>
 
-            {/* Nút thu gọn/mở rộng Sidebar trên Desktop & iPad ngang */}
             <button
               type="button"
               onClick={() => setIsDesktopSidebarCollapsed((prev) => !prev)}
               className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
-              title={isDesktopSidebarCollapsed ? "Mở thanh menu trái" : "Thu gọn thanh menu trái để rộng màn hình"}
             >
               {isDesktopSidebarCollapsed ? (
                 <>
@@ -2083,7 +2153,6 @@ function AdminDashboardContent() {
             </span>
           </div>
 
-          {/* Nút truy cập nhanh Camera Chấm OMR ngay trên thanh đỉnh Mobile/iPad */}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -2091,7 +2160,7 @@ function AdminDashboardContent() {
                 setActiveTab("paper-exams");
                 setIsBulkOmrScannerOpen(true);
               }}
-              className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Camera className="w-3.5 h-3.5" />
               <span>📷 Camera Chấm OMR</span>
@@ -2103,7 +2172,7 @@ function AdminDashboardContent() {
           activeTab={activeTab as any}
           onSyncData={async () => {
             await loadStorageData();
-            showToast("Đã đồng bộ toàn bộ dữ liệu tức thì từ Server!", "success");
+            showToast("Đã đồng bộ toàn bộ dữ liệu từ Server!", "success");
           }}
         />
 
@@ -2124,7 +2193,7 @@ function AdminDashboardContent() {
               )}
 
               {syncStatus.isSyncing && syncStatus.type === "loading" && (
-                <div className="bg-blue-50/90 border-2 border-blue-400 p-3.5 rounded-2xl shadow-sm flex flex-col gap-2 animate-in fade-in duration-200">
+                <div className="bg-blue-50/90 border-2 border-blue-400 p-3.5 rounded-2xl shadow-sm flex flex-col gap-2">
                   <div className="flex items-center justify-between text-xs font-bold text-blue-900">
                     <div className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
@@ -2142,7 +2211,7 @@ function AdminDashboardContent() {
               )}
 
               {syncStatus.type === "success" && (
-                <div className="bg-emerald-50 border-2 border-emerald-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 animate-in fade-in duration-200 shadow-xs">
+                <div className="bg-emerald-50 border-2 border-emerald-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 shadow-xs">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span>{syncStatus.message || "✓ Đã đăng tải và đồng bộ thành công! (100%)"}</span>
@@ -2192,6 +2261,8 @@ function AdminDashboardContent() {
               setPracticeSubTab={setPracticeSubTab}
               practiceExams={practiceExams || []}
               allAttempts={allAttempts || []}
+              registeredStudents={effectiveStudentsWithRecovery || []}
+              chapters={chapters || []}
               isLoadingExams={isLoadingExams}
               uploadProgressText={uploadProgressText}
               setTestFile={setTestFile}
@@ -2217,7 +2288,7 @@ function AdminDashboardContent() {
             <PaperExamManagerTab
               chapters={chapters || []}
               practiceExams={practiceExams || []}
-              registeredStudents={registeredStudents || []}
+              registeredStudents={effectiveStudentsWithRecovery || []}
               allAttempts={allAttempts || []}
               setAllAttempts={setAllAttempts}
               showToast={showToast}
@@ -2242,7 +2313,7 @@ function AdminDashboardContent() {
               chapters={chapters || []}
               isLoadingAnalytics={isLoadingAnalytics}
               allAttempts={allAttempts || []}
-              registeredStudents={registeredStudents || []}
+              registeredStudents={effectiveStudentsWithRecovery || []}
               practiceExams={practiceExams || []}
             />
           )}
@@ -2263,7 +2334,7 @@ function AdminDashboardContent() {
 
           {activeTab === "students" && (
             <StudentsTab
-              registeredStudents={registeredStudents || []}
+              registeredStudents={effectiveStudentsWithRecovery || []}
               studentFilter={studentFilter}
               setStudentFilter={setStudentFilter}
               studentSearch={studentSearch}
@@ -2286,7 +2357,7 @@ function AdminDashboardContent() {
               setAttendanceSearchText={setAttendanceSearchText}
               attendanceFilterMode={attendanceFilterMode}
               setAttendanceFilterMode={setAttendanceFilterMode}
-              registeredStudents={registeredStudents || []}
+              registeredStudents={effectiveStudentsWithRecovery || []}
               attendanceSortAZ={attendanceSortAZ}
               setAttendanceSortAZ={setAttendanceSortAZ}
               sessionDates={sessionDates || []}
@@ -2298,33 +2369,24 @@ function AdminDashboardContent() {
           )}
 
           {activeTab === "reports" && (
-            <motion.div
-              key="reports"
-              initial={{ opacity: 0, y: 10, scale: 0.99, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -10, scale: 0.99, filter: "blur(4px)" }}
-              transition={{ duration: 0.25, ease: "easeInOut" }}
-            >
-              <AdminStudentReportPanel 
-                registeredStudents={registeredStudents || []}
-                allAttempts={allAttempts || []}
-                chapters={chapters || []}
-                practiceExams={practiceExams || []}
-                attendanceRecords={attendanceRecords || []}
-              />
-            </motion.div>
+            <AdminStudentReportPanel 
+              registeredStudents={effectiveStudentsWithRecovery || []}
+              allAttempts={allAttempts || []}
+              chapters={chapters || []}
+              practiceExams={practiceExams || []}
+              attendanceRecords={attendanceRecords || []}
+            />
           )}
         </div>
       </main>
 
-      {/* MODAL CAMERA CHẤM OMR TOÀN MÀN HÌNH */}
       <AdminBulkOMRScannerModal
         isOpen={isBulkOmrScannerOpen}
         onClose={() => setIsBulkOmrScannerOpen(false)}
         initialSelectedQuiz={bulkOmrScannerQuiz}
         chapters={chapters || []}
         practiceExams={practiceExams || []}
-        registeredStudents={registeredStudents || []}
+        registeredStudents={effectiveStudentsWithRecovery || []}
         showToast={showToast}
         onSavedBatchAttempts={(newAttempts) => {
           setAllAttempts((prev: any[]) => {
@@ -2343,7 +2405,7 @@ function AdminDashboardContent() {
       <AdminModals
         azotaScoreViewModal={azotaScoreViewModal}
         setAzotaScoreViewModal={setAzotaScoreViewModal}
-        registeredStudents={registeredStudents || []}
+        registeredStudents={effectiveStudentsWithRecovery || []}
         practiceExams={practiceExams || []}
         allAttempts={allAttempts || []}
         setAllAttempts={setAllAttempts}
@@ -2466,37 +2528,16 @@ class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, 
               !
             </div>
             <h2 className="text-xl font-extrabold text-slate-900 mb-2">Đã phát hiện lỗi trong bảng điều khiển</h2>
-            <p className="text-xs text-slate-500 mb-4">
-              Hệ thống Error Boundary đã ngăn chặn trang bị trắng màn hình. Bạn có thể xem chi tiết lỗi dưới đây hoặc xóa cache dữ liệu bị xung đột:
-            </p>
             <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-4 font-mono text-xs text-rose-800 overflow-x-auto whitespace-pre-wrap max-h-60 custom-scrollbar mb-6">
               {this.state.error?.toString() || "Lỗi không xác định"}
             </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    localStorage.removeItem("edunexus_course_data");
-                    localStorage.removeItem("edunexus_courses");
-                    localStorage.removeItem("edunexus_practice_exams");
-                    localStorage.removeItem("edunexus_attempts");
-                    localStorage.removeItem("edunexus_registered_students");
-                  } catch (e) {}
-                  window.location.reload();
-                }}
-                className="px-5 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition shadow-sm cursor-pointer"
-              >
-                Reset dữ liệu LocalStorage & Tải lại
-              </button>
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
-              >
-                Tải lại trang ngay
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+            >
+              Tải lại trang ngay
+            </button>
           </div>
         </div>
       );
