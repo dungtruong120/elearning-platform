@@ -32,9 +32,9 @@ export const PRACTICE_CATEGORIES = [
   "Đề thi giữa kỳ",
   "Đề thi học kỳ",
   "Đề kiểm tra định kỳ",
+  "Kho Luyện đề thực chiến / BTVN",
   "Đề thi thử THPT Quốc Gia",
   "Đề luyện thi ĐGNL (HSA/TSA)",
-  "Bài tập về nhà (BTVN)",
   "Đề tổng ôn chuyên đề",
   "Tự do"
 ];
@@ -49,80 +49,130 @@ function normalizeStr(str: any): string {
 }
 
 /**
+ * CHUẨN HÓA UNICODE NFD BỎ DẤU TIẾNG VIỆT ĐỂ TÌM KIẾM MƯỢT MÀ
+ * (Gõ "tang cuong so 2" hoặc "Tăng cường số 2" hoặc "giua ky" đều khớp 100%)
+ */
+function normalizeVietnameseSearch(str: any): string {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * TRÍCH XUẤT THỜI GIAN TẠO ĐỀ (TỪ CREATED_AT HOẶC TIMESTAMP TRONG ID)
+ * Đảm bảo đề mới tải lên luôn có giá trị lớn nhất để xếp lên đầu (index 0)
+ */
+function extractExamTimestampScore(exam: any): number {
+  if (!exam) return 0;
+
+  const rawTime =
+    exam.created_at || exam.updated_at || exam.createdAt || exam.updatedAt;
+  if (rawTime) {
+    const parsedTime = new Date(rawTime).getTime();
+    if (!isNaN(parsedTime) && parsedTime > 0) {
+      return parsedTime;
+    }
+  }
+
+  const idStr = String(exam.id || exam.quiz_id || "");
+  const tsMatch = idStr.match(/(\d{10,14})/);
+  if (tsMatch && tsMatch[1]) {
+    const num = Number(tsMatch[1]);
+    if (!isNaN(num) && num > 0) return num;
+  }
+
+  const anyNumMatch = idStr.match(/(\d+)/);
+  if (anyNumMatch && anyNumMatch[1]) {
+    return Number(anyNumMatch[1]) || 0;
+  }
+
+  return 0;
+}
+
+/**
  * TỰ ĐỘNG NHẬN DIỆN DANH MỤC CHUẨN DỰA TRÊN TÊN ĐỀ & CATEGORY GỐC
  */
 function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
   const rawCat = String(exam?.category || fallbackCategory || "").trim();
-  const titleNorm = normalizeStr(exam?.title || "");
-  const catNorm = normalizeStr(rawCat);
+  const titleSearch = normalizeVietnameseSearch(exam?.title || "");
+  const catSearch = normalizeVietnameseSearch(rawCat);
 
   if (
-    catNorm.includes("giữa kỳ") ||
-    catNorm.includes("giữa kì") ||
-    titleNorm.includes("giữa kỳ") ||
-    titleNorm.includes("giữa kì") ||
-    titleNorm.includes("gk1") ||
-    titleNorm.includes("gk2")
+    catSearch.includes("giua ky") ||
+    catSearch.includes("giua ki") ||
+    titleSearch.includes("giua ky") ||
+    titleSearch.includes("giua ki") ||
+    titleSearch.includes("gk1") ||
+    titleSearch.includes("gk2")
   ) {
     return "Đề thi giữa kỳ";
   }
 
   if (
-    catNorm.includes("học kỳ") ||
-    catNorm.includes("học kì") ||
-    catNorm.includes("cuối kỳ") ||
-    catNorm.includes("cuối kì") ||
-    titleNorm.includes("học kỳ") ||
-    titleNorm.includes("học kì") ||
-    titleNorm.includes("cuối kỳ") ||
-    titleNorm.includes("hk1") ||
-    titleNorm.includes("hk2")
+    catSearch.includes("hoc ky") ||
+    catSearch.includes("hoc ki") ||
+    catSearch.includes("cuoi ky") ||
+    catSearch.includes("cuoi ki") ||
+    titleSearch.includes("hoc ky") ||
+    titleSearch.includes("hoc ki") ||
+    titleSearch.includes("cuoi ky") ||
+    titleSearch.includes("cuoi ki") ||
+    titleSearch.includes("hk1") ||
+    titleSearch.includes("hk2")
   ) {
     return "Đề thi học kỳ";
   }
 
   if (
-    catNorm.includes("btvn") ||
-    catNorm.includes("bài tập") ||
+    catSearch.includes("btvn") ||
+    catSearch.includes("bai tap") ||
+    catSearch.includes("thuc chien") ||
+    catSearch.includes("luyen de") ||
     exam?.isHomework ||
     exam?.is_homework ||
-    titleNorm.includes("btvn")
+    titleSearch.includes("btvn") ||
+    titleSearch.includes("tang cuong")
   ) {
-    return "Bài tập về nhà (BTVN)";
+    return "Kho Luyện đề thực chiến / BTVN";
   }
 
   if (
-    catNorm.includes("định kỳ") ||
-    catNorm.includes("kiểm tra") ||
-    titleNorm.includes("kiểm tra")
+    catSearch.includes("dinh ky") ||
+    catSearch.includes("kiem tra") ||
+    titleSearch.includes("kiem tra")
   ) {
     return "Đề kiểm tra định kỳ";
   }
 
   if (
-    catNorm.includes("hsa") ||
-    catNorm.includes("tsa") ||
-    catNorm.includes("đgnl") ||
-    titleNorm.includes("hsa") ||
-    titleNorm.includes("tsa") ||
-    titleNorm.includes("đgnl")
+    catSearch.includes("hsa") ||
+    catSearch.includes("tsa") ||
+    catSearch.includes("dgnl") ||
+    titleSearch.includes("hsa") ||
+    titleSearch.includes("tsa") ||
+    titleSearch.includes("dgnl")
   ) {
     return "Đề luyện thi ĐGNL (HSA/TSA)";
   }
 
   if (
-    catNorm.includes("thpt") ||
-    catNorm.includes("thi thử") ||
-    titleNorm.includes("thi thử") ||
-    titleNorm.includes("thpt")
+    catSearch.includes("thpt") ||
+    catSearch.includes("thi thu") ||
+    titleSearch.includes("thi thu") ||
+    titleSearch.includes("thpt")
   ) {
     return "Đề thi thử THPT Quốc Gia";
   }
 
   if (
-    catNorm.includes("tổng ôn") ||
-    catNorm.includes("chuyên đề") ||
-    titleNorm.includes("tổng ôn")
+    catSearch.includes("tong on") ||
+    catSearch.includes("chuyen de") ||
+    titleSearch.includes("tong on")
   ) {
     return "Đề tổng ôn chuyên đề";
   }
@@ -215,11 +265,32 @@ export default function PracticeTab({
   setAzotaScoreViewModal,
   onOpenExamEditor,
   onTestExam,
-  practiceCategoryFilter = "Tất cả danh mục",
-  setPracticeCategoryFilter,
+  practiceCategoryFilter: propCategoryFilter = "Tất cả danh mục",
+  setPracticeCategoryFilter: propSetCategoryFilter,
   practiceSyncStatus
 }: PracticeTabProps) {
   const effectiveSupabase = propSupabase || defaultSupabaseClient;
+
+  // STATE LỌC DANH MỤC & TÌM KIẾM ĐẢM BẢO PHẢN HỒI TỨC THÌ
+  const [localCategoryFilter, setLocalCategoryFilter] = useState<string>(
+    propCategoryFilter || "Tất cả danh mục"
+  );
+  const [searchKeyword, setSearchKeyword] = useState<string>("");
+
+  useEffect(() => {
+    if (propCategoryFilter) {
+      setLocalCategoryFilter(propCategoryFilter);
+    }
+  }, [propCategoryFilter]);
+
+  const activeCategoryFilter = localCategoryFilter || "Tất cả danh mục";
+
+  const handleSelectCategoryFilter = (newCategory: string) => {
+    setLocalCategoryFilter(newCategory);
+    if (typeof propSetCategoryFilter === "function") {
+      propSetCategoryFilter(newCategory);
+    }
+  };
 
   // 1. NẠP TOÀN BỘ CACHE ĐỀ THI TỪ MỌI KEY TRONG LOCALSTORAGE
   const [internalExams, setInternalExams] = useState<any[]>(() => {
@@ -252,7 +323,6 @@ export default function PracticeTab({
     return [];
   });
 
-  // Nạp dự phòng chapters từ localStorage nếu propChapters chưa kịp truyền xuống
   const [internalChapters, setInternalChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -308,7 +378,6 @@ export default function PracticeTab({
   });
 
   const [isSelfFetching, setIsSelfFetching] = useState<boolean>(false);
-  const [searchKeyword, setSearchKeyword] = useState<string>("");
 
   const [showSbdModal, setShowSbdModal] = useState<boolean>(false);
   const [sbdModeFilter, setSbdModeFilter] = useState<"all" | "offline" | "online">("all");
@@ -316,7 +385,7 @@ export default function PracticeTab({
   const [scannerTargetExam, setScannerTargetExam] = useState<any | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
 
-  // Gộp non-destructive khi propPracticeExams thay đổi
+  // Gộp non-destructive khi propPracticeExams thay đổi (Đề mới tải lên luôn được ưu tiên giữ timestamp mới nhất)
   useEffect(() => {
     if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
       setInternalExams((prev) => {
@@ -325,9 +394,19 @@ export default function PracticeTab({
           if (ex?.id) map.set(String(ex.id), ex);
         });
         propPracticeExams.forEach((ex) => {
-          if (ex?.id) map.set(String(ex.id), { ...map.get(String(ex.id)), ...ex });
+          if (ex?.id) {
+            const prevItem = map.get(String(ex.id));
+            map.set(String(ex.id), {
+              ...prevItem,
+              ...ex,
+              created_at:
+                ex.created_at || prevItem?.created_at || new Date().toISOString()
+            });
+          }
         });
-        const merged = Array.from(map.values());
+        const merged = Array.from(map.values()).sort(
+          (a, b) => extractExamTimestampScore(b) - extractExamTimestampScore(a)
+        );
         safeSaveExamsToLocal(merged);
         return merged;
       });
@@ -352,7 +431,7 @@ export default function PracticeTab({
     }
   }, [propAllAttempts]);
 
-  // 2. HÀM SMART MERGE FETCHING: TRUY VẤN SIÊU NHẸ TỪ SUPABASE + COURSES + API MÀ KHÔNG BỊ TIMEOUT 500
+  // 2. HÀM SMART MERGE FETCHING: TRUY VẤN & SẮP XẾP ĐỀ MỚI NHẤT LÊN ĐẦU
   const fetchExamsAndStudentsSafely = useCallback(
     async (notifyUser: boolean = false) => {
       setIsSelfFetching(true);
@@ -369,11 +448,11 @@ export default function PracticeTab({
           ...existing,
           ...ex,
           id,
-          category: resolveSmartCategory(ex, existing?.category || defaultCategory)
+          category: resolveSmartCategory(ex, existing?.category || defaultCategory),
+          created_at: ex.created_at || existing?.created_at || ex.updated_at || undefined
         });
       };
 
-      // Giữ lại toàn bộ đề đang có trong internalExams trước khi merge
       internalExams.forEach((ex) => addExamToCollector(ex));
 
       // Bước 1: Gọi API `/api/admin/data`
@@ -399,7 +478,7 @@ export default function PracticeTab({
         console.error("Supabase Error Details (API /api/admin/data):", apiErr);
       }
 
-      // Bước 2: Truy vấn bảng `practice_exams` trên Supabase (Bỏ cột media_map siêu nặng để tránh lỗi 500/Timeout)
+      // Bước 2: Truy vấn bảng `practice_exams` trên Supabase (Sắp xếp giảm dần theo created_at)
       if (effectiveSupabase) {
         try {
           const { data: sbExamsLight, error: lightErr } = await effectiveSupabase
@@ -412,10 +491,10 @@ export default function PracticeTab({
           if (!lightErr && Array.isArray(sbExamsLight) && sbExamsLight.length > 0) {
             sbExamsLight.forEach((ex: any) => addExamToCollector(ex));
           } else {
-            // Fallback: Nếu thiếu cột phụ, chỉ select các cột cốt lõi
             const { data: sbExamsMin, error: minErr } = await effectiveSupabase
               .from("practice_exams")
-              .select("id, title, category, duration_minutes, data, created_at");
+              .select("id, title, category, duration_minutes, data, created_at")
+              .order("created_at", { ascending: false });
 
             if (!minErr && Array.isArray(sbExamsMin)) {
               sbExamsMin.forEach((ex: any) => addExamToCollector(ex));
@@ -427,7 +506,7 @@ export default function PracticeTab({
           console.error("Supabase Error Details (practice_exams exception):", err);
         }
 
-        // Bước 3: Truy vấn bảng `courses` để lấy toàn bộ đề Kiểm tra chương, Giữa kỳ, Học kỳ & BTVN nằm trong các bài học
+        // Bước 3: Truy vấn bảng `courses` để lấy các đề Kiểm tra chương, Giữa kỳ, Học kỳ & BTVN
         try {
           const { data: courseRows, error: courseErr } = await effectiveSupabase
             .from("courses")
@@ -459,7 +538,7 @@ export default function PracticeTab({
                           isHomework: true,
                           duration_minutes: hw.duration_minutes || 45
                         },
-                        "Bài tập về nhà (BTVN)"
+                        "Kho Luyện đề thực chiến / BTVN"
                       );
                     }
                   });
@@ -497,7 +576,13 @@ export default function PracticeTab({
         }
       }
 
-      const finalMergedExams = Array.from(collectedExamsMap.values());
+      // Sắp xếp toàn bộ đề giảm dần theo thời gian tạo (Đề mới nhất lên đầu tiên)
+      const finalMergedExams = Array.from(collectedExamsMap.values()).sort((a, b) => {
+        const timeA = extractExamTimestampScore(a);
+        const timeB = extractExamTimestampScore(b);
+        return timeB - timeA;
+      });
+
       if (finalMergedExams.length > 0) {
         setInternalExams(finalMergedExams);
         safeSaveExamsToLocal(finalMergedExams);
@@ -533,7 +618,7 @@ export default function PracticeTab({
 
       if (notifyUser && showToast) {
         showToast(
-          `Đã khôi phục & hợp nhất thành công ${finalMergedExams.length} đề thi!`,
+          `Đã đồng bộ & sắp xếp ${finalMergedExams.length} đề thi (Đề mới nhất ở đầu)!`,
           "success"
         );
       }
@@ -545,7 +630,7 @@ export default function PracticeTab({
     fetchExamsAndStudentsSafely(false);
   }, []);
 
-  // 3. HỢP NHẤT TOÀN DIỆN (SMART MULTI-SOURCE MERGE): GỘP TẤT CẢ ĐỀ TỪ PROPS + SUPABASE + CHAPTERS (TEST & BTVN)
+  // 3. HỢP NHẤT TOÀN DIỆN & SẮP XẾP ĐỀ MỚI NHẤT LÊN ĐẦU (INDEX 0)
   const effectiveChapters = useMemo(() => {
     if (Array.isArray(propChapters) && propChapters.length > 0) return propChapters;
     return internalChapters;
@@ -568,14 +653,20 @@ export default function PracticeTab({
         id,
         title: String(ex.title || existing?.title || "Đề luyện thi"),
         category: resolvedCat,
-        duration_minutes: Number(ex.duration_minutes || existing?.duration_minutes || 90)
+        duration_minutes: Number(ex.duration_minutes || existing?.duration_minutes || 90),
+        created_at:
+          ex.created_at ||
+          existing?.created_at ||
+          ex.updated_at ||
+          existing?.updated_at ||
+          undefined
       });
     };
 
-    // Nguồn 1: Đề từ propPracticeExams (bảng practice_exams truyền từ Admin)
+    // Nguồn 1: Đề từ propPracticeExams (Đề vừa mới tải lên nằm ở đầu propPracticeExams)
     (propPracticeExams || []).forEach((ex) => pushExam(ex));
 
-    // Nguồn 2: Đề từ internalExams (đã lấy từ Supabase + LocalStorage)
+    // Nguồn 2: Đề từ internalExams (Supabase + LocalStorage)
     (internalExams || []).forEach((ex) => pushExam(ex));
 
     // Nguồn 3: Toàn bộ Đề kiểm tra định kỳ, Giữa kỳ, Học kỳ & BTVN trong các Chương/Bài học
@@ -591,13 +682,13 @@ export default function PracticeTab({
               isHomework: true,
               duration_minutes: hw?.duration_minutes || 45
             },
-            "Bài tập về nhà (BTVN)"
+            "Kho Luyện đề thực chiến / BTVN"
           );
         });
       });
     });
 
-    // Nguồn 4: Khôi phục thêm các đề đã từng có học sinh nộp bài trong lịch sử `allAttempts` nhưng bị thiếu trong danh mục
+    // Nguồn 4: Khôi phục thêm các đề từ lịch sử nộp bài nếu chưa có
     const allAtt =
       Array.isArray(propAllAttempts) && propAllAttempts.length > 0
         ? propAllAttempts
@@ -621,16 +712,29 @@ export default function PracticeTab({
           {
             id: qId,
             title: qTitle,
-            isHomework: Boolean(att.isHomework || att.is_homework || att.type === "homework"),
+            isHomework: Boolean(
+              att.isHomework || att.is_homework || att.type === "homework"
+            ),
             duration_minutes: 90,
-            data: []
+            data: [],
+            created_at: att.created_at || att.createdAt
           },
-          att.isHomework || att.is_homework ? "Bài tập về nhà (BTVN)" : "Đề luyện thi thực chiến"
+          "Kho Luyện đề thực chiến / BTVN"
         );
       }
     });
 
-    return Array.from(unifiedMap.values());
+    // SẮP XẾP GIẢM DẦN THEO THỜI GIAN TẠO: ĐỀ MỚI UP LÊN LUÔN ĐỨNG ĐẦU TIÊN (INDEX 0)
+    const sortedExams = Array.from(unifiedMap.values()).sort((a, b) => {
+      const timeA = extractExamTimestampScore(a);
+      const timeB = extractExamTimestampScore(b);
+      if (timeB !== timeA) {
+        return timeB - timeA;
+      }
+      return String(b.id || "").localeCompare(String(a.id || ""));
+    });
+
+    return sortedExams;
   }, [
     propPracticeExams,
     internalExams,
@@ -718,42 +822,70 @@ export default function PracticeTab({
     return directory;
   }, [effectiveStudents]);
 
-  // Đếm số lượng đề theo từng danh mục để hiển thị trực quan trên Dropdown lọc
+  // Hàm kiểm tra 1 đề có thuộc danh mục đang chọn hay không
+  const doesExamMatchCategory = useCallback((exam: any, targetCategory: string): boolean => {
+    if (!targetCategory || targetCategory === "Tất cả danh mục") return true;
+    const rawCat = String(exam?.category || "").trim();
+    const smartCat = resolveSmartCategory(exam, rawCat);
+
+    if (rawCat === targetCategory || smartCat === targetCategory) return true;
+
+    if (targetCategory === "Kho Luyện đề thực chiến / BTVN") {
+      return (
+        rawCat === "Bài tập về nhà (BTVN)" ||
+        smartCat === "Bài tập về nhà (BTVN)" ||
+        Boolean(exam?.isHomework || exam?.is_homework)
+      );
+    }
+
+    return false;
+  }, []);
+
+  // Đếm chính xác số lượng đề của từng danh mục để hiển thị trong Dropdown
   const categoryCountsMap = useMemo(() => {
     const counts: Record<string, number> = {
       "Tất cả danh mục": effectiveExams.length
     };
     PRACTICE_CATEGORIES.forEach((cat) => {
-      if (cat !== "Tất cả danh mục") counts[cat] = 0;
-    });
-    effectiveExams.forEach((ex) => {
-      const cat = ex?.category || "Tự do";
-      counts[cat] = (counts[cat] || 0) + 1;
+      if (cat !== "Tất cả danh mục") {
+        counts[cat] = effectiveExams.filter((ex) => doesExamMatchCategory(ex, cat)).length;
+      }
     });
     return counts;
-  }, [effectiveExams]);
+  }, [effectiveExams, doesExamMatchCategory]);
 
+  // 4. LỌC KẾT HỢP (CATEGORY AND SEARCH KEYWORD) & ĐÁNH LẠI STT TỰ ĐỘNG
   const computedExamsWithScores = useMemo(() => {
     let list = Array.isArray(effectiveExams) ? [...effectiveExams] : [];
-    if (practiceCategoryFilter && practiceCategoryFilter !== "Tất cả danh mục") {
+
+    // Điều kiện 1: Lọc theo Danh mục (Category)
+    if (activeCategoryFilter && activeCategoryFilter !== "Tất cả danh mục") {
+      list = list.filter((ex) => doesExamMatchCategory(ex, activeCategoryFilter));
+    }
+
+    // Điều kiện 2: Tìm kiếm thời gian thực theo Tên đề (không dấu NFD + có dấu NFC) hoặc Mã đề (3 chữ số)
+    if (searchKeyword.trim()) {
+      const kwRaw = normalizeStr(searchKeyword);
+      const kwNoAccent = normalizeVietnameseSearch(searchKeyword);
+
       list = list.filter((ex) => {
-        const cat = ex?.category || "Tự do";
-        if (cat === practiceCategoryFilter) return true;
-        return resolveSmartCategory(ex) === practiceCategoryFilter;
+        const titleRaw = normalizeStr(ex?.title);
+        const titleNoAccent = normalizeVietnameseSearch(ex?.title);
+        const catNoAccent = normalizeVietnameseSearch(ex?.category);
+        const codeStr = deriveExamCode3Digits(ex).toLowerCase();
+        const idStr = String(ex?.id || "").toLowerCase();
+
+        return (
+          titleNoAccent.includes(kwNoAccent) ||
+          titleRaw.includes(kwRaw) ||
+          codeStr.includes(kwNoAccent) ||
+          catNoAccent.includes(kwNoAccent) ||
+          idStr.includes(kwNoAccent)
+        );
       });
     }
 
-    if (searchKeyword.trim()) {
-      const kw = normalizeStr(searchKeyword);
-      list = list.filter(
-        (ex) =>
-          normalizeStr(ex?.title).includes(kw) ||
-          normalizeStr(ex?.category).includes(kw) ||
-          deriveExamCode3Digits(ex).includes(kw)
-      );
-    }
-
-    return list.map((ex) => {
+    return list.map((ex, displayIndex) => {
       const exId = String(ex?.id || "").trim().toLowerCase();
       const exTitleNorm = normalizeStr(ex?.title);
       const counts = extractExamQuestionCounts(ex);
@@ -793,6 +925,7 @@ export default function PracticeTab({
 
       return {
         ...ex,
+        displayStt: displayIndex + 1,
         examCode,
         totalQuestionsCount: counts.totalCount,
         part1Count: counts.part1Count,
@@ -805,7 +938,13 @@ export default function PracticeTab({
         attempts: matchingAttempts
       };
     });
-  }, [effectiveExams, practiceCategoryFilter, searchKeyword, effectiveAttempts]);
+  }, [
+    effectiveExams,
+    activeCategoryFilter,
+    searchKeyword,
+    effectiveAttempts,
+    doesExamMatchCategory
+  ]);
 
   const selectedSbdExamObj = useMemo(() => {
     if (!sbdSelectedExamId || sbdSelectedExamId === "none") return null;
@@ -1017,7 +1156,7 @@ export default function PracticeTab({
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Quản lý toàn bộ Đề thi giữa kỳ, học kỳ, định kỳ, luyện đề thực chiến & BTVN.
+              Đề mới tải lên luôn được ưu tiên xếp ở vị trí đầu tiên. Hỗ trợ lọc danh mục và tìm kiếm theo tên/mã đề.
             </p>
           </div>
 
@@ -1083,7 +1222,7 @@ export default function PracticeTab({
           </div>
         </div>
 
-        {/* THANH CHUYỂN TAB & BỘ LỌC DANH MỤC ĐẦY ĐỦ */}
+        {/* 2. THANH CHUYỂN TAB, DROPDOWN LỌC DANH MỤC & Ô TÌM KIẾM THỜI GIAN THỰC */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg w-fit">
             <button
@@ -1111,11 +1250,10 @@ export default function PracticeTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Bộ lọc Danh mục hiển thị kèm số lượng đề */}
             <select
-              value={practiceCategoryFilter}
-              onChange={(e) =>
-                setPracticeCategoryFilter && setPracticeCategoryFilter(e.target.value)
-              }
+              value={activeCategoryFilter}
+              onChange={(e) => handleSelectCategoryFilter(e.target.value)}
               className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
             >
               {PRACTICE_CATEGORIES.map((cat) => (
@@ -1125,13 +1263,14 @@ export default function PracticeTab({
               ))}
             </select>
 
-            <div className="relative min-w-[210px]">
+            {/* Ô tìm kiếm thời gian thực theo Tên đề (không dấu/có dấu) & Mã đề */}
+            <div className="relative min-w-[230px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="Tìm tên đề, mã đề..."
+                placeholder="Tìm tên đề, mã đề (VD: 280, Giữa kỳ)..."
                 className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-blue-600"
               />
               {searchKeyword && (
@@ -1139,6 +1278,7 @@ export default function PracticeTab({
                   type="button"
                   onClick={() => setSearchKeyword("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Xóa từ khóa tìm kiếm"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1148,7 +1288,7 @@ export default function PracticeTab({
         </div>
       </div>
 
-      {/* 3. DANH SÁCH ĐỀ LUYỆN THI HOẶC BẢNG THỐNG KÊ ĐIỂM */}
+      {/* 3. BẢNG DANH SÁCH ĐỀ LUYỆN THI (ĐÁNH LẠI STT TUẦN TỰ 1, 2, 3...) */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         {(propIsLoadingExams || isSelfFetching) && computedExamsWithScores.length === 0 ? (
           <div className="py-14 text-center space-y-2">
@@ -1162,24 +1302,24 @@ export default function PracticeTab({
             <FolderOpen className="w-8 h-8 text-slate-300 mx-auto" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-slate-700">
-                Không có đề thi nào khớp với danh mục "{practiceCategoryFilter}"
+                Không tìm thấy đề thi nào khớp với điều kiện lọc hiện tại
               </h4>
               <p className="text-xs text-slate-400">
-                Hãy chuyển bộ lọc về <strong>"Tất cả danh mục"</strong> hoặc bấm{" "}
-                <strong>"🔄 Đồng bộ"</strong>.
+                Danh mục: <strong>{activeCategoryFilter}</strong>
+                {searchKeyword ? ` • Từ khóa: "${searchKeyword}"` : ""}
               </p>
             </div>
             <div className="flex items-center justify-center gap-2">
-              {practiceCategoryFilter !== "Tất cả danh mục" && (
+              {(activeCategoryFilter !== "Tất cả danh mục" || searchKeyword.trim() !== "") && (
                 <button
                   type="button"
-                  onClick={() =>
-                    setPracticeCategoryFilter &&
-                    setPracticeCategoryFilter("Tất cả danh mục")
-                  }
+                  onClick={() => {
+                    handleSelectCategoryFilter("Tất cả danh mục");
+                    setSearchKeyword("");
+                  }}
                   className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer"
                 >
-                  Xem tất cả ({effectiveExams.length} đề)
+                  Xóa bộ lọc & Xem tất cả ({effectiveExams.length} đề)
                 </button>
               )}
               <button
@@ -1187,7 +1327,7 @@ export default function PracticeTab({
                 onClick={() => fetchExamsAndStudentsSafely(true)}
                 className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Tải lại từ Supabase
+                <RefreshCw className="w-3.5 h-3.5" /> Đồng bộ từ Supabase
               </button>
             </div>
           </div>
@@ -1208,13 +1348,23 @@ export default function PracticeTab({
               <tbody className="divide-y divide-slate-100">
                 {computedExamsWithScores.map((exam, idx) => (
                   <tr key={exam.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                    {/* Cột STT luôn đánh số tuần tự 1, 2, 3... theo kết quả lọc */}
                     <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
                       {idx + 1}
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-800 text-xs sm:text-sm">
-                        {exam.title}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-800 text-xs sm:text-sm">
+                          {exam.title}
+                        </span>
+                        {idx === 0 &&
+                          activeCategoryFilter === "Tất cả danh mục" &&
+                          !searchKeyword.trim() && (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold">
+                              Mới nhất
+                            </span>
+                          )}
                       </div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-slate-500">
                         <span>
