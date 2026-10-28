@@ -30,7 +30,8 @@ import {
   Calendar,
   FileSpreadsheet,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Clock
 } from "lucide-react";
 import {
   OMR_CANONICAL_WIDTH,
@@ -69,6 +70,22 @@ interface SelectedPracticeExamItem {
   submissionType?: "web" | "paper";
   paperScanUrl?: string | null;
   omrRawData?: any | null;
+}
+
+interface FlattenedLessonEntry {
+  lessonId: string;
+  lessonTitle: string;
+  chapterId: string;
+  chapterTitle: string;
+  month: number;
+  week: number;
+  globalOrder: number;
+  hwItems: { id: string; title: string; rawObj: any }[];
+  testItems: { id: string; title: string; rawObj: any }[];
+  hwIds: Set<string>;
+  hwTitles: Set<string>;
+  testIds: Set<string>;
+  testTitles: Set<string>;
 }
 
 function normalizeText(str: any): string {
@@ -155,7 +172,6 @@ function formatCategoryWithSubmissionMode(
 
 /**
  * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI (ĐÚNG, SAI & BỎ TRỐNG) CHO PHỤ BẢN OMR TRANG 2
- * Khắc phục 100% lỗi báo 22/22 câu đúng khi học sinh bỏ trống hoặc làm sai trên phiếu
  */
 function buildFullOMRQuestionsReview(
   attempt: any,
@@ -175,7 +191,6 @@ function buildFullOMRQuestionsReview(
   const coords: any[] =
     attempt?.omr_raw_data?.bubble_coordinates || meta?.bubble_coordinates || [];
 
-  // Bước 1: Nếu có omr_raw_data đầy đủ và rawQuizObj, thử dùng gradeOMRSubmission
   if (
     rawQuizObj &&
     attempt?.omr_raw_data &&
@@ -239,7 +254,6 @@ function buildFullOMRQuestionsReview(
     } catch {}
   }
 
-  // Bước 2: Khôi phục từ danh sách câu hỏi của đề gốc (rawQuizObj) + answersMap + bubble_coordinates
   const flatQuestions: any[] = [];
   if (rawQuizObj) {
     const sections = rawQuizObj.sections || rawQuizObj.data || [];
@@ -291,8 +305,7 @@ function buildFullOMRQuestionsReview(
 
     const partLabel = `Phần ${partNum === 1 ? "I" : partNum === 2 ? "II" : "III"}`;
 
-    // Lấy câu trả lời của học sinh từ answersMap hoặc từ bubble_coordinates
-    let rawStuVal =
+    const rawStuVal =
       answersMap[qId] ??
       answersMap[String(qOrder)] ??
       answersMap[`p${partNum}_q${localNum}`];
@@ -314,9 +327,7 @@ function buildFullOMRQuestionsReview(
         (b: any) => b.status === "correct" || b.status === "expected_missed"
       );
 
-      studentDisplay = String(
-        rawStuVal || pickedBubble?.optionKey || ""
-      )
+      studentDisplay = String(rawStuVal || pickedBubble?.optionKey || "")
         .trim()
         .toUpperCase();
 
@@ -379,7 +390,6 @@ function buildFullOMRQuestionsReview(
       correctDisplay = corParts.join(" ");
       autoIsCorrect = !isAllBlank && allSubRight;
     } else {
-      // Phần III: Trả lời ngắn
       const pickedCols = qCoords
         .filter((b: any) => b.isSelected || b.status === "correct" || b.status === "wrong")
         .sort((a: any, b: any) => Number(a.colIndex || 0) - Number(b.colIndex || 0));
@@ -483,13 +493,16 @@ export default function AdminStudentReportPanel({
   const [dailyWeek, setDailyWeek] = useState<number>(4);
   const [customDateStr, setCustomDateStr] = useState<string>(todayFormatted);
   const [overrideTopicTitle, setOverrideTopicTitle] = useState<string>("");
+
+  // NGUỒN BTVN CẦN ĐỐI SOÁT: Mặc định là 'auto_prev' (Tự động lấy BTVN của buổi/tuần liền trước)
+  const [selectedDailyHomeworkSource, setSelectedDailyHomeworkSource] =
+    useState<string>("auto_prev");
   const [selectedDailyPracticeId, setSelectedDailyPracticeId] = useState<string>("none");
   const [dailyStudentFilterMode, setDailyStudentFilterMode] = useState<
     "all" | "offline" | "online"
   >("all");
   const [includeCoverSummaryPage, setIncludeCoverSummaryPage] = useState<boolean>(true);
 
-  // Ghi nhận chỉnh sửa thủ công điểm số / nhận xét / chuyên cần / kết quả từng câu OMR của học viên
   const [dailyStudentOverrides, setDailyStudentOverrides] = useState<
     Record<
       string,
@@ -591,17 +604,10 @@ export default function AdminStudentReportPanel({
     return map;
   }, [registeredStudents]);
 
-  const matchedLessonsForDaily = useMemo(() => {
-    const matched: {
-      lessonId: string;
-      lessonTitle: string;
-      chapterTitle: string;
-      hwIds: Set<string>;
-      hwTitles: Set<string>;
-      testIds: Set<string>;
-      testTitles: Set<string>;
-      rawQuizzesMap: Map<string, any>;
-    }[] = [];
+  // 1. TRẢI PHẲNG TOÀN BỘ DANH SÁCH BÀI HỌC TRONG KHÓA HỌC THEO THỨ TỰ THỜI GIAN ĐỂ XỬ LÝ "LỆCH PHA BTVN TUẦN TRƯỚC"
+  const allFlattenedLessons = useMemo<FlattenedLessonEntry[]>(() => {
+    const list: FlattenedLessonEntry[] = [];
+    let orderCounter = 0;
 
     (chapters || []).forEach((chap: any) => {
       const cMonth = chap?.assigned_month ? Number(chap.assigned_month) : undefined;
@@ -612,69 +618,259 @@ export default function AdminStudentReportPanel({
         const lMonth = Number(les.assigned_month || cMonth || 10);
         const lWeek = Number(les.assigned_week || cWeek || 1);
 
-        if (lMonth === dailyMonth && lWeek === dailyWeek) {
-          const hwIds = new Set<string>();
-          const hwTitles = new Set<string>();
-          const testIds = new Set<string>();
-          const testTitles = new Set<string>();
-          const rawQuizzesMap = new Map<string, any>();
+        const hwItems: { id: string; title: string; rawObj: any }[] = [];
+        const testItems: { id: string; title: string; rawObj: any }[] = [];
+        const hwIds = new Set<string>();
+        const hwTitles = new Set<string>();
+        const testIds = new Set<string>();
+        const testTitles = new Set<string>();
 
-          (les.homework_files || []).forEach((hw: any) => {
-            if (!hw) return;
-            if (hw.id) {
-              hwIds.add(String(hw.id).trim().toLowerCase());
-              rawQuizzesMap.set(String(hw.id).trim().toLowerCase(), hw);
-            }
-            if (hw.title) {
-              hwTitles.add(normalizeText(hw.title));
-              rawQuizzesMap.set(normalizeText(hw.title), hw);
-            }
-          });
+        (les.homework_files || []).forEach((hw: any) => {
+          if (!hw || hw.is_drive_file) return;
+          const id = String(hw.id || "").trim();
+          const title = String(hw.title || "Bài tập về nhà").trim();
+          hwItems.push({ id, title, rawObj: hw });
+          if (id) hwIds.add(id.toLowerCase());
+          if (title) hwTitles.add(normalizeText(title));
+        });
 
-          (les.test_quizzes || []).forEach((tq: any) => {
-            if (!tq) return;
-            if (tq.id) {
-              testIds.add(String(tq.id).trim().toLowerCase());
-              rawQuizzesMap.set(String(tq.id).trim().toLowerCase(), tq);
-            }
-            if (tq.title) {
-              testTitles.add(normalizeText(tq.title));
-              rawQuizzesMap.set(normalizeText(tq.title), tq);
-            }
-          });
+        (les.test_quizzes || []).forEach((tq: any) => {
+          if (!tq || tq.is_drive_file) return;
+          const id = String(tq.id || "").trim();
+          const title = String(tq.title || "Bài kiểm tra").trim();
+          testItems.push({ id, title, rawObj: tq });
+          if (id) testIds.add(id.toLowerCase());
+          if (title) testTitles.add(normalizeText(title));
+        });
 
-          matched.push({
-            lessonId: String(les.id || ""),
-            lessonTitle: String(les.title || "Bài học"),
-            chapterTitle: String(chap?.title || ""),
-            hwIds,
-            hwTitles,
-            testIds,
-            testTitles,
-            rawQuizzesMap
-          });
-        }
+        list.push({
+          lessonId: String(les.id || `les_${orderCounter}`),
+          lessonTitle: String(les.title || "Bài học"),
+          chapterId: String(chap?.id || ""),
+          chapterTitle: String(chap?.title || ""),
+          month: lMonth,
+          week: lWeek,
+          globalOrder: orderCounter++,
+          hwItems,
+          testItems,
+          hwIds,
+          hwTitles,
+          testIds,
+          testTitles
+        });
       });
     });
 
-    return matched;
-  }, [chapters, dailyMonth, dailyWeek]);
+    return list;
+  }, [chapters]);
+
+  // 2. LUỒNG 2 (CHUYÊN ĐỀ HÔM NAY & BÀI TEST TẠI LỚP): KHỚP VỚI TUẦN HIỆN TẠI (dailyMonth, dailyWeek)
+  const currentSessionLessons = useMemo(() => {
+    return allFlattenedLessons.filter(
+      (l) => l.month === dailyMonth && l.week === dailyWeek
+    );
+  }, [allFlattenedLessons, dailyMonth, dailyWeek]);
 
   const autoSyncedTopicTitle = useMemo(() => {
-    if (matchedLessonsForDaily.length > 0) {
-      return matchedLessonsForDaily.map((m) => m.lessonTitle).join(" • ");
+    if (currentSessionLessons.length > 0) {
+      return currentSessionLessons.map((m) => m.lessonTitle).join(" • ");
     }
-    for (const chap of chapters || []) {
-      if (Array.isArray(chap?.lessons) && chap.lessons.length > 0) {
-        return String(chap.lessons[0].title || "Chuyên đề Toán Tư Duy TCT");
-      }
+    if (allFlattenedLessons.length > 0) {
+      return allFlattenedLessons[0].lessonTitle;
     }
     return `Chuyên đề Toán 12 — Tuần ${dailyWeek} Tháng ${dailyMonth}`;
-  }, [matchedLessonsForDaily, chapters, dailyWeek, dailyMonth]);
+  }, [currentSessionLessons, allFlattenedLessons, dailyWeek, dailyMonth]);
 
   useEffect(() => {
     setOverrideTopicTitle("");
   }, [dailyMonth, dailyWeek]);
+
+  // 3. LUỒNG 1 (BTVN THU & CHẤM HÔM NAY): TỰ ĐỘNG XÁC ĐỊNH BTVN CỦA BUỔI / TUẦN LIỀN TRƯỚC
+  const autoPreviousHomeworkSource = useMemo(() => {
+    // Tính (Tháng, Tuần) liền kề trước đó theo lịch năm học (Tháng 8 -> Tháng 12 -> Tháng 1 -> Tháng 7)
+    const prevMonth = dailyWeek > 1 ? dailyMonth : dailyMonth === 1 ? 12 : dailyMonth - 1;
+
+    if (dailyWeek > 1) {
+      const targetPrevWeek = dailyWeek - 1;
+      const lessonsInPrevWeek = allFlattenedLessons.filter(
+        (l) => l.month === dailyMonth && l.week === targetPrevWeek && l.hwItems.length > 0
+      );
+      if (lessonsInPrevWeek.length > 0) {
+        return {
+          modeLabel: `Tuần ${targetPrevWeek} - Tháng ${dailyMonth}`,
+          lessons: lessonsInPrevWeek,
+          displayTitle: lessonsInPrevWeek
+            .flatMap((l) => l.hwItems.map((h) => h.title))
+            .join(", ")
+        };
+      }
+    } else {
+      // Nếu đang ở Tuần 1 của Tháng mới (VD: Tuần 1 Tháng 11) -> Tìm Tuần cuối cùng có BTVN của Tháng trước (VD: Tuần 4 hoặc Tuần 3 Tháng 10)
+      for (let w = 5; w >= 1; w--) {
+        const lessonsInLastMonth = allFlattenedLessons.filter(
+          (l) => l.month === prevMonth && l.week === w && l.hwItems.length > 0
+        );
+        if (lessonsInLastMonth.length > 0) {
+          return {
+            modeLabel: `Tuần ${w} - Tháng ${prevMonth}`,
+            lessons: lessonsInLastMonth,
+            displayTitle: lessonsInLastMonth
+              .flatMap((l) => l.hwItems.map((h) => h.title))
+              .join(", ")
+          };
+        }
+      }
+    }
+
+    // Fallback thông minh: Nếu tuần lịch liền trước nghỉ lễ, tự động lùi theo index mảng bài học ngay trước bài học hôm nay
+    if (currentSessionLessons.length > 0) {
+      const firstCurrentOrder = currentSessionLessons[0].globalOrder;
+      for (let idx = firstCurrentOrder - 1; idx >= 0; idx--) {
+        const candidate = allFlattenedLessons[idx];
+        if (candidate && candidate.hwItems.length > 0) {
+          return {
+            modeLabel: `Tuần ${candidate.week} - Tháng ${candidate.month}`,
+            lessons: [candidate],
+            displayTitle: candidate.hwItems.map((h) => h.title).join(", ")
+          };
+        }
+      }
+    }
+
+    // Nếu là buổi học đầu tiên của khóa học, lấy BTVN của chính buổi hiện tại
+    if (currentSessionLessons.some((l) => l.hwItems.length > 0)) {
+      const withHw = currentSessionLessons.filter((l) => l.hwItems.length > 0);
+      return {
+        modeLabel: `Tuần ${dailyWeek} - Tháng ${dailyMonth}`,
+        lessons: withHw,
+        displayTitle: withHw.flatMap((l) => l.hwItems.map((h) => h.title)).join(", ")
+      };
+    }
+
+    const anyWithHw = allFlattenedLessons.filter((l) => l.hwItems.length > 0);
+    if (anyWithHw.length > 0) {
+      const last = anyWithHw[anyWithHw.length - 1];
+      return {
+        modeLabel: `Tuần ${last.week} - Tháng ${last.month}`,
+        lessons: [last],
+        displayTitle: last.hwItems.map((h) => h.title).join(", ")
+      };
+    }
+
+    return {
+      modeLabel: "Tuần trước",
+      lessons: [] as FlattenedLessonEntry[],
+      displayTitle: "Bài tập về nhà tuần trước"
+    };
+  }, [allFlattenedLessons, currentSessionLessons, dailyMonth, dailyWeek]);
+
+  // Danh sách toàn bộ các lựa chọn BTVN cho Dropdown chọn nhanh
+  const allHomeworkOptionsForDropdown = useMemo(() => {
+    const options: {
+      value: string;
+      label: string;
+      hwIds: Set<string>;
+      hwTitles: Set<string>;
+      month?: number;
+      week?: number;
+      shortTitle: string;
+    }[] = [];
+
+    allFlattenedLessons.forEach((les) => {
+      les.hwItems.forEach((hw) => {
+        const ids = new Set<string>([hw.id.toLowerCase()]);
+        const titles = new Set<string>([normalizeText(hw.title)]);
+        options.push({
+          value: `hw_id:${hw.id}`,
+          label: `[T${les.week}.${les.month} - ${les.lessonTitle}] ${hw.title}`,
+          hwIds: ids,
+          hwTitles: titles,
+          month: les.month,
+          week: les.week,
+          shortTitle: `${hw.title} (T${les.week}.${les.month})`
+        });
+      });
+    });
+
+    return options;
+  }, [allFlattenedLessons]);
+
+  // Nguồn BTVN thực tế đang được áp dụng (Tự động lấy tuần trước HOẶC do giáo viên chọn trong Dropdown)
+  const effectiveHomeworkTarget = useMemo(() => {
+    if (selectedDailyHomeworkSource === "none") {
+      return {
+        isNone: true,
+        hwIds: new Set<string>(),
+        hwTitles: new Set<string>(),
+        targetMonth: undefined as number | undefined,
+        targetWeek: undefined as number | undefined,
+        displayTitle: "Không thu BTVN buổi này"
+      };
+    }
+
+    if (selectedDailyHomeworkSource === "current_week") {
+      const ids = new Set<string>();
+      const titles = new Set<string>();
+      const names: string[] = [];
+      currentSessionLessons.forEach((l) => {
+        l.hwIds.forEach((id) => ids.add(id));
+        l.hwTitles.forEach((t) => titles.add(t));
+        l.hwItems.forEach((h) => names.push(h.title));
+      });
+      return {
+        isNone: false,
+        hwIds: ids,
+        hwTitles: titles,
+        targetMonth: dailyMonth,
+        targetWeek: dailyWeek,
+        displayTitle:
+          names.length > 0
+            ? `${names.join(", ")} (T${dailyWeek}.${dailyMonth})`
+            : `BTVN Tuần ${dailyWeek} - Tháng ${dailyMonth}`
+      };
+    }
+
+    if (selectedDailyHomeworkSource.startsWith("hw_id:")) {
+      const found = allHomeworkOptionsForDropdown.find(
+        (o) => o.value === selectedDailyHomeworkSource
+      );
+      if (found) {
+        return {
+          isNone: false,
+          hwIds: found.hwIds,
+          hwTitles: found.hwTitles,
+          targetMonth: found.month,
+          targetWeek: found.week,
+          displayTitle: found.shortTitle
+        };
+      }
+    }
+
+    // Mặc định: 'auto_prev' (Lấy BTVN của buổi / tuần liền trước)
+    const ids = new Set<string>();
+    const titles = new Set<string>();
+    autoPreviousHomeworkSource.lessons.forEach((l) => {
+      l.hwIds.forEach((id) => ids.add(id));
+      l.hwTitles.forEach((t) => titles.add(t));
+    });
+    const firstPrevLesson = autoPreviousHomeworkSource.lessons[0];
+
+    return {
+      isNone: false,
+      hwIds: ids,
+      hwTitles: titles,
+      targetMonth: firstPrevLesson?.month,
+      targetWeek: firstPrevLesson?.week,
+      displayTitle: `${autoPreviousHomeworkSource.displayTitle} (${autoPreviousHomeworkSource.modeLabel})`
+    };
+  }, [
+    selectedDailyHomeworkSource,
+    currentSessionLessons,
+    dailyMonth,
+    dailyWeek,
+    allHomeworkOptionsForDropdown,
+    autoPreviousHomeworkSource
+  ]);
 
   const quizAssignmentMap = useMemo(() => {
     const byId = new Map<
@@ -768,9 +964,16 @@ export default function AdminStudentReportPanel({
     [quizAssignmentMap]
   );
 
-  // 3. TÍNH TOÁN DỮ LIỆU BÁO CÁO NGÀY (KHÔNG GÁN ĐIỂM BỪA SANG ĐỀ THỰC CHIẾN & TÁI TẠO ĐỦ 22 CÂU OMR)
+  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY VỚI 2 LUỒNG TÁCH BIỆT:
+  //    - Luồng 1 (BTVN): Đối soát với `effectiveHomeworkTarget` (BTVN tuần trước)
+  //    - Luồng 2 (Test tại lớp): Đối soát với `currentSessionLessons` (Bài học tuần này)
   const computeStudentDailyScoreRecord = useCallback(
-    (student: any): StudentDailyScoreData & { allQuestionsReviewList?: FullQuestionReviewRow[] } => {
+    (
+      student: any
+    ): StudentDailyScoreData & {
+      allQuestionsReviewList?: FullQuestionReviewRow[];
+      homeworkQuizTitle?: string;
+    } => {
       const stuId = String(student?.id || "").trim();
       const stuName = String(student?.full_name || student?.name || "Học sinh").trim();
       const dirInfo = sbdDirectoryMap.get(stuId);
@@ -818,27 +1021,39 @@ export default function AdminStudentReportPanel({
           Boolean(att.answers?.__paper_omr_meta);
 
         const isTest = Boolean(meta?.isTest || att.type === "test" || (isPaper && !isHw));
-
-        const belongsToMatchedLessonHw = matchedLessonsForDaily.some(
-          (m) => (qId && m.hwIds.has(qId)) || (qTitle && m.hwTitles.has(qTitle))
-        );
-        const belongsToMatchedLessonTest = matchedLessonsForDaily.some(
-          (m) => (qId && m.testIds.has(qId)) || (qTitle && m.testTitles.has(qTitle))
-        );
-
         const sc = Number(att.score ?? att.points ?? 0);
 
-        // 1. Khớp BTVN của Tuần/Tháng đang chọn
-        if (isHw && (belongsToMatchedLessonHw || (month === dailyMonth && week === dailyWeek))) {
-          if (!bestHwAttempt || sc >= Number(bestHwAttempt.score ?? bestHwAttempt.points ?? 0)) {
-            bestHwAttempt = att;
+        // LUỒNG 1: KHỚP BTVN THEO NGUỒN TUẦN TRƯỚC (HOẶC BÀI BTVN ĐÃ CHỌN TRONG DROPDOWN)
+        if (!effectiveHomeworkTarget.isNone && isHw) {
+          const matchByIdOrTitle =
+            (qId && effectiveHomeworkTarget.hwIds.has(qId)) ||
+            (qTitle && effectiveHomeworkTarget.hwTitles.has(qTitle));
+
+          const matchByPrevTime =
+            effectiveHomeworkTarget.hwIds.size === 0 &&
+            effectiveHomeworkTarget.targetMonth !== undefined &&
+            effectiveHomeworkTarget.targetWeek !== undefined &&
+            month === effectiveHomeworkTarget.targetMonth &&
+            week === effectiveHomeworkTarget.targetWeek;
+
+          if (matchByIdOrTitle || matchByPrevTime) {
+            if (
+              !bestHwAttempt ||
+              sc >= Number(bestHwAttempt.score ?? bestHwAttempt.points ?? 0)
+            ) {
+              bestHwAttempt = att;
+            }
           }
         }
 
-        // 2. Khớp Bài Kiểm Tra tại lớp trong Ngày/Tuần đang chọn
+        // LUỒNG 2: KHỚP BÀI KIỂM TRA TẠI LỚP THEO TUẦN HIỆN TẠI (dailyMonth, dailyWeek)
+        const belongsToCurrentSessionTest = currentSessionLessons.some(
+          (m) => (qId && m.testIds.has(qId)) || (qTitle && m.testTitles.has(qTitle))
+        );
+
         if (
           isTest &&
-          (belongsToMatchedLessonTest || (month === dailyMonth && week === dailyWeek))
+          (belongsToCurrentSessionTest || (month === dailyMonth && week === dailyWeek))
         ) {
           if (
             !bestDailyTestAttempt ||
@@ -848,7 +1063,7 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        // 3. Khớp Đề Luyện Thi Thực Chiến Tháng (CHỈ LẤY KHI GIÁO VIÊN CHỌN CỤ THỂ ĐỀ THỰC CHIẾN VÀ KHÔNG TRÙNG BÀI TEST TẠI LỚP)
+        // LUỒNG 3: KHỚP ĐỀ LUYỆN THI THỰC CHIẾN TRONG THÁNG
         if (
           selectedDailyPracticeId !== "none" &&
           selectedDailyPracticeId !== "auto" &&
@@ -876,22 +1091,21 @@ export default function AdminStudentReportPanel({
       });
 
       if (!bestDailyTestAttempt) {
-        const anyPaperInMonth = stuAttempts.find((att: any) => {
-          const { month } = resolveAttemptMonthAndWeek(att);
+        const anyPaperInCurrentWeek = stuAttempts.find((att: any) => {
+          const { month, week } = resolveAttemptMonthAndWeek(att);
           const isPaper =
             att.submission_type === "paper" ||
             Boolean(att.scanned_image_url) ||
             Boolean(att.paper_scan_url) ||
             Boolean(att.omr_raw_data) ||
             Boolean(att.answers?.__paper_omr_meta);
-          return isPaper && month === dailyMonth;
+          return isPaper && month === dailyMonth && week === dailyWeek;
         });
-        if (anyPaperInMonth) {
-          bestDailyTestAttempt = anyPaperInMonth;
+        if (anyPaperInCurrentWeek) {
+          bestDailyTestAttempt = anyPaperInCurrentWeek;
         }
       }
 
-      // Đảm bảo không bao giờ lấy trùng bài Test tại lớp gán sang Đề thực chiến tháng (trừ khi giáo viên cố tình chọn đúng đề đó)
       if (
         bestPracticeAttempt &&
         bestDailyTestAttempt &&
@@ -930,7 +1144,6 @@ export default function AdminStudentReportPanel({
           ? Number(bestPracticeAttempt.score ?? bestPracticeAttempt.points ?? 0)
           : null;
 
-      // Nếu điểm đề thực chiến <= 0 hoặc null -> Gán null để hiển thị "Không kiểm tra"
       const pracScore =
         rawPracScore !== null && !isNaN(rawPracScore) && rawPracScore > 0 ? rawPracScore : null;
 
@@ -1023,7 +1236,6 @@ export default function AdminStudentReportPanel({
               overrideTopicTitle || autoSyncedTopicTitle
             }". Gia đình nhắc nhở con hoàn thành đầy đủ bài tập về nhà và ôn kỹ các công thức trọng tâm của buổi học.`;
 
-      // Tự động đặt trạng thái BTVN: nếu không có điểm BTVN thì mặc định là "missing" (Chưa hoàn thành), vẫn tôn trọng lựa chọn thủ công của giáo viên
       const resolvedHomeworkStatus: "completed" | "missing" | "late" =
         ov.homeworkStatus !== undefined
           ? ov.homeworkStatus
@@ -1045,6 +1257,10 @@ export default function AdminStudentReportPanel({
         homeworkTotal: bestHwAttempt
           ? Number(bestHwAttempt.total_questions ?? bestHwAttempt.totalQuestions ?? 0) || null
           : null,
+        homeworkQuizTitle:
+          bestHwAttempt?.examTitle ||
+          bestHwAttempt?.quizTitle ||
+          effectiveHomeworkTarget.displayTitle,
         dailyTestScore: testScore,
         dailyTestCorrect:
           computedCorrectCount !== null
@@ -1094,7 +1310,8 @@ export default function AdminStudentReportPanel({
       allAttempts,
       quizAssignmentMap,
       resolveAttemptMonthAndWeek,
-      matchedLessonsForDaily,
+      effectiveHomeworkTarget,
+      currentSessionLessons,
       dailyMonth,
       dailyWeek,
       selectedDailyPracticeId,
@@ -1104,7 +1321,6 @@ export default function AdminStudentReportPanel({
     ]
   );
 
-  // Cho phép giáo viên bấm đổi nhanh trạng thái Đúng/Sai của từng câu OMR nếu máy quét bắt sót vết chì mờ
   const handleToggleOMRQuestionCorrectness = (
     studentId: string,
     questionNumber: number,
@@ -1171,13 +1387,14 @@ export default function AdminStudentReportPanel({
       computeStudentDailyScoreRecord(stu)
     );
 
-    const config: DailyReportConfig = {
+    const config: DailyReportConfig & { homeworkTopicLabel?: string } = {
       reportMode: "daily",
       selectedMonth: dailyMonth,
       selectedWeek: dailyWeek,
       customDateStr: customDateStr.trim() || todayFormatted,
       topicTitle: autoSyncedTopicTitle,
       overrideTopicTitle: overrideTopicTitle.trim() || undefined,
+      homeworkTopicLabel: effectiveHomeworkTarget.displayTitle,
       includeCoverSummaryPage: !onlyCurrentStudent && includeCoverSummaryPage
     };
 
@@ -1207,14 +1424,14 @@ export default function AdminStudentReportPanel({
       `📋 BÁO CÁO KẾT QUẢ BUỔI HỌC NGÀY ${customDateStr}\n` +
       `• Học sinh: ${d.studentName} (SBD: ${d.sbd})\n` +
       `• Trường: ${d.school} • Phân hệ: ${d.learningMode}\n` +
-      `• Chuyên đề: ${topic}\n` +
+      `• Chuyên đề hôm nay: ${topic}\n` +
       `------------------------------------\n` +
       `I. KẾT QUẢ ĐIỂM SỐ & CHUYÊN CẦN TRONG NGÀY:\n` +
       `1. Chuyên cần: ${attText} | Ý thức BTVN: ${hwStatusText}\n` +
-      `2. Điểm Bài tập về nhà (BTVN): ${
+      `2. Điểm BTVN tuần trước (${effectiveHomeworkTarget.displayTitle}): ${
         d.homeworkScore !== null ? `${d.homeworkScore}/10` : "-- / 10 (Chưa nộp)"
       }\n` +
-      `3. Điểm Kiểm tra tại lớp: ${
+      `3. Điểm Kiểm tra tại lớp hôm nay: ${
         d.dailyTestScore !== null ? `${d.dailyTestScore}/10` : "Chưa kiểm tra"
       }${
         d.hasPaperOMR
@@ -1626,7 +1843,7 @@ export default function AdminStudentReportPanel({
 
   const renderCanvasPage = (pageMode: "single" | "page1" | "page2"): string | null => {
     const canvas = document.createElement("canvas");
-    const scale = 3; // Độ phân giải 3x siêu nét
+    const scale = 3;
     const logicalWidth = 880;
     const outerPad = 32;
     const innerPad = 28;
@@ -2231,13 +2448,14 @@ export default function AdminStudentReportPanel({
         </div>
       </div>
 
-      {/* 2. THANH CẤU HÌNH NHANH CHO CHẾ ĐỘ "BÁO CÁO THEO NGÀY / BUỔI HỌC" */}
+      {/* 2. THANH CẤU HÌNH TÁCH RIÊNG: BÀI HỌC / TEST HÔM NAY (TUẦN NÀY) VS BTVN CẦN ĐỐI SOÁT (TUẦN TRƯỚC) */}
       {reportViewType === "daily" && (
         <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3.5 shadow-2xs">
+          {/* HÀNG 1: CHỌN BUỔI HỌC HÔM NAY & CHUYÊN ĐỀ TUẦN HIỆN TẠI */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
             <div className="md:col-span-2">
               <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                Tháng học:
+                Tháng của buổi học:
               </label>
               <select
                 value={dailyMonth}
@@ -2254,7 +2472,7 @@ export default function AdminStudentReportPanel({
 
             <div className="md:col-span-2">
               <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                Tuần trong tháng:
+                Tuần của buổi học:
               </label>
               <select
                 value={dailyWeek}
@@ -2286,7 +2504,10 @@ export default function AdminStudentReportPanel({
               <div className="flex items-center justify-between mb-1">
                 <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
                   <BookOpen className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Tên chuyên đề buổi học (Tự động đồng bộ từ #lessons):</span>
+                  <span>
+                    Chuyên đề học hôm nay & Test tại lớp (Tuần {dailyWeek} - Tháng{" "}
+                    {dailyMonth}):
+                  </span>
                 </label>
                 {overrideTopicTitle && (
                   <button
@@ -2302,12 +2523,65 @@ export default function AdminStudentReportPanel({
                 type="text"
                 value={overrideTopicTitle !== "" ? overrideTopicTitle : autoSyncedTopicTitle}
                 onChange={(e) => setOverrideTopicTitle(e.target.value)}
-                placeholder="Tên bài học trong ngày..."
+                placeholder="Tên bài học hôm nay..."
                 className="w-full px-3.5 py-2 rounded-xl bg-amber-50/70 border border-amber-300 text-xs font-extrabold text-slate-900 outline-none focus:border-amber-600 focus:bg-white"
               />
             </div>
           </div>
 
+          {/* HÀNG 2: CẤU HÌNH NGUỒN BTVN TUẦN TRƯỚC & ĐỀ THỰC CHIẾN THÁNG */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-2 border-t border-slate-100 items-end">
+            <div className="md:col-span-7">
+              <label className="block text-[11px] font-bold text-emerald-800 mb-1 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                <span>
+                  Bài BTVN cần thu & đối soát hôm nay (Mặc định lấy BTVN của buổi/tuần liền trước):
+                </span>
+              </label>
+              <select
+                value={selectedDailyHomeworkSource}
+                onChange={(e) => setSelectedDailyHomeworkSource(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-emerald-50/80 border border-emerald-300 text-xs font-extrabold text-emerald-950 outline-none focus:border-emerald-600 cursor-pointer"
+              >
+                <option value="auto_prev">
+                  ⚡ Tự động (Tuần trước): {autoPreviousHomeworkSource.displayTitle} [
+                  {autoPreviousHomeworkSource.modeLabel}]
+                </option>
+                <option value="current_week">
+                  📘 Lấy BTVN của chính Tuần hiện tại (Tuần {dailyWeek} - Tháng {dailyMonth})
+                </option>
+                <option value="none">🚫 Không thu / Không đối soát BTVN buổi này</option>
+                <optgroup label="--- Hoặc chọn chỉ định 1 bài BTVN cụ thể trong khóa học ---">
+                  {allHomeworkOptionsForDropdown.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+
+            <div className="md:col-span-5">
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Đề luyện thi thực chiến trong tháng (Cột điểm số 3):
+              </label>
+              <select
+                value={selectedDailyPracticeId}
+                onChange={(e) => setSelectedDailyPracticeId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+              >
+                <option value="none">-- Không kiểm tra đề tháng --</option>
+                <option value="auto">Tự động lấy đề thực chiến Tháng {dailyMonth}</option>
+                {(practiceExams || []).map((pe: any) => (
+                  <option key={pe.id} value={String(pe.id)}>
+                    {pe.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* HÀNG 3: LỌC DANH SÁCH HỌC SINH XUẤT PDF */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-slate-500">Lọc danh sách xuất PDF:</span>
@@ -2341,21 +2615,8 @@ export default function AdminStudentReportPanel({
               </label>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-500">Đề thực chiến tháng:</span>
-              <select
-                value={selectedDailyPracticeId}
-                onChange={(e) => setSelectedDailyPracticeId(e.target.value)}
-                className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 outline-none cursor-pointer max-w-[260px]"
-              >
-                <option value="none">-- Không kiểm tra đề tháng --</option>
-                <option value="auto">Tự động lấy đề thực chiến Tháng {dailyMonth}</option>
-                {(practiceExams || []).map((pe: any) => (
-                  <option key={pe.id} value={String(pe.id)}>
-                    {pe.title}
-                  </option>
-                ))}
-              </select>
+            <div className="text-[11px] text-emerald-700 font-bold">
+              ✓ Đang đối soát BTVN: {effectiveHomeworkTarget.displayTitle}
             </div>
           </div>
         </div>
@@ -2474,13 +2735,16 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* Khối chuyên đề buổi học */}
-                <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200">
+                {/* Khối chuyên đề buổi học hôm nay & BTVN tuần trước */}
+                <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 space-y-1">
                   <span className="text-[10px] font-bold uppercase text-amber-800 block">
-                    NỘI DUNG CHUYÊN ĐỀ BUỔI HỌC:
+                    NỘI DUNG CHUYÊN ĐỀ HỌC HÔM NAY (TUẦN {dailyWeek} - THÁNG {dailyMonth}):
                   </span>
-                  <div className="text-sm font-bold text-slate-900 mt-0.5">
+                  <div className="text-sm font-bold text-slate-900">
                     📘 {overrideTopicTitle || autoSyncedTopicTitle}
+                  </div>
+                  <div className="text-[11px] font-semibold text-emerald-800 pt-0.5">
+                    📚 BTVN thu & đối soát hôm nay: {effectiveHomeworkTarget.displayTitle}
                   </div>
                 </div>
 
@@ -2488,7 +2752,7 @@ export default function AdminStudentReportPanel({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
                     <span className="text-[10px] font-bold uppercase text-emerald-800 block">
-                      1. ĐIỂM BÀI TẬP VỀ NHÀ
+                      1. ĐIỂM BTVN (TUẦN TRƯỚC)
                     </span>
                     <div className="flex items-center gap-1.5 mt-1.5">
                       <input
@@ -2518,11 +2782,17 @@ export default function AdminStudentReportPanel({
                       />
                       <span className="text-xs font-bold text-emerald-700">/ 10</span>
                     </div>
+                    <p
+                      className="text-[10px] text-emerald-800 mt-1 truncate"
+                      title={effectiveHomeworkTarget.displayTitle}
+                    >
+                      {effectiveHomeworkTarget.displayTitle}
+                    </p>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200">
                     <span className="text-[10px] font-bold uppercase text-blue-800 block">
-                      2. ĐIỂM TEST TẠI LỚP (OMR/WEB)
+                      2. ĐIỂM TEST TẠI LỚP (HÔM NAY)
                     </span>
                     <div className="flex items-center gap-1.5 mt-1.5">
                       <input
@@ -2549,6 +2819,9 @@ export default function AdminStudentReportPanel({
                       />
                       <span className="text-xs font-bold text-blue-700">/ 10</span>
                     </div>
+                    <p className="text-[10px] text-blue-800 mt-1 truncate">
+                      Kiểm tra Tuần {dailyWeek} - Tháng {dailyMonth}
+                    </p>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-orange-50/70 border border-orange-200">
@@ -2599,10 +2872,13 @@ export default function AdminStudentReportPanel({
                       />
                       <span className="text-xs font-bold text-orange-700">/ 10</span>
                     </div>
+                    <p className="text-[10px] text-orange-800 mt-1 truncate">
+                      {currentStudentDailyData.practiceExamTitle}
+                    </p>
                   </div>
                 </div>
 
-                {/* KHỐI CHỌN TRỰC QUAN CHUYÊN CẦN & Ý THỨC BTVN (DẠNG NÚT LỚN NỔI BẬT) */}
+                {/* KHỐI CHỌN TRỰC QUAN CHUYÊN CẦN & Ý THỨC BTVN */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                   <div>
                     <span className="text-xs font-extrabold text-slate-800 uppercase block mb-2">
@@ -2655,7 +2931,7 @@ export default function AdminStudentReportPanel({
 
                   <div>
                     <span className="text-xs font-extrabold text-slate-800 uppercase block mb-2">
-                      Ý thức làm Bài tập về nhà (BTVN):
+                      Ý thức làm Bài tập về nhà (BTVN tuần trước):
                     </span>
                     <div className="grid grid-cols-3 gap-2">
                       {[
