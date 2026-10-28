@@ -29,15 +29,15 @@ import {
   ZoomOut,
   Calendar,
   FileSpreadsheet,
-  Edit3,
-  AlertTriangle
+  CheckCircle2,
+  XCircle
 } from "lucide-react";
 import {
   OMR_CANONICAL_WIDTH,
   OMR_CANONICAL_HEIGHT,
   formatStudentAutoSBD,
-  deriveExamCode3Digits,
-  gradeOMRSubmission
+  gradeOMRSubmission,
+  extractExamQuestionCounts
 } from "@/lib/omrEngine";
 import {
   DailyReportConfig,
@@ -46,7 +46,8 @@ import {
 } from "@/types/report";
 import {
   generateClassDailyReportHTML,
-  openPrintOrDownloadClassReport
+  openPrintOrDownloadClassReport,
+  FullQuestionReviewRow
 } from "@/lib/reportPdfGenerator";
 
 interface Props {
@@ -152,6 +153,313 @@ function formatCategoryWithSubmissionMode(
     : `${baseCat} (Trực tuyến)`;
 }
 
+/**
+ * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI (ĐÚNG, SAI & BỎ TRỐNG) CHO PHỤ BẢN OMR TRANG 2
+ * Khắc phục 100% lỗi báo 22/22 câu đúng khi học sinh bỏ trống hoặc làm sai trên phiếu
+ */
+function buildFullOMRQuestionsReview(
+  attempt: any,
+  rawQuizObj: any,
+  questionStatusOverrides?: Record<number, boolean>
+): {
+  allRows: FullQuestionReviewRow[];
+  wrongRows: WrongQuestionReviewItem[];
+  part1Summary: string;
+  part2Summary: string;
+  part3Summary: string;
+  correctCount: number;
+  totalQuestions: number;
+} {
+  const answersMap = attempt?.answers || attempt?.user_answers || attempt?.userAnswers || {};
+  const meta = answersMap?.__paper_omr_meta || {};
+  const coords: any[] =
+    attempt?.omr_raw_data?.bubble_coordinates || meta?.bubble_coordinates || [];
+
+  // Bước 1: Nếu có omr_raw_data đầy đủ và rawQuizObj, thử dùng gradeOMRSubmission
+  if (
+    rawQuizObj &&
+    attempt?.omr_raw_data &&
+    (attempt.omr_raw_data.part1_answers ||
+      attempt.omr_raw_data.part2_answers ||
+      attempt.omr_raw_data.part3_answers)
+  ) {
+    try {
+      const graded = gradeOMRSubmission(attempt.omr_raw_data, rawQuizObj);
+      if (Array.isArray(graded.questionDetails) && graded.questionDetails.length > 0) {
+        const allRows: FullQuestionReviewRow[] = graded.questionDetails.map((qd: any) => {
+          const qNum = Number(qd.questionOrder);
+          const manualOverride = questionStatusOverrides?.[qNum];
+          const isRight =
+            manualOverride !== undefined ? manualOverride : qd.status === "correct";
+          const rawAns = String(qd.studentAnswerDisplay || "").trim();
+          const isSkipped = !rawAns || rawAns === "Bỏ trống";
+
+          return {
+            questionNumber: qNum,
+            part: `Phần ${qd.part === 1 ? "I" : qd.part === 2 ? "II" : "III"}`,
+            studentAnswer: isSkipped ? "Bỏ trống / Chưa tô" : rawAns,
+            correctAnswer: String(qd.correctAnswerDisplay || "--"),
+            isCorrect: isRight,
+            isSkipped
+          };
+        });
+
+        const wrongRows: WrongQuestionReviewItem[] = allRows
+          .filter((r) => !r.isCorrect)
+          .map((r) => ({
+            questionNumber: r.questionNumber,
+            part: r.part,
+            studentAnswer: r.studentAnswer,
+            correctAnswer: r.correctAnswer
+          }));
+
+        const p1Rows = allRows.filter((r) => r.part === "Phần I");
+        const p2Rows = allRows.filter((r) => r.part === "Phần II");
+        const p3Rows = allRows.filter((r) => r.part === "Phần III");
+
+        return {
+          allRows,
+          wrongRows,
+          part1Summary:
+            p1Rows.length > 0
+              ? `Đúng ${p1Rows.filter((x) => x.isCorrect).length}/${p1Rows.length} câu (${graded.part1Score.toFixed(2)}đ)`
+              : "Không có trong đề",
+          part2Summary:
+            p2Rows.length > 0
+              ? `Đúng ${p2Rows.filter((x) => x.isCorrect).length}/${p2Rows.length} câu (${graded.part2Score.toFixed(2)}đ)`
+              : "Không có trong đề",
+          part3Summary:
+            p3Rows.length > 0
+              ? `Đúng ${p3Rows.filter((x) => x.isCorrect).length}/${p3Rows.length} câu (${graded.part3Score.toFixed(2)}đ)`
+              : "Không có trong đề",
+          correctCount: allRows.filter((r) => r.isCorrect).length,
+          totalQuestions: allRows.length
+        };
+      }
+    } catch {}
+  }
+
+  // Bước 2: Khôi phục từ danh sách câu hỏi của đề gốc (rawQuizObj) + answersMap + bubble_coordinates
+  const flatQuestions: any[] = [];
+  if (rawQuizObj) {
+    const sections = rawQuizObj.sections || rawQuizObj.data || [];
+    if (Array.isArray(sections)) {
+      sections.forEach((sec: any) => {
+        if (Array.isArray(sec?.questions)) {
+          flatQuestions.push(...sec.questions);
+        } else if (sec && (sec.question || sec.text || sec.content || sec.type)) {
+          flatQuestions.push(sec);
+        }
+      });
+    }
+    if (flatQuestions.length === 0 && Array.isArray(rawQuizObj.questions)) {
+      flatQuestions.push(...rawQuizObj.questions);
+    }
+  }
+
+  const counts = rawQuizObj
+    ? extractExamQuestionCounts(rawQuizObj)
+    : { part1Count: 12, part2Count: 4, part3Count: 6, totalCount: 22 };
+
+  const totalCount =
+    flatQuestions.length > 0
+      ? flatQuestions.length
+      : Number(attempt?.total_questions ?? attempt?.totalQuestions ?? counts.totalCount) || 22;
+
+  const p1Limit = counts.part1Count || 12;
+  const p2Limit = counts.part2Count || 4;
+
+  const allRows: FullQuestionReviewRow[] = [];
+
+  for (let i = 0; i < totalCount; i++) {
+    const qOrder = i + 1;
+    const qObj = flatQuestions[i] || null;
+    const qId = String(qObj?.id || `q_${qOrder}`);
+
+    let partNum: 1 | 2 | 3 = 1;
+    let localNum = qOrder;
+    if (qOrder <= p1Limit) {
+      partNum = 1;
+      localNum = qOrder;
+    } else if (qOrder <= p1Limit + p2Limit) {
+      partNum = 2;
+      localNum = qOrder - p1Limit;
+    } else {
+      partNum = 3;
+      localNum = qOrder - p1Limit - p2Limit;
+    }
+
+    const partLabel = `Phần ${partNum === 1 ? "I" : partNum === 2 ? "II" : "III"}`;
+
+    // Lấy câu trả lời của học sinh từ answersMap hoặc từ bubble_coordinates
+    let rawStuVal =
+      answersMap[qId] ??
+      answersMap[String(qOrder)] ??
+      answersMap[`p${partNum}_q${localNum}`];
+
+    const sectionTag = `part${partNum}`;
+    const qCoords = coords.filter(
+      (b: any) => b && b.section === sectionTag && Number(b.questionNumber) === localNum
+    );
+
+    let studentDisplay = "";
+    let correctDisplay = "";
+    let autoIsCorrect = false;
+
+    if (partNum === 1) {
+      const pickedBubble = qCoords.find(
+        (b: any) => b.isSelected || b.status === "correct" || b.status === "wrong"
+      );
+      const expectedBubble = qCoords.find(
+        (b: any) => b.status === "correct" || b.status === "expected_missed"
+      );
+
+      studentDisplay = String(
+        rawStuVal || pickedBubble?.optionKey || ""
+      )
+        .trim()
+        .toUpperCase();
+
+      correctDisplay = String(
+        qObj?.correctAnswer || qObj?.answer || expectedBubble?.optionKey || "A"
+      )
+        .trim()
+        .toUpperCase();
+
+      const hasWrongBubble = qCoords.some((b: any) => b.status === "wrong");
+      const hasMissedBubble = qCoords.some((b: any) => b.status === "expected_missed");
+
+      if (qCoords.length > 0) {
+        autoIsCorrect =
+          Boolean(studentDisplay) && !hasWrongBubble && !hasMissedBubble;
+      } else {
+        autoIsCorrect = Boolean(studentDisplay) && studentDisplay === correctDisplay;
+      }
+    } else if (partNum === 2) {
+      const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+      const stuParts: string[] = [];
+      const corParts: string[] = [];
+      let allSubRight = true;
+
+      subKeys.forEach((sk, idx) => {
+        const subCoords = qCoords.filter((b: any) => b.subKey === sk);
+        const pickedSub = subCoords.find(
+          (b: any) => b.isSelected || b.status === "correct" || b.status === "wrong"
+        );
+        const subVal =
+          rawStuVal && typeof rawStuVal === "object" ? rawStuVal[sk] : undefined;
+
+        let stuSubChar = "-";
+        if (subVal === true || pickedSub?.optionKey === "T") stuSubChar = "Đ";
+        else if (subVal === false || pickedSub?.optionKey === "F") stuSubChar = "S";
+        else allSubRight = false;
+
+        stuParts.push(`${sk})${stuSubChar}`);
+
+        const stmtObj = Array.isArray(qObj?.statements) ? qObj.statements[idx] : null;
+        const expectedSub = subCoords.find(
+          (b: any) => b.status === "correct" || b.status === "expected_missed"
+        );
+        let corSubChar = "Đ";
+        if (stmtObj !== null && stmtObj !== undefined) {
+          const isT = Boolean(stmtObj.isTrue ?? stmtObj.correct ?? stmtObj.answer);
+          corSubChar = isT ? "Đ" : "S";
+        } else if (expectedSub) {
+          corSubChar = expectedSub.optionKey === "T" ? "Đ" : "S";
+        }
+        corParts.push(`${sk})${corSubChar}`);
+
+        if (stuSubChar !== corSubChar) {
+          allSubRight = false;
+        }
+      });
+
+      const isAllBlank = stuParts.every((p) => p.endsWith("-"));
+      studentDisplay = isAllBlank ? "" : stuParts.join(" ");
+      correctDisplay = corParts.join(" ");
+      autoIsCorrect = !isAllBlank && allSubRight;
+    } else {
+      // Phần III: Trả lời ngắn
+      const pickedCols = qCoords
+        .filter((b: any) => b.isSelected || b.status === "correct" || b.status === "wrong")
+        .sort((a: any, b: any) => Number(a.colIndex || 0) - Number(b.colIndex || 0));
+
+      const reconstructedFromBubbles = pickedCols.map((b: any) => b.optionKey).join("");
+      studentDisplay = String(
+        rawStuVal !== undefined && rawStuVal !== null && String(rawStuVal).trim() !== ""
+          ? rawStuVal
+          : reconstructedFromBubbles
+      ).trim();
+
+      correctDisplay = String(
+        qObj?.correctAnswer ?? qObj?.shortAnswer ?? qObj?.answer ?? "--"
+      ).trim();
+
+      const normStu = studentDisplay.replace(",", ".");
+      const normCor = correctDisplay.replace(",", ".");
+      const hasWrongCol = qCoords.some((b: any) => b.status === "wrong");
+
+      if (!studentDisplay) {
+        autoIsCorrect = false;
+      } else if (correctDisplay !== "--" && normCor !== "") {
+        autoIsCorrect =
+          normStu === normCor ||
+          (!isNaN(Number(normStu)) &&
+            !isNaN(Number(normCor)) &&
+            Math.abs(Number(normStu) - Number(normCor)) < 1e-4);
+      } else {
+        autoIsCorrect = !hasWrongCol && pickedCols.length > 0;
+      }
+    }
+
+    const isSkipped = !studentDisplay;
+    const manualOverride = questionStatusOverrides?.[qOrder];
+    const finalIsCorrect =
+      manualOverride !== undefined ? manualOverride : isSkipped ? false : autoIsCorrect;
+
+    allRows.push({
+      questionNumber: qOrder,
+      part: partLabel,
+      studentAnswer: isSkipped ? "Bỏ trống / Chưa tô" : studentDisplay,
+      correctAnswer: correctDisplay || "--",
+      isCorrect: finalIsCorrect,
+      isSkipped
+    });
+  }
+
+  const wrongRows: WrongQuestionReviewItem[] = allRows
+    .filter((r) => !r.isCorrect)
+    .map((r) => ({
+      questionNumber: r.questionNumber,
+      part: r.part,
+      studentAnswer: r.studentAnswer,
+      correctAnswer: r.correctAnswer
+    }));
+
+  const p1Rows = allRows.filter((r) => r.part === "Phần I");
+  const p2Rows = allRows.filter((r) => r.part === "Phần II");
+  const p3Rows = allRows.filter((r) => r.part === "Phần III");
+
+  return {
+    allRows,
+    wrongRows,
+    part1Summary:
+      p1Rows.length > 0
+        ? `Đúng ${p1Rows.filter((x) => x.isCorrect).length}/${p1Rows.length} câu`
+        : "Không có trong đề",
+    part2Summary:
+      p2Rows.length > 0
+        ? `Đúng ${p2Rows.filter((x) => x.isCorrect).length}/${p2Rows.length} câu`
+        : "Không có trong đề",
+    part3Summary:
+      p3Rows.length > 0
+        ? `Đúng ${p3Rows.filter((x) => x.isCorrect).length}/${p3Rows.length} câu`
+        : "Không có trong đề",
+    correctCount: allRows.filter((r) => r.isCorrect).length,
+    totalQuestions: allRows.length
+  };
+}
+
 export default function AdminStudentReportPanel({
   registeredStudents = [],
   allAttempts = [],
@@ -168,22 +476,20 @@ export default function AdminStudentReportPanel({
     )}/${d.getFullYear()}`;
   }, []);
 
-  // CHẾ ĐỘ BÁO CÁO: 'daily' (Báo cáo theo Ngày/Buổi học) | 'monthly' (Tổng kết Tháng) | 'manual' (Tự tạo HS mới)
   const [reportViewType, setReportViewType] = useState<"daily" | "monthly" | "manual">("daily");
   const reportMode = reportViewType === "manual" ? "manual" : "auto";
 
-  // STATE DÀNH RIÊNG CHO CHẾ ĐỘ BÁO CÁO NGÀY / BUỔI HỌC
   const [dailyMonth, setDailyMonth] = useState<number>(currentRealtimeMonth);
-  const [dailyWeek, setDailyWeek] = useState<number>(3);
+  const [dailyWeek, setDailyWeek] = useState<number>(4);
   const [customDateStr, setCustomDateStr] = useState<string>(todayFormatted);
   const [overrideTopicTitle, setOverrideTopicTitle] = useState<string>("");
-  const [selectedDailyPracticeId, setSelectedDailyPracticeId] = useState<string>("auto");
+  const [selectedDailyPracticeId, setSelectedDailyPracticeId] = useState<string>("none");
   const [dailyStudentFilterMode, setDailyStudentFilterMode] = useState<
     "all" | "offline" | "online"
   >("all");
   const [includeCoverSummaryPage, setIncludeCoverSummaryPage] = useState<boolean>(true);
 
-  // Ghi nhận chỉnh sửa thủ công điểm số / nhận xét / chuyên cần ngày của từng học viên
+  // Ghi nhận chỉnh sửa thủ công điểm số / nhận xét / chuyên cần / kết quả từng câu OMR của học viên
   const [dailyStudentOverrides, setDailyStudentOverrides] = useState<
     Record<
       string,
@@ -194,6 +500,7 @@ export default function AdminStudentReportPanel({
         teacherComment?: string;
         attendance?: "present" | "late" | "absent";
         homeworkStatus?: "completed" | "missing" | "late";
+        questionStatusOverrides?: Record<number, boolean>;
       }
     >
   >({});
@@ -263,7 +570,6 @@ export default function AdminStudentReportPanel({
     5: ""
   });
 
-  // 1. DANH MỤC SBD CỐ ĐỊNH CỦA CẢ LỚP (ĐẢM BẢO ĐỒNG BỘ 100% VỚI BẢNG SBD LỚP)
   const sbdDirectoryMap = useMemo(() => {
     const sorted = [...(registeredStudents || [])].filter(Boolean);
     sorted.sort((a, b) =>
@@ -285,7 +591,6 @@ export default function AdminStudentReportPanel({
     return map;
   }, [registeredStudents]);
 
-  // 2. TỰ ĐỘNG ĐỒNG BỘ TÊN BÀI HỌC & DANH SÁCH BÀI TẬP / KIỂM TRA TỪ `#lessons` THEO TUẦN & THÁNG
   const matchedLessonsForDaily = useMemo(() => {
     const matched: {
       lessonId: string;
@@ -355,12 +660,10 @@ export default function AdminStudentReportPanel({
     return matched;
   }, [chapters, dailyMonth, dailyWeek]);
 
-  // Tên chuyên đề tự động lấy từ #lessons khi chọn Tuần & Tháng
   const autoSyncedTopicTitle = useMemo(() => {
     if (matchedLessonsForDaily.length > 0) {
       return matchedLessonsForDaily.map((m) => m.lessonTitle).join(" • ");
     }
-    // Fallback lấy bài học đầu tiên có trong chương trình nếu tuần đó chưa gắn nhãn
     for (const chap of chapters || []) {
       if (Array.isArray(chap?.lessons) && chap.lessons.length > 0) {
         return String(chap.lessons[0].title || "Chuyên đề Toán Tư Duy TCT");
@@ -369,12 +672,10 @@ export default function AdminStudentReportPanel({
     return `Chuyên đề Toán 12 — Tuần ${dailyWeek} Tháng ${dailyMonth}`;
   }, [matchedLessonsForDaily, chapters, dailyWeek, dailyMonth]);
 
-  // Reset override khi đổi Tuần / Tháng để hiện đúng bài học mới đồng bộ
   useEffect(() => {
     setOverrideTopicTitle("");
   }, [dailyMonth, dailyWeek]);
 
-  // Bản đồ tra cứu assigned_month và assigned_week chung
   const quizAssignmentMap = useMemo(() => {
     const byId = new Map<
       string,
@@ -467,9 +768,9 @@ export default function AdminStudentReportPanel({
     [quizAssignmentMap]
   );
 
-  // 3. TÍNH TOÁN DỮ LIỆU BÁO CÁO NGÀY (DAILY REPORT ENGINE) CHO TOÀN BỘ HỌC SINH TRONG LỚP
+  // 3. TÍNH TOÁN DỮ LIỆU BÁO CÁO NGÀY (KHÔNG GÁN ĐIỂM BỪA SANG ĐỀ THỰC CHIẾN & TÁI TẠO ĐỦ 22 CÂU OMR)
   const computeStudentDailyScoreRecord = useCallback(
-    (student: any): StudentDailyScoreData => {
+    (student: any): StudentDailyScoreData & { allQuestionsReviewList?: FullQuestionReviewRow[] } => {
       const stuId = String(student?.id || "").trim();
       const stuName = String(student?.full_name || student?.name || "Học sinh").trim();
       const dirInfo = sbdDirectoryMap.get(stuId);
@@ -547,29 +848,33 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        // 3. Khớp Đề Luyện Thi Thực Chiến trong Tháng
-        if (!isHw) {
-          if (selectedDailyPracticeId !== "auto") {
-            if (qId === selectedDailyPracticeId.toLowerCase()) {
-              if (
-                !bestPracticeAttempt ||
-                sc >= Number(bestPracticeAttempt.score ?? bestPracticeAttempt.points ?? 0)
-              ) {
-                bestPracticeAttempt = att;
-              }
-            }
-          } else if (month === dailyMonth) {
-            if (
-              !bestPracticeAttempt ||
-              sc >= Number(bestPracticeAttempt.score ?? bestPracticeAttempt.points ?? 0)
-            ) {
-              bestPracticeAttempt = att;
-            }
+        // 3. Khớp Đề Luyện Thi Thực Chiến Tháng (CHỈ LẤY KHI GIÁO VIÊN CHỌN CỤ THỂ ĐỀ THỰC CHIẾN VÀ KHÔNG TRÙNG BÀI TEST TẠI LỚP)
+        if (
+          selectedDailyPracticeId !== "none" &&
+          selectedDailyPracticeId !== "auto" &&
+          qId === selectedDailyPracticeId.toLowerCase()
+        ) {
+          if (
+            !bestPracticeAttempt ||
+            sc >= Number(bestPracticeAttempt.score ?? bestPracticeAttempt.points ?? 0)
+          ) {
+            bestPracticeAttempt = att;
+          }
+        } else if (
+          selectedDailyPracticeId === "auto" &&
+          !isHw &&
+          !isTest &&
+          month === dailyMonth
+        ) {
+          if (
+            !bestPracticeAttempt ||
+            sc >= Number(bestPracticeAttempt.score ?? bestPracticeAttempt.points ?? 0)
+          ) {
+            bestPracticeAttempt = att;
           }
         }
       });
 
-      // Nếu trong tuần chưa có bài Test riêng mà học sinh có nộp 1 bài chấm giấy OMR trong tháng, ưu tiên lấy làm bài Test đối soát
       if (!bestDailyTestAttempt) {
         const anyPaperInMonth = stuAttempts.find((att: any) => {
           const { month } = resolveAttemptMonthAndWeek(att);
@@ -586,30 +891,49 @@ export default function AdminStudentReportPanel({
         }
       }
 
+      // Đảm bảo không bao giờ lấy trùng bài Test tại lớp gán sang Đề thực chiến tháng (trừ khi giáo viên cố tình chọn đúng đề đó)
+      if (
+        bestPracticeAttempt &&
+        bestDailyTestAttempt &&
+        String(bestPracticeAttempt.id) === String(bestDailyTestAttempt.id) &&
+        selectedDailyPracticeId === "auto"
+      ) {
+        bestPracticeAttempt = null;
+      }
+
       const ov = dailyStudentOverrides[stuId] || {};
 
       const hwScore =
-        ov.homeworkScore !== undefined && ov.homeworkScore !== ""
-          ? Number(ov.homeworkScore)
+        ov.homeworkScore !== undefined
+          ? ov.homeworkScore.trim() === ""
+            ? null
+            : Number(ov.homeworkScore)
           : bestHwAttempt
           ? Number(bestHwAttempt.score ?? bestHwAttempt.points ?? 0)
           : null;
 
       const testScore =
-        ov.dailyTestScore !== undefined && ov.dailyTestScore !== ""
-          ? Number(ov.dailyTestScore)
+        ov.dailyTestScore !== undefined
+          ? ov.dailyTestScore.trim() === ""
+            ? null
+            : Number(ov.dailyTestScore)
           : bestDailyTestAttempt
           ? Number(bestDailyTestAttempt.score ?? bestDailyTestAttempt.points ?? 0)
           : null;
 
-      const pracScore =
-        ov.practiceScore !== undefined && ov.practiceScore !== ""
-          ? Number(ov.practiceScore)
+      const rawPracScore =
+        ov.practiceScore !== undefined
+          ? ov.practiceScore.trim() === ""
+            ? null
+            : Number(ov.practiceScore)
           : bestPracticeAttempt
           ? Number(bestPracticeAttempt.score ?? bestPracticeAttempt.points ?? 0)
           : null;
 
-      // Kiểm tra và trích xuất dữ liệu Phụ bản OMR (Nếu bài Test hoặc BTVN được chấm qua phiếu giấy OMR)
+      // Nếu điểm đề thực chiến <= 0 hoặc null -> Gán null để hiển thị "Không kiểm tra"
+      const pracScore =
+        rawPracScore !== null && !isNaN(rawPracScore) && rawPracScore > 0 ? rawPracScore : null;
+
       const paperSourceAtt =
         (bestDailyTestAttempt &&
         (bestDailyTestAttempt.submission_type === "paper" ||
@@ -632,11 +956,14 @@ export default function AdminStudentReportPanel({
       let scannedPaperImageUrl: string | undefined = undefined;
       let bubbleCoordinates: any[] = [];
       let wrongQuestionsList: WrongQuestionReviewItem[] = [];
+      let allQuestionsReviewList: FullQuestionReviewRow[] = [];
       let part1ScoreStr: string | undefined = undefined;
       let part2ScoreStr: string | undefined = undefined;
       let part3ScoreStr: string | undefined = undefined;
       let paperExamTitle: string | undefined = undefined;
       let paperExamCode: string | undefined = undefined;
+      let computedCorrectCount: number | null = null;
+      let computedTotalQuestions: number | null = null;
 
       if (paperSourceAtt) {
         const meta =
@@ -666,26 +993,20 @@ export default function AdminStudentReportPanel({
             meta.detected_exam_code ||
             "101";
 
-          // Chấm lại chi tiết từng câu với đề gốc (nếu tìm thấy đề gốc) để lấy danh sách câu sai & điểm Phần I, II, III
           const { rawQuizObj } = resolveAttemptMonthAndWeek(paperSourceAtt);
-          if (rawQuizObj && paperSourceAtt.omr_raw_data) {
-            try {
-              const regraded = gradeOMRSubmission(paperSourceAtt.omr_raw_data, rawQuizObj);
-              part1ScoreStr = `${regraded.part1Score.toFixed(2)} điểm`;
-              part2ScoreStr = `${regraded.part2Score.toFixed(2)} điểm`;
-              part3ScoreStr = `${regraded.part3Score.toFixed(2)} điểm`;
-              bubbleCoordinates = regraded.updatedOmrData.bubble_coordinates || bubbleCoordinates;
+          const reviewBuilt = buildFullOMRQuestionsReview(
+            paperSourceAtt,
+            rawQuizObj,
+            ov.questionStatusOverrides
+          );
 
-              wrongQuestionsList = (regraded.questionDetails || [])
-                .filter((qd) => qd.status !== "correct")
-                .map((qd) => ({
-                  questionNumber: qd.questionOrder,
-                  part: `Phần ${qd.part === 1 ? "I" : qd.part === 2 ? "II" : "III"}`,
-                  studentAnswer: qd.studentAnswerDisplay || "Bỏ trống",
-                  correctAnswer: qd.correctAnswerDisplay || ""
-                }));
-            } catch {}
-          }
+          allQuestionsReviewList = reviewBuilt.allRows;
+          wrongQuestionsList = reviewBuilt.wrongRows;
+          part1ScoreStr = reviewBuilt.part1Summary;
+          part2ScoreStr = reviewBuilt.part2Summary;
+          part3ScoreStr = reviewBuilt.part3Summary;
+          computedCorrectCount = reviewBuilt.correctCount;
+          computedTotalQuestions = reviewBuilt.totalQuestions;
         }
       }
 
@@ -702,6 +1023,14 @@ export default function AdminStudentReportPanel({
               overrideTopicTitle || autoSyncedTopicTitle
             }". Gia đình nhắc nhở con hoàn thành đầy đủ bài tập về nhà và ôn kỹ các công thức trọng tâm của buổi học.`;
 
+      // Tự động đặt trạng thái BTVN: nếu không có điểm BTVN thì mặc định là "missing" (Chưa hoàn thành), vẫn tôn trọng lựa chọn thủ công của giáo viên
+      const resolvedHomeworkStatus: "completed" | "missing" | "late" =
+        ov.homeworkStatus !== undefined
+          ? ov.homeworkStatus
+          : hwScore !== null && hwScore > 0
+          ? "completed"
+          : "missing";
+
       return {
         studentId: stuId,
         studentName: stuName,
@@ -717,31 +1046,38 @@ export default function AdminStudentReportPanel({
           ? Number(bestHwAttempt.total_questions ?? bestHwAttempt.totalQuestions ?? 0) || null
           : null,
         dailyTestScore: testScore,
-        dailyTestCorrect: bestDailyTestAttempt
-          ? Number(
-              bestDailyTestAttempt.correct_answers_count ??
-                bestDailyTestAttempt.correct_count ??
-                bestDailyTestAttempt.correctCount ??
-                0
-            ) || null
-          : null,
-        dailyTestTotal: bestDailyTestAttempt
-          ? Number(
-              bestDailyTestAttempt.total_questions ?? bestDailyTestAttempt.totalQuestions ?? 0
-            ) || null
-          : null,
+        dailyTestCorrect:
+          computedCorrectCount !== null
+            ? computedCorrectCount
+            : bestDailyTestAttempt
+            ? Number(
+                bestDailyTestAttempt.correct_answers_count ??
+                  bestDailyTestAttempt.correct_count ??
+                  bestDailyTestAttempt.correctCount ??
+                  0
+              ) || null
+            : null,
+        dailyTestTotal:
+          computedTotalQuestions !== null
+            ? computedTotalQuestions
+            : bestDailyTestAttempt
+            ? Number(
+                bestDailyTestAttempt.total_questions ?? bestDailyTestAttempt.totalQuestions ?? 0
+              ) || null
+            : null,
         practiceScore: pracScore,
         practiceExamTitle:
-          bestPracticeAttempt?.exam_title ||
-          bestPracticeAttempt?.examTitle ||
-          `Đề thực chiến Tháng ${dailyMonth}`,
+          pracScore !== null
+            ? bestPracticeAttempt?.exam_title ||
+              bestPracticeAttempt?.examTitle ||
+              `Đề thực chiến Tháng ${dailyMonth}`
+            : "Không tổ chức kiểm tra đề tháng",
         part1Score: part1ScoreStr,
         part2Score: part2ScoreStr,
         part3Score: part3ScoreStr,
         teacherComment: ov.teacherComment !== undefined ? ov.teacherComment : defaultComment,
-        attendance: ov.attendance || "present",
-        homeworkStatus:
-          ov.homeworkStatus || (hwScore !== null ? "completed" : "missing"),
+        attendance: ov.attendance !== undefined ? ov.attendance : "present",
+        homeworkStatus: resolvedHomeworkStatus,
         hasPaperOMR,
         paperExamTitle,
         paperExamCode,
@@ -749,7 +1085,8 @@ export default function AdminStudentReportPanel({
         canonicalWidth: OMR_CANONICAL_WIDTH,
         canonicalHeight: OMR_CANONICAL_HEIGHT,
         bubbleCoordinates,
-        wrongQuestionsList
+        wrongQuestionsList,
+        allQuestionsReviewList
       };
     },
     [
@@ -767,7 +1104,26 @@ export default function AdminStudentReportPanel({
     ]
   );
 
-  // Danh sách học sinh lọc theo tìm kiếm & phân hệ
+  // Cho phép giáo viên bấm đổi nhanh trạng thái Đúng/Sai của từng câu OMR nếu máy quét bắt sót vết chì mờ
+  const handleToggleOMRQuestionCorrectness = (
+    studentId: string,
+    questionNumber: number,
+    currentIsCorrect: boolean
+  ) => {
+    setDailyStudentOverrides((prev) => {
+      const curStu = prev[studentId] || {};
+      const curMap = { ...(curStu.questionStatusOverrides || {}) };
+      curMap[questionNumber] = !currentIsCorrect;
+      return {
+        ...prev,
+        [studentId]: {
+          ...curStu,
+          questionStatusOverrides: curMap
+        }
+      };
+    });
+  };
+
   const filteredStudents = useMemo(() => {
     return (registeredStudents || []).filter((s) => {
       const matchSearch =
@@ -799,7 +1155,6 @@ export default function AdminStudentReportPanel({
     return computeStudentDailyScoreRecord(currentStudent);
   }, [currentStudent, computeStudentDailyScoreRecord]);
 
-  // HÀM XUẤT PDF MULTI-PAGE CHO CẢ LỚP (HOẶC 1 HỌC SINH ĐANG CHỌN)
   const handleExportClassDailyPDF = (onlyCurrentStudent: boolean = false) => {
     const targetStudents = onlyCurrentStudent
       ? currentStudent
@@ -830,11 +1185,22 @@ export default function AdminStudentReportPanel({
     openPrintOrDownloadClassReport(htmlDoc);
   };
 
-  // SAO CHÉP NỘI DUNG BÁO CÁO NGÀY GỬI ZALO PHỤ HUYNH (BRANDING TCT 100%)
   const handleCopyDailyZalo = () => {
     if (!currentStudentDailyData) return;
     const d = currentStudentDailyData;
     const topic = (overrideTopicTitle && overrideTopicTitle.trim()) || autoSyncedTopicTitle;
+    const attText =
+      d.attendance === "present"
+        ? "Có mặt đúng giờ"
+        : d.attendance === "late"
+        ? "Đi học muộn"
+        : "Nghỉ học";
+    const hwStatusText =
+      d.homeworkStatus === "completed"
+        ? "Hoàn thành đầy đủ"
+        : d.homeworkStatus === "late"
+        ? "Nộp muộn"
+        : "Chưa hoàn thành";
 
     const msg =
       `[TRUNG TÂM TOÁN TÂM CHÍ TÀI - TCT]\n` +
@@ -843,15 +1209,22 @@ export default function AdminStudentReportPanel({
       `• Trường: ${d.school} • Phân hệ: ${d.learningMode}\n` +
       `• Chuyên đề: ${topic}\n` +
       `------------------------------------\n` +
-      `I. KẾT QUẢ ĐIỂM SỐ TRONG NGÀY:\n` +
-      `1. Bài tập về nhà (BTVN): ${
-        d.homeworkScore !== null ? `${d.homeworkScore}/10` : "Chưa nộp"
+      `I. KẾT QUẢ ĐIỂM SỐ & CHUYÊN CẦN TRONG NGÀY:\n` +
+      `1. Chuyên cần: ${attText} | Ý thức BTVN: ${hwStatusText}\n` +
+      `2. Điểm Bài tập về nhà (BTVN): ${
+        d.homeworkScore !== null ? `${d.homeworkScore}/10` : "-- / 10 (Chưa nộp)"
       }\n` +
-      `2. Bài Kiểm tra tại lớp: ${
+      `3. Điểm Kiểm tra tại lớp: ${
         d.dailyTestScore !== null ? `${d.dailyTestScore}/10` : "Chưa kiểm tra"
-      }${d.hasPaperOMR ? " (Đã chấm phiếu OMR)" : ""}\n` +
-      `3. Đề thực chiến tháng: ${
-        d.practiceScore !== null ? `${d.practiceScore}/10` : "--"
+      }${
+        d.hasPaperOMR
+          ? ` (Đúng ${d.dailyTestCorrect}/${d.dailyTestTotal} câu trên phiếu OMR)`
+          : ""
+      }\n` +
+      `4. Đề thực chiến tháng: ${
+        d.practiceScore !== null && d.practiceScore > 0
+          ? `${d.practiceScore}/10`
+          : "Không kiểm tra"
       }\n` +
       `------------------------------------\n` +
       `II. NHẬN XÉT CỦA GIÁO VIÊN:\n` +
@@ -865,7 +1238,7 @@ export default function AdminStudentReportPanel({
     }
   };
 
-  // --- CÁC LOGIC DÀNH CHO BÁO CÁO THÁNG HIỆN CÓ ---
+  // --- CÁC LOGIC BÁO CÁO THÁNG HIỆN CÓ ---
   const studentAllAttempts = useMemo(() => {
     if (!currentStudent) return [];
     return allAttempts.filter(
@@ -956,7 +1329,13 @@ export default function AdminStudentReportPanel({
     } else {
       setSelectedPracticeExams([]);
     }
-  }, [currentStudent?.id, reportMonth, studentPracticeAttempts, reportMode, resolveAttemptMonthAndWeek]);
+  }, [
+    currentStudent?.id,
+    reportMonth,
+    studentPracticeAttempts,
+    reportMode,
+    resolveAttemptMonthAndWeek
+  ]);
 
   const autoData = useMemo(() => {
     const emptyWeeks: { [key: number]: string } = { 1: "", 2: "", 3: "", 4: "", 5: "" };
@@ -1051,7 +1430,13 @@ export default function AdminStudentReportPanel({
       hwByWeek,
       testByWeek
     };
-  }, [studentAllAttempts, currentStudent, reportMonth, quizAssignmentMap, resolveAttemptMonthAndWeek]);
+  }, [
+    studentAllAttempts,
+    currentStudent,
+    reportMonth,
+    quizAssignmentMap,
+    resolveAttemptMonthAndWeek
+  ]);
 
   const practiceStats = useMemo(() => {
     const parseScore = (val: any) => Number(String(val ?? "").replace(",", ".").trim());
@@ -1239,17 +1624,15 @@ export default function AdminStudentReportPanel({
     setSelectedPracticeExams((prev) => prev.filter((item) => item.id !== id));
   };
 
-  // RENDER CANVAS BÁO CÁO THÁNG (ĐỒNG BỘ THƯƠNG HIỆU TÂM CHÍ TÀI 100%)
   const renderCanvasPage = (pageMode: "single" | "page1" | "page2"): string | null => {
     const canvas = document.createElement("canvas");
-    const scale = 2;
+    const scale = 3; // Độ phân giải 3x siêu nét
     const logicalWidth = 880;
     const outerPad = 32;
     const innerPad = 28;
     const contentX = outerPad + innerPad;
     const contentWidth = logicalWidth - (outerPad + innerPad) * 2;
-    const FONT_SANS =
-      'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const FONT_SERIF = "'Times New Roman', Times, serif";
 
     const testCanvas = document.createElement("canvas");
     const testCtx = testCanvas.getContext("2d");
@@ -1259,7 +1642,7 @@ export default function AdminStudentReportPanel({
     const renderedBullets: { title: string; lines: string[]; blockHeight: number }[] = [];
 
     parsedEvalBullets.forEach((b) => {
-      testCtx.font = "400 13.5px " + FONT_SANS;
+      testCtx.font = "400 14px " + FONT_SERIF;
       const fullWords = b.body.split(/\s+/);
       const lines: string[] = [];
       let curLine = "";
@@ -1291,11 +1674,11 @@ export default function AdminStudentReportPanel({
         ? currentReport.practiceItems.length * pracRowH + 42
         : 68;
 
-    let logicalHeight = 560 + pracTableH + totalEvalCardHeight + 130;
+    let logicalHeight = 560 + pracTableH + totalEvalCardHeight + 110;
     if (pageMode === "page1") {
       logicalHeight = 490 + pracTableH + 75;
     } else if (pageMode === "page2") {
-      logicalHeight = 220 + totalEvalCardHeight + 135;
+      logicalHeight = 200 + totalEvalCardHeight + 110;
     }
 
     canvas.width = logicalWidth * scale;
@@ -1313,20 +1696,10 @@ export default function AdminStudentReportPanel({
       outerPad,
       logicalWidth - outerPad * 2,
       logicalHeight - outerPad * 2,
-      20,
+      16,
       "#FFFFFF",
-      "#E2E8F0",
+      "#CBD5E1",
       1.5
-    );
-
-    drawRoundedRect(
-      ctx,
-      outerPad + 24,
-      outerPad,
-      logicalWidth - (outerPad + 24) * 2,
-      4,
-      2,
-      "#1D4ED8"
     );
 
     let cursorY = outerPad + 24;
@@ -1338,31 +1711,29 @@ export default function AdminStudentReportPanel({
       cursorY,
       contentWidth,
       headerH,
-      16,
+      12,
       "#F8FAFC",
-      "#E2E8F0",
+      "#CBD5E1",
       1
     );
 
-    drawRoundedRect(ctx, contentX, cursorY + 14, 4, headerH - 28, 2, "#1D4ED8");
-
-    ctx.fillStyle = "#1D4ED8";
-    ctx.font = "700 10.5px " + FONT_SANS;
+    ctx.fillStyle = "#003399";
+    ctx.font = "bold 12px " + FONT_SERIF;
     const subHeaderTitle =
       pageMode === "page2"
-        ? "TRUNG TÂM TOÁN TÂM CHÍ TÀI • TRANG 2/2: NHẬN XÉT"
+        ? "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • TRANG 2/2: NHẬN XÉT"
         : pageMode === "page1"
-        ? "TRUNG TÂM TOÁN TÂM CHÍ TÀI • TRANG 1/2: KẾT QUẢ HỌC TẬP"
-        : "TRUNG TÂM TOÁN TÂM CHÍ TÀI • PHIẾU BÁO CÁO KẾT QUẢ ĐỊNH KỲ";
+        ? "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • TRANG 1/2: KẾT QUẢ HỌC TẬP"
+        : "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • PHIẾU BÁO CÁO KẾT QUẢ ĐỊNH KỲ";
     ctx.fillText(subHeaderTitle, contentX + 20, cursorY + 25);
 
     ctx.fillStyle = "#0F172A";
-    ctx.font = "800 22px " + FONT_SANS;
+    ctx.font = "bold 23px " + FONT_SERIF;
     ctx.fillText(currentReport.fullName, contentX + 20, cursorY + 54);
 
     if (pageMode !== "page2") {
-      ctx.fillStyle = "#64748B";
-      ctx.font = "500 12.5px " + FONT_SANS;
+      ctx.fillStyle = "#334155";
+      ctx.font = "14px " + FONT_SERIF;
       ctx.fillText(
         `${currentReport.school}   •   ${currentReport.grade}`,
         contentX + 20,
@@ -1374,27 +1745,16 @@ export default function AdminStudentReportPanel({
     const badgeH = 30;
     const badgeX = contentX + contentWidth - badgeW - 18;
     const badgeY = cursorY + 16;
-    drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 10, "#1D4ED8");
+    drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 8, "#003399");
 
     ctx.fillStyle = "#FFFFFF";
-    ctx.font = "700 11.5px " + FONT_SANS;
+    ctx.font = "bold 12.5px " + FONT_SERIF;
     ctx.textAlign = "center";
     ctx.fillText(
       currentReport.timeframeText.toUpperCase(),
       badgeX + badgeW / 2,
       badgeY + 19
     );
-
-    if (pageMode !== "page2") {
-      ctx.fillStyle = "#475569";
-      ctx.font = "600 12px " + FONT_SANS;
-      ctx.textAlign = "right";
-      ctx.fillText(
-        `Đã hoàn thành: ${currentReport.total} bài`,
-        contentX + contentWidth - 18,
-        cursorY + 74
-      );
-    }
     ctx.textAlign = "left";
 
     cursorY += headerH + 22;
@@ -1409,58 +1769,56 @@ export default function AdminStudentReportPanel({
           label: "TỔNG BÀI NỘP",
           val: `${currentReport.total} bài`,
           bg: "#F8FAFC",
-          border: "#E2E8F0",
-          accent: "#64748B",
-          labelColor: "#64748B",
+          border: "#CBD5E1",
+          labelColor: "#475569",
           valColor: "#0F172A",
         },
         {
           label: "ĐIỂM TB BTVN",
           val: `${currentReport.hwAvg} / 10`,
-          bg: "#F0FDF4",
-          border: "#BBF7D0",
-          accent: "#10B981",
+          bg: "#ECFDF5",
+          border: "#059669",
           labelColor: "#047857",
           valColor: "#065F46",
         },
         {
           label: "ĐIỂM TB KIỂM TRA",
           val: `${currentReport.testAvg} / 10`,
-          bg: "#EEF2FF",
-          border: "#C7D2FE",
-          accent: "#6366F1",
-          labelColor: "#4338CA",
-          valColor: "#312E81",
+          bg: "#EFF6FF",
+          border: "#1D4ED8",
+          labelColor: "#1D4ED8",
+          valColor: "#1E3A8A",
         },
         {
           label: "ĐIỂM TB LUYỆN ĐỀ",
-          val: `${currentReport.practiceAvg} / 10`,
-          bg: "#EFF6FF",
-          border: "#BFDBFE",
-          accent: "#2563EB",
-          labelColor: "#1D4ED8",
-          valColor: "#1E3A8A",
+          val:
+            currentReport.practiceAvg !== "--"
+              ? `${currentReport.practiceAvg} / 10`
+              : "Không KT",
+          bg: "#FFF7ED",
+          border: "#EA580C",
+          labelColor: "#C2410C",
+          valColor: "#9A3412",
         },
       ];
 
       summaryCards.forEach((c, idx) => {
         const cx = contentX + idx * (cardW + gap);
-        drawRoundedRect(ctx, cx, cursorY, cardW, cardH, 14, c.bg, c.border, 1);
-        drawRoundedRect(ctx, cx + 14, cursorY, 36, 3, 1.5, c.accent);
+        drawRoundedRect(ctx, cx, cursorY, cardW, cardH, 10, c.bg, c.border, 1.2);
 
         ctx.fillStyle = c.labelColor;
-        ctx.font = "700 10px " + FONT_SANS;
+        ctx.font = "bold 11px " + FONT_SERIF;
         ctx.fillText(c.label, cx + 16, cursorY + 25);
 
         ctx.fillStyle = c.valColor;
-        ctx.font = "800 20px " + FONT_SANS;
+        ctx.font = "bold 20px " + FONT_SERIF;
         ctx.fillText(c.val, cx + 16, cursorY + 54);
       });
 
       cursorY += cardH + 26;
 
-      ctx.fillStyle = "#0F172A";
-      ctx.font = "700 12.5px " + FONT_SANS;
+      ctx.fillStyle = "#003399";
+      ctx.font = "bold 13.5px " + FONT_SERIF;
       ctx.fillText(
         `1. BẢNG THEO DÕI ĐIỂM SỐ ${weekCols.length} TUẦN (BTVN & KIỂM TRA ĐỊNH KỲ)`,
         contentX,
@@ -1469,14 +1827,13 @@ export default function AdminStudentReportPanel({
 
       const tblTop = cursorY + 10;
       const tblH = 108;
-      drawRoundedRect(ctx, contentX, tblTop, contentWidth, tblH, 14, "#FFFFFF", "#E2E8F0", 1);
+      drawRoundedRect(ctx, contentX, tblTop, contentWidth, tblH, 10, "#FFFFFF", "#94A3B8", 1);
 
-      drawRoundedRect(ctx, contentX, tblTop, contentWidth, 34, 14, "#F1F5F9");
       ctx.fillStyle = "#F1F5F9";
-      ctx.fillRect(contentX, tblTop + 20, contentWidth, 14);
+      ctx.fillRect(contentX + 1, tblTop + 1, contentWidth - 2, 33);
 
-      ctx.fillStyle = "#475569";
-      ctx.font = "700 11.5px " + FONT_SANS;
+      ctx.fillStyle = "#0F172A";
+      ctx.font = "bold 12.5px " + FONT_SERIF;
       ctx.fillText("Hạng mục đánh giá", contentX + 18, tblTop + 22);
 
       const weekZoneStart = contentX + 240;
@@ -1494,29 +1851,21 @@ export default function AdminStudentReportPanel({
       ctx.textAlign = "left";
 
       const row1Y = tblTop + 58;
-      ctx.fillStyle = "#1E293B";
-      ctx.font = "600 12.5px " + FONT_SANS;
+      ctx.fillStyle = "#0F172A";
+      ctx.font = "bold 13px " + FONT_SERIF;
       ctx.fillText("Bài tập về nhà (BTVN)", contentX + 18, row1Y);
 
       ctx.textAlign = "center";
       weekCols.forEach((w, idx) => {
         const colCenterX = weekZoneStart + idx * weekStep + weekStep / 2;
         const sc = currentReport.hwScores[w];
-        if (sc) {
-          drawRoundedRect(ctx, colCenterX - 26, row1Y - 15, 52, 22, 6, "#ECFDF5", "#A7F3D0", 1);
-          ctx.fillStyle = "#047857";
-          ctx.font = "700 12px " + FONT_SANS;
-          ctx.fillText(`${sc}đ`, colCenterX, row1Y);
-        } else {
-          ctx.fillStyle = "#94A3B8";
-          ctx.font = "500 12px " + FONT_SANS;
-          ctx.fillText("--", colCenterX, row1Y);
-        }
+        ctx.fillStyle = sc ? "#047857" : "#64748B";
+        ctx.font = "bold 13px " + FONT_SERIF;
+        ctx.fillText(sc ? `${sc}đ` : "--", colCenterX, row1Y);
       });
 
       ctx.textAlign = "right";
       ctx.fillStyle = "#047857";
-      ctx.font = "800 13px " + FONT_SANS;
       ctx.fillText(
         currentReport.hwAvg !== "--" ? `${currentReport.hwAvg} / 10` : "--",
         contentX + contentWidth - 18,
@@ -1524,37 +1873,20 @@ export default function AdminStudentReportPanel({
       );
       ctx.textAlign = "left";
 
-      ctx.strokeStyle = "#F1F5F9";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(contentX + 12, tblTop + 71);
-      ctx.lineTo(contentX + contentWidth - 12, tblTop + 71);
-      ctx.stroke();
-
       const row2Y = tblTop + 94;
-      ctx.fillStyle = "#1E293B";
-      ctx.font = "600 12.5px " + FONT_SANS;
+      ctx.fillStyle = "#0F172A";
       ctx.fillText("Kiểm tra định kỳ", contentX + 18, row2Y);
 
       ctx.textAlign = "center";
       weekCols.forEach((w, idx) => {
         const colCenterX = weekZoneStart + idx * weekStep + weekStep / 2;
         const sc = currentReport.testScores[w];
-        if (sc) {
-          drawRoundedRect(ctx, colCenterX - 26, row2Y - 15, 52, 22, 6, "#EEF2FF", "#C7D2FE", 1);
-          ctx.fillStyle = "#4338CA";
-          ctx.font = "700 12px " + FONT_SANS;
-          ctx.fillText(`${sc}đ`, colCenterX, row2Y);
-        } else {
-          ctx.fillStyle = "#94A3B8";
-          ctx.font = "500 12px " + FONT_SANS;
-          ctx.fillText("--", colCenterX, row2Y);
-        }
+        ctx.fillStyle = sc ? "#1D4ED8" : "#64748B";
+        ctx.fillText(sc ? `${sc}đ` : "--", colCenterX, row2Y);
       });
 
       ctx.textAlign = "right";
-      ctx.fillStyle = "#4338CA";
-      ctx.font = "800 13px " + FONT_SANS;
+      ctx.fillStyle = "#1D4ED8";
       ctx.fillText(
         currentReport.testAvg !== "--" ? `${currentReport.testAvg} / 10` : "--",
         contentX + contentWidth - 18,
@@ -1563,131 +1895,12 @@ export default function AdminStudentReportPanel({
       ctx.textAlign = "left";
 
       cursorY = tblTop + tblH + 26;
-
-      ctx.fillStyle = "#0F172A";
-      ctx.font = "700 12.5px " + FONT_SANS;
-      ctx.fillText(
-        `2. BẢNG ĐIỂM LUYỆN ĐỀ THỰC CHIẾN (${currentReport.practiceItems.length} ĐỀ)`,
-        contentX,
-        cursorY
-      );
-
-      const pracTableTop = cursorY + 10;
-      drawRoundedRect(
-        ctx,
-        contentX,
-        pracTableTop,
-        contentWidth,
-        pracTableH,
-        14,
-        "#FFFFFF",
-        "#E2E8F0",
-        1
-      );
-
-      drawRoundedRect(ctx, contentX, pracTableTop, contentWidth, 34, 14, "#EFF6FF");
-      ctx.fillStyle = "#EFF6FF";
-      ctx.fillRect(contentX, pracTableTop + 20, contentWidth, 14);
-
-      ctx.fillStyle = "#1E40AF";
-      ctx.font = "700 11.5px " + FONT_SANS;
-      ctx.fillText("STT", contentX + 18, pracTableTop + 22);
-      ctx.fillText("Tên đề thi thực chiến", contentX + 64, pracTableTop + 22);
-      ctx.textAlign = "center";
-      ctx.fillText("Phân loại / Hình thức", contentX + 455, pracTableTop + 22);
-      ctx.fillText("Ngày hoàn thành", contentX + 615, pracTableTop + 22);
-      ctx.textAlign = "right";
-      ctx.fillText("Kết quả", contentX + contentWidth - 18, pracTableTop + 22);
-      ctx.textAlign = "left";
-
-      let curPracY = pracTableTop + 34;
-      if (currentReport.practiceItems.length === 0) {
-        ctx.fillStyle = "#94A3B8";
-        ctx.font = "500 12px " + FONT_SANS;
-        ctx.fillText(
-          "Chưa có đề luyện thi nào được chọn trong kỳ báo cáo này.",
-          contentX + 18,
-          curPracY + 22
-        );
-      } else {
-        currentReport.practiceItems.forEach((item, pIdx) => {
-          if (pIdx % 2 === 1) {
-            ctx.fillStyle = "#F8FAFC";
-            ctx.fillRect(contentX + 2, curPracY, contentWidth - 4, pracRowH);
-          }
-
-          if (pIdx > 0) {
-            ctx.strokeStyle = "#F1F5F9";
-            ctx.beginPath();
-            ctx.moveTo(contentX + 12, curPracY);
-            ctx.lineTo(contentX + contentWidth - 12, curPracY);
-            ctx.stroke();
-          }
-
-          const rowTextY = curPracY + 24;
-
-          ctx.fillStyle = "#64748B";
-          ctx.font = "600 12px " + FONT_SANS;
-          ctx.fillText(String(pIdx + 1).padStart(2, "0"), contentX + 18, rowTextY);
-
-          ctx.fillStyle = "#0F172A";
-          ctx.font = "600 12.5px " + FONT_SANS;
-          const cleanTitle =
-            item.title.length > 42 ? item.title.slice(0, 39) + "..." : item.title;
-          ctx.fillText(cleanTitle, contentX + 64, rowTextY);
-
-          const isPaper = item.submissionType === "paper";
-          const catText = formatCategoryWithSubmissionMode(item.category, item.submissionType);
-          ctx.font = "700 9.5px " + FONT_SANS;
-          const catW = Math.max(110, ctx.measureText(catText).width + 18);
-          drawRoundedRect(
-            ctx,
-            contentX + 455 - catW / 2,
-            rowTextY - 14,
-            catW,
-            20,
-            6,
-            isPaper ? "#F3E8FF" : "#EFF6FF",
-            isPaper ? "#D8B4FE" : "#BFDBFE",
-            1
-          );
-          ctx.fillStyle = isPaper ? "#6B21A8" : "#1D4ED8";
-          ctx.textAlign = "center";
-          ctx.fillText(catText, contentX + 455, rowTextY - 1);
-
-          ctx.fillStyle = "#475569";
-          ctx.font = "500 12px " + FONT_SANS;
-          ctx.fillText(item.completedDate, contentX + 615, rowTextY);
-
-          const scoreBadgeW = 68;
-          const scoreBadgeX = contentX + contentWidth - scoreBadgeW - 16;
-          drawRoundedRect(
-            ctx,
-            scoreBadgeX,
-            rowTextY - 15,
-            scoreBadgeW,
-            22,
-            7,
-            "#FEF2F2",
-            "#FECACA",
-            1
-          );
-          ctx.fillStyle = "#E11D48";
-          ctx.font = "800 12px " + FONT_SANS;
-          ctx.fillText(`${item.score} / 10`, scoreBadgeX + scoreBadgeW / 2, rowTextY);
-
-          ctx.textAlign = "left";
-          curPracY += pracRowH;
-        });
-      }
-
-      cursorY = pracTableTop + pracTableH + 24;
     }
 
     if (pageMode === "single" || pageMode === "page2") {
-      ctx.fillStyle = "#0F172A";
-      ctx.font = "700 12.5px " + FONT_SANS;
-      ctx.fillText("3. NHẬN XÉT CHI TIẾT & ĐỊNH HƯỚNG TỪ GIÁO VIÊN PHỤ TRÁCH", contentX, cursorY);
+      ctx.fillStyle = "#003399";
+      ctx.font = "bold 13.5px " + FONT_SERIF;
+      ctx.fillText("NHẬN XÉT CHI TIẾT & ĐỊNH HƯỚNG TỪ GIÁO VIÊN", contentX, cursorY);
 
       const evalCardTop = cursorY + 10;
       drawRoundedRect(
@@ -1696,22 +1909,11 @@ export default function AdminStudentReportPanel({
         evalCardTop,
         contentWidth,
         totalEvalCardHeight,
-        16,
+        12,
         "#F8FAFC",
-        "#E2E8F0",
+        "#CBD5E1",
         1
       );
-
-      ctx.save();
-      ctx.fillStyle = "rgba(29, 78, 216, 0.035)";
-      ctx.font = "900 44px " + FONT_SANS;
-      ctx.textAlign = "center";
-      ctx.fillText(
-        "TCT  •  TÂM CHÍ TÀI",
-        contentX + contentWidth / 2,
-        evalCardTop + totalEvalCardHeight / 2 + 12
-      );
-      ctx.restore();
 
       let curBulletY = evalCardTop + 16;
       renderedBullets.forEach((bItem) => {
@@ -1721,62 +1923,29 @@ export default function AdminStudentReportPanel({
           curBulletY,
           contentWidth - 32,
           bItem.blockHeight,
-          12,
+          8,
           "#FFFFFF",
-          "#E2E8F0",
+          "#CBD5E1",
           1
         );
 
-        const iconCenterX = contentX + 36;
-        const iconCenterY = curBulletY + 21;
-        ctx.beginPath();
-        ctx.arc(iconCenterX, iconCenterY, 9, 0, Math.PI * 2);
-        ctx.fillStyle = "#EFF6FF";
-        ctx.fill();
-        ctx.strokeStyle = "#BFDBFE";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        ctx.fillStyle = "#1D4ED8";
-        ctx.font = "800 10px " + FONT_SANS;
-        ctx.textAlign = "center";
-        ctx.fillText("✓", iconCenterX, iconCenterY + 3.5);
-        ctx.textAlign = "left";
-
         let textY = curBulletY + 22;
         if (bItem.title) {
-          ctx.fillStyle = "#1E3A8A";
-          ctx.font = "700 13px " + FONT_SANS;
-          ctx.fillText(bItem.title + ":", contentX + 54, textY);
+          ctx.fillStyle = "#003399";
+          ctx.font = "bold 13.5px " + FONT_SERIF;
+          ctx.fillText("• " + bItem.title + ":", contentX + 32, textY);
           textY += 20;
         }
 
-        ctx.fillStyle = "#334155";
-        ctx.font = "400 13.5px " + FONT_SANS;
+        ctx.fillStyle = "#0F172A";
+        ctx.font = "14px " + FONT_SERIF;
         bItem.lines.forEach((lineStr) => {
-          ctx.fillText(lineStr, contentX + 54, textY);
+          ctx.fillText(lineStr, contentX + 32, textY);
           textY += 21;
         });
 
         curBulletY += bItem.blockHeight + 10;
       });
-    } else if (pageMode === "page1") {
-      ctx.fillStyle = "#94A3B8";
-      ctx.font = "500 11px " + FONT_SANS;
-      ctx.fillText(
-        "Trung tâm Toán Tâm Chí Tài (TCT) • Hotline: 0972 26 16 16",
-        contentX,
-        logicalHeight - outerPad - 18
-      );
-      ctx.textAlign = "right";
-      ctx.fillStyle = "#1D4ED8";
-      ctx.font = "700 11px " + FONT_SANS;
-      ctx.fillText(
-        "Trang 1/2  •  Xem tiếp nhận xét chi tiết ở Trang 2 →",
-        contentX + contentWidth,
-        logicalHeight - outerPad - 18
-      );
-      ctx.textAlign = "left";
     }
 
     return canvas.toDataURL("image/png");
@@ -1850,7 +2019,7 @@ export default function AdminStudentReportPanel({
         )
         .join("\n");
     } else {
-      practiceLines = "  (Chưa có đề thi nào)";
+      practiceLines = "  (Không kiểm tra đề tháng)";
     }
 
     const week5HwPart = hasWeek5Data
@@ -1885,8 +2054,10 @@ export default function AdminStudentReportPanel({
       currentReport.testAvg +
       " / 10\n" +
       "- Điểm trung bình Luyện đề thực chiến: " +
-      currentReport.practiceAvg +
-      " / 10\n\n" +
+      (currentReport.practiceAvg !== "--"
+        ? currentReport.practiceAvg + " / 10"
+        : "Không kiểm tra") +
+      "\n\n" +
       "* Chi tiết BTVN theo tuần:\n" +
       "  [T1." +
       m +
@@ -1927,7 +2098,7 @@ export default function AdminStudentReportPanel({
       "]" +
       week5TestPart +
       "\n\n" +
-      "* Danh sách Luyện đề thực chiến gửi phụ huynh:\n" +
+      "* Danh sách Luyện đề thực chiến:\n" +
       practiceLines +
       "\n\n" +
       "------------------------------------\n" +
@@ -2064,7 +2235,6 @@ export default function AdminStudentReportPanel({
       {reportViewType === "daily" && (
         <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3.5 shadow-2xs">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-            {/* Chọn Tháng */}
             <div className="md:col-span-2">
               <label className="block text-[11px] font-bold text-slate-600 mb-1">
                 Tháng học:
@@ -2082,7 +2252,6 @@ export default function AdminStudentReportPanel({
               </select>
             </div>
 
-            {/* Chọn Tuần */}
             <div className="md:col-span-2">
               <label className="block text-[11px] font-bold text-slate-600 mb-1">
                 Tuần trong tháng:
@@ -2100,7 +2269,6 @@ export default function AdminStudentReportPanel({
               </select>
             </div>
 
-            {/* Nhập Ngày học thực tế */}
             <div className="md:col-span-2">
               <label className="block text-[11px] font-bold text-slate-600 mb-1">
                 Ngày học (in lên phiếu):
@@ -2114,7 +2282,6 @@ export default function AdminStudentReportPanel({
               />
             </div>
 
-            {/* Tên bài học đồng bộ tự động từ #lessons */}
             <div className="md:col-span-6">
               <div className="flex items-center justify-between mb-1">
                 <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
@@ -2179,9 +2346,10 @@ export default function AdminStudentReportPanel({
               <select
                 value={selectedDailyPracticeId}
                 onChange={(e) => setSelectedDailyPracticeId(e.target.value)}
-                className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 outline-none cursor-pointer max-w-[240px]"
+                className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 outline-none cursor-pointer max-w-[260px]"
               >
-                <option value="auto">Tự động lấy điểm đề cao nhất Tháng {dailyMonth}</option>
+                <option value="none">-- Không kiểm tra đề tháng --</option>
+                <option value="auto">Tự động lấy đề thực chiến Tháng {dailyMonth}</option>
                 {(practiceExams || []).map((pe: any) => (
                   <option key={pe.id} value={String(pe.id)}>
                     {pe.title}
@@ -2197,7 +2365,7 @@ export default function AdminStudentReportPanel({
       {reportMode === "auto" ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* CỘT TRÁI: DANH SÁCH HỌC SINH */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs flex flex-col h-[720px]">
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs flex flex-col h-[780px]">
             <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
               <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
                 <User className="w-4 h-4 text-[#003399]" /> Danh sách học viên
@@ -2316,7 +2484,7 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* 3 Cột Điểm số trong ngày (Cho phép gõ sửa nhanh nếu cần) */}
+                {/* 3 Cột Điểm số trong ngày */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
                     <span className="text-[10px] font-bold uppercase text-emerald-800 block">
@@ -2333,17 +2501,20 @@ export default function AdminStudentReportPanel({
                             ? currentStudentDailyData.homeworkScore
                             : ""
                         }
-                        placeholder="Chưa nộp"
-                        onChange={(e) =>
+                        placeholder="Chưa nộp (--)"
+                        onChange={(e) => {
+                          const val = e.target.value;
                           setDailyStudentOverrides((prev) => ({
                             ...prev,
                             [currentStudentDailyData.studentId]: {
                               ...(prev[currentStudentDailyData.studentId] || {}),
-                              homeworkScore: e.target.value
+                              homeworkScore: val,
+                              homeworkStatus:
+                                val.trim() !== "" && Number(val) > 0 ? "completed" : "missing"
                             }
-                          }))
-                        }
-                        className="w-24 px-2.5 py-1 rounded-lg bg-white border border-emerald-300 font-bold text-sm text-emerald-900 outline-none"
+                          }));
+                        }}
+                        className="w-28 px-2.5 py-1 rounded-lg bg-white border border-emerald-300 font-bold text-sm text-emerald-900 outline-none"
                       />
                       <span className="text-xs font-bold text-emerald-700">/ 10</span>
                     </div>
@@ -2374,16 +2545,35 @@ export default function AdminStudentReportPanel({
                             }
                           }))
                         }
-                        className="w-24 px-2.5 py-1 rounded-lg bg-white border border-blue-300 font-bold text-sm text-blue-900 outline-none"
+                        className="w-28 px-2.5 py-1 rounded-lg bg-white border border-blue-300 font-bold text-sm text-blue-900 outline-none"
                       />
                       <span className="text-xs font-bold text-blue-700">/ 10</span>
                     </div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-orange-50/70 border border-orange-200">
-                    <span className="text-[10px] font-bold uppercase text-orange-800 block">
-                      3. ĐIỂM ĐỀ THỰC CHIẾN THÁNG
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-orange-800 block">
+                        3. ĐỀ THỰC CHIẾN THÁNG
+                      </span>
+                      {currentStudentDailyData.practiceScore !== null && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDailyStudentOverrides((prev) => ({
+                              ...prev,
+                              [currentStudentDailyData.studentId]: {
+                                ...(prev[currentStudentDailyData.studentId] || {}),
+                                practiceScore: "0"
+                              }
+                            }))
+                          }
+                          className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
+                        >
+                          Đặt Không KT
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1.5 mt-1.5">
                       <input
                         type="number"
@@ -2395,7 +2585,7 @@ export default function AdminStudentReportPanel({
                             ? currentStudentDailyData.practiceScore
                             : ""
                         }
-                        placeholder="Chưa có"
+                        placeholder="Không kiểm tra"
                         onChange={(e) =>
                           setDailyStudentOverrides((prev) => ({
                             ...prev,
@@ -2405,55 +2595,111 @@ export default function AdminStudentReportPanel({
                             }
                           }))
                         }
-                        className="w-24 px-2.5 py-1 rounded-lg bg-white border border-orange-300 font-bold text-sm text-orange-900 outline-none"
+                        className="w-32 px-2.5 py-1 rounded-lg bg-white border border-orange-300 font-bold text-xs text-orange-900 outline-none"
                       />
                       <span className="text-xs font-bold text-orange-700">/ 10</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Chuyên cần & Trạng thái BTVN */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                    <span className="font-bold text-slate-700">Chuyên cần buổi học:</span>
-                    <select
-                      value={currentStudentDailyData.attendance}
-                      onChange={(e) =>
-                        setDailyStudentOverrides((prev) => ({
-                          ...prev,
-                          [currentStudentDailyData.studentId]: {
-                            ...(prev[currentStudentDailyData.studentId] || {}),
-                            attendance: e.target.value as any
-                          }
-                        }))
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 font-bold text-slate-800 outline-none cursor-pointer"
-                    >
-                      <option value="present">✓ Có mặt đúng giờ</option>
-                      <option value="late">⚠️ Đi học muộn</option>
-                      <option value="absent">✕ Nghỉ học</option>
-                    </select>
+                {/* KHỐI CHỌN TRỰC QUAN CHUYÊN CẦN & Ý THỨC BTVN (DẠNG NÚT LỚN NỔI BẬT) */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <div>
+                    <span className="text-xs font-extrabold text-slate-800 uppercase block mb-2">
+                      Chuyên cần buổi học (Hiển thị thẻ lớn trên Báo cáo):
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        {
+                          key: "present",
+                          label: "✓ Có mặt đúng giờ",
+                          activeCls: "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                        },
+                        {
+                          key: "late",
+                          label: "⚠️ Đi học muộn",
+                          activeCls: "bg-amber-500 text-white border-amber-600 shadow-xs"
+                        },
+                        {
+                          key: "absent",
+                          label: "✕ Nghỉ học",
+                          activeCls: "bg-rose-600 text-white border-rose-700 shadow-xs"
+                        }
+                      ].map((opt) => {
+                        const active = currentStudentDailyData.attendance === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() =>
+                              setDailyStudentOverrides((prev) => ({
+                                ...prev,
+                                [currentStudentDailyData.studentId]: {
+                                  ...(prev[currentStudentDailyData.studentId] || {}),
+                                  attendance: opt.key as any
+                                }
+                              }))
+                            }
+                            className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                              active
+                                ? opt.activeCls
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                    <span className="font-bold text-slate-700">Ý thức làm BTVN:</span>
-                    <select
-                      value={currentStudentDailyData.homeworkStatus}
-                      onChange={(e) =>
-                        setDailyStudentOverrides((prev) => ({
-                          ...prev,
-                          [currentStudentDailyData.studentId]: {
-                            ...(prev[currentStudentDailyData.studentId] || {}),
-                            homeworkStatus: e.target.value as any
-                          }
-                        }))
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 font-bold text-slate-800 outline-none cursor-pointer"
-                    >
-                      <option value="completed">✓ Hoàn thành đầy đủ</option>
-                      <option value="late">⚠️ Nộp muộn</option>
-                      <option value="missing">✕ Chưa hoàn thành</option>
-                    </select>
+                  <div>
+                    <span className="text-xs font-extrabold text-slate-800 uppercase block mb-2">
+                      Ý thức làm Bài tập về nhà (BTVN):
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        {
+                          key: "completed",
+                          label: "✓ Hoàn thành đầy đủ",
+                          activeCls: "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                        },
+                        {
+                          key: "late",
+                          label: "⚠️ Nộp muộn",
+                          activeCls: "bg-amber-500 text-white border-amber-600 shadow-xs"
+                        },
+                        {
+                          key: "missing",
+                          label: "✕ Chưa hoàn thành",
+                          activeCls: "bg-rose-600 text-white border-rose-700 shadow-xs"
+                        }
+                      ].map((opt) => {
+                        const active = currentStudentDailyData.homeworkStatus === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() =>
+                              setDailyStudentOverrides((prev) => ({
+                                ...prev,
+                                [currentStudentDailyData.studentId]: {
+                                  ...(prev[currentStudentDailyData.studentId] || {}),
+                                  homeworkStatus: opt.key as any
+                                }
+                              }))
+                            }
+                            className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                              active
+                                ? opt.activeCls
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
@@ -2478,19 +2724,26 @@ export default function AdminStudentReportPanel({
                   />
                 </div>
 
-                {/* Xem trước Phụ bản Phiếu chấm OMR ngay tại chỗ (Nếu học sinh làm bài giấy) */}
+                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR TRƯỚC KHI XUẤT PDF */}
                 {currentStudentDailyData.hasPaperOMR &&
                   currentStudentDailyData.scannedPaperImageUrl && (
                     <div className="p-4 rounded-xl bg-slate-900 text-white space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                         <div>
                           <span className="text-[10px] font-bold uppercase text-emerald-400 block">
-                            ✓ ĐÃ TỰ ĐỘNG TÍCH HỢP TRANG 2 (PHỤ BẢN ĐỐI SOÁT PHIẾU OMR)
+                            ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR (TRANG 2) — BẤM VÀO CÂU ĐỂ ĐỔI ĐÚNG/SAI NẾU CẦN
                           </span>
-                          <h4 className="text-xs font-bold text-white">
+                          <h4 className="text-xs font-bold text-white mt-0.5">
                             Bài thi: {currentStudentDailyData.paperExamTitle} (Mã đề:{" "}
-                            {currentStudentDailyData.paperExamCode}) — Sai:{" "}
-                            {currentStudentDailyData.wrongQuestionsList?.length || 0} câu
+                            {currentStudentDailyData.paperExamCode}) — Đúng:{" "}
+                            <span className="text-emerald-400">
+                              {currentStudentDailyData.dailyTestCorrect}/
+                              {currentStudentDailyData.dailyTestTotal} câu
+                            </span>{" "}
+                            • Sai/Trống:{" "}
+                            <span className="text-rose-400">
+                              {currentStudentDailyData.wrongQuestionsList?.length || 0} câu
+                            </span>
                           </h4>
                         </div>
                         <button
@@ -2518,25 +2771,52 @@ export default function AdminStudentReportPanel({
                         </button>
                       </div>
 
-                      {currentStudentDailyData.wrongQuestionsList &&
-                        currentStudentDailyData.wrongQuestionsList.length > 0 && (
-                          <div className="text-xs space-y-1">
-                            <span className="text-[11px] font-semibold text-amber-300 block">
-                              Các câu con làm sai / bỏ trống sẽ được in kèm sang Trang 2 của PDF:
-                            </span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {currentStudentDailyData.wrongQuestionsList.map((w, idx) => (
+                      {currentStudentDailyData.allQuestionsReviewList &&
+                        currentStudentDailyData.allQuestionsReviewList.length > 0 && (
+                          <div className="max-h-56 overflow-y-auto custom-scrollbar pr-1 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {currentStudentDailyData.allQuestionsReviewList.map((qRow) => (
+                              <div
+                                key={qRow.questionNumber}
+                                onClick={() =>
+                                  handleToggleOMRQuestionCorrectness(
+                                    currentStudentDailyData.studentId,
+                                    qRow.questionNumber,
+                                    qRow.isCorrect
+                                  )
+                                }
+                                title="Bấm để đảo trạng thái Đúng / Sai cho câu này"
+                                className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 cursor-pointer transition ${
+                                  qRow.isCorrect
+                                    ? "bg-emerald-950/40 border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/50"
+                                    : "bg-rose-950/50 border-rose-600/80 text-rose-200 hover:bg-rose-900/60"
+                                }`}
+                              >
+                                <div className="min-w-0 truncate">
+                                  <span className="font-bold">
+                                    Câu {qRow.questionNumber} ({qRow.part}):
+                                  </span>{" "}
+                                  <span>Chọn: {qRow.studentAnswer}</span>{" "}
+                                  <span className="opacity-75">(ĐA: {qRow.correctAnswer})</span>
+                                </div>
                                 <span
-                                  key={idx}
-                                  className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px]"
+                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold shrink-0 flex items-center gap-1 ${
+                                    qRow.isCorrect
+                                      ? "bg-emerald-600 text-white"
+                                      : "bg-rose-600 text-white"
+                                  }`}
                                 >
-                                  <strong className="text-rose-400">
-                                    Câu {w.questionNumber}:
-                                  </strong>{" "}
-                                  Chọn {w.studentAnswer} (ĐA: {w.correctAnswer})
+                                  {qRow.isCorrect ? (
+                                    <>
+                                      <CheckCircle2 className="w-3 h-3" /> Đúng
+                                    </>
+                                  ) : (
+                                    <>
+                                      <XCircle className="w-3 h-3" /> Sai
+                                    </>
+                                  )}
                                 </span>
-                              ))}
-                            </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                     </div>
@@ -2990,7 +3270,7 @@ export default function AdminStudentReportPanel({
         </div>
       )}
 
-      {/* MODAL XEM TRƯỚC BẢN IN BÁO CÁO THÁNG (BRANDING TÂM CHÍ TÀI TCT) */}
+      {/* MODAL XEM TRƯỚC BẢN IN BÁO CÁO THÁNG */}
       {showOfficialModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs">
           <div className="bg-white w-full max-w-5xl max-h-[96vh] rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
@@ -3040,32 +3320,33 @@ export default function AdminStudentReportPanel({
             <div className="flex-1 overflow-y-auto p-6 bg-slate-100 flex flex-col items-center gap-6 custom-scrollbar">
               <div
                 ref={reportPage1Ref}
-                className="w-full max-w-[840px] bg-white p-7 rounded-2xl border border-slate-200 shadow-sm space-y-5"
+                style={{ fontFamily: "'Times New Roman', Times, serif" }}
+                className="w-full max-w-[840px] bg-white p-7 rounded-2xl border border-slate-300 shadow-sm space-y-5"
               >
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] font-bold uppercase text-[#003399] block">
+                    <span className="text-xs font-bold uppercase text-[#003399] block">
                       TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • CHUYÊN TOÁN TƯ DUY - TRẮC NGHIỆM TIA CHỚP
                     </span>
-                    <h2 className="text-xl font-extrabold text-slate-900 mt-0.5">
+                    <h2 className="text-2xl font-bold text-slate-900 mt-0.5">
                       {currentReport.fullName}
                     </h2>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-sm text-slate-600">
                       {currentReport.school} • {currentReport.grade}
                     </p>
                   </div>
-                  <span className="px-3 py-1 bg-[#003399] text-white text-xs font-bold rounded-lg">
+                  <span className="px-3.5 py-1.5 bg-[#003399] text-white text-sm font-bold rounded-lg">
                     {currentReport.timeframeText}
                   </span>
                 </div>
 
                 <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase text-slate-800">
+                  <h4 className="text-sm font-bold uppercase text-[#003399]">
                     Nhận xét của Giáo viên phụ trách:
                   </h4>
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                     {parsedEvalBullets.map((item, idx) => (
-                      <div key={idx} className="text-xs text-slate-700 leading-relaxed">
+                      <div key={idx} className="text-sm text-slate-800 leading-relaxed">
                         {item.title && (
                           <strong className="text-slate-900 mr-1">{item.title}:</strong>
                         )}
