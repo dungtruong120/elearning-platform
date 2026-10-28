@@ -162,7 +162,7 @@ function renderOMROverlaySVG(student: StudentDailyScoreData): string {
  * DỰNG TRANG BÌA TỔNG KẾT ĐIỂM CẢ LỚP (TÙY CHỌN Ở TRANG ĐẦU FILE PDF)
  */
 function renderClassSummaryCoverPageHTML(
-  config: DailyReportConfig,
+  config: DailyReportConfig & { homeworkTopicLabel?: string },
   students: StudentDailyScoreData[]
 ): string {
   const effectiveTopic =
@@ -221,7 +221,7 @@ function renderClassSummaryCoverPageHTML(
           <div class="report-subtitle">
             Ngày học: <strong>${escapeHtml(config.customDateStr)}</strong>  •  Tuần ${
     config.selectedWeek
-  } - Tháng ${config.selectedMonth}  •  Chuyên đề: <strong>${escapeHtml(
+  } - Tháng ${config.selectedMonth}  •  Chuyên đề hôm nay: <strong>${escapeHtml(
     effectiveTopic
   )}</strong>
           </div>
@@ -253,11 +253,11 @@ function renderClassSummaryCoverPageHTML(
 
 /**
  * DỰNG TRANG 1: PHIẾU BÁO CÁO KẾT QUẢ BUỔI HỌC CỦA TỪNG HỌC SINH
- * (ĐÃ XÓA KHỐI CHỮ KÝ THỪA, PHÓNG TO CHUYÊN CẦN & CHUẨN HÓA FONT TIMES NEW ROMAN SẮC NÉT)
+ * (HIỂN THỊ RÕ NGUỒN BTVN TUẦN TRƯỚC & CHUYÊN ĐỀ / BÀI TEST TUẦN NÀY)
  */
 function renderSingleStudentDailyReportPageHTML(
-  config: DailyReportConfig,
-  student: StudentDailyScoreData,
+  config: DailyReportConfig & { homeworkTopicLabel?: string },
+  student: StudentDailyScoreData & { homeworkQuizTitle?: string },
   studentOrder: number,
   totalStudents: number,
   isLastPageOfWholeDoc: boolean
@@ -272,27 +272,32 @@ function renderSingleStudentDailyReportPageHTML(
     student.homeworkScore !== undefined &&
     !isNaN(Number(student.homeworkScore));
 
+  const hwTitleLabel =
+    student.homeworkQuizTitle ||
+    config.homeworkTopicLabel ||
+    "Bài tập về nhà buổi trước";
+
   const hwSubLabel =
     student.homeworkCorrect !== null &&
     student.homeworkCorrect !== undefined &&
     student.homeworkTotal
-      ? `Đúng ${student.homeworkCorrect}/${student.homeworkTotal} câu BTVN`
+      ? `BTVN tuần trước: ${hwTitleLabel} (Đúng ${student.homeworkCorrect}/${student.homeworkTotal} câu)`
       : hasValidHwScore
-      ? "Đã hoàn thành bài tập về nhà"
-      : "Chưa hoàn thành / Chưa nộp BTVN";
+      ? `BTVN tuần trước: ${hwTitleLabel}`
+      : `Chưa nộp BTVN tuần trước (${hwTitleLabel})`;
 
   const testSubLabel =
     student.dailyTestCorrect !== null &&
     student.dailyTestCorrect !== undefined &&
     student.dailyTestTotal
-      ? `Đúng ${student.dailyTestCorrect}/${student.dailyTestTotal} câu (${
+      ? `Kiểm tra buổi hôm nay: Đúng ${student.dailyTestCorrect}/${student.dailyTestTotal} câu (${
           student.hasPaperOMR ? "Chấm phiếu OMR" : "Làm trên hệ thống"
         })`
       : student.dailyTestScore !== null
       ? student.hasPaperOMR
-        ? "Bài kiểm tra trên giấy OMR"
-        : "Bài kiểm tra tại lớp"
-      : "Chưa có điểm kiểm tra ngày";
+        ? "Kiểm tra trong buổi học hôm nay (Phiếu OMR)"
+        : "Kiểm tra trong buổi học hôm nay"
+      : "Chưa có điểm kiểm tra buổi hôm nay";
 
   const hasPracticeExam =
     student.practiceScore !== null &&
@@ -316,7 +321,6 @@ function renderSingleStudentDailyReportPageHTML(
     student.part3Score ||
     (student.dailyTestScore !== null ? "Đã tổng hợp vào điểm chung" : "Chưa kiểm tra");
 
-  // THẺ HUY HIỆU CHUYÊN CẦN & Ý THỨC BTVN TO RÕ, NỔI BẬT
   const attOptions = [
     {
       key: "present",
@@ -415,20 +419,22 @@ function renderSingleStudentDailyReportPageHTML(
           </div>
         </div>
 
-        <!-- 2. NỘI DUNG CHUYÊN ĐỀ BUỔI HỌC -->
+        <!-- 2. NỘI DUNG CHUYÊN ĐỀ BUỔI HỌC HÔM NAY -->
         <div class="section-box topic-highlight-box">
-          <div class="section-header">2. NỘI DUNG CHUYÊN ĐỀ BUỔI HỌC (ĐỒNG BỘ TỪ CHƯƠNG TRÌNH HỌC)</div>
+          <div class="section-header">2. NỘI DUNG CHUYÊN ĐỀ BUỔI HỌC HÔM NAY (TUẦN ${
+            config.selectedWeek
+          } - THÁNG ${config.selectedMonth})</div>
           <div class="topic-title-main">
             📘 Chuyên đề: ${escapeHtml(effectiveTopic.toUpperCase())}
           </div>
           <div class="topic-subnote">
-            Lộ trình chuẩn: Tuần ${config.selectedWeek} — Tháng ${
-    config.selectedMonth
-  }  •  Phương pháp Toán Tư Duy & Phản xạ Trắc Nghiệm Tia Chớp TCT
+            BTVN thu & đối soát trong buổi hôm nay: <strong>${escapeHtml(
+              hwTitleLabel
+            )}</strong>
           </div>
         </div>
 
-        <!-- 3. KẾT QUẢ ĐIỂM SỐ TRONG NGÀY (3 CỘT) -->
+        <!-- 3. KẾT QUẢ ĐIỂM SỐ TRONG NGÀY (3 CỘT TÁCH BIỆT NGUỒN) -->
         <div class="section-box">
           <div class="section-header">3. KẾT QUẢ ĐIỂM SỐ ĐÁNH GIÁ TRONG NGÀY</div>
           <div class="scores-three-cols">
@@ -456,7 +462,7 @@ function renderSingleStudentDailyReportPageHTML(
 
         <!-- 4. ĐÁNH GIÁ CHI TIẾT CÁC PHẦN KIỂM TRA TẠI LỚP -->
         <div class="section-box">
-          <div class="section-header">4. PHÂN TÍCH CẤU TRÚC BÀI KIỂM TRA THEO FORM MỚI BỘ GD&ĐT</div>
+          <div class="section-header">4. PHÂN TÍCH CẤU TRÚC BÀI KIỂM TRA TẠI LỚP THEO FORM MỚI BỘ GD&ĐT</div>
           <table class="parts-breakdown-table">
             <thead>
               <tr>
@@ -510,7 +516,7 @@ function renderSingleStudentDailyReportPageHTML(
             </div>
 
             <div class="attendance-highlight-group">
-              <div class="attendance-group-label">Ý THỨC LÀM BÀI TẬP VỀ NHÀ (BTVN):</div>
+              <div class="attendance-group-label">Ý THỨC LÀM BÀI TẬP VỀ NHÀ (BTVN TUẦN TRƯỚC):</div>
               <div class="attendance-pills-grid">
                 ${hwStatusPillsHtml}
               </div>
@@ -531,7 +537,6 @@ function renderSingleStudentDailyReportPageHTML(
 
 /**
  * DỰNG TRANG 2: TRANG PHỤ BẢN ĐỐI SOÁT BÀI THI GIẤY OMR
- * (HIỂN THỊ ĐẦY ĐỦ TẤT CẢ CÁC CÂU CỦA ĐỀ: CÂU | PHẦN | CON TÔ/CHỌN | ĐÁP ÁN CHUẨN TCT | KẾT QUẢ ✓ ĐÚNG / ✗ SAI)
  */
 function renderStudentOMRAppendixPageHTML(
   config: DailyReportConfig,
@@ -645,9 +650,7 @@ function renderStudentOMRAppendixPageHTML(
           </div>
         </div>
 
-        <!-- BỐ CỤC 2 CỘT A4: TRÁI LÀ ẢNH PHIẾU ĐÃ KHOANH MÀU - PHẢI LÀ BẢNG ĐỐI CHIẾU TOÀN BỘ CÂU HỎI -->
         <div class="omr-appendix-two-cols">
-          <!-- CỘT TRÁI: ẢNH SCAN PHIẾU GỐC + VECTOR SVG OVERLAY -->
           <div class="omr-left-image-col">
             <div class="omr-col-title">ẢNH PHIẾU LÀM BÀI GỐC CỦA HỌC SINH</div>
             <div class="omr-sheet-frame">
@@ -662,7 +665,6 @@ function renderStudentOMRAppendixPageHTML(
             </div>
           </div>
 
-          <!-- CỘT PHẢI: THỐNG KÊ & BẢNG ĐỐI CHIẾU TẤT CẢ CÁC CÂU TRONG ĐỀ -->
           <div class="omr-right-table-col">
             <div class="omr-col-title">BẢNG ĐỐI CHIẾU CHI TIẾT TỪNG CÂU TRONG ĐỀ THI</div>
 
@@ -729,11 +731,10 @@ function renderStudentOMRAppendixPageHTML(
 
 /**
  * HÀM CHÍNH: SINH TOÀN BỘ TÀI LIỆU MULTI-PAGE HTML A4 GỘP CẢ LỚP
- * (KHÓA FONT TIMES NEW ROMAN SẮC NÉT 100%, KHÔNG VỠ NÉT)
  */
 export function generateClassDailyReportHTML(
-  reportConfig: DailyReportConfig,
-  studentsData: StudentDailyScoreData[]
+  reportConfig: DailyReportConfig & { homeworkTopicLabel?: string },
+  studentsData: (StudentDailyScoreData & { homeworkQuizTitle?: string })[]
 ): string {
   const safeStudents = Array.isArray(studentsData) ? studentsData : [];
   const totalStudents = safeStudents.length;
@@ -1000,8 +1001,9 @@ export function generateClassDailyReportHTML(
           margin: 7px 0 5px 0;
         }
         .score-card-sub {
-          font-size: 12.5px;
+          font-size: 12px;
           color: #1E293B;
+          line-height: 1.3;
         }
         .parts-breakdown-table {
           width: 100%;
@@ -1031,7 +1033,6 @@ export function generateClassDailyReportHTML(
           line-height: 1.5;
           color: #0F172A;
         }
-        /* KHỐI CHUYÊN CẦN & BTVN PHÓNG TO DẠNG BADGE TRỰC QUAN */
         .attendance-highlight-container {
           margin-top: 12px;
           padding-top: 10px;
@@ -1094,7 +1095,6 @@ export function generateClassDailyReportHTML(
           color: #991B1B;
           font-weight: bold;
         }
-        /* TRANG 2: PHỤ BẢN OMR */
         .omr-appendix-two-cols {
           display: grid;
           grid-template-columns: 52% 46.5%;
