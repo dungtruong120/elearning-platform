@@ -2,9 +2,17 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useTransition, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  CheckCircle2, AlertCircle, Loader2, RefreshCw, Cloud,
-  X, Menu, PanelLeftClose, PanelLeftOpen, Camera
+import {
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  Cloud,
+  X,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Camera
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabaseClient";
@@ -39,7 +47,11 @@ function normalizeText(str: any): string {
 
 function normalizeStudentProfile(raw: any): any {
   if (!raw) return raw;
-  const rawMode = String(raw.learning_mode || raw.learningMode || raw.study_mode || raw.studyMode || "online").toLowerCase().trim();
+  const rawMode = String(
+    raw.learning_mode || raw.learningMode || raw.study_mode || raw.studyMode || "online"
+  )
+    .toLowerCase()
+    .trim();
   const isOffline = rawMode === "offline" || rawMode.includes("off");
 
   return {
@@ -52,9 +64,13 @@ function normalizeStudentProfile(raw: any): any {
     grade: raw.grade || raw.class_name || "Lớp 12",
     learning_mode: isOffline ? "offline" : "online",
     study_mode: isOffline ? "offline" : "online",
-    approval_status: raw.approval_status || raw.status || (raw.is_approved ? "approved" : "pending"),
+    approval_status:
+      raw.approval_status || raw.status || (raw.is_approved ? "approved" : "pending"),
     status: raw.status || raw.approval_status || (raw.is_approved ? "approved" : "pending"),
-    is_approved: raw.approval_status === "approved" || raw.status === "approved" || Boolean(raw.is_approved),
+    is_approved:
+      raw.approval_status === "approved" ||
+      raw.status === "approved" ||
+      Boolean(raw.is_approved),
     created_at: raw.created_at || raw.createdAt || new Date().toISOString(),
   };
 }
@@ -71,8 +87,14 @@ function base64ToBlob(base64: string): Blob {
   return new Blob([uInt8Array], { type: contentType });
 }
 
-async function compressBase64Emergency(base64Str: string, maxDim = 480, quality = 0.45): Promise<string> {
-  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) return base64Str;
+async function compressBase64Emergency(
+  base64Str: string,
+  maxDim = 480,
+  quality = 0.45
+): Promise<string> {
+  if (!base64Str || typeof base64Str !== "string" || !base64Str.startsWith("data:image")) {
+    return base64Str;
+  }
   const cleanB64 = base64Str.replace(/[\r\n\s]+/g, "");
   return new Promise((resolve) => {
     let settled = false;
@@ -133,7 +155,9 @@ async function uploadSingleImageToStorage(
     const blob = base64ToBlob(base64Str);
     const ext = base64Str.includes("image/jpeg") ? "jpg" : "png";
     const safeFolder = String(folder || "courses_media").replace(/[^a-zA-Z0-9_/-]/g, "_");
-    const filePath = `${safeFolder}/${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${ext}`;
+    const filePath = `${safeFolder}/${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 6)}.${ext}`;
     const { error } = await supabaseClient.storage.from("exam-media").upload(filePath, blob, {
       contentType: blob.type || (ext === "jpg" ? "image/jpeg" : "image/png"),
       cacheControl: "31536000",
@@ -189,7 +213,15 @@ async function sanitizeAndUploadAllMediaRecursively(
   if (Array.isArray(target)) {
     const newArr = [];
     for (const item of target) {
-      newArr.push(await sanitizeAndUploadAllMediaRecursively(item, supabaseClient, urlMap, folder, onUploadedOne));
+      newArr.push(
+        await sanitizeAndUploadAllMediaRecursively(
+          item,
+          supabaseClient,
+          urlMap,
+          folder,
+          onUploadedOne
+        )
+      );
     }
     return newArr;
   }
@@ -197,7 +229,13 @@ async function sanitizeAndUploadAllMediaRecursively(
   if (typeof target === "object") {
     const newObj: Record<string, any> = {};
     for (const [k, v] of Object.entries(target)) {
-      newObj[k] = await sanitizeAndUploadAllMediaRecursively(v, supabaseClient, urlMap, folder, onUploadedOne);
+      newObj[k] = await sanitizeAndUploadAllMediaRecursively(
+        v,
+        supabaseClient,
+        urlMap,
+        folder,
+        onUploadedOne
+      );
     }
     return newObj;
   }
@@ -205,9 +243,10 @@ async function sanitizeAndUploadAllMediaRecursively(
   return target;
 }
 
-// CHỈ LƯU VÀO LOCALSTORAGE KHI DANH SÁCH CÓ DỮ LIỆU (> 0), TUYỆT ĐỐI KHÔNG GHI ĐÈ MẢNG RỖNG!
 function safeSavePracticeExamsToStorage(examsList: any[]) {
-  if (typeof window === "undefined" || !Array.isArray(examsList) || examsList.length === 0) return;
+  if (typeof window === "undefined" || !Array.isArray(examsList) || examsList.length === 0) {
+    return;
+  }
   try {
     localStorage.setItem("edunexus_practice_exams", JSON.stringify(examsList));
   } catch (e) {
@@ -253,7 +292,9 @@ function AdminDashboardContent() {
     if (typeof window === "undefined") return;
     try {
       const fromLocal = JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
-      const fromSession = JSON.parse(sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+      const fromSession = JSON.parse(
+        sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]"
+      );
       if (Array.isArray(fromLocal)) {
         fromLocal.forEach((id: string) => id && deletedAttemptIdsRef.current.add(String(id)));
       }
@@ -344,7 +385,9 @@ function AdminDashboardContent() {
     if (typeof window !== "undefined") {
       try {
         const delLocal = JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
-        const delSession = JSON.parse(sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
+        const delSession = JSON.parse(
+          sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]"
+        );
         const delSet = new Set<string>([
           ...(Array.isArray(delLocal) ? delLocal : []),
           ...(Array.isArray(delSession) ? delSession : []),
@@ -429,10 +472,20 @@ function AdminDashboardContent() {
   });
 
   const [sessionDates, setSessionDates] = useState<string[]>([
-    "24/8", "26/8", "07/09", "09/09", "14/09", "16/09", "21/09", "24/09",
+    "24/8",
+    "26/8",
+    "07/09",
+    "09/09",
+    "14/09",
+    "16/09",
+    "21/09",
+    "24/09",
   ]);
 
-  const [toastNotification, setToastNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toastNotification, setToastNotification] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
   const [isCreatingItem, setIsCreatingItem] = useState(false);
 
   const [uploadMode, setUploadMode] = useState<"course" | "practice">("course");
@@ -444,11 +497,15 @@ function AdminDashboardContent() {
   const [notifContent, setNotifContent] = useState("");
   const [notifType, setNotifType] = useState<"teacher" | "urgent" | "exam">("teacher");
 
-  const [studentFilter, setStudentFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [studentFilter, setStudentFilter] = useState<
+    "all" | "pending" | "approved" | "rejected"
+  >("all");
   const [studentSearch, setStudentSearch] = useState("");
 
   const [attendanceSearchText, setAttendanceSearchText] = useState<string>("");
-  const [attendanceFilterMode, setAttendanceFilterMode] = useState<"all" | "online" | "offline">("all");
+  const [attendanceFilterMode, setAttendanceFilterMode] = useState<"all" | "online" | "offline">(
+    "all"
+  );
   const [attendanceSortAZ, setAttendanceSortAZ] = useState<boolean>(false);
 
   const [isAddDateModalOpen, setIsAddDateModalOpen] = useState<boolean>(false);
@@ -472,29 +529,63 @@ function AdminDashboardContent() {
 
   const [testFile, setTestFile] = useState<File | null>(null);
   const [editingExamData, setEditingExamData] = useState<any | null>(null);
-  const [azotaTarget, setAzotaTarget] = useState<{ lessonId: string; type: "homework_files" | "test_quizzes" } | null>(null);
+  const [azotaTarget, setAzotaTarget] = useState<{
+    lessonId: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
   const [resourceModal, setResourceModal] = useState<any>(null);
-  const [resTitle, setResTitle] = useState(""); 
-  const [resUrl, setResUrl] = useState(""); 
+  const [resTitle, setResTitle] = useState("");
+  const [resUrl, setResUrl] = useState("");
   const [vidType, setVidType] = useState<"lecture" | "homework_solution">("lecture");
 
-  const [createModal, setCreateModal] = useState<{ type: "chapter" | "lesson"; chapterId?: string } | null>(null);
+  const [createModal, setCreateModal] = useState<{
+    type: "chapter" | "lesson";
+    chapterId?: string;
+  } | null>(null);
   const [newItemTitle, setNewItemTitle] = useState("");
   const [newItemDescription, setNewItemDescription] = useState("");
   const [newItemFormat, setNewItemFormat] = useState("Zoom");
   const [newItemTargetMode, setNewItemTargetMode] = useState<"online" | "offline" | "all">("all");
 
-  const [editLessonModal, setEditLessonModal] = useState<{ chapterId: string; lesson: any } | null>(null);
-  const [editLessonForm, setEditLessonForm] = useState({ title: "", description: "", duration: 45, format: "Zoom", target_mode: "all" as "online" | "offline" | "all" });
+  const [editLessonModal, setEditLessonModal] = useState<{
+    chapterId: string;
+    lesson: any;
+  } | null>(null);
+  const [editLessonForm, setEditLessonForm] = useState({
+    title: "",
+    description: "",
+    duration: 45,
+    format: "Zoom",
+    target_mode: "all" as "online" | "offline" | "all"
+  });
   const [boostModal, setBoostModal] = useState<string | null>(null);
   const [boostForm, setBoostForm] = useState({ title: "", type: "video", url: "", note: "" });
-  const [uploadMethodModal, setUploadMethodModal] = useState<{ lessonId: string; type: "homework_files" | "test_quizzes" } | null>(null);
-  const [driveLinkModal, setDriveLinkModal] = useState<{ lessonId: string; type: "homework_files" | "test_quizzes" } | null>(null);
+  const [uploadMethodModal, setUploadMethodModal] = useState<{
+    lessonId: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
+  const [driveLinkModal, setDriveLinkModal] = useState<{
+    lessonId: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
   const [driveLinkForm, setDriveLinkForm] = useState({ title: "", url: "" });
 
-  const [viewResourcesModal, setViewResourcesModal] = useState<{ lessonId: string; type: string; title: string; items: any[] } | null>(null);
-  const [editResourceModal, setEditResourceModal] = useState<{ lessonId: string; type: string; item: any } | null>(null);
-  const [editResourceForm, setEditResourceForm] = useState({ title: "", url: "", type: "lecture" });
+  const [viewResourcesModal, setViewResourcesModal] = useState<{
+    lessonId: string;
+    type: string;
+    title: string;
+    items: any[];
+  } | null>(null);
+  const [editResourceModal, setEditResourceModal] = useState<{
+    lessonId: string;
+    type: string;
+    item: any;
+  } | null>(null);
+  const [editResourceForm, setEditResourceForm] = useState({
+    title: "",
+    url: "",
+    type: "lecture"
+  });
 
   const [videoModalExam, setVideoModalExam] = useState<any | null>(null);
   const [solutionVideoInput, setSolutionVideoInput] = useState("");
@@ -507,7 +598,9 @@ function AdminDashboardContent() {
     status: "approved" as "approved" | "rejected",
   });
 
-  const [analyticsModeFilter, setAnalyticsModeFilter] = useState<"all" | "online" | "offline">("all");
+  const [analyticsModeFilter, setAnalyticsModeFilter] = useState<"all" | "online" | "offline">(
+    "all"
+  );
 
   const [azotaScoreViewModal, setAzotaScoreViewModal] = useState<{
     isOpen: boolean;
@@ -519,9 +612,9 @@ function AdminDashboardContent() {
     attempts: [],
   });
 
-  const showToast = useCallback((msg: string, type: "success" | "error" = "success") => { 
-    setToastNotification({ message: msg, type }); 
-    setTimeout(() => setToastNotification(null), 3500); 
+  const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
+    setToastNotification({ message: msg, type });
+    setTimeout(() => setToastNotification(null), 3500);
   }, []);
 
   const handleSwitchTab = useCallback((newTab: AdminTab | "paper-exams" | string) => {
@@ -544,179 +637,205 @@ function AdminDashboardContent() {
     }
   };
 
-  const handleAttemptDeleted = useCallback((deletedAttemptOrId: any) => {
-    const deletedAttemptId =
-      typeof deletedAttemptOrId === "string"
-        ? deletedAttemptOrId
-        : String(
-            deletedAttemptOrId?.id ||
-              `${deletedAttemptOrId?.quizId || deletedAttemptOrId?.quiz_id || ""}_${
-                deletedAttemptOrId?.studentId || deletedAttemptOrId?.student_id || ""
-              }_${deletedAttemptOrId?.createdAt || deletedAttemptOrId?.created_at || ""}`
-          );
+  const handleAttemptDeleted = useCallback(
+    (deletedAttemptOrId: any) => {
+      const deletedAttemptId =
+        typeof deletedAttemptOrId === "string"
+          ? deletedAttemptOrId
+          : String(
+              deletedAttemptOrId?.id ||
+                `${deletedAttemptOrId?.quizId || deletedAttemptOrId?.quiz_id || ""}_${
+                  deletedAttemptOrId?.studentId || deletedAttemptOrId?.student_id || ""
+                }_${deletedAttemptOrId?.createdAt || deletedAttemptOrId?.created_at || ""}`
+            );
 
-    const quizId = typeof deletedAttemptOrId === "object"
-      ? String(deletedAttemptOrId?.quizId || deletedAttemptOrId?.quiz_id || deletedAttemptOrId?.exam_id || "")
-      : "";
-    const studentId = typeof deletedAttemptOrId === "object"
-      ? String(deletedAttemptOrId?.studentId || deletedAttemptOrId?.student_id || deletedAttemptOrId?.user_id || "")
-      : "";
-    const createdAt = typeof deletedAttemptOrId === "object"
-      ? String(deletedAttemptOrId?.createdAt || deletedAttemptOrId?.created_at || "")
-      : "";
+      const quizId =
+        typeof deletedAttemptOrId === "object"
+          ? String(
+              deletedAttemptOrId?.quizId ||
+                deletedAttemptOrId?.quiz_id ||
+                deletedAttemptOrId?.exam_id ||
+                ""
+            )
+          : "";
+      const studentId =
+        typeof deletedAttemptOrId === "object"
+          ? String(
+              deletedAttemptOrId?.studentId ||
+                deletedAttemptOrId?.student_id ||
+                deletedAttemptOrId?.user_id ||
+                ""
+            )
+          : "";
+      const createdAt =
+        typeof deletedAttemptOrId === "object"
+          ? String(deletedAttemptOrId?.createdAt || deletedAttemptOrId?.created_at || "")
+          : "";
 
-    const keysToBlock = [
-      deletedAttemptId,
-      quizId && studentId && createdAt ? `${quizId}_${studentId}_${createdAt}` : "",
-      studentId && createdAt ? `${studentId}_${createdAt}` : "",
-    ].filter(Boolean);
+      const keysToBlock = [
+        deletedAttemptId,
+        quizId && studentId && createdAt ? `${quizId}_${studentId}_${createdAt}` : "",
+        studentId && createdAt ? `${studentId}_${createdAt}` : "",
+      ].filter(Boolean);
 
-    keysToBlock.forEach((k) => deletedAttemptIdsRef.current.add(k));
+      keysToBlock.forEach((k) => deletedAttemptIdsRef.current.add(k));
 
-    if (typeof window !== "undefined") {
-      try {
-        const currentSession = JSON.parse(sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
-        const currentLocal = JSON.parse(localStorage.getItem("edunexus_deleted_attempt_ids") || "[]");
-        const merged = Array.from(
-          new Set([
-            ...(Array.isArray(currentSession) ? currentSession : []),
-            ...(Array.isArray(currentLocal) ? currentLocal : []),
-            ...keysToBlock,
-          ])
-        );
-        sessionStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(merged));
-        localStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(merged));
-      } catch (e) {}
-    }
-
-    setAllAttempts((prev: any[]) => {
-      const updated = (prev || []).filter((item: any) => {
-        if (!item) return false;
-        const itemId = String(item.id || `${item.quizId || item.quiz_id}_${item.studentId || item.student_id}_${item.createdAt || item.created_at}`);
-        if (itemId === deletedAttemptId) return false;
-        if (isAttemptBlacklisted(item)) return false;
-        return true;
-      });
-      if (typeof window !== "undefined" && updated.length > 0) {
+      if (typeof window !== "undefined") {
         try {
-          localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
+          const currentSession = JSON.parse(
+            sessionStorage.getItem("edunexus_deleted_attempt_ids") || "[]"
+          );
+          const currentLocal = JSON.parse(
+            localStorage.getItem("edunexus_deleted_attempt_ids") || "[]"
+          );
+          const merged = Array.from(
+            new Set([
+              ...(Array.isArray(currentSession) ? currentSession : []),
+              ...(Array.isArray(currentLocal) ? currentLocal : []),
+              ...keysToBlock,
+            ])
+          );
+          sessionStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(merged));
+          localStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(merged));
         } catch (e) {}
       }
-      return updated;
-    });
-  }, [isAttemptBlacklisted]);
 
-  const syncCoursesToSupabase = useCallback((coursesData: any[], taskName: string = "bài học"): Promise<boolean> => {
-    latestChaptersRef.current = coursesData;
-
-    startTransition(() => {
-      setChapters(coursesData);
-    });
-
-    setSyncStatus({
-      isSyncing: true,
-      progress: 30,
-      message: `Đang bóc tách & tải ảnh ${taskName} lên Storage... [30%]`,
-      type: "loading",
-    });
-
-    if (syncTimeoutRef.current) {
-      clearTimeout(syncTimeoutRef.current);
-    }
-
-    syncTimeoutRef.current = setTimeout(async () => {
-      try {
-        const mediaUrlMap = new Map<string, string>();
-        let uploadedCount = 0;
-
-        const cleanCoursesData = await sanitizeAndUploadAllMediaRecursively(
-          latestChaptersRef.current,
-          supabase,
-          mediaUrlMap,
-          "courses_media",
-          () => {
-            uploadedCount++;
-            const prog = Math.min(72, 30 + uploadedCount * 2);
-            setSyncStatus({
-              isSyncing: true,
-              progress: prog,
-              message: `Đang tải ảnh #${uploadedCount} của ${taskName} lên Storage... [${prog}%]`,
-              type: "loading",
-            });
-          }
-        );
-
-        latestChaptersRef.current = cleanCoursesData;
-        startTransition(() => {
-          setChapters(cleanCoursesData);
+      setAllAttempts((prev: any[]) => {
+        const updated = (prev || []).filter((item: any) => {
+          if (!item) return false;
+          const itemId = String(
+            item.id ||
+              `${item.quizId || item.quiz_id}_${item.studentId || item.student_id}_${
+                item.createdAt || item.created_at
+              }`
+          );
+          if (itemId === deletedAttemptId) return false;
+          if (isAttemptBlacklisted(item)) return false;
+          return true;
         });
+        if (typeof window !== "undefined" && updated.length > 0) {
+          try {
+            localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
+          } catch (e) {}
+        }
+        return updated;
+      });
+    },
+    [isAttemptBlacklisted]
+  );
 
-        setSyncStatus(prev => ({
-          ...prev,
-          progress: 80,
-          message: `Đang lưu ${taskName} lên đám mây Supabase... [80%]`,
-        }));
+  const syncCoursesToSupabase = useCallback(
+    (coursesData: any[], taskName: string = "bài học"): Promise<boolean> => {
+      latestChaptersRef.current = coursesData;
 
-        const nowIso = new Date().toISOString();
-        const { error: sbErr } = await supabase
-          .from("courses")
-          .upsert({
+      startTransition(() => {
+        setChapters(coursesData);
+      });
+
+      setSyncStatus({
+        isSyncing: true,
+        progress: 30,
+        message: `Đang bóc tách & tải ảnh ${taskName} lên Storage... [30%]`,
+        type: "loading",
+      });
+
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+
+      syncTimeoutRef.current = setTimeout(async () => {
+        try {
+          const mediaUrlMap = new Map<string, string>();
+          let uploadedCount = 0;
+
+          const cleanCoursesData = await sanitizeAndUploadAllMediaRecursively(
+            latestChaptersRef.current,
+            supabase,
+            mediaUrlMap,
+            "courses_media",
+            () => {
+              uploadedCount++;
+              const prog = Math.min(72, 30 + uploadedCount * 2);
+              setSyncStatus({
+                isSyncing: true,
+                progress: prog,
+                message: `Đang tải ảnh #${uploadedCount} của ${taskName} lên Storage... [${prog}%]`,
+                type: "loading",
+              });
+            }
+          );
+
+          latestChaptersRef.current = cleanCoursesData;
+          startTransition(() => {
+            setChapters(cleanCoursesData);
+          });
+
+          setSyncStatus((prev) => ({
+            ...prev,
+            progress: 80,
+            message: `Đang lưu ${taskName} lên đám mây Supabase... [80%]`,
+          }));
+
+          const nowIso = new Date().toISOString();
+          const { error: sbErr } = await supabase.from("courses").upsert({
             id: "11111111-1111-1111-1111-111111111111",
             title: "Toán 12 TCT",
             chapters: cleanCoursesData,
             updated_at: nowIso
           });
 
-        if (sbErr) {
-          console.error("Supabase Error Details (courses upsert):", sbErr);
-          const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
-          const targetId = existingRows && existingRows.length > 0
-            ? existingRows[0].id
-            : "11111111-1111-1111-1111-111111111111";
+          if (sbErr) {
+            console.error("Supabase Error Details (courses upsert):", sbErr);
+            const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
+            const targetId =
+              existingRows && existingRows.length > 0
+                ? existingRows[0].id
+                : "11111111-1111-1111-1111-111111111111";
 
-          const { error: fallbackErr } = await supabase
-            .from("courses")
-            .update({ chapters: cleanCoursesData, updated_at: nowIso })
-            .eq("id", targetId);
+            const { error: fallbackErr } = await supabase
+              .from("courses")
+              .update({ chapters: cleanCoursesData, updated_at: nowIso })
+              .eq("id", targetId);
 
-          if (fallbackErr) {
-            console.error("Supabase Error Details (courses update):", fallbackErr);
-            throw fallbackErr;
+            if (fallbackErr) {
+              console.error("Supabase Error Details (courses update):", fallbackErr);
+              throw fallbackErr;
+            }
           }
+
+          try {
+            localStorage.setItem("edunexus_course_data", JSON.stringify(cleanCoursesData));
+            window.dispatchEvent(new Event("storage"));
+          } catch (lsErr) {
+            console.warn("LocalStorage đầy:", lsErr);
+          }
+
+          setSyncStatus({
+            isSyncing: true,
+            progress: 100,
+            message: `✓ Đã lưu thành công! (100%)`,
+            type: "success",
+          });
+
+          setTimeout(() => {
+            setSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
+          }, 1500);
+        } catch (err: any) {
+          console.error("Lỗi sync Supabase courses:", err);
+          setSyncStatus({
+            isSyncing: true,
+            progress: 100,
+            message: "✕ Lỗi kết nối đám mây, đã giữ an toàn trong bộ nhớ cục bộ.",
+            type: "error",
+          });
+          showToast("Lỗi đồng bộ Supabase: " + (err?.message || "Kiểm tra lại kết nối"), "error");
         }
+      }, 250);
 
-        try {
-          localStorage.setItem("edunexus_course_data", JSON.stringify(cleanCoursesData));
-          window.dispatchEvent(new Event("storage"));
-        } catch (lsErr) {
-          console.warn("LocalStorage đầy:", lsErr);
-        }
-
-        setSyncStatus({
-          isSyncing: true,
-          progress: 100,
-          message: `✓ Đã lưu thành công! (100%)`,
-          type: "success",
-        });
-
-        setTimeout(() => {
-          setSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
-        }, 1500);
-
-      } catch (err: any) {
-        console.error("Lỗi sync Supabase courses:", err);
-        setSyncStatus({
-          isSyncing: true,
-          progress: 100,
-          message: "✕ Lỗi kết nối đám mây, đã giữ an toàn trong bộ nhớ cục bộ.",
-          type: "error",
-        });
-        showToast("Lỗi đồng bộ Supabase: " + (err?.message || "Kiểm tra lại kết nối"), "error");
-      }
-    }, 250);
-
-    return Promise.resolve(true);
-  }, [showToast]);
+      return Promise.resolve(true);
+    },
+    [showToast]
+  );
 
   const handleRetrySync = () => {
     if (latestChaptersRef.current) {
@@ -724,12 +843,13 @@ function AdminDashboardContent() {
     }
   };
 
-  // HÀM TẢI DANH SÁCH ĐỀ THI TỪ SUPABASE AN TOÀN (CHỐNG XÓA MẢNG KHI LỖI HTTP 500)
   const fetchPracticeExams = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("practice_exams")
-        .select("*")
+        .select(
+          "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
+        )
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -748,7 +868,6 @@ function AdminDashboardContent() {
     return null;
   }, []);
 
-  // NẠP DỮ LIỆU TỔNG HỢP AN TOÀN (ZERO-WIPE FALLBACK KHI SUPABASE TRẢ LỖI 500)
   const syncAdminGlobalData = useCallback(async () => {
     setIsLoadingAnalytics(true);
     setIsLoadingExams(true);
@@ -760,7 +879,6 @@ function AdminDashboardContent() {
       let serverExams: any[] = [];
       let serverAttempts: any[] = [];
 
-      // 1. Thử lấy từ API route /api/admin/data
       try {
         const res = await fetch("/api/admin/data", { cache: "no-store" });
         if (res.ok) {
@@ -780,18 +898,17 @@ function AdminDashboardContent() {
               serverAttempts = combined;
             }
           }
-        } else {
-          console.error("API /api/admin/data trả về status:", res.status);
         }
       } catch (apiErr) {
         console.error("Lỗi gọi /api/admin/data:", apiErr);
       }
 
-      // 2. Nếu API thiếu dữ liệu do lỗi 500 một bảng, truy vấn độc lập từng bảng trên Supabase
       if (serverExams.length === 0) {
         const { data: sbEx, error: exErr } = await supabase
           .from("practice_exams")
-          .select("*")
+          .select(
+            "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
+          )
           .order("created_at", { ascending: false });
         if (exErr) {
           console.error("Supabase Error Details (practice_exams):", exErr);
@@ -801,9 +918,7 @@ function AdminDashboardContent() {
       }
 
       if (serverProfiles.length === 0) {
-        const { data: sbProf, error: profErr } = await supabase
-          .from("profiles")
-          .select("*");
+        const { data: sbProf, error: profErr } = await supabase.from("profiles").select("*");
         if (profErr) {
           console.error("Supabase Error Details (profiles):", profErr);
         } else if (Array.isArray(sbProf) && sbProf.length > 0) {
@@ -813,7 +928,6 @@ function AdminDashboardContent() {
         }
       }
 
-      // 3. CHỈ CẬP NHẬT KHI CÓ DỮ LIỆU THẬT (> 0), TUYỆT ĐỐI KHÔNG GHI ĐÈ MẢNG RỖNG!
       if (serverProfiles.length > 0) {
         setRegisteredStudents(serverProfiles);
         if (typeof window !== "undefined") {
@@ -828,7 +942,6 @@ function AdminDashboardContent() {
         safeSavePracticeExamsToStorage(serverExams);
       }
 
-      // 4. Xử lý danh sách lượt làm bài (Kết hợp cả Server & Cache cục bộ)
       const map = new Map<string, any>();
 
       if (typeof window !== "undefined") {
@@ -847,19 +960,41 @@ function AdminDashboardContent() {
 
       serverAttempts.forEach((item: any) => {
         if (!item) return;
+        const meta = item.answers?.__paper_omr_meta || item.user_answers?.__paper_omr_meta || {};
         const quizId = String(item.quiz_id || item.quizId || item.exam_id || "").trim();
         const studentId = String(item.student_id || item.studentId || item.user_id || "").trim();
         const matchedProfile = serverProfiles.find((p: any) => p.id === studentId);
-        const studentName = matchedProfile?.full_name || item.student_name || item.studentName || item.full_name || "Học sinh";
-        const examTitle = String(item.exam_title || item.examTitle || item.quiz_title || item.quizTitle || "").trim();
+        const studentName =
+          matchedProfile?.full_name ||
+          item.student_name ||
+          item.studentName ||
+          item.full_name ||
+          meta.student_name ||
+          "Học sinh";
+        const examTitle = String(
+          item.exam_title ||
+            item.examTitle ||
+            item.quiz_title ||
+            item.quizTitle ||
+            meta.exam_title ||
+            ""
+        ).trim();
         const score = Number(item.score ?? item.points ?? 0);
         const createdAt = item.created_at || item.createdAt || new Date().toISOString();
+
+        const isPaperRow =
+          item.submission_type === "paper" ||
+          Boolean(item.scanned_image_url) ||
+          Boolean(item.paper_scan_url) ||
+          Boolean(item.omr_raw_data) ||
+          Boolean(meta.submission_type === "paper");
 
         const normalized = {
           ...item,
           id: String(item.id || `${quizId}_${studentId}_${createdAt}`),
           quizId,
           quiz_id: quizId,
+          exam_id: quizId,
           studentId,
           student_id: studentId,
           studentName,
@@ -868,6 +1003,23 @@ function AdminDashboardContent() {
           exam_title: examTitle,
           score,
           points: score,
+          submission_type: isPaperRow ? "paper" : item.submission_type || "web",
+          paper_scan_url:
+            item.scanned_image_url ||
+            item.paper_scan_url ||
+            meta.scanned_image_url ||
+            item.omr_raw_data?.warped_image_data_url ||
+            null,
+          omr_raw_data:
+            item.omr_raw_data ||
+            (isPaperRow
+              ? {
+                  detected_sbd: meta.detected_sbd || "",
+                  detected_exam_code: meta.detected_exam_code || "",
+                  flagged_questions: meta.flagged_questions || [],
+                  bubble_coordinates: meta.bubble_coordinates || []
+                }
+              : null),
           type: item.type || (item.is_homework ? "homework" : "practice"),
           timeSpent: item.time_spent || item.timeSpent || "15 phút",
           createdAt,
@@ -908,7 +1060,11 @@ function AdminDashboardContent() {
       return;
     }
 
-    const full_name = (quickStudentForm.lastName.trim() + " " + quickStudentForm.firstName.trim()).trim();
+    const full_name = (
+      quickStudentForm.lastName.trim() +
+      " " +
+      quickStudentForm.firstName.trim()
+    ).trim();
     const newStudent = normalizeStudentProfile({
       id: "stu-" + Date.now(),
       full_name,
@@ -954,7 +1110,6 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!", "success");
   };
 
-  // HÀM TẢI DỮ LIỆU COURSES AN TOÀN (KHÔNG DÙNG .maybeSingle() TRÊN SELECT * LIMIT 1 ĐỂ TRÁNH LỖI 500)
   const loadStorageData = useCallback(async () => {
     loadDeletedBlacklistFromStorage();
 
@@ -962,7 +1117,10 @@ function AdminDashboardContent() {
       const [courseRes, sessRes, notifRes] = await Promise.allSettled([
         supabase.from("courses").select("id, title, chapters, updated_at").limit(1),
         supabase.from("sessions").select("*").order("created_at", { ascending: false }),
-        supabase.from("system_notifications").select("*").order("created_at", { ascending: false }),
+        supabase
+          .from("system_notifications")
+          .select("*")
+          .order("created_at", { ascending: false }),
       ]);
 
       if (courseRes.status === "fulfilled") {
@@ -982,22 +1140,38 @@ function AdminDashboardContent() {
         }
       }
 
-      if (sessRes.status === "fulfilled" && Array.isArray(sessRes.value.data) && sessRes.value.data.length > 0) {
+      if (
+        sessRes.status === "fulfilled" &&
+        Array.isArray(sessRes.value.data) &&
+        sessRes.value.data.length > 0
+      ) {
         setOnlineSessions(sessRes.value.data);
         if (typeof window !== "undefined") {
           try {
-            localStorage.setItem("edunexus_online_sessions", JSON.stringify(sessRes.value.data));
+            localStorage.setItem(
+              "edunexus_online_sessions",
+              JSON.stringify(sessRes.value.data)
+            );
           } catch (e) {}
         }
-        const datesFromSessions = Array.from(new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean)));
+        const datesFromSessions = Array.from(
+          new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean))
+        );
         if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
       }
 
-      if (notifRes.status === "fulfilled" && Array.isArray(notifRes.value.data) && notifRes.value.data.length > 0) {
+      if (
+        notifRes.status === "fulfilled" &&
+        Array.isArray(notifRes.value.data) &&
+        notifRes.value.data.length > 0
+      ) {
         setSysNotifications(notifRes.value.data);
         if (typeof window !== "undefined") {
           try {
-            localStorage.setItem("edunexus_system_notifications", JSON.stringify(notifRes.value.data));
+            localStorage.setItem(
+              "edunexus_system_notifications",
+              JSON.stringify(notifRes.value.data)
+            );
           } catch (e) {}
         }
       }
@@ -1029,7 +1203,20 @@ function AdminDashboardContent() {
       }
     };
 
+    const handleStorageEvent = () => {
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attempts");
+        if (savedAtt) {
+          const parsed = JSON.parse(savedAtt);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setAllAttempts(parsed.filter((a: any) => !isAttemptBlacklisted(a)));
+          }
+        }
+      } catch {}
+    };
+
     window.addEventListener("popstate", handlePopState);
+    window.addEventListener("storage", handleStorageEvent);
 
     const channel = supabase
       .channel("admin-realtime-global-sync")
@@ -1037,17 +1224,26 @@ function AdminDashboardContent() {
         syncAdminGlobalData();
         showToast("Đã có lượt nộp bài mới! Đang cập nhật...", "success");
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => syncAdminGlobalData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_results" }, () => syncAdminGlobalData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => loadStorageData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => syncAdminGlobalData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () =>
+        syncAdminGlobalData()
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_results" }, () =>
+        syncAdminGlobalData()
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () =>
+        loadStorageData()
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () =>
+        syncAdminGlobalData()
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
       window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("storage", handleStorageEvent);
     };
-  }, [loadDeletedBlacklistFromStorage, loadStorageData, syncAdminGlobalData, showToast]);
+  }, [loadDeletedBlacklistFromStorage, loadStorageData, syncAdminGlobalData, showToast, isAttemptBlacklisted]);
 
   const savePracticeExams = async (newExams: any[]) => {
     if (!Array.isArray(newExams)) return;
@@ -1058,7 +1254,9 @@ function AdminDashboardContent() {
   };
 
   const handleChangeExamCategory = async (examId: string, newCategory: string) => {
-    const updated = practiceExams.map(ex => ex.id === examId ? { ...ex, category: newCategory } : ex);
+    const updated = practiceExams.map((ex) =>
+      ex.id === examId ? { ...ex, category: newCategory } : ex
+    );
     await savePracticeExams(updated);
     try {
       await supabase.from("practice_exams").update({ category: newCategory }).eq("id", examId);
@@ -1070,20 +1268,24 @@ function AdminDashboardContent() {
     const answerKeyMap: Record<string, string> = {};
     let totalQuestions = 0;
 
-    (updatedSections || []).forEach(sec => {
+    (updatedSections || []).forEach((sec) => {
       (sec.questions || []).forEach((q: any) => {
         totalQuestions++;
-        const qId = q.id || ("q_" + totalQuestions);
-        answerKeyMap[qId] = String(q.correctAnswer || q.answer || "").trim().toUpperCase();
+        const qId = q.id || "q_" + totalQuestions;
+        answerKeyMap[qId] = String(q.correctAnswer || q.answer || "")
+          .trim()
+          .toUpperCase();
       });
     });
 
     if (totalQuestions === 0) return;
 
-    const targetAttempts = (allAttempts || []).filter(a => a.quizId === examId || a.quiz_id === examId);
+    const targetAttempts = (allAttempts || []).filter(
+      (a) => a.quizId === examId || a.quiz_id === examId
+    );
     if (targetAttempts.length === 0) return;
 
-    let updatedList = [...allAttempts];
+    const updatedList = [...allAttempts];
 
     for (const att of targetAttempts) {
       const studentAnswers = att.userAnswers || att.answers || {};
@@ -1122,14 +1324,23 @@ function AdminDashboardContent() {
         .eq("id", exam.id)
         .limit(1);
 
-      const fullExam = (!error && Array.isArray(data) && data.length > 0) ? { ...exam, ...data[0] } : exam;
+      const fullExam =
+        !error && Array.isArray(data) && data.length > 0 ? { ...exam, ...data[0] } : exam;
       setEditingExamData(fullExam);
       setUploadMode("practice");
-      setTestFile(new File(["dummy"], String(fullExam?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+      setTestFile(
+        new File(["dummy"], String(fullExam?.title || "de_thi") + ".docx", {
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        })
+      );
     } catch (err) {
       setEditingExamData(exam);
       setUploadMode("practice");
-      setTestFile(new File(["dummy"], String(exam?.title || "de_thi") + ".docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+      setTestFile(
+        new File(["dummy"], String(exam?.title || "de_thi") + ".docx", {
+          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        })
+      );
     }
   };
 
@@ -1145,44 +1356,51 @@ function AdminDashboardContent() {
   const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
-    
+
     setIsCreatingItem(true);
     let newChapters = [...(chapters || [])];
 
     if (createModal.type === "chapter") {
-      newChapters.push({ 
-        id: "chap-" + Date.now(), 
-        title: newItemTitle.trim(), 
-        target_mode: newItemTargetMode, 
-        lessons: [], 
+      newChapters.push({
+        id: "chap-" + Date.now(),
+        title: newItemTitle.trim(),
+        target_mode: newItemTargetMode,
+        lessons: [],
       });
     } else if (createModal.type === "lesson" && createModal.chapterId) {
-      newChapters = newChapters.map(chap => chap?.id === createModal.chapterId ? {
-        ...chap, 
-        lessons: [...(chap.lessons || []), {
-          id: "les-" + Date.now(), 
-          title: newItemTitle.trim(), 
-          description: newItemDescription.trim(), 
-          duration: 45, 
-          format: newItemFormat || "Zoom", 
-          target_mode: newItemTargetMode,
-          lecture_files: [], 
-          homework_files: [], 
-          handwritten_notes: [], 
-          video_list: [], 
-          test_quizzes: [], 
-          extra_resources: [],
-        }],
-      } : chap);
+      newChapters = newChapters.map((chap) =>
+        chap?.id === createModal.chapterId
+          ? {
+              ...chap,
+              lessons: [
+                ...(chap.lessons || []),
+                {
+                  id: "les-" + Date.now(),
+                  title: newItemTitle.trim(),
+                  description: newItemDescription.trim(),
+                  duration: 45,
+                  format: newItemFormat || "Zoom",
+                  target_mode: newItemTargetMode,
+                  lecture_files: [],
+                  homework_files: [],
+                  handwritten_notes: [],
+                  video_list: [],
+                  test_quizzes: [],
+                  extra_resources: [],
+                },
+              ],
+            }
+          : chap
+      );
     }
 
     syncCoursesToSupabase(newChapters, createModal.type === "chapter" ? "chương" : "bài học");
     setIsCreatingItem(false);
 
     const itemLabel = createModal.type === "chapter" ? "chương" : "bài học";
-    setCreateModal(null); 
-    setNewItemTitle(""); 
-    setNewItemDescription(""); 
+    setCreateModal(null);
+    setNewItemTitle("");
+    setNewItemDescription("");
     setNewItemFormat("Zoom");
     setNewItemTargetMode("all");
     showToast("Đã thêm " + itemLabel + " mới thành công!", "success");
@@ -1191,49 +1409,62 @@ function AdminDashboardContent() {
   const handleEditLessonSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editLessonModal || !editLessonForm.title.trim()) return;
-    const newChapters = (chapters || []).map(chap => chap?.id === editLessonModal.chapterId ? {
-      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les),
-    } : chap);
-    syncCoursesToSupabase(newChapters, "bài học"); 
-    setEditLessonModal(null); 
+    const newChapters = (chapters || []).map((chap) =>
+      chap?.id === editLessonModal.chapterId
+        ? {
+            ...chap,
+            lessons: (chap?.lessons || []).map((les: any) =>
+              les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les
+            ),
+          }
+        : chap
+    );
+    syncCoursesToSupabase(newChapters, "bài học");
+    setEditLessonModal(null);
     showToast("Đã cập nhật thông tin bài học!", "success");
   };
 
   const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
-    const newChapters = (chapters || []).map(chap => {
-      if (chap?.id === chapterId) { 
-        return { ...chap, lessons: (chap?.lessons || []).filter((l: any) => l?.id !== lessonId) }; 
+    const newChapters = (chapters || []).map((chap) => {
+      if (chap?.id === chapterId) {
+        return {
+          ...chap,
+          lessons: (chap?.lessons || []).filter((l: any) => l?.id !== lessonId)
+        };
       }
       return chap;
     });
-    syncCoursesToSupabase(newChapters, "bài học"); 
+    syncCoursesToSupabase(newChapters, "bài học");
     showToast("Đã xóa bài học!", "success");
   };
 
   const handleAddResource = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
-    const newResource = { 
-      id: "res-" + Date.now(), 
-      title: resTitle.trim(), 
-      url: resUrl.trim(), 
-      type: resourceModal.type === "video_list" ? vidType : undefined, 
+    const newResource = {
+      id: "res-" + Date.now(),
+      title: resTitle.trim(),
+      url: resUrl.trim(),
+      type: resourceModal.type === "video_list" ? vidType : undefined,
     };
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === resourceModal.lessonId) { 
-          return { ...les, [resourceModal.type]: [...(les[resourceModal.type] || []), newResource] }; 
-        } 
-        return les; 
-      }), 
+    const newChapters = (chapters || []).map((chap) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === resourceModal.lessonId) {
+          return {
+            ...les,
+            [resourceModal.type]: [...(les[resourceModal.type] || []), newResource]
+          };
+        }
+        return les;
+      }),
     }));
-    syncCoursesToSupabase(newChapters, "tài nguyên"); 
-    setResTitle(""); 
-    setResUrl(""); 
+    syncCoursesToSupabase(newChapters, "tài nguyên");
+    setResTitle("");
+    setResUrl("");
     setVidType("lecture");
-    setResourceModal(null); 
+    setResourceModal(null);
     showToast("Đã thêm tài nguyên thành công!", "success");
   };
 
@@ -1241,52 +1472,71 @@ function AdminDashboardContent() {
     e.preventDefault();
     if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
     const newBoost = { id: "boost-" + Date.now(), ...boostForm };
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === boostModal) { 
-          return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] }; 
-        } 
-        return les; 
-      }), 
+    const newChapters = (chapters || []).map((chap) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === boostModal) {
+          return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] };
+        }
+        return les;
+      }),
     }));
-    syncCoursesToSupabase(newChapters, "tài liệu tăng cường"); 
-    setBoostModal(null); 
-    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
+    syncCoursesToSupabase(newChapters, "tài liệu tăng cường");
+    setBoostModal(null);
+    setBoostForm({ title: "", type: "video", url: "", note: "" });
     showToast("Đã thêm tài liệu tăng cường!", "success");
   };
 
   const handleAddDriveFile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
-    const newItem = { id: "drive-" + Date.now(), title: driveLinkForm.title, url: driveLinkForm.url, is_quiz: false, is_drive_file: true };
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === driveLinkModal.lessonId) { 
-          return { ...les, [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem] }; 
-        } 
-        return les; 
-      }), 
+    const newItem = {
+      id: "drive-" + Date.now(),
+      title: driveLinkForm.title,
+      url: driveLinkForm.url,
+      is_quiz: false,
+      is_drive_file: true
+    };
+    const newChapters = (chapters || []).map((chap) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === driveLinkModal.lessonId) {
+          return {
+            ...les,
+            [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem]
+          };
+        }
+        return les;
+      }),
     }));
-    syncCoursesToSupabase(newChapters, "file Google Drive"); 
-    setDriveLinkModal(null); 
-    setDriveLinkForm({ title: "", url: "" }); 
+    syncCoursesToSupabase(newChapters, "file Google Drive");
+    setDriveLinkModal(null);
+    setDriveLinkForm({ title: "", url: "" });
     showToast("Đã đính kèm file Drive!", "success");
   };
 
   const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
-    
-    if (viewResourcesModal && viewResourcesModal.lessonId === lessonId && viewResourcesModal.type === resType) {
-      setViewResourcesModal((prev: any) => prev ? { ...prev, items: (prev.items || []).filter((i: any) => i?.id !== resId) } : null);
+
+    if (
+      viewResourcesModal &&
+      viewResourcesModal.lessonId === lessonId &&
+      viewResourcesModal.type === resType
+    ) {
+      setViewResourcesModal((prev: any) =>
+        prev ? { ...prev, items: (prev.items || []).filter((i: any) => i?.id !== resId) } : null
+      );
     }
 
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) } : les), 
+    const newChapters = (chapters || []).map((chap) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) =>
+        les?.id === lessonId
+          ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) }
+          : les
+      ),
     }));
-    
+
     syncCoursesToSupabase(newChapters, "tài nguyên");
     showToast("Đã xóa tài nguyên!", "success");
   };
@@ -1294,37 +1544,50 @@ function AdminDashboardContent() {
   const handleEditResourceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editResourceModal || !editResourceForm.title.trim()) return;
-    const newChapters = (chapters || []).map(chap => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === editResourceModal.lessonId) { 
-          return { ...les, [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) => 
-            r?.id === editResourceModal.item.id ? { 
-              ...r, 
-              title: editResourceForm.title, 
-              url: editResourceForm.url || r.url,
-              type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type,
-            } : r 
-          )}; 
-        } 
-        return les; 
-      }), 
+    const newChapters = (chapters || []).map((chap) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === editResourceModal.lessonId) {
+          return {
+            ...les,
+            [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) =>
+              r?.id === editResourceModal.item.id
+                ? {
+                    ...r,
+                    title: editResourceForm.title,
+                    url: editResourceForm.url || r.url,
+                    type:
+                      editResourceModal.type === "video_list" ? editResourceForm.type : r.type,
+                  }
+                : r
+            )
+          };
+        }
+        return les;
+      }),
     }));
     syncCoursesToSupabase(newChapters, "tài liệu");
-    setEditResourceModal(null); 
+    setEditResourceModal(null);
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
-  const handleUpdateStudentStatus = async (studentId: string, status: "approved" | "rejected") => {
+  const handleUpdateStudentStatus = async (
+    studentId: string,
+    status: "approved" | "rejected"
+  ) => {
     const isApproved = status === "approved";
 
-    setRegisteredStudents(prev =>
-      prev.map(s => (s.id === studentId ? {
-        ...s,
-        approval_status: status,
-        status: status,
-        is_approved: isApproved,
-      } : s))
+    setRegisteredStudents((prev) =>
+      prev.map((s) =>
+        s.id === studentId
+          ? {
+              ...s,
+              approval_status: status,
+              status: status,
+              is_approved: isApproved,
+            }
+          : s
+      )
     );
 
     if (typeof window !== "undefined") {
@@ -1332,12 +1595,16 @@ function AdminDashboardContent() {
         const saved = localStorage.getItem("edunexus_registered_students");
         if (saved) {
           const list = JSON.parse(saved);
-          const updated = list.map((s: any) => (s.id === studentId ? {
-            ...s,
-            approval_status: status,
-            status: status,
-            is_approved: isApproved,
-          } : s));
+          const updated = list.map((s: any) =>
+            s.id === studentId
+              ? {
+                  ...s,
+                  approval_status: status,
+                  status: status,
+                  is_approved: isApproved,
+                }
+              : s
+          );
           localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
         }
       } catch (e) {}
@@ -1362,7 +1629,7 @@ function AdminDashboardContent() {
   const handleDeleteStudent = async (studentId: string) => {
     if (!confirm("Xác nhận xóa học sinh này khỏi hệ thống vĩnh viễn?")) return;
 
-    setRegisteredStudents(prev => prev.filter(s => s.id !== studentId));
+    setRegisteredStudents((prev) => prev.filter((s) => s.id !== studentId));
 
     if (typeof window !== "undefined") {
       try {
@@ -1393,25 +1660,33 @@ function AdminDashboardContent() {
   };
 
   const handleDeleteSession = async (sessionId: string, sessionTitle: string) => {
-    if (!confirm("Bạn có chắc chắn muốn XÓA ca học \"" + sessionTitle + "\" khỏi hệ thống?")) return;
+    if (!confirm('Bạn có chắc chắn muốn XÓA ca học "' + sessionTitle + '" khỏi hệ thống?')) {
+      return;
+    }
     try {
       await supabase.from("sessions").delete().eq("id", sessionId);
     } catch (err: any) {}
 
-    const updatedSessions = onlineSessions.filter(s => s.id !== sessionId);
+    const updatedSessions = onlineSessions.filter((s) => s.id !== sessionId);
     setOnlineSessions(updatedSessions);
-    showToast("Đã xóa ca học \"" + sessionTitle + "\" thành công!", "success");
+    showToast('Đã xóa ca học "' + sessionTitle + '" thành công!', "success");
   };
 
   const handleDeleteAttendanceDate = async (dateToDelete: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa cột ngày học \"" + dateToDelete + "\" khỏi bảng điểm danh?")) return;
-    const updatedDates = sessionDates.filter(d => d !== dateToDelete);
+    if (
+      !confirm(
+        'Bạn có chắc chắn muốn xóa cột ngày học "' + dateToDelete + '" khỏi bảng điểm danh?'
+      )
+    ) {
+      return;
+    }
+    const updatedDates = sessionDates.filter((d) => d !== dateToDelete);
     setSessionDates(updatedDates);
-      
-    const updatedAtt = attendanceRecords.filter(a => a.sessionDate !== dateToDelete);
+
+    const updatedAtt = attendanceRecords.filter((a) => a.sessionDate !== dateToDelete);
     setAttendanceRecords(updatedAtt);
 
-    const updatedSessions = onlineSessions.filter(s => s.date !== dateToDelete);
+    const updatedSessions = onlineSessions.filter((s) => s.date !== dateToDelete);
     setOnlineSessions(updatedSessions);
 
     try {
@@ -1437,7 +1712,7 @@ function AdminDashboardContent() {
     let finalTimeSlot = newDateTimeSlot.trim() || "19:30 - 21:00";
 
     if (newDateShift !== "custom") {
-      const shiftObj = STANDARD_SHIFTS.find(s => s.id === newDateShift);
+      const shiftObj = STANDARD_SHIFTS.find((s) => s.id === newDateShift);
       if (shiftObj) {
         shiftTitle = shiftObj.name;
         finalTimeSlot = shiftObj.timeSlot;
@@ -1447,7 +1722,7 @@ function AdminDashboardContent() {
     const nowIso = new Date().toISOString();
     const newSessionMeta: any = {
       id: "sess-" + Date.now(),
-      title: newDateTitle.trim() || ("Buổi học ngày " + displayDate),
+      title: newDateTitle.trim() || "Buổi học ngày " + displayDate,
       date: displayDate,
       isoDate: newDateInput,
       shiftId: newDateShift,
@@ -1466,7 +1741,10 @@ function AdminDashboardContent() {
     await supabase.from("sessions").insert([newSessionMeta]);
     setIsAddDateModalOpen(false);
     setNewDateTitle("");
-    showToast("Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!", "success");
+    showToast(
+      "Đã thêm ngày học " + displayDate + " (" + finalTimeSlot + ") thành công!",
+      "success"
+    );
   };
 
   const handleCreateOnlineSession = async (e: React.FormEvent) => {
@@ -1474,7 +1752,10 @@ function AdminDashboardContent() {
     if (!newSessionForm.title.trim() || !newSessionForm.meetingUrl.trim()) {
       return alert("Vui lòng nhập đầy đủ tiêu đề và link phòng học!");
     }
-    const guideImgs = newSessionForm.guideImagesText.split("\n").map(s => s.trim()).filter(Boolean);
+    const guideImgs = newSessionForm.guideImagesText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
     const dispDate = newSessionForm.displayDate.trim() || "24/09";
     const finalTimeSlot = newSessionForm.timeSlot.trim() || "19:30 - 21:00";
     const nowIso = new Date().toISOString();
@@ -1491,7 +1772,12 @@ function AdminDashboardContent() {
       audience: newSessionForm.audience,
       target_mode: newSessionForm.audience,
       room: newSessionForm.audience === "offline" ? "P.201 TCT" : "Zoom / Google Meet",
-      guideImages: guideImgs.length > 0 ? guideImgs : ["https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80"],
+      guideImages:
+        guideImgs.length > 0
+          ? guideImgs
+          : [
+              "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop&q=80"
+            ],
       created_at: nowIso,
       createdAt: nowIso,
     };
@@ -1499,33 +1785,42 @@ function AdminDashboardContent() {
     const updatedSessions = [newSession, ...onlineSessions];
     setOnlineSessions(updatedSessions);
 
-    let updatedDates = sessionDates;
     if (!sessionDates.includes(dispDate)) {
-      updatedDates = [...sessionDates, dispDate];
-      setSessionDates(updatedDates);
+      setSessionDates([...sessionDates, dispDate]);
     }
 
     await supabase.from("sessions").insert([newSession]);
 
-    setNewSessionForm({ 
-      title: "", 
-      isoDate: newSessionForm.isoDate, 
-      displayDate: newSessionForm.displayDate, 
-      shiftId: "custom", 
-      shiftName: "Ca học", 
-      timeSlot: "19:30 - 21:00", 
-      meetingUrl: "", 
-      guideImagesText: "", 
-      audience: "all", 
+    setNewSessionForm({
+      title: "",
+      isoDate: newSessionForm.isoDate,
+      displayDate: newSessionForm.displayDate,
+      shiftId: "custom",
+      shiftName: "Ca học",
+      timeSlot: "19:30 - 21:00",
+      meetingUrl: "",
+      guideImagesText: "",
+      audience: "all",
     });
-    showToast("Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!", "success");
+    showToast(
+      "Đã phát link buổi học (" + dispDate + " • " + finalTimeSlot + ") lên hệ thống thành công!",
+      "success"
+    );
   };
 
-  const handleToggleAttendance = (studentId: string, studentName: string, sessionDate: string) => {
-    const existing = attendanceRecords.find(a => a.studentId === studentId && a.sessionDate === sessionDate);
+  const handleToggleAttendance = (
+    studentId: string,
+    studentName: string,
+    sessionDate: string
+  ) => {
+    const existing = attendanceRecords.find(
+      (a) => a.studentId === studentId && a.sessionDate === sessionDate
+    );
     let updated: any[];
     if (existing && existing.status === "present") {
-      updated = attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate));
+      updated = attendanceRecords.filter(
+        (a) => !(a.studentId === studentId && a.sessionDate === sessionDate)
+      );
       showToast("Đã hủy điểm danh của " + studentName + " ngày " + sessionDate, "success");
     } else {
       const newRec = {
@@ -1536,7 +1831,12 @@ function AdminDashboardContent() {
         status: "present",
         attendedAt: new Date().toISOString(),
       };
-      updated = [...attendanceRecords.filter(a => !(a.studentId === studentId && a.sessionDate === sessionDate)), newRec];
+      updated = [
+        ...attendanceRecords.filter(
+          (a) => !(a.studentId === studentId && a.sessionDate === sessionDate)
+        ),
+        newRec
+      ];
       showToast("Đã tích có mặt cho " + studentName + " ngày " + sessionDate + "!", "success");
     }
     setAttendanceRecords(updated);
@@ -1545,12 +1845,17 @@ function AdminDashboardContent() {
   const handleSaveSolutionVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoModalExam) return;
-    const newExams = (practiceExams || []).map(ex => 
-      ex?.id === videoModalExam.id ? { ...ex, solutionVideoUrl: solutionVideoInput.trim() } : ex
+    const newExams = (practiceExams || []).map((ex) =>
+      ex?.id === videoModalExam.id
+        ? { ...ex, solutionVideoUrl: solutionVideoInput.trim() }
+        : ex
     );
     await savePracticeExams(newExams);
     try {
-      await supabase.from("practice_exams").update({ solutionVideoUrl: solutionVideoInput.trim() }).eq("id", videoModalExam.id);
+      await supabase
+        .from("practice_exams")
+        .update({ solutionVideoUrl: solutionVideoInput.trim() })
+        .eq("id", videoModalExam.id);
     } catch {}
     setVideoModalExam(null);
     setSolutionVideoInput("");
@@ -1560,29 +1865,34 @@ function AdminDashboardContent() {
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!notifTitle.trim() || !notifContent.trim()) return;
-    const newNotif = { id: "sys-" + Date.now(), title: notifTitle, content: notifContent, type: notifType, createdAt: new Date().toISOString() };
+    const newNotif = {
+      id: "sys-" + Date.now(),
+      title: notifTitle,
+      content: notifContent,
+      type: notifType,
+      createdAt: new Date().toISOString()
+    };
     const updated = [newNotif, ...(sysNotifications || [])];
-    setSysNotifications(updated); 
-    
+    setSysNotifications(updated);
+
     try {
       await supabase.from("system_notifications").insert([newNotif]);
     } catch (err) {}
 
-    setNotifTitle(""); 
-    setNotifContent(""); 
+    setNotifTitle("");
+    setNotifContent("");
     showToast("Đã phát thông báo thành công!", "success");
   };
 
   const handleDeleteNotification = async (id: string) => {
     if (!confirm("Thu hồi thông báo này?")) return;
-    const updated = (sysNotifications || []).filter(n => n?.id !== id);
-    setSysNotifications(updated); 
+    const updated = (sysNotifications || []).filter((n) => n?.id !== id);
+    setSysNotifications(updated);
     try {
       await supabase.from("system_notifications").delete().eq("id", id);
     } catch {}
   };
 
-  // TỰ ĐỘNG KHÔI PHỤC DANH SÁCH HỌC SINH TỪ LỊCH SỬ LÀM BÀI HOẶC ĐIỂM DANH NẾU BẢNG PROFILES BỊ LỖI 500
   const effectiveStudentsWithRecovery = useMemo(() => {
     if (Array.isArray(registeredStudents) && registeredStudents.length > 0) {
       return registeredStudents;
@@ -1610,7 +1920,7 @@ function AdminDashboardContent() {
 
   const analyticsData = useMemo(() => {
     const profileMap = new Map<string, any>();
-    (effectiveStudentsWithRecovery || []).forEach(s => {
+    (effectiveStudentsWithRecovery || []).forEach((s) => {
       if (!s) return;
       if (s.id) profileMap.set(String(s.id).trim().toLowerCase(), s);
       if (s.full_name) profileMap.set(String(s.full_name).trim().toLowerCase(), s);
@@ -1662,7 +1972,7 @@ function AdminDashboardContent() {
     }
 
     const stats: Record<string, any> = {};
-    (effectiveStudentsWithRecovery || []).forEach(s => {
+    (effectiveStudentsWithRecovery || []).forEach((s) => {
       stats[s.id] = {
         id: s.id,
         name: s.full_name || s.username || "Học sinh",
@@ -1677,10 +1987,12 @@ function AdminDashboardContent() {
       };
     });
 
-    (allAttempts || []).forEach(att => {
+    (allAttempts || []).forEach((att) => {
       if (!att || isAttemptBlacklisted(att)) return;
 
-      const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
+      const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "")
+        .trim()
+        .toLowerCase();
       const attTitle = normalizeText(att.examTitle || att.quizTitle || att.title || "");
 
       let isScopeMatched = true;
@@ -1688,8 +2000,12 @@ function AdminDashboardContent() {
       let matchedAsTest = false;
 
       if (rankingScope !== "course") {
-        const matchHw = (attQuizId && validHwIds.has(attQuizId)) || (attTitle && validTitles.has(attTitle));
-        const matchTest = (attQuizId && validTestIds.has(attQuizId)) || (attTitle && validTitles.has(attTitle));
+        const matchHw =
+          (attQuizId && validHwIds.has(attQuizId)) ||
+          (attTitle && validTitles.has(attTitle));
+        const matchTest =
+          (attQuizId && validTestIds.has(attQuizId)) ||
+          (attTitle && validTitles.has(attTitle));
 
         if (!matchHw && !matchTest) {
           isScopeMatched = false;
@@ -1701,14 +2017,18 @@ function AdminDashboardContent() {
 
       if (!isScopeMatched) return;
 
-      const attStuId = String(att.studentId || att.student_id || att.user_id || "").trim().toLowerCase();
-      const rawAttName = String(att.studentName || att.student_name || att.full_name || "").trim();
+      const attStuId = String(att.studentId || att.student_id || att.user_id || "")
+        .trim()
+        .toLowerCase();
+      const rawAttName = String(
+        att.studentName || att.student_name || att.full_name || ""
+      ).trim();
 
       const matchedProfile =
         profileMap.get(attStuId) ||
         (rawAttName ? profileMap.get(rawAttName.toLowerCase()) : null);
 
-      let targetId = matchedProfile ? matchedProfile.id : attStuId;
+      const targetId = matchedProfile ? matchedProfile.id : attStuId;
       if (!targetId || !stats[targetId]) return;
 
       const st = stats[targetId];
@@ -1747,11 +2067,14 @@ function AdminDashboardContent() {
           }
         } else {
           if (st.hwScores.length > 0 && st.testScores.length > 0) {
-            const hwAvg = st.hwScores.reduce((a: number, b: number) => a + b, 0) / st.hwScores.length;
-            const testAvg = st.testScores.reduce((a: number, b: number) => a + b, 0) / st.testScores.length;
+            const hwAvg =
+              st.hwScores.reduce((a: number, b: number) => a + b, 0) / st.hwScores.length;
+            const testAvg =
+              st.testScores.reduce((a: number, b: number) => a + b, 0) / st.testScores.length;
             overallAvg = (hwAvg + testAvg) / 2;
           } else if (allScores.length > 0) {
-            overallAvg = allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length;
+            overallAvg =
+              allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length;
           }
         }
 
@@ -1781,15 +2104,24 @@ function AdminDashboardContent() {
   };
 
   const sortedAndFilteredStudents = useMemo(() => {
-    let list = Array.isArray(effectiveStudentsWithRecovery) ? [...effectiveStudentsWithRecovery] : [];
+    let list = Array.isArray(effectiveStudentsWithRecovery)
+      ? [...effectiveStudentsWithRecovery]
+      : [];
 
     if (attendanceSearchText.trim()) {
       const q = attendanceSearchText.toLowerCase();
-      list = list.filter(s => (s.full_name || "").toLowerCase().includes(q) || (s.email || "").toLowerCase().includes(q));
+      list = list.filter(
+        (s) =>
+          (s.full_name || "").toLowerCase().includes(q) ||
+          (s.email || "").toLowerCase().includes(q)
+      );
     }
 
     if (attendanceFilterMode !== "all") {
-      list = list.filter(s => s.learning_mode === attendanceFilterMode || s.study_mode === attendanceFilterMode);
+      list = list.filter(
+        (s) =>
+          s.learning_mode === attendanceFilterMode || s.study_mode === attendanceFilterMode
+      );
     }
 
     if (attendanceSortAZ) {
@@ -1798,32 +2130,42 @@ function AdminDashboardContent() {
         const lastB = getVietnameseLastName(b.full_name);
         const cmp = lastA.localeCompare(lastB, "vi", { sensitivity: "base" });
         if (cmp !== 0) return cmp;
-        return (a.full_name || "").localeCompare(b.full_name || "", "vi", { sensitivity: "base" });
+        return (a.full_name || "").localeCompare(b.full_name || "", "vi", {
+          sensitivity: "base"
+        });
       });
     }
 
     return list;
-  }, [effectiveStudentsWithRecovery, attendanceSearchText, attendanceFilterMode, attendanceSortAZ]);
+  }, [
+    effectiveStudentsWithRecovery,
+    attendanceSearchText,
+    attendanceFilterMode,
+    attendanceSortAZ
+  ]);
 
   const examsWithScoresData = useMemo(() => {
     let list = Array.isArray(practiceExams) ? [...practiceExams] : [];
     if (practiceCategoryFilter !== "Tất cả danh mục") {
-      list = list.filter(ex => ex?.category === practiceCategoryFilter);
+      list = list.filter((ex) => ex?.category === practiceCategoryFilter);
     }
 
-    return list.map(ex => {
+    return list.map((ex) => {
       const exId = String(ex?.id || "").trim();
       const exTitleNorm = normalizeText(ex?.title);
 
-      const attempts = (allAttempts || []).filter(a => {
+      const attempts = (allAttempts || []).filter((a) => {
         if (!a || isAttemptBlacklisted(a)) return false;
         const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "").trim();
         const aTitleNorm = normalizeText(a.examTitle || a.exam_title || a.title);
-        return (aQuizId && exId && aQuizId === exId) || (exTitleNorm && aTitleNorm && exTitleNorm === aTitleNorm);
+        return (
+          (aQuizId && exId && aQuizId === exId) ||
+          (exTitleNorm && aTitleNorm && exTitleNorm === aTitleNorm)
+        );
       });
 
       const studentMap = new Map();
-      attempts.forEach(att => {
+      attempts.forEach((att) => {
         const key = att.studentId || att.student_id || att.studentName;
         const prev = studentMap.get(key);
         if (!prev || Number(att.score || 0) > Number(prev.score || 0)) {
@@ -1831,8 +2173,9 @@ function AdminDashboardContent() {
         }
       });
 
-      const scores = attempts.map(a => Number(a.score || 0));
-      const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+      const scores = attempts.map((a) => Number(a.score || 0));
+      const avgScore =
+        scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
       const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
 
       return {
@@ -1848,17 +2191,23 @@ function AdminDashboardContent() {
 
   const handleSaveAzotaExam = async (examData: any) => {
     if (uploadMode === "practice") {
-      const examId = editingExamData ? editingExamData.id : ("prac-" + Date.now());
+      const examId = editingExamData ? editingExamData.id : "prac-" + Date.now();
       const title = examData.title || "Đề luyện thi mới";
       const category = examData.category || "Tự do";
       const duration = Number(examData.duration_minutes) || 45;
       const targetMode = examData.target_mode || (editingExamData?.target_mode ?? "all");
-      const allowRetake = editingExamData ? (editingExamData.allowRetake ?? true) : true;
-      const allowViewFile = editingExamData ? (editingExamData.allowViewFile ?? true) : true;
+      const allowRetake = editingExamData ? editingExamData.allowRetake ?? true : true;
+      const allowViewFile = editingExamData ? editingExamData.allowViewFile ?? true : true;
       const driveUrl = examData.driveUrl || (editingExamData?.driveUrl ?? "");
-      const solutionVideoUrl = examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? "");
+      const solutionVideoUrl =
+        examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? "");
       const rawSections = examData.sections || examData.data || [];
-      const incomingMediaMap = examData.mediaMap || examData.media_map || editingExamData?.media_map || editingExamData?.mediaMap || {};
+      const incomingMediaMap =
+        examData.mediaMap ||
+        examData.media_map ||
+        editingExamData?.media_map ||
+        editingExamData?.mediaMap ||
+        {};
 
       try {
         setPracticeSyncStatus({
@@ -1903,6 +2252,7 @@ function AdminDashboardContent() {
           }
         );
 
+        const nowIso = new Date().toISOString();
         const payloadExam = {
           id: examId,
           title: title,
@@ -1917,7 +2267,8 @@ function AdminDashboardContent() {
           sections: sanitizedSections,
           media_map: cleanedMediaMap,
           mediaMap: cleanedMediaMap,
-          created_at: editingExamData?.created_at || new Date().toISOString()
+          created_at: editingExamData?.created_at || nowIso,
+          updated_at: nowIso
         };
 
         const dbExamRow = {
@@ -1963,8 +2314,9 @@ function AdminDashboardContent() {
           if (res.ok) saved = true;
         }
 
+        // Chèn đề mới tạo lên đầu danh sách (Index 0)
         const updatedList = editingExamData
-          ? (practiceExams || []).map((ex: any) => ex.id === examId ? payloadExam : ex)
+          ? (practiceExams || []).map((ex: any) => (ex.id === examId ? payloadExam : ex))
           : [payloadExam, ...(practiceExams || [])];
         setPracticeExams(updatedList);
         safeSavePracticeExamsToStorage(updatedList);
@@ -1988,7 +2340,6 @@ function AdminDashboardContent() {
         setTimeout(() => {
           setPracticeSyncStatus({ isSyncing: false, progress: 0, message: "", type: "idle" });
         }, 2000);
-
       } catch (err: any) {
         console.error("Lỗi lưu đề thi:", err);
         setPracticeSyncStatus({
@@ -1999,37 +2350,37 @@ function AdminDashboardContent() {
         });
         showToast("Lỗi khi lưu đề thi: " + err.message, "error");
       }
-
     } else {
       if (!azotaTarget) return;
       const isHw = azotaTarget.type === "homework_files";
       const targetLessonId = azotaTarget.lessonId;
       const targetType = azotaTarget.type;
 
-      setTestFile(null); 
-      setEditingExamData(null); 
+      setTestFile(null);
+      setEditingExamData(null);
       setAzotaTarget(null);
 
-      const newExam = { 
-        id: "exam-" + Date.now(), 
-        title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"), 
-        isHomework: isHw, 
-        duration_minutes: isHw ? 0 : (examData.duration_minutes || 45), 
-        is_quiz: true, 
-        data: examData.sections || examData.data || [], 
-        sections: examData.sections || examData.data || [], 
-        mediaMap: examData.mediaMap || examData.media_map || {}, 
-        media_map: examData.mediaMap || examData.media_map || {} 
+      const newExam = {
+        id: "exam-" + Date.now(),
+        title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"),
+        isHomework: isHw,
+        duration_minutes: isHw ? 0 : examData.duration_minutes || 45,
+        is_quiz: true,
+        data: examData.sections || examData.data || [],
+        sections: examData.sections || examData.data || [],
+        mediaMap: examData.mediaMap || examData.media_map || {},
+        media_map: examData.mediaMap || examData.media_map || {},
+        created_at: new Date().toISOString()
       };
 
-      const newChapters = (latestChaptersRef.current || []).map(chap => ({ 
-        ...chap, 
-        lessons: (chap?.lessons || []).map((les: any) => { 
-          if (les?.id === targetLessonId) { 
-            return { ...les, [targetType]: [...(les[targetType] || []), newExam] }; 
-          } 
-          return les; 
-        }) 
+      const newChapters = (latestChaptersRef.current || []).map((chap) => ({
+        ...chap,
+        lessons: (chap?.lessons || []).map((les: any) => {
+          if (les?.id === targetLessonId) {
+            return { ...les, [targetType]: [newExam, ...(les[targetType] || [])] };
+          }
+          return les;
+        })
       }));
 
       await syncCoursesToSupabase(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
@@ -2041,11 +2392,17 @@ function AdminDashboardContent() {
     return (
       <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative">
         <aside className="hidden lg:flex w-64 bg-[#1E40AF] border-r border-[#1E40AF] text-white/90 flex-col shrink-0 p-5">
-          <div className="flex items-center gap-3 mb-8"> 
-            <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">TCT</div>
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-10 h-10 bg-white text-[#1E40AF] rounded-[14px] flex items-center justify-center font-black text-sm shadow-md">
+              TCT
+            </div>
             <div>
-              <h1 className="font-extrabold text-[15px] text-white tracking-tight leading-none">TÂM CHÍ TÀI</h1>
-              <p className="text-[9px] text-blue-200 font-bold tracking-widest mt-1 uppercase">Admin Panel</p>
+              <h1 className="font-extrabold text-[15px] text-white tracking-tight leading-none">
+                TÂM CHÍ TÀI
+              </h1>
+              <p className="text-[9px] text-blue-200 font-bold tracking-widest mt-1 uppercase">
+                Admin Panel
+              </p>
             </div>
           </div>
         </aside>
@@ -2063,15 +2420,20 @@ function AdminDashboardContent() {
     <div className="min-h-screen w-full flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20 overflow-x-hidden">
       <AnimatePresence>
         {toastNotification && (
-          <motion.div 
-            initial={{ opacity: 0, y: -20 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            exit={{ opacity: 0, y: -20 }} 
-            className={"fixed top-5 right-5 z-[500] px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-sm text-white " + (
-              toastNotification.type === "success" ? "bg-emerald-600" : "bg-rose-600"
-            )}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={
+              "fixed top-5 right-5 z-[500] px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 font-bold text-sm text-white " +
+              (toastNotification.type === "success" ? "bg-emerald-600" : "bg-rose-600")
+            }
           >
-            {toastNotification.type === "success" ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            {toastNotification.type === "success" ? (
+              <CheckCircle2 className="w-5 h-5" />
+            ) : (
+              <AlertCircle className="w-5 h-5" />
+            )}
             {toastNotification.message}
           </motion.div>
         )}
@@ -2149,7 +2511,7 @@ function AdminDashboardContent() {
             </button>
 
             <span className="text-xs font-black text-slate-800 sm:hidden truncate">
-              TCT EduNexus Admin
+              Tâm Chí Tài (TCT) Admin
             </span>
           </div>
 
@@ -2197,14 +2559,17 @@ function AdminDashboardContent() {
                   <div className="flex items-center justify-between text-xs font-bold text-blue-900">
                     <div className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-                      <span>{syncStatus.message || `Đang xử lý & đăng tải dữ liệu: [ ${syncStatus.progress}% ]`}</span>
+                      <span>
+                        {syncStatus.message ||
+                          `Đang xử lý & đăng tải dữ liệu: [ ${syncStatus.progress}% ]`}
+                      </span>
                     </div>
                     <span className="font-mono text-blue-700">{syncStatus.progress}%</span>
                   </div>
                   <div className="w-full bg-blue-200/60 h-2 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full transition-all duration-300 rounded-full" 
-                      style={{ width: `${syncStatus.progress}%` }} 
+                    <div
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${syncStatus.progress}%` }}
                     />
                   </div>
                 </div>
@@ -2214,9 +2579,13 @@ function AdminDashboardContent() {
                 <div className="bg-emerald-50 border-2 border-emerald-400 p-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 shadow-xs">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>{syncStatus.message || "✓ Đã đăng tải và đồng bộ thành công! (100%)"}</span>
+                    <span>
+                      {syncStatus.message || "✓ Đã đăng tải và đồng bộ thành công! (100%)"}
+                    </span>
                   </div>
-                  <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-lg border border-emerald-300">Hoàn tất</span>
+                  <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-lg border border-emerald-300">
+                    Hoàn tất
+                  </span>
                 </div>
               )}
 
@@ -2226,9 +2595,9 @@ function AdminDashboardContent() {
                     <AlertCircle className="w-4 h-4 text-rose-600" />
                     <span>{syncStatus.message || "✕ Lỗi kết nối đám mây khi lưu bài học!"}</span>
                   </div>
-                  <button 
-                    type="button" 
-                    onClick={handleRetrySync} 
+                  <button
+                    type="button"
+                    onClick={handleRetrySync}
                     className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold hover:bg-rose-700 cursor-pointer flex items-center gap-1"
                   >
                     <RefreshCw className="w-3 h-3" /> Thử lại
@@ -2369,7 +2738,7 @@ function AdminDashboardContent() {
           )}
 
           {activeTab === "reports" && (
-            <AdminStudentReportPanel 
+            <AdminStudentReportPanel
               registeredStudents={effectiveStudentsWithRecovery || []}
               allAttempts={allAttempts || []}
               chapters={chapters || []}
@@ -2388,9 +2757,14 @@ function AdminDashboardContent() {
         practiceExams={practiceExams || []}
         registeredStudents={effectiveStudentsWithRecovery || []}
         showToast={showToast}
+        onSavedSuccess={() => syncAdminGlobalData()}
         onSavedBatchAttempts={(newAttempts) => {
           setAllAttempts((prev: any[]) => {
-            const merged = [...newAttempts, ...(prev || [])];
+            const newIds = new Set(newAttempts.map((x: any) => String(x?.id)));
+            const filteredPrev = (prev || []).filter(
+              (item: any) => !newIds.has(String(item?.id))
+            );
+            const merged = [...newAttempts, ...filteredPrev];
             if (typeof window !== "undefined") {
               try {
                 localStorage.setItem("edunexus_attempts", JSON.stringify(merged));
@@ -2505,7 +2879,10 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+class AdminErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  ErrorBoundaryState
+> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -2527,7 +2904,9 @@ class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, 
             <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-black text-xl mb-4">
               !
             </div>
-            <h2 className="text-xl font-extrabold text-slate-900 mb-2">Đã phát hiện lỗi trong bảng điều khiển</h2>
+            <h2 className="text-xl font-extrabold text-slate-900 mb-2">
+              Đã phát hiện lỗi trong bảng điều khiển
+            </h2>
             <div className="bg-rose-50/80 border border-rose-200 rounded-2xl p-4 font-mono text-xs text-rose-800 overflow-x-auto whitespace-pre-wrap max-h-60 custom-scrollbar mb-6">
               {this.state.error?.toString() || "Lỗi không xác định"}
             </div>
