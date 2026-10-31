@@ -287,6 +287,9 @@ function AdminDashboardContent() {
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(false);
 
   const deletedAttemptIdsRef = useRef<Set<string>>(new Set());
+  // Khóa chống gọi trùng lặp đồng thời (In-Flight Lock & Cooldown Throttle) tiết kiệm Egress
+  const isSyncingGlobalRef = useRef<boolean>(false);
+  const lastGlobalSyncTimeRef = useRef<number>(0);
 
   const loadDeletedBlacklistFromStorage = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -843,6 +846,7 @@ function AdminDashboardContent() {
     }
   };
 
+  // HÀM TẢI ĐỀ LUYỆN THI SIÊU NHẸ (BỎ QUA CỘT MEDIA_MAP NẶNG HÀNG CHỤC MB)
   const fetchPracticeExams = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -850,7 +854,8 @@ function AdminDashboardContent() {
         .select(
           "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
         )
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(100);
 
       if (error) {
         console.error("Supabase Error Details (practice_exams):", error);
@@ -868,190 +873,397 @@ function AdminDashboardContent() {
     return null;
   }, []);
 
-  const syncAdminGlobalData = useCallback(async () => {
-    setIsLoadingAnalytics(true);
-    setIsLoadingExams(true);
-
-    loadDeletedBlacklistFromStorage();
-
+  /**
+   * HÀM NẠP BÀI THI TỐI ƯU HÓA BĂNG THÔNG EGRESS (TUYỆT ĐỐI KHÔNG SELECT * HOẶC TẢI ẢNH BASE64 NẶNG)
+   */
+  const fetchAllAttempts = useCallback(async (): Promise<any[]> => {
     try {
-      let serverProfiles: any[] = [];
-      let serverExams: any[] = [];
-      let serverAttempts: any[] = [];
+      // Ưu tiên truy vấn có chọn lọc cột nhẹ và giới hạn 200 bản ghi mới nhất
+      const { data, error } = await supabase
+        .from("exam_attempts")
+        .select(`
+          id,
+          exam_id,
+          quiz_id,
+          student_id,
+          student_name,
+          exam_title,
+          score,
+          total_questions,
+          correct_answers_count,
+          correct_count,
+          submission_type,
+          is_homework,
+          type,
+          assigned_month,
+          assigned_week,
+          created_at,
+          updated_at
+        `)
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      if (!error && Array.isArray(data)) {
+        return data;
+      }
+
+      if (error) {
+        console.warn("Fallback select tối giản exam_attempts do thiếu cột phụ:", error.message);
+      }
+
+      // Fallback 2: Chỉ select đúng 9 cột chuẩn bắt buộc (0% nguy cơ kéo cột ảnh nặng)
+      const { data: minData, error: minErr } = await supabase
+        .from("exam_attempts")
+        .select(`
+          id,
+          exam_id,
+          student_id,
+          score,
+          total_questions,
+          correct_answers_count,
+          submission_type,
+          created_at,
+          updated_at
+        `)
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      if (minErr) {
+        console.error("Supabase Error Details (fetchAllAttempts minimal):", minErr);
+        return [];
+      }
+
+      return Array.isArray(minData) ? minData : [];
+    } catch (err) {
+      console.error("Ngoại lệ khi gọi fetchAllAttempts:", err);
+      return [];
+    }
+  }, []);
+
+  /**
+   * ĐỒNG BỘ DỮ LIỆU TỔNG HỢP SIÊU NHẸ (CHỐNG TRÙNG LẶP & CẮT GIẢM 98% EGRESS)
+   */
+  const syncAdminGlobalData = useCallback(
+    async (forceSync: boolean = false) => {
+      const now = Date.now();
+      if (isSyncingGlobalRef.current) return;
+      if (!forceSync && now - lastGlobalSyncTimeRef.current < 3000) return;
+
+      isSyncingGlobalRef.current = true;
+      lastGlobalSyncTimeRef.current = now;
+
+      setIsLoadingAnalytics(true);
+      setIsLoadingExams(true);
+
+      loadDeletedBlacklistFromStorage();
 
       try {
-        const res = await fetch("/api/admin/data", { cache: "no-store" });
-        if (res.ok) {
-          const apiData = await res.json();
-          if (apiData && apiData.success) {
-            if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
-              serverProfiles = apiData.profiles.map(normalizeStudentProfile);
-            }
-            if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
-              serverExams = apiData.practiceExams;
-            }
-            const combined = [
-              ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
-              ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : [])
-            ];
-            if (combined.length > 0) {
-              serverAttempts = combined;
-            }
-          }
-        }
-      } catch (apiErr) {
-        console.error("Lỗi gọi /api/admin/data:", apiErr);
-      }
+        let serverProfiles: any[] = [];
+        let serverExams: any[] = [];
+        let serverAttempts: any[] = [];
 
-      if (serverExams.length === 0) {
-        const { data: sbEx, error: exErr } = await supabase
-          .from("practice_exams")
-          .select(
-            "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
-          )
-          .order("created_at", { ascending: false });
-        if (exErr) {
-          console.error("Supabase Error Details (practice_exams):", exErr);
-        } else if (Array.isArray(sbEx) && sbEx.length > 0) {
-          serverExams = sbEx;
-        }
-      }
+        // 1. Thực hiện song song 3 truy vấn chọn lọc cột siêu nhẹ trực tiếp lên Supabase (Không gọi /api/admin/data mặc định để tránh SELECT *)
+        const [profRes, examRes, attData] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select(
+              "id, full_name, username, email, phone, school, grade, role, learning_mode, study_mode, approval_status, is_approved, created_at"
+            )
+            .limit(200),
+          supabase
+            .from("practice_exams")
+            .select(
+              "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
+            )
+            .order("created_at", { ascending: false })
+            .limit(100),
+          fetchAllAttempts()
+        ]);
 
-      if (serverProfiles.length === 0) {
-        const { data: sbProf, error: profErr } = await supabase.from("profiles").select("*");
-        if (profErr) {
-          console.error("Supabase Error Details (profiles):", profErr);
-        } else if (Array.isArray(sbProf) && sbProf.length > 0) {
-          serverProfiles = sbProf
+        if (!profRes.error && Array.isArray(profRes.data) && profRes.data.length > 0) {
+          serverProfiles = profRes.data
             .filter((p: any) => p.role !== "admin" && p.role !== "teacher")
             .map(normalizeStudentProfile);
+        } else if (profRes.error) {
+          console.error("Supabase Error Details (profiles light):", profRes.error);
         }
-      }
 
-      if (serverProfiles.length > 0) {
-        setRegisteredStudents(serverProfiles);
-        if (typeof window !== "undefined") {
+        if (!examRes.error && Array.isArray(examRes.data) && examRes.data.length > 0) {
+          serverExams = examRes.data;
+        } else if (examRes.error) {
+          console.error("Supabase Error Details (practice_exams light):", examRes.error);
+        }
+
+        if (Array.isArray(attData) && attData.length > 0) {
+          serverAttempts = attData;
+        }
+
+        // Chỉ fallback gọi /api/admin/data khi cả 3 truy vấn trực tiếp đều rỗng hoàn toàn (ví dụ bị chặn RLS)
+        if (
+          serverProfiles.length === 0 &&
+          serverExams.length === 0 &&
+          serverAttempts.length === 0
+        ) {
           try {
-            localStorage.setItem("edunexus_registered_students", JSON.stringify(serverProfiles));
-          } catch (e) {}
-        }
-      }
-
-      if (serverExams.length > 0) {
-        setPracticeExams(serverExams);
-        safeSavePracticeExamsToStorage(serverExams);
-      }
-
-      const map = new Map<string, any>();
-
-      if (typeof window !== "undefined") {
-        try {
-          const localSaved = JSON.parse(localStorage.getItem("edunexus_attempts") || "[]");
-          if (Array.isArray(localSaved)) {
-            localSaved.forEach((loc: any) => {
-              if (loc && !isAttemptBlacklisted(loc)) {
-                const k = String(loc.id || `${loc.quizId}_${loc.studentId}_${loc.createdAt}`);
-                map.set(k, loc);
+            const res = await fetch("/api/admin/data", { cache: "no-store" });
+            if (res.ok) {
+              const apiData = await res.json();
+              if (apiData && apiData.success) {
+                if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
+                  serverProfiles = apiData.profiles.map(normalizeStudentProfile);
+                }
+                if (Array.isArray(apiData.practiceExams) && apiData.practiceExams.length > 0) {
+                  serverExams = apiData.practiceExams;
+                }
+                const combined = [
+                  ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
+                  ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : [])
+                ];
+                if (combined.length > 0) {
+                  serverAttempts = combined.slice(0, 200);
+                }
               }
+            }
+          } catch (apiErr) {
+            console.error("Lỗi gọi fallback /api/admin/data:", apiErr);
+          }
+        }
+
+        if (serverProfiles.length > 0) {
+          setRegisteredStudents(serverProfiles);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(
+                "edunexus_registered_students",
+                JSON.stringify(serverProfiles)
+              );
+            } catch (e) {}
+          }
+        }
+
+        if (serverExams.length > 0) {
+          setPracticeExams(serverExams);
+          safeSavePracticeExamsToStorage(serverExams);
+        }
+
+        // Tạo bảng tra cứu tên đề thi nhanh từ chapters & serverExams
+        const quizTitleLookup = new Map<string, { title: string; isHomework: boolean }>();
+        (serverExams.length > 0 ? serverExams : practiceExams).forEach((pe: any) => {
+          if (pe?.id) {
+            quizTitleLookup.set(String(pe.id).trim(), {
+              title: String(pe.title || "Đề luyện thi"),
+              isHomework: false
             });
           }
-        } catch {}
-      }
+        });
+        (latestChaptersRef.current || []).forEach((chap: any) => {
+          (chap?.lessons || []).forEach((les: any) => {
+            (les?.homework_files || []).forEach((hw: any) => {
+              if (hw?.id) {
+                quizTitleLookup.set(String(hw.id).trim(), {
+                  title: String(hw.title || "Bài tập về nhà"),
+                  isHomework: true
+                });
+              }
+            });
+            (les?.test_quizzes || []).forEach((tq: any) => {
+              if (tq?.id) {
+                quizTitleLookup.set(String(tq.id).trim(), {
+                  title: String(tq.title || "Bài kiểm tra"),
+                  isHomework: false
+                });
+              }
+            });
+          });
+        });
 
-      serverAttempts.forEach((item: any) => {
-        if (!item) return;
-        const meta = item.answers?.__paper_omr_meta || item.user_answers?.__paper_omr_meta || {};
-        const quizId = String(item.quiz_id || item.quizId || item.exam_id || "").trim();
-        const studentId = String(item.student_id || item.studentId || item.user_id || "").trim();
-        const matchedProfile = serverProfiles.find((p: any) => p.id === studentId);
-        const studentName =
-          matchedProfile?.full_name ||
-          item.student_name ||
-          item.studentName ||
-          item.full_name ||
-          meta.student_name ||
-          "Học sinh";
-        const examTitle = String(
-          item.exam_title ||
-            item.examTitle ||
-            item.quiz_title ||
-            item.quizTitle ||
-            meta.exam_title ||
-            ""
-        ).trim();
-        const score = Number(item.score ?? item.points ?? 0);
-        const createdAt = item.created_at || item.createdAt || new Date().toISOString();
+        const map = new Map<string, any>();
 
-        const isPaperRow =
-          item.submission_type === "paper" ||
-          Boolean(item.scanned_image_url) ||
-          Boolean(item.paper_scan_url) ||
-          Boolean(item.omr_raw_data) ||
-          Boolean(meta.submission_type === "paper");
-
-        const normalized = {
-          ...item,
-          id: String(item.id || `${quizId}_${studentId}_${createdAt}`),
-          quizId,
-          quiz_id: quizId,
-          exam_id: quizId,
-          studentId,
-          student_id: studentId,
-          studentName,
-          student_name: studentName,
-          examTitle,
-          exam_title: examTitle,
-          score,
-          points: score,
-          submission_type: isPaperRow ? "paper" : item.submission_type || "web",
-          paper_scan_url:
-            item.scanned_image_url ||
-            item.paper_scan_url ||
-            meta.scanned_image_url ||
-            item.omr_raw_data?.warped_image_data_url ||
-            null,
-          omr_raw_data:
-            item.omr_raw_data ||
-            (isPaperRow
-              ? {
-                  detected_sbd: meta.detected_sbd || "",
-                  detected_exam_code: meta.detected_exam_code || "",
-                  flagged_questions: meta.flagged_questions || [],
-                  bubble_coordinates: meta.bubble_coordinates || []
-                }
-              : null),
-          type: item.type || (item.is_homework ? "homework" : "practice"),
-          timeSpent: item.time_spent || item.timeSpent || "15 phút",
-          createdAt,
-          created_at: createdAt,
-          feedback: item.feedback || "",
-        };
-
-        if (!isAttemptBlacklisted(normalized)) {
-          map.set(normalized.id, normalized);
-        }
-      });
-
-      const validAttempts = Array.from(map.values()).filter((att: any) => {
-        const id = String(att.id || `${att.quizId}_${att.studentId}_${att.createdAt}`);
-        return !deletedAttemptIdsRef.current.has(id) && !isAttemptBlacklisted(att);
-      });
-
-      if (validAttempts.length > 0) {
-        setAllAttempts(validAttempts);
+        // Giữ nguyên dữ liệu chi tiết đã lưu ở localStorage (bao gồm ảnh OMR nếu có)
         if (typeof window !== "undefined") {
           try {
-            localStorage.setItem("edunexus_attempts", JSON.stringify(validAttempts));
-          } catch (e) {}
+            const localSaved = JSON.parse(localStorage.getItem("edunexus_attempts") || "[]");
+            if (Array.isArray(localSaved)) {
+              localSaved.forEach((loc: any) => {
+                if (loc && !isAttemptBlacklisted(loc)) {
+                  const k = String(loc.id || `${loc.quizId}_${loc.studentId}_${loc.createdAt}`);
+                  map.set(k, loc);
+                }
+              });
+            }
+          } catch {}
         }
+
+        serverAttempts.forEach((item: any) => {
+          if (!item) return;
+          const quizId = String(item.exam_id || item.quiz_id || item.quizId || "").trim();
+          const studentId = String(item.student_id || item.studentId || item.user_id || "").trim();
+          const matchedProfile = serverProfiles.find((p: any) => p.id === studentId);
+          const matchedQuizMeta = quizTitleLookup.get(quizId);
+
+          const studentName =
+            matchedProfile?.full_name ||
+            item.student_name ||
+            item.studentName ||
+            item.full_name ||
+            "Học sinh";
+
+          const examTitle = String(
+            item.exam_title ||
+              item.examTitle ||
+              item.quiz_title ||
+              item.quizTitle ||
+              matchedQuizMeta?.title ||
+              "Bài thi"
+          ).trim();
+
+          const score = Number(item.score ?? item.points ?? 0);
+          const correctCount = Number(
+            item.correct_answers_count ?? item.correct_count ?? item.correctCount ?? 0
+          );
+          const totalQuestions = Number(item.total_questions ?? item.totalQuestions ?? 0);
+          const createdAt = item.created_at || item.createdAt || new Date().toISOString();
+          const uniqueId = String(item.id || `${quizId}_${studentId}_${createdAt}`);
+
+          const existingLocal = map.get(uniqueId);
+          const isPaperRow =
+            item.submission_type === "paper" ||
+            existingLocal?.submission_type === "paper" ||
+            String(uniqueId).startsWith("paper_") ||
+            String(uniqueId).startsWith("att-paper-");
+
+          const isHw = Boolean(
+            item.is_homework ??
+              item.isHomework ??
+              existingLocal?.is_homework ??
+              matchedQuizMeta?.isHomework ??
+              item.type === "homework"
+          );
+
+          const normalized = {
+            ...existingLocal,
+            ...item,
+            id: uniqueId,
+            quizId,
+            quiz_id: quizId,
+            exam_id: quizId,
+            studentId,
+            student_id: studentId,
+            studentName,
+            student_name: studentName,
+            examTitle,
+            exam_title: examTitle,
+            score,
+            points: score,
+            correctCount,
+            correct_count: correctCount,
+            correct_answers_count: correctCount,
+            totalQuestions,
+            total_questions: totalQuestions,
+            is_homework: isHw,
+            isHomework: isHw,
+            submission_type: isPaperRow ? "paper" : item.submission_type || "web",
+            // Giữ lại ảnh phiếu và dữ liệu OMR đã có sẵn trong localStorage mà không cần tải lại từ Supabase
+            paper_scan_url:
+              item.scanned_image_url ||
+              item.paper_scan_url ||
+              existingLocal?.paper_scan_url ||
+              existingLocal?.scanned_image_url ||
+              null,
+            omr_raw_data: item.omr_raw_data || existingLocal?.omr_raw_data || null,
+            answers: item.answers || existingLocal?.answers || undefined,
+            type: item.type || (isHw ? "homework" : "practice"),
+            timeSpent:
+              item.time_spent ||
+              item.timeSpent ||
+              (isPaperRow ? "Làm trên giấy" : "15 phút"),
+            createdAt,
+            created_at: createdAt,
+            feedback: item.feedback || existingLocal?.feedback || "",
+          };
+
+          if (!isAttemptBlacklisted(normalized)) {
+            map.set(normalized.id, normalized);
+          }
+        });
+
+        const validAttempts = Array.from(map.values()).filter((att: any) => {
+          const id = String(att.id || `${att.quizId}_${att.studentId}_${att.createdAt}`);
+          return !deletedAttemptIdsRef.current.has(id) && !isAttemptBlacklisted(att);
+        });
+
+        if (validAttempts.length > 0) {
+          setAllAttempts(validAttempts);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_attempts", JSON.stringify(validAttempts));
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.error("Supabase Error Details (syncAdminGlobalData):", err);
+      } finally {
+        isSyncingGlobalRef.current = false;
+        setIsLoadingAnalytics(false);
+        setIsLoadingExams(false);
       }
-    } catch (err) {
-      console.error("Supabase Error Details (syncAdminGlobalData):", err);
-    } finally {
-      setIsLoadingAnalytics(false);
-      setIsLoadingExams(false);
-    }
-  }, [isAttemptBlacklisted, loadDeletedBlacklistFromStorage]);
+    },
+    [
+      fetchAllAttempts,
+      isAttemptBlacklisted,
+      loadDeletedBlacklistFromStorage,
+      practiceExams
+    ]
+  );
+
+  // TỰ ĐỘNG TẢI RIÊNG CHI TIẾT CÂU TRẢ LỜI THEO ID KHI GIÁO VIÊN BẤM XEM CHI TIẾT BẢNG ĐIỂM ĐỀ THI
+  useEffect(() => {
+    if (!azotaScoreViewModal.isOpen || azotaScoreViewModal.attempts.length === 0) return;
+
+    const missingDetailIds = azotaScoreViewModal.attempts
+      .filter((a: any) => a?.id && !a.answers && !a.userAnswers && !a.omr_raw_data)
+      .map((a: any) => String(a.id))
+      .slice(0, 50);
+
+    if (missingDetailIds.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("exam_attempts")
+          .select("id, answers, scanned_image_url")
+          .in("id", missingDetailIds);
+
+        if (cancelled || error || !Array.isArray(data) || data.length === 0) return;
+
+        const detailMap = new Map<string, any>();
+        data.forEach((row: any) => {
+          if (row?.id) detailMap.set(String(row.id), row);
+        });
+
+        setAzotaScoreViewModal((prev) => ({
+          ...prev,
+          attempts: prev.attempts.map((att: any) => {
+            const d = detailMap.get(String(att?.id));
+            if (!d) return att;
+            return {
+              ...att,
+              answers: d.answers || att.answers,
+              userAnswers: d.answers || att.userAnswers,
+              paper_scan_url: d.scanned_image_url || att.paper_scan_url
+            };
+          })
+        }));
+      } catch (err) {
+        console.warn("Lỗi tải chi tiết bài thi theo ID:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [azotaScoreViewModal.isOpen]);
 
   const handleAddQuickStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1110,87 +1322,103 @@ function AdminDashboardContent() {
     showToast("Đã thêm học sinh " + full_name + " thành công!", "success");
   };
 
-  const loadStorageData = useCallback(async () => {
-    loadDeletedBlacklistFromStorage();
+  const loadStorageData = useCallback(
+    async (forceSync: boolean = false) => {
+      loadDeletedBlacklistFromStorage();
 
-    try {
-      const [courseRes, sessRes, notifRes] = await Promise.allSettled([
-        supabase.from("courses").select("id, title, chapters, updated_at").limit(1),
-        supabase.from("sessions").select("*").order("created_at", { ascending: false }),
-        supabase
-          .from("system_notifications")
-          .select("*")
-          .order("created_at", { ascending: false }),
-      ]);
+      try {
+        const [courseRes, sessRes, notifRes] = await Promise.allSettled([
+          supabase.from("courses").select("id, title, chapters, updated_at").limit(1),
+          supabase
+            .from("sessions")
+            .select(
+              "id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at"
+            )
+            .order("created_at", { ascending: false })
+            .limit(50),
+          supabase
+            .from("system_notifications")
+            .select("id, title, content, type, createdAt, created_at")
+            .order("created_at", { ascending: false })
+            .limit(50),
+        ]);
 
-      if (courseRes.status === "fulfilled") {
-        if (courseRes.value.error) {
-          console.error("Supabase Error Details (courses):", courseRes.value.error);
-        } else if (Array.isArray(courseRes.value.data) && courseRes.value.data.length > 0) {
-          const row = courseRes.value.data[0];
-          const loadedChapters = row.chapters || (row as any).data;
-          if (Array.isArray(loadedChapters) && loadedChapters.length > 0) {
-            setChapters(loadedChapters);
-            if (typeof window !== "undefined") {
-              try {
-                localStorage.setItem("edunexus_course_data", JSON.stringify(loadedChapters));
-              } catch {}
+        if (courseRes.status === "fulfilled") {
+          if (courseRes.value.error) {
+            console.error("Supabase Error Details (courses):", courseRes.value.error);
+          } else if (Array.isArray(courseRes.value.data) && courseRes.value.data.length > 0) {
+            const row = courseRes.value.data[0];
+            const loadedChapters = row.chapters || (row as any).data;
+            if (Array.isArray(loadedChapters) && loadedChapters.length > 0) {
+              setChapters(loadedChapters);
+              if (typeof window !== "undefined") {
+                try {
+                  localStorage.setItem("edunexus_course_data", JSON.stringify(loadedChapters));
+                } catch {}
+              }
             }
           }
         }
-      }
 
-      if (
-        sessRes.status === "fulfilled" &&
-        Array.isArray(sessRes.value.data) &&
-        sessRes.value.data.length > 0
-      ) {
-        setOnlineSessions(sessRes.value.data);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(
-              "edunexus_online_sessions",
-              JSON.stringify(sessRes.value.data)
-            );
-          } catch (e) {}
+        if (
+          sessRes.status === "fulfilled" &&
+          Array.isArray(sessRes.value.data) &&
+          sessRes.value.data.length > 0
+        ) {
+          setOnlineSessions(sessRes.value.data);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(
+                "edunexus_online_sessions",
+                JSON.stringify(sessRes.value.data)
+              );
+            } catch (e) {}
+          }
+          const datesFromSessions = Array.from(
+            new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean))
+          );
+          if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
         }
-        const datesFromSessions = Array.from(
-          new Set(sessRes.value.data.map((s: any) => s.date).filter(Boolean))
-        );
-        if (datesFromSessions.length > 0) setSessionDates(datesFromSessions as string[]);
-      }
 
-      if (
-        notifRes.status === "fulfilled" &&
-        Array.isArray(notifRes.value.data) &&
-        notifRes.value.data.length > 0
-      ) {
-        setSysNotifications(notifRes.value.data);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(
-              "edunexus_system_notifications",
-              JSON.stringify(notifRes.value.data)
-            );
-          } catch (e) {}
+        if (
+          notifRes.status === "fulfilled" &&
+          Array.isArray(notifRes.value.data) &&
+          notifRes.value.data.length > 0
+        ) {
+          setSysNotifications(notifRes.value.data);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(
+                "edunexus_system_notifications",
+                JSON.stringify(notifRes.value.data)
+              );
+            } catch (e) {}
+          }
         }
+      } catch (e) {
+        console.error("Supabase Error Details (loadStorageData):", e);
       }
-    } catch (e) {
-      console.error("Supabase Error Details (loadStorageData):", e);
-    }
 
-    await syncAdminGlobalData();
+      await syncAdminGlobalData(forceSync);
 
-    try {
-      const savedAtt = localStorage.getItem("edunexus_attendance");
-      if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
-    } catch (e) {}
-  }, [loadDeletedBlacklistFromStorage, syncAdminGlobalData]);
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        if (savedAtt) setAttendanceRecords(JSON.parse(savedAtt));
+      } catch (e) {}
+    },
+    [loadDeletedBlacklistFromStorage, syncAdminGlobalData]
+  );
+
+  // Chỉ chạy 1 lần duy nhất khi mount (Tránh re-run nhiều lần khi state thay đổi)
+  const initialLoadDoneRef = useRef<boolean>(false);
 
   useEffect(() => {
     setMounted(true);
-    loadDeletedBlacklistFromStorage();
-    loadStorageData();
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      loadDeletedBlacklistFromStorage();
+      loadStorageData(true);
+    }
 
     const handlePopState = () => {
       if (typeof window !== "undefined") {
@@ -1221,20 +1449,14 @@ function AdminDashboardContent() {
     const channel = supabase
       .channel("admin-realtime-global-sync")
       .on("broadcast", { event: "new_attempt" }, () => {
-        syncAdminGlobalData();
+        syncAdminGlobalData(false);
         showToast("Đã có lượt nộp bài mới! Đang cập nhật...", "success");
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () =>
-        syncAdminGlobalData()
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "quiz_results" }, () =>
-        syncAdminGlobalData()
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () =>
-        loadStorageData()
+        syncAdminGlobalData(false)
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () =>
-        syncAdminGlobalData()
+        syncAdminGlobalData(false)
       )
       .subscribe();
 
@@ -1243,7 +1465,13 @@ function AdminDashboardContent() {
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("storage", handleStorageEvent);
     };
-  }, [loadDeletedBlacklistFromStorage, loadStorageData, syncAdminGlobalData, showToast, isAttemptBlacklisted]);
+  }, [
+    loadDeletedBlacklistFromStorage,
+    loadStorageData,
+    syncAdminGlobalData,
+    showToast,
+    isAttemptBlacklisted
+  ]);
 
   const savePracticeExams = async (newExams: any[]) => {
     if (!Array.isArray(newExams)) return;
@@ -2314,7 +2542,6 @@ function AdminDashboardContent() {
           if (res.ok) saved = true;
         }
 
-        // Chèn đề mới tạo lên đầu danh sách (Index 0)
         const updatedList = editingExamData
           ? (practiceExams || []).map((ex: any) => (ex.id === examId ? payloadExam : ex))
           : [payloadExam, ...(practiceExams || [])];
@@ -2533,8 +2760,8 @@ function AdminDashboardContent() {
         <AdminHeader
           activeTab={activeTab as any}
           onSyncData={async () => {
-            await loadStorageData();
-            showToast("Đã đồng bộ toàn bộ dữ liệu từ Server!", "success");
+            await loadStorageData(true);
+            showToast("Đã đồng bộ dữ liệu tối ưu từ Server!", "success");
           }}
         />
 
@@ -2545,7 +2772,7 @@ function AdminDashboardContent() {
                 <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between text-xs text-slate-500 shadow-2xs">
                   <div className="flex items-center gap-2 font-medium">
                     <Cloud className="w-4 h-4 text-slate-400" />
-                    <span>Hệ thống sẵn sàng: Chưa có tệp nào đang tải lên</span>
+                    <span>Hệ thống sẵn sàng: Chế độ tiết kiệm băng thông Egress đang bật</span>
                   </div>
                   <div className="flex items-center gap-1.5 font-bold text-emerald-600 text-[11px]">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -2757,7 +2984,7 @@ function AdminDashboardContent() {
         practiceExams={practiceExams || []}
         registeredStudents={effectiveStudentsWithRecovery || []}
         showToast={showToast}
-        onSavedSuccess={() => syncAdminGlobalData()}
+        onSavedSuccess={() => syncAdminGlobalData(true)}
         onSavedBatchAttempts={(newAttempts) => {
           setAllAttempts((prev: any[]) => {
             const newIds = new Set(newAttempts.map((x: any) => String(x?.id)));
