@@ -23,9 +23,10 @@ export type ExtendedAttendanceStatus =
 
 export interface MakeupSessionItem {
   id: string;
-  date: string; // VD: "Thứ 5 (05/11)" hoặc "05/11/2026"
+  date: string; // VD: "Thứ 6 (06/11)"
   shiftId: string;
-  shiftLabel: string; // VD: "Ca Chiều 1 (14:30 - 16:00)"
+  shiftLabel: string; // VD: "Tối 2 (19:30 - 21:00)"
+  timeSlot?: string; // VD: "19:30 - 21:00"
   type: "makeup" | "support"; // 'makeup': Học bù bài vắng (Cam) | 'support': Bổ trợ tăng cường / Online đêm (Xanh)
   note?: string;
 }
@@ -44,6 +45,7 @@ export type ExtendedStudentDailyReportData = StudentDailyScoreData & {
   homeworkQuizTitle?: string;
   allQuestionsReviewList?: FullQuestionReviewRow[];
   attendanceStatus?: ExtendedAttendanceStatus;
+  attendanceNote?: string;
   makeupSessions?: MakeupSessionItem[];
 };
 
@@ -91,24 +93,24 @@ function resolveEffectiveAttendanceStatus(
 function renderTCTBrandHeaderHTML(): string {
   return `
     <div class="tct-brand-header">
-      <svg viewBox="0 0 1068 78" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-header-svg">
-        <polygon points="8,12 152,12 138,72 0,72" fill="#F58220" />
-        <polygon points="0,4 142,4 128,64 0,64" fill="#FFFFFF" stroke="#003399" stroke-width="2.4" />
-        <text x="68" y="41" font-family="'Times New Roman', Times, serif" font-size="32" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TCT</text>
-        <text x="66" y="57" font-family="'Times New Roman', Times, serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TÂM CHÍ TÀI</text>
+      <svg viewBox="0 0 1068 76" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-header-svg">
+        <polygon points="8,12 152,12 138,70 0,70" fill="#F58220" />
+        <polygon points="0,4 142,4 128,62 0,62" fill="#FFFFFF" stroke="#003399" stroke-width="2.4" />
+        <text x="68" y="40" font-family="'Times New Roman', Times, serif" font-size="32" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TCT</text>
+        <text x="66" y="55" font-family="'Times New Roman', Times, serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TÂM CHÍ TÀI</text>
 
-        <text x="372" y="32" font-family="'Times New Roman', Times, serif" font-size="18.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
+        <text x="372" y="31" font-family="'Times New Roman', Times, serif" font-size="18.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
           Chuyên luyện thi vào 10, HSA, TSA và THPT
         </text>
-        <text x="372" y="55" font-family="'Times New Roman', Times, serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1E293B">
+        <text x="372" y="53" font-family="'Times New Roman', Times, serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1E293B">
           Hotline: 0972 26 16 16  •  Đ/c: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội
         </text>
 
-        <polygon points="586,22 628,22 613,60 571,60" fill="#F58220" />
-        <polygon points="642,22 684,22 669,60 627,60" fill="#F58220" />
+        <polygon points="586,20 628,20 613,58 571,58" fill="#F58220" />
+        <polygon points="642,20 684,20 669,58 627,58" fill="#F58220" />
 
-        <polygon points="700,22 1065,22 1065,60 685,60" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
-        <text x="878" y="46" font-family="'Times New Roman', Times, serif" font-size="16.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
+        <polygon points="700,20 1065,20 1065,58 685,58" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
+        <text x="878" y="44" font-family="'Times New Roman', Times, serif" font-size="16.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
           Chuyên Toán Tư Duy - Trắc Nghiệm Tia Chớp
         </text>
       </svg>
@@ -125,24 +127,24 @@ function renderTCTBrandFooterHTML(
 ): string {
   return `
     <div class="tct-brand-footer">
-      <svg viewBox="0 0 1068 42" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-footer-svg">
-        <circle cx="24" cy="21" r="11.5" fill="none" stroke="#003399" stroke-width="1.8" />
-        <path d="M19,15 C21,13 23,16 22,18 C21,20 24,23 26,22 C28,21 31,23 29,25 C26,28 17,19 19,15 Z" fill="#003399" />
-        <text x="44" y="26" font-family="'Times New Roman', Times, serif" font-size="15" font-weight="bold" fill="#003399">0972 26 16 16</text>
+      <svg viewBox="0 0 1068 40" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-footer-svg">
+        <circle cx="24" cy="20" r="11" fill="none" stroke="#003399" stroke-width="1.8" />
+        <path d="M19,14 C21,12 23,15 22,17 C21,19 24,22 26,21 C28,20 31,22 29,24 C26,27 17,18 19,14 Z" fill="#003399" />
+        <text x="44" y="25" font-family="'Times New Roman', Times, serif" font-size="15" font-weight="bold" fill="#003399">0972 26 16 16</text>
 
-        <circle cx="215" cy="21" r="11.5" fill="#003399" />
-        <polygon points="215,13 207,20 210,20 210,27 220,27 220,20 223,20" fill="#FFFFFF" />
-        <text x="235" y="26" font-family="'Times New Roman', Times, serif" font-size="15" font-weight="bold" fill="#003399">
+        <circle cx="215" cy="20" r="11" fill="#003399" />
+        <polygon points="215,12 207,19 210,19 210,26 220,26 220,19 223,19" fill="#FFFFFF" />
+        <text x="235" y="25" font-family="'Times New Roman', Times, serif" font-size="15" font-weight="bold" fill="#003399">
           Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội
         </text>
 
-        <text x="565" y="26" font-family="'Times New Roman', Times, serif" font-size="12.5" font-weight="bold" fill="#475569">
+        <text x="560" y="25" font-family="'Times New Roman', Times, serif" font-size="12.5" font-weight="bold" fill="#475569">
           ${escapeHtml(studentQuickTag)}
         </text>
 
-        <polygon points="835,4 857,4 843,38 821,38" fill="#F58220" />
-        <polygon points="859,4 1065,4 1065,38 845,38" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
-        <text x="955" y="26" font-family="'Times New Roman', Times, serif" font-size="15" font-weight="bold" text-anchor="middle" fill="#0033CC">
+        <polygon points="835,3 857,3 843,37 821,37" fill="#F58220" />
+        <polygon points="859,3 1065,3 1065,37 845,37" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
+        <text x="955" y="25" font-family="'Times New Roman', Times, serif" font-size="14.5" font-weight="bold" text-anchor="middle" fill="#0033CC">
           ${escapeHtml(pageNumberLabel)}
         </text>
       </svg>
@@ -201,7 +203,7 @@ function renderOMROverlaySVG(student: StudentDailyScoreData): string {
 }
 
 /**
- * DỰNG TRANG BÌA TỔNG KẾT ĐIỂM CẢ LỚP (ĐỒNG BỘ CỘT CHUYÊN CẦN: CÓ MẶT / NGHỈ (ĐÃ BÙ) / VẮNG (HẸN BÙ [NGÀY]))
+ * DỰNG TRANG BÌA TỔNG KẾT ĐIỂM CẢ LỚP (ĐỒNG BỘ CỘT CHUYÊN CẦN & LỊCH HẸN BÙ)
  */
 function renderClassSummaryCoverPageHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -614,9 +616,10 @@ function renderSingleStudentDailyReportPageHTML(
 }
 
 /**
- * KHỐI LỊCH HỌC BÙ & BỔ TRỢ ĐẶT Ở 1/3 ĐÁY TRANG 2 (LUÔN HIỂN THỊ RÕ RÀNG, GỌN GÀNG TRONG TRANG 2)
+ * KHỐI LỊCH HỌC BÙ & BỔ TRỢ ĐẶT Ở ĐÁY TRANG 2 (CHIẾM ~22% CHIỀU CAO TRANG, CĂN CHỈNH SẮC NÉT)
  */
 function renderBottomMakeupScheduleSectionHTML(
+  config: DailyReportConfig & { homeworkTopicLabel?: string },
   student: ExtendedStudentDailyReportData
 ): string {
   const sessions: MakeupSessionItem[] = Array.isArray(student.makeupSessions)
@@ -625,35 +628,52 @@ function renderBottomMakeupScheduleSectionHTML(
 
   const hasMakeup = sessions.some((s) => s.type === "makeup");
   const hasSupport = sessions.some((s) => s.type === "support");
-  const purposeLabel =
-    hasMakeup && hasSupport
-      ? "học bù bài vắng và bổ trợ tăng cường kiến thức"
-      : hasMakeup
-      ? "học bù bài vắng"
-      : "bổ trợ tăng cường kiến thức";
 
   const sessionsSummaryText = sessions
     .map((s) => `${s.shiftLabel} - ${s.date}`)
     .join("; ");
 
-  const notificationBoxHtml =
-    sessions.length > 0
-      ? `
-        <div class="parent-schedule-notice notice-active">
-          📌 <strong>THÔNG BÁO LỊCH HỌC:</strong> Kính gửi phụ huynh, học sinh <strong>${escapeHtml(
-            student.studentName
-          )}</strong> có lịch <strong>${purposeLabel}</strong> vào: <strong>${escapeHtml(
-          sessionsSummaryText
-        )}</strong>. Kính mong phụ huynh nhắc nhở con tham gia đầy đủ, đúng giờ.
-        </div>
-      `
-      : `
-        <div class="parent-schedule-notice notice-default">
-          📌 <strong>THÔNG BÁO LỊCH BỔ TRỢ HÀNG TUẦN:</strong> Dưới đây là các khung giờ hỗ trợ cố định tại Trung tâm Tâm Chí Tài (TCT). Khi con cần củng cố kiến thức hoặc giải đáp bài tập chuyên sâu, gia đình có thể đăng ký cho con tham gia các ca bên dưới.
-        </div>
-      `;
+  const absentDateLabel = config.customDateStr || "hôm nay";
 
-  // Dựng lưới 7 ca chuẩn trong tuần để highlight trực quan Màu Cam (Học bù) / Màu Xanh (Bổ trợ / Online đêm)
+  let notificationBoxHtml = "";
+  if (sessions.length > 0 && hasMakeup && !hasSupport) {
+    notificationBoxHtml = `
+      <div class="parent-schedule-notice notice-active">
+        📌 <strong>THÔNG BÁO LỊCH HỌC BÙ:</strong> Kính gửi phụ huynh, do buổi học chính khóa ngày <strong>${escapeHtml(
+          absentDateLabel
+        )}</strong> học sinh <strong>${escapeHtml(
+      student.studentName
+    )}</strong> vắng mặt, trung tâm đã xếp lịch học bù vào: <strong>${escapeHtml(
+      sessionsSummaryText
+    )}</strong>. Kính mong phụ huynh nhắc nhở con tham gia đầy đủ.
+      </div>
+    `;
+  } else if (sessions.length > 0) {
+    const purposeLabel =
+      hasMakeup && hasSupport
+        ? "học bù bài vắng và bổ trợ tăng cường kiến thức"
+        : "bổ trợ tăng cường kiến thức";
+
+    notificationBoxHtml = `
+      <div class="parent-schedule-notice notice-active">
+        📌 <strong>THÔNG BÁO LỊCH HỌC:</strong> Kính gửi phụ huynh, học sinh <strong>${escapeHtml(
+          student.studentName
+        )}</strong> có lịch <strong>${purposeLabel}</strong> vào: <strong>${escapeHtml(
+      sessionsSummaryText
+    )}</strong>. Kính mong phụ huynh nhắc nhở con tham gia đầy đủ, đúng giờ.
+      </div>
+    `;
+  } else {
+    notificationBoxHtml = `
+      <div class="parent-schedule-notice notice-default">
+        📌 <strong>THÔNG BÁO:</strong> Học sinh <strong>${escapeHtml(
+          student.studentName
+        )}</strong> duy trì lịch học chính khóa đầy đủ. Bảng bên dưới là khung giờ bổ trợ cố định của trung tâm nếu con có nhu cầu củng cố bài tập.
+      </div>
+    `;
+  }
+
+  // Dựng lưới 7 ca chuẩn (Hàng 1: 4 ô Sáng/Chiều, Hàng 2: 3 ô Tối/Đêm Online)
   const shiftCardsHtml = STANDARD_SUPPORT_SHIFTS.map((shift) => {
     const matchedSessions = sessions.filter((s) => s.shiftId === shift.id);
     const isSelected = matchedSessions.length > 0;
@@ -680,7 +700,7 @@ function renderBottomMakeupScheduleSectionHTML(
     return `
       <div class="${cardClass}">
         <div class="slot-top-row">
-          <strong>${escapeHtml(shift.label)}</strong>
+          <strong class="slot-label-text">${escapeHtml(shift.label)}</strong>
           ${typeBadge}
         </div>
         <div class="slot-time-text">${escapeHtml(shift.time)}</div>
@@ -692,7 +712,7 @@ function renderBottomMakeupScheduleSectionHTML(
   return `
     <div class="bottom-schedule-box">
       <div class="schedule-box-header">
-        <span>BẢNG LỊCH HỌC BÙ & BỔ TRỢ TĂNG CƯỜNG KIẾN THỨC TRONG TUẦN</span>
+        <span class="schedule-header-title">BẢNG LỊCH HỌC BÙ & BỔ TRỢ TĂNG CƯỜNG KIẾN THỨC TRONG TUẦN</span>
         <div class="schedule-legend-inline">
           <span class="sched-badge-orange">■ Màu Cam: Ca học bù bài vắng</span>
           <span class="sched-badge-blue">■ Màu Xanh: Ca bổ trợ / Online đêm</span>
@@ -709,8 +729,8 @@ function renderBottomMakeupScheduleSectionHTML(
 }
 
 /**
- * DỰNG TRANG 2: ĐỐI SOÁT BÀI THI GIẤY OMR (HOẶC KHUNG TỰ LUYỆN NẾU KHÔNG CÓ BÀI KIỂM TRA) + BẢNG LỊCH Ở 1/3 ĐÁY TRANG
- * ĐẢM BẢO MỖI HỌC SINH LUÔN CÓ ĐÚNG 2 TRANG A4 TRỌN VẸN, KHÔNG TRÀN SANG TRANG 3
+ * DỰNG TRANG 2: ĐỐI SOÁT BÀI THI GIẤY OMR (HOẶC KHUNG TỰ LUYỆN) + BẢNG LỊCH Ở ĐÁY TRANG
+ * CĂN CHỈNH PIXEL-PERFECT VỪA KHÍT 1 TRANG A4 (297mm), TUYỆT ĐỐI KHÔNG TRÀN SANG TRANG 3
  */
 function renderStudentSecondPageHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -939,7 +959,7 @@ function renderStudentSecondPageHTML(
 
         ${upperContentHtml}
 
-        ${renderBottomMakeupScheduleSectionHTML(student)}
+        ${renderBottomMakeupScheduleSectionHTML(config, student)}
 
         ${renderTCTBrandFooterHTML(
           `Trang 2/2 • HS ${studentOrder}/${totalStudents}`,
@@ -970,7 +990,6 @@ export function generateClassDailyReportHTML(
   safeStudents.forEach((stu, idx) => {
     const isLastStudent = idx === totalStudents - 1;
 
-    // Trang 1 của học sinh (Luôn ngắt trang sau Trang 1 để sang Trang 2)
     allPagesMarkup += renderSingleStudentDailyReportPageHTML(
       reportConfig,
       stu,
@@ -978,7 +997,6 @@ export function generateClassDailyReportHTML(
       totalStudents
     );
 
-    // Trang 2 của học sinh (Đối soát OMR hoặc Ôn tập tự luyện + Khung Lịch Học Bù / Bổ Trợ ở đáy trang)
     allPagesMarkup += renderStudentSecondPageHTML(
       reportConfig,
       stu,
@@ -1065,6 +1083,7 @@ export function generateClassDailyReportHTML(
         }
         .a4-page {
           width: 210mm;
+          min-height: 297mm;
           height: 297mm;
           max-height: 297mm;
           background: #FFFFFF;
@@ -1072,6 +1091,7 @@ export function generateClassDailyReportHTML(
           box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
           position: relative;
           overflow: hidden;
+          box-sizing: border-box;
         }
         .page-break {
           page-break-after: always;
@@ -1080,14 +1100,15 @@ export function generateClassDailyReportHTML(
         .a4-inner {
           width: 100%;
           height: 100%;
-          padding: 8mm 10mm 7mm 10mm;
+          padding: 7.5mm 10mm 6.5mm 10mm;
           display: flex;
           flex-direction: column;
           justify-content: flex-start;
         }
         .tct-brand-header {
           width: 100%;
-          margin-bottom: 4px;
+          margin-bottom: 3px;
+          flex-shrink: 0;
         }
         .tct-header-svg {
           width: 100%;
@@ -1097,7 +1118,8 @@ export function generateClassDailyReportHTML(
         .tct-brand-footer {
           width: 100%;
           margin-top: auto;
-          padding-top: 4px;
+          padding-top: 3px;
+          flex-shrink: 0;
         }
         .tct-footer-svg {
           width: 100%;
@@ -1109,22 +1131,23 @@ export function generateClassDailyReportHTML(
           background: #F8FAFC;
           border-top: 2px solid #003399;
           border-bottom: 2px solid #F58220;
-          padding: 6px 10px;
-          margin-bottom: 7px;
+          padding: 5px 10px;
+          margin-bottom: 6px;
+          flex-shrink: 0;
         }
         .omr-banner-accent {
           background: #EFF6FF;
         }
         .report-title-banner h1 {
           margin: 0;
-          font-size: 19px;
+          font-size: 17.5px;
           font-weight: bold;
           color: #003399;
-          letter-spacing: 0.3px;
+          letter-spacing: 0.2px;
         }
         .report-subtitle {
-          margin-top: 3px;
-          font-size: 13.5px;
+          margin-top: 2px;
+          font-size: 13px;
           color: #0F172A;
         }
         .section-box {
@@ -1333,14 +1356,18 @@ export function generateClassDailyReportHTML(
           color: #991B1B;
           font-weight: bold;
         }
-        /* TRANG 2: PHẦN ĐỐI SOÁT OMR (2/3 TRÊN) + KHUNG LỊCH BỔ TRỢ (1/3 DƯỚI) */
+
+        /* ==============================================================
+           TRANG 2: THÂN TRÊN (ĐỐI SOÁT OMR ~160mm) + ĐÁY TRANG (BẢNG LỊCH)
+           ============================================================== */
         .omr-appendix-two-cols {
           display: grid;
           grid-template-columns: 48% 50.5%;
           gap: 1.5%;
-          height: 162mm;
-          max-height: 162mm;
-          margin-bottom: 6px;
+          height: 160mm;
+          max-height: 160mm;
+          margin-bottom: 5px;
+          flex-shrink: 0;
         }
         .omr-left-image-col,
         .omr-right-table-col {
@@ -1350,6 +1377,7 @@ export function generateClassDailyReportHTML(
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          background: #FFFFFF;
         }
         .omr-col-title {
           font-size: 11.5px;
@@ -1360,11 +1388,12 @@ export function generateClassDailyReportHTML(
           padding-bottom: 3px;
           margin-bottom: 5px;
           text-transform: uppercase;
+          flex-shrink: 0;
         }
         .omr-sheet-frame {
           position: relative;
-          height: 146mm;
-          max-height: 146mm;
+          height: 145mm;
+          max-height: 145mm;
           aspect-ratio: 1200 / 1700;
           margin: 0 auto;
           border: 1px solid #64748B;
@@ -1389,12 +1418,13 @@ export function generateClassDailyReportHTML(
           grid-template-columns: repeat(3, 1fr);
           gap: 5px;
           margin-bottom: 5px;
+          flex-shrink: 0;
         }
         .omr-stat-pill {
-          padding: 3px 4px;
+          padding: 2.5px 4px;
           border-radius: 4px;
           text-align: center;
-          font-size: 11px;
+          font-size: 10.5px;
         }
         .omr-stat-pill span {
           display: block;
@@ -1427,12 +1457,12 @@ export function generateClassDailyReportHTML(
         .omr-wrong-table th,
         .omr-wrong-table td {
           border: 1px solid #94A3B8;
-          padding: 1.6px 4px;
+          padding: 1.5px 4px;
           line-height: 1.15;
         }
         .omr-wrong-table th {
           background: #F1F5F9;
-          font-size: 10px;
+          font-size: 9.8px;
           text-transform: uppercase;
           color: #0F172A;
         }
@@ -1442,10 +1472,11 @@ export function generateClassDailyReportHTML(
           border: 1px solid #CBD5E1;
           border-radius: 4px;
           padding: 4px 6px;
-          font-size: 10.5px;
+          font-size: 10.2px;
+          flex-shrink: 0;
         }
         .legend-title {
-          font-size: 10px;
+          font-size: 9.8px;
           font-weight: bold;
           color: #003399;
           margin-bottom: 2px;
@@ -1483,23 +1514,26 @@ export function generateClassDailyReportHTML(
           background: rgba(37, 99, 235, 0.35);
           border: 1.5px solid #2563EB;
         }
+
         /* KHUNG NỘI DUNG TỰ LUYỆN KHI HỌC SINH KHÔNG CÓ BÀI KIỂM TRA OMR */
         .self-study-guideline-box {
           border: 1px solid #94A3B8;
           border-radius: 6px;
           padding: 10px 14px;
-          margin-bottom: 8px;
+          margin-bottom: 5px;
           background: #FFFFFF;
-          height: 162mm;
+          height: 160mm;
+          max-height: 160mm;
           display: flex;
           flex-direction: column;
+          flex-shrink: 0;
         }
         .study-topic-banner {
           background: #FFFBEB;
           border: 1.5px solid #F58220;
           border-radius: 6px;
           padding: 8px 12px;
-          font-size: 14.5px;
+          font-size: 14px;
           color: #0F172A;
           margin-bottom: 10px;
         }
@@ -1527,55 +1561,66 @@ export function generateClassDailyReportHTML(
           line-height: 1.45;
           color: #1E293B;
         }
-        /* BẢNG LỊCH HỌC BÙ & BỔ TRỢ Ở 1/3 ĐÁY TRANG 2 */
+
+        /* ==============================================================
+           KHUNG LỊCH HỌC BÙ & BỔ TRỢ TĂNG CƯỜNG Ở ĐÁY TRANG 2 (~22% CHIỀU CAO)
+           ============================================================== */
         .bottom-schedule-box {
-          border: 1.5px solid #003399;
-          border-radius: 6px;
+          border: 2px solid #1E40AF;
+          border-radius: 8px;
           padding: 7px 10px;
           background: #FFFFFF;
           margin-top: auto;
-          margin-bottom: 4px;
+          margin-bottom: 3px;
+          flex-shrink: 0;
         }
         .schedule-box-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 8px;
           border-bottom: 1px solid #CBD5E1;
           padding-bottom: 4px;
-          margin-bottom: 6px;
-          font-size: 12px;
+          margin-bottom: 5px;
+        }
+        .schedule-header-title {
+          font-size: 11.5px;
           font-weight: bold;
           color: #003399;
+          text-transform: uppercase;
+          white-space: nowrap;
         }
         .schedule-legend-inline {
           display: flex;
-          gap: 10px;
-          font-size: 11px;
+          align-items: center;
+          gap: 12px;
+          font-size: 10.5px;
+          white-space: nowrap;
         }
         .sched-badge-orange {
-          color: #C2410C;
+          color: #EA580C;
           font-weight: bold;
         }
         .sched-badge-blue {
-          color: #1D4ED8;
+          color: #2563EB;
           font-weight: bold;
         }
         .parent-schedule-notice {
-          padding: 6px 9px;
-          border-radius: 5px;
-          font-size: 12.5px;
-          line-height: 1.38;
+          padding: 5.5px 9px;
+          border-radius: 6px;
+          font-size: 11.8px;
+          line-height: 1.35;
           margin-bottom: 6px;
         }
         .notice-active {
           background: #FFF7ED;
-          border: 1.5px solid #EA580C;
-          color: #7C2D12;
+          border: 1px solid #F97316;
+          color: #9A3412;
         }
         .notice-default {
-          background: #F8FAFC;
-          border: 1px solid #CBD5E1;
-          color: #1E293B;
+          background: #FFF7ED;
+          border: 1px solid #FDBA74;
+          color: #9A3412;
         }
         .schedule-shifts-grid {
           display: grid;
@@ -1583,27 +1628,28 @@ export function generateClassDailyReportHTML(
           gap: 5px;
         }
         .shift-slot-card {
-          padding: 4px 6px;
-          border-radius: 5px;
-          font-size: 11px;
+          padding: 4.5px 7px;
+          border-radius: 6px;
+          font-size: 10.5px;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
+          min-height: 44px;
         }
         .slot-inactive {
           background: #F8FAFC;
           border: 1px solid #CBD5E1;
-          color: #475569;
+          color: #334155;
         }
         .slot-active-orange {
-          background: #FFEDD5;
+          background: #FFF7ED;
           border: 2px solid #EA580C;
           color: #7C2D12;
           font-weight: bold;
         }
         .slot-active-blue {
-          background: #DBEAFE;
-          border: 2px solid #1D4ED8;
+          background: #EFF6FF;
+          border: 2px solid #2563EB;
           color: #1E3A8A;
           font-weight: bold;
         }
@@ -1612,27 +1658,32 @@ export function generateClassDailyReportHTML(
           align-items: center;
           justify-content: space-between;
           gap: 3px;
+        }
+        .slot-label-text {
           font-size: 11px;
         }
         .slot-type-pill {
-          font-size: 8.5px;
+          font-size: 8px;
+          font-weight: bold;
           padding: 1px 4px;
           border-radius: 3px;
-          background: rgba(255, 255, 255, 0.85);
+          background: #FFFFFF;
           border: 1px solid currentColor;
+          white-space: nowrap;
         }
         .slot-time-text {
-          font-size: 11px;
+          font-size: 10.5px;
           margin-top: 1px;
         }
         .slot-date-tag {
-          margin-top: 2px;
+          margin-top: 1.5px;
           font-size: 10.5px;
+          font-weight: bold;
           text-decoration: underline;
         }
         .slot-date-placeholder {
-          margin-top: 2px;
-          font-size: 10px;
+          margin-top: 1.5px;
+          font-size: 9.8px;
           color: #64748B;
           font-style: italic;
         }
@@ -1667,6 +1718,7 @@ export function generateClassDailyReportHTML(
             margin: 0;
             box-shadow: none;
             width: 210mm;
+            min-height: 297mm;
             height: 297mm;
             max-height: 297mm;
           }
