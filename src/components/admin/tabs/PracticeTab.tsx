@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   FileUp,
   Search,
@@ -32,6 +32,7 @@ export const PRACTICE_CATEGORIES = [
   "Đề thi giữa kỳ",
   "Đề thi học kỳ",
   "Đề kiểm tra định kỳ",
+  "Kho Luyện đề thực chiến / BTVN",
   "Đề thi thử THPT Quốc Gia",
   "Đề luyện thi ĐGNL (HSA/TSA)",
   "Bài tập về nhà (BTVN)",
@@ -48,81 +49,120 @@ function normalizeStr(str: any): string {
     .trim();
 }
 
+function normalizeVietnameseSearch(str: any): string {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractExamTimestampScore(exam: any): number {
+  if (!exam) return 0;
+
+  const rawTime =
+    exam.created_at || exam.updated_at || exam.createdAt || exam.updatedAt;
+  if (rawTime) {
+    const parsedTime = new Date(rawTime).getTime();
+    if (!isNaN(parsedTime) && parsedTime > 0) {
+      return parsedTime;
+    }
+  }
+
+  const idStr = String(exam.id || exam.quiz_id || "");
+  const tsMatch = idStr.match(/(\d{10,14})/);
+  if (tsMatch && tsMatch[1]) {
+    const num = Number(tsMatch[1]);
+    if (!isNaN(num) && num > 0) return num;
+  }
+
+  const anyNumMatch = idStr.match(/(\d+)/);
+  if (anyNumMatch && anyNumMatch[1]) {
+    return Number(anyNumMatch[1]) || 0;
+  }
+
+  return 0;
+}
+
 /**
  * TỰ ĐỘNG NHẬN DIỆN DANH MỤC CHUẨN DỰA TRÊN TÊN ĐỀ & CATEGORY GỐC
  */
 function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
   const rawCat = String(exam?.category || fallbackCategory || "").trim();
-  const titleNorm = normalizeStr(exam?.title || "");
-  const catNorm = normalizeStr(rawCat);
+  const titleSearch = normalizeVietnameseSearch(exam?.title || "");
+  const catSearch = normalizeVietnameseSearch(rawCat);
 
   if (
-    catNorm.includes("giữa kỳ") ||
-    catNorm.includes("giữa kì") ||
-    titleNorm.includes("giữa kỳ") ||
-    titleNorm.includes("giữa kì") ||
-    titleNorm.includes("gk1") ||
-    titleNorm.includes("gk2")
+    catSearch.includes("giua ky") ||
+    catSearch.includes("giua ki") ||
+    titleSearch.includes("giua ky") ||
+    titleSearch.includes("giua ki") ||
+    titleSearch.includes("gk1") ||
+    titleSearch.includes("gk2")
   ) {
     return "Đề thi giữa kỳ";
   }
 
   if (
-    catNorm.includes("học kỳ") ||
-    catNorm.includes("học kì") ||
-    catNorm.includes("cuối kỳ") ||
-    catNorm.includes("cuối kì") ||
-    titleNorm.includes("học kỳ") ||
-    titleNorm.includes("học kì") ||
-    titleNorm.includes("cuối kỳ") ||
-    titleNorm.includes("hk1") ||
-    titleNorm.includes("hk2")
+    catSearch.includes("hoc ky") ||
+    catSearch.includes("hoc ki") ||
+    catSearch.includes("cuoi ky") ||
+    catSearch.includes("cuoi ki") ||
+    titleSearch.includes("hoc ky") ||
+    titleSearch.includes("hoc ki") ||
+    titleSearch.includes("cuoi ky") ||
+    titleSearch.includes("cuoi ki") ||
+    titleSearch.includes("hk1") ||
+    titleSearch.includes("hk2")
   ) {
     return "Đề thi học kỳ";
   }
 
   if (
-    catNorm.includes("btvn") ||
-    catNorm.includes("bài tập") ||
+    catSearch.includes("btvn") ||
+    catSearch.includes("bai tap") ||
     exam?.isHomework ||
     exam?.is_homework ||
-    titleNorm.includes("btvn")
+    titleSearch.includes("btvn")
   ) {
     return "Bài tập về nhà (BTVN)";
   }
 
   if (
-    catNorm.includes("định kỳ") ||
-    catNorm.includes("kiểm tra") ||
-    titleNorm.includes("kiểm tra")
+    catSearch.includes("dinh ky") ||
+    catSearch.includes("kiem tra") ||
+    titleSearch.includes("kiem tra")
   ) {
     return "Đề kiểm tra định kỳ";
   }
 
   if (
-    catNorm.includes("hsa") ||
-    catNorm.includes("tsa") ||
-    catNorm.includes("đgnl") ||
-    titleNorm.includes("hsa") ||
-    titleNorm.includes("tsa") ||
-    titleNorm.includes("đgnl")
+    catSearch.includes("hsa") ||
+    catSearch.includes("tsa") ||
+    catSearch.includes("dgnl") ||
+    titleSearch.includes("hsa") ||
+    titleSearch.includes("tsa") ||
+    titleSearch.includes("dgnl")
   ) {
     return "Đề luyện thi ĐGNL (HSA/TSA)";
   }
 
   if (
-    catNorm.includes("thpt") ||
-    catNorm.includes("thi thử") ||
-    titleNorm.includes("thi thử") ||
-    titleNorm.includes("thpt")
+    catSearch.includes("thpt") ||
+    catSearch.includes("thi thu") ||
+    titleSearch.includes("thi thu") ||
+    titleSearch.includes("thpt")
   ) {
     return "Đề thi thử THPT Quốc Gia";
   }
 
   if (
-    catNorm.includes("tổng ôn") ||
-    catNorm.includes("chuyên đề") ||
-    titleNorm.includes("tổng ôn")
+    catSearch.includes("tong on") ||
+    catSearch.includes("chuyen de") ||
+    titleSearch.includes("tong on")
   ) {
     return "Đề tổng ôn chuyên đề";
   }
@@ -137,25 +177,24 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
 function safeSaveExamsToLocal(exams: any[]) {
   if (typeof window === "undefined" || !Array.isArray(exams) || exams.length === 0) return;
   try {
-    localStorage.setItem("edunexus_practice_exams", JSON.stringify(exams));
-  } catch {
-    try {
-      const slim = exams.map((ex: any) => ({
-        id: ex?.id,
-        title: ex?.title,
-        category: ex?.category || "Tự do",
-        duration_minutes: ex?.duration_minutes || 90,
-        target_mode: ex?.target_mode || "all",
-        allowRetake: ex?.allowRetake ?? true,
-        allowViewFile: ex?.allowViewFile ?? true,
-        driveUrl: ex?.driveUrl || "",
-        solutionVideoUrl: ex?.solutionVideoUrl || "",
-        data: ex?.data || ex?.sections || [],
-        created_at: ex?.created_at || new Date().toISOString()
-      }));
-      localStorage.setItem("edunexus_practice_exams", JSON.stringify(slim));
-    } catch {}
-  }
+    // Chỉ lưu metadata gọn nhẹ vào localStorage để tránh vượt quá 5MB Quota của trình duyệt
+    const slim = exams.map((ex: any) => ({
+      id: ex?.id,
+      title: ex?.title,
+      exam_code: ex?.exam_code,
+      category: ex?.category || "Tự do",
+      duration_minutes: ex?.duration_minutes || 90,
+      total_questions: ex?.total_questions,
+      target_mode: ex?.target_mode || "all",
+      allowRetake: ex?.allowRetake ?? true,
+      allowViewFile: ex?.allowViewFile ?? true,
+      driveUrl: ex?.driveUrl || "",
+      solutionVideoUrl: ex?.solutionVideoUrl || "",
+      data: ex?.data || ex?.sections || undefined,
+      created_at: ex?.created_at || new Date().toISOString()
+    }));
+    localStorage.setItem("edunexus_practice_exams", JSON.stringify(slim));
+  } catch {}
 }
 
 export interface PracticeTabProps {
@@ -215,13 +254,35 @@ export default function PracticeTab({
   setAzotaScoreViewModal,
   onOpenExamEditor,
   onTestExam,
-  practiceCategoryFilter = "Tất cả danh mục",
-  setPracticeCategoryFilter,
+  practiceCategoryFilter: propCategoryFilter = "Tất cả danh mục",
+  setPracticeCategoryFilter: propSetCategoryFilter,
   practiceSyncStatus
 }: PracticeTabProps) {
   const effectiveSupabase = propSupabase || defaultSupabaseClient;
 
-  // 1. NẠP TOÀN BỘ CACHE ĐỀ THI TỪ MỌI KEY TRONG LOCALSTORAGE
+  const [localCategoryFilter, setLocalCategoryFilter] = useState<string>(
+    propCategoryFilter || "Tất cả danh mục"
+  );
+  const [searchKeyword, setSearchKeyword] = useState<string>("");
+  const [loadingSingleExamId, setLoadingSingleExamId] = useState<string | null>(null);
+  const isFetchingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (propCategoryFilter) {
+      setLocalCategoryFilter(propCategoryFilter);
+    }
+  }, [propCategoryFilter]);
+
+  const activeCategoryFilter = localCategoryFilter || "Tất cả danh mục";
+
+  const handleSelectCategoryFilter = (newCategory: string) => {
+    setLocalCategoryFilter(newCategory);
+    if (typeof propSetCategoryFilter === "function") {
+      propSetCategoryFilter(newCategory);
+    }
+  };
+
+  // 1. NẠP TOÀN BỘ CACHE ĐỀ THI TỪ LOCALSTORAGE
   const [internalExams, setInternalExams] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       const merged: any[] = [];
@@ -252,7 +313,6 @@ export default function PracticeTab({
     return [];
   });
 
-  // Nạp dự phòng chapters từ localStorage nếu propChapters chưa kịp truyền xuống
   const [internalChapters, setInternalChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -308,7 +368,6 @@ export default function PracticeTab({
   });
 
   const [isSelfFetching, setIsSelfFetching] = useState<boolean>(false);
-  const [searchKeyword, setSearchKeyword] = useState<string>("");
 
   const [showSbdModal, setShowSbdModal] = useState<boolean>(false);
   const [sbdModeFilter, setSbdModeFilter] = useState<"all" | "offline" | "online">("all");
@@ -316,7 +375,7 @@ export default function PracticeTab({
   const [scannerTargetExam, setScannerTargetExam] = useState<any | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
 
-  // Gộp non-destructive khi propPracticeExams thay đổi
+  // Gộp non-destructive khi propPracticeExams thay đổi (Giữ lại data câu hỏi nếu trong cache đã có)
   useEffect(() => {
     if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
       setInternalExams((prev) => {
@@ -325,9 +384,20 @@ export default function PracticeTab({
           if (ex?.id) map.set(String(ex.id), ex);
         });
         propPracticeExams.forEach((ex) => {
-          if (ex?.id) map.set(String(ex.id), { ...map.get(String(ex.id)), ...ex });
+          if (ex?.id) {
+            const existing = map.get(String(ex.id));
+            map.set(String(ex.id), {
+              ...existing,
+              ...ex,
+              // Bảo toàn mảng câu hỏi đã cache nếu bản ghi mới chỉ là metadata nhẹ
+              data: ex.data || existing?.data,
+              sections: ex.sections || existing?.sections
+            });
+          }
         });
-        const merged = Array.from(map.values());
+        const merged = Array.from(map.values()).sort(
+          (a, b) => extractExamTimestampScore(b) - extractExamTimestampScore(a)
+        );
         safeSaveExamsToLocal(merged);
         return merged;
       });
@@ -352,10 +422,16 @@ export default function PracticeTab({
     }
   }, [propAllAttempts]);
 
-  // 2. HÀM SMART MERGE FETCHING: TRUY VẤN SIÊU NHẸ TỪ SUPABASE + COURSES + API MÀ KHÔNG BỊ TIMEOUT 500
+  /**
+   * 2. HÀM NẠP DANH SÁCH ĐỀ SIÊU NHẸ (< 15 KB):
+   * TUYỆT ĐỐI KHÔNG SELECT CỘT `data`, `questions`, `content`, `media_map` HOẶC GỌI `/api/admin/data`!
+   */
   const fetchExamsAndStudentsSafely = useCallback(
     async (notifyUser: boolean = false) => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
       setIsSelfFetching(true);
+
       const collectedExamsMap = new Map<string, any>();
       let recoveredStudents: any[] = [];
       let recoveredAttempts: any[] = [];
@@ -369,113 +445,91 @@ export default function PracticeTab({
           ...existing,
           ...ex,
           id,
-          category: resolveSmartCategory(ex, existing?.category || defaultCategory)
+          category: resolveSmartCategory(ex, existing?.category || defaultCategory),
+          // Giữ lại data câu hỏi nếu đã từng tải trước đó trong bộ nhớ
+          data: ex.data || existing?.data,
+          sections: ex.sections || existing?.sections
         });
       };
 
-      // Giữ lại toàn bộ đề đang có trong internalExams trước khi merge
       internalExams.forEach((ex) => addExamToCollector(ex));
 
-      // Bước 1: Gọi API `/api/admin/data`
-      try {
-        const res = await fetch("/api/admin/data", { cache: "no-store" });
-        if (res.ok) {
-          const apiData = await res.json();
-          if (Array.isArray(apiData.practiceExams)) {
-            apiData.practiceExams.forEach((ex: any) => addExamToCollector(ex));
-          }
-          if (Array.isArray(apiData.profiles) && apiData.profiles.length > 0) {
-            recoveredStudents = apiData.profiles;
-          }
-          const combinedAtt = [
-            ...(Array.isArray(apiData.examAttempts) ? apiData.examAttempts : []),
-            ...(Array.isArray(apiData.quizResults) ? apiData.quizResults : [])
-          ];
-          if (combinedAtt.length > 0) {
-            recoveredAttempts = combinedAtt;
-          }
-        }
-      } catch (apiErr) {
-        console.error("Supabase Error Details (API /api/admin/data):", apiErr);
-      }
-
-      // Bước 2: Truy vấn bảng `practice_exams` trên Supabase (Bỏ cột media_map siêu nặng để tránh lỗi 500/Timeout)
       if (effectiveSupabase) {
+        // BƯỚC 1: CHỈ SELECT CÁC CỘT METADATA SIÊU NHẸ TỪ BẢNG `practice_exams` (< 15 KB)
         try {
           const { data: sbExamsLight, error: lightErr } = await effectiveSupabase
             .from("practice_exams")
-            .select(
-              "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
-            )
+            .select(`
+              id,
+              title,
+              exam_code,
+              category,
+              duration_minutes,
+              total_questions,
+              allowRetake,
+              allowViewFile,
+              driveUrl,
+              solutionVideoUrl,
+              created_at,
+              updated_at
+            `)
             .order("created_at", { ascending: false });
 
-          if (!lightErr && Array.isArray(sbExamsLight) && sbExamsLight.length > 0) {
+          if (!lightErr && Array.isArray(sbExamsLight)) {
             sbExamsLight.forEach((ex: any) => addExamToCollector(ex));
           } else {
-            // Fallback: Nếu thiếu cột phụ, chỉ select các cột cốt lõi
+            // Fallback 2: Nếu bảng chưa có cột exam_code / total_questions / updated_at, chỉ lấy các cột cơ bản (vẫn KHÔNG lấy cột data/media_map!)
             const { data: sbExamsMin, error: minErr } = await effectiveSupabase
               .from("practice_exams")
-              .select("id, title, category, duration_minutes, data, created_at");
+              .select(
+                "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
+              )
+              .order("created_at", { ascending: false });
 
             if (!minErr && Array.isArray(sbExamsMin)) {
               sbExamsMin.forEach((ex: any) => addExamToCollector(ex));
-            } else if (minErr) {
-              console.error("Supabase Error Details (practice_exams minimal):", minErr);
+            } else {
+              // Fallback 3: Tối thiểu 5 cột cốt lõi
+              const { data: sbExamsCore, error: coreErr } = await effectiveSupabase
+                .from("practice_exams")
+                .select("id, title, category, duration_minutes, created_at")
+                .order("created_at", { ascending: false });
+
+              if (!coreErr && Array.isArray(sbExamsCore)) {
+                sbExamsCore.forEach((ex: any) => addExamToCollector(ex));
+              } else if (coreErr) {
+                console.error("Supabase Error Details (practice_exams core):", coreErr);
+              }
             }
           }
         } catch (err) {
           console.error("Supabase Error Details (practice_exams exception):", err);
         }
 
-        // Bước 3: Truy vấn bảng `courses` để lấy toàn bộ đề Kiểm tra chương, Giữa kỳ, Học kỳ & BTVN nằm trong các bài học
-        try {
-          const { data: courseRows, error: courseErr } = await effectiveSupabase
-            .from("courses")
-            .select("id, chapters")
-            .limit(1);
+        // BƯỚC 2: CHỈ TRUY VẤN `courses` KHI CHƯA CÓ `chapters` TRONG BỘ NHỚ
+        if (propChapters.length === 0 && internalChapters.length === 0) {
+          try {
+            const { data: courseRows, error: courseErr } = await effectiveSupabase
+              .from("courses")
+              .select("id, chapters")
+              .limit(1);
 
-          if (!courseErr && Array.isArray(courseRows) && courseRows.length > 0) {
-            const loadedChaps = courseRows[0]?.chapters;
-            if (Array.isArray(loadedChaps) && loadedChaps.length > 0) {
-              setInternalChapters(loadedChaps);
-              loadedChaps.forEach((chap: any) => {
-                (chap?.lessons || []).forEach((les: any) => {
-                  (les?.test_quizzes || []).forEach((tq: any) => {
-                    if (tq && !tq.is_drive_file) {
-                      addExamToCollector(
-                        {
-                          ...tq,
-                          duration_minutes: tq.duration_minutes || 90
-                        },
-                        "Đề kiểm tra định kỳ"
-                      );
-                    }
-                  });
-                  (les?.homework_files || []).forEach((hw: any) => {
-                    if (hw && !hw.is_drive_file) {
-                      addExamToCollector(
-                        {
-                          ...hw,
-                          isHomework: true,
-                          duration_minutes: hw.duration_minutes || 45
-                        },
-                        "Bài tập về nhà (BTVN)"
-                      );
-                    }
-                  });
-                });
-              });
+            if (!courseErr && Array.isArray(courseRows) && courseRows.length > 0) {
+              const loadedChaps = courseRows[0]?.chapters;
+              if (Array.isArray(loadedChaps) && loadedChaps.length > 0) {
+                setInternalChapters(loadedChaps);
+              }
             }
-          }
-        } catch (err) {
-          console.error("Supabase Error Details (courses recovery):", err);
+          } catch {}
         }
 
-        if (recoveredStudents.length === 0) {
+        // BƯỚC 3: CHỈ TRUY VẤN `profiles` SIÊU NHẸ KHI DANH SÁCH HỌC SINH ĐANG TRỐNG
+        if (propRegisteredStudents.length === 0 && internalStudents.length === 0) {
           try {
             const { data: sbProfiles } = await effectiveSupabase
               .from("profiles")
-              .select("*");
+              .select("id, full_name, username, school, grade, role, learning_mode, study_mode")
+              .limit(200);
             if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
               recoveredStudents = sbProfiles.filter(
                 (p: any) => p.role !== "admin" && p.role !== "teacher"
@@ -484,12 +538,16 @@ export default function PracticeTab({
           } catch {}
         }
 
-        if (recoveredAttempts.length === 0) {
+        // BƯỚC 4: CHỈ TRUY VẤN `exam_attempts` SIÊU NHẸ KHI CHƯA CÓ LƯỢT NỘP BÀI
+        if (propAllAttempts.length === 0 && internalAttempts.length === 0) {
           try {
             const { data: sbAtt } = await effectiveSupabase
               .from("exam_attempts")
-              .select("*")
-              .order("created_at", { ascending: false });
+              .select(
+                "id, exam_id, quiz_id, student_id, student_name, exam_title, score, total_questions, correct_answers_count, submission_type, created_at"
+              )
+              .order("created_at", { ascending: false })
+              .limit(200);
             if (Array.isArray(sbAtt) && sbAtt.length > 0) {
               recoveredAttempts = sbAtt;
             }
@@ -497,7 +555,10 @@ export default function PracticeTab({
         }
       }
 
-      const finalMergedExams = Array.from(collectedExamsMap.values());
+      const finalMergedExams = Array.from(collectedExamsMap.values()).sort(
+        (a, b) => extractExamTimestampScore(b) - extractExamTimestampScore(a)
+      );
+
       if (finalMergedExams.length > 0) {
         setInternalExams(finalMergedExams);
         safeSaveExamsToLocal(finalMergedExams);
@@ -510,42 +571,96 @@ export default function PracticeTab({
 
       if (recoveredStudents.length > 0) {
         setInternalStudents(recoveredStudents);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(
-              "edunexus_registered_students",
-              JSON.stringify(recoveredStudents)
-            );
-          } catch {}
-        }
       }
 
       if (recoveredAttempts.length > 0) {
         setInternalAttempts(recoveredAttempts);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem("edunexus_attempts", JSON.stringify(recoveredAttempts));
-          } catch {}
-        }
       }
 
+      isFetchingRef.current = false;
       setIsSelfFetching(false);
 
       if (notifyUser && showToast) {
         showToast(
-          `Đã khôi phục & hợp nhất thành công ${finalMergedExams.length} đề thi!`,
+          `Đã đồng bộ siêu tốc ${finalMergedExams.length} đề thi (Tiết kiệm 99% băng thông Egress)!`,
           "success"
         );
       }
     },
-    [effectiveSupabase, internalExams, savePracticeExams, showToast]
+    [
+      effectiveSupabase,
+      internalExams,
+      propChapters.length,
+      internalChapters.length,
+      propRegisteredStudents.length,
+      internalStudents.length,
+      propAllAttempts.length,
+      internalAttempts.length,
+      savePracticeExams,
+      showToast
+    ]
   );
 
+  // Chỉ tự động fetch từ Supabase khi propPracticeExams từ trang cha truyền xuống đang trống (Tránh fetch trùng lặp 2 lần!)
   useEffect(() => {
-    fetchExamsAndStudentsSafely(false);
+    if (propPracticeExams.length === 0) {
+      fetchExamsAndStudentsSafely(false);
+    }
   }, []);
 
-  // 3. HỢP NHẤT TOÀN DIỆN (SMART MULTI-SOURCE MERGE): GỘP TẤT CẢ ĐỀ TỪ PROPS + SUPABASE + CHAPTERS (TEST & BTVN)
+  /**
+   * 3. HÀM LAZY-LOAD ON-DEMAND: CHỈ TẢI NỘI DUNG CÂU HỎI CHI TIẾT (`data`) CỦA ĐÚNG 1 ĐỀ KHI GIÁO VIÊN CLICK!
+   */
+  const ensureFullExamDataLoaded = useCallback(
+    async (exam: any): Promise<any> => {
+      if (!exam || !exam.id) return exam;
+
+      const hasQuestionsLoaded =
+        (Array.isArray(exam.data) && exam.data.length > 0) ||
+        (Array.isArray(exam.sections) && exam.sections.length > 0) ||
+        (Array.isArray(exam.questions) && exam.questions.length > 0);
+
+      if (hasQuestionsLoaded || !effectiveSupabase) {
+        return exam;
+      }
+
+      setLoadingSingleExamId(String(exam.id));
+      try {
+        const { data: fullRow, error } = await effectiveSupabase
+          .from("practice_exams")
+          .select("id, title, category, duration_minutes, data, driveUrl, solutionVideoUrl")
+          .eq("id", exam.id)
+          .single();
+
+        if (!error && fullRow) {
+          const enrichedExam = {
+            ...exam,
+            ...fullRow,
+            data: fullRow.data || exam.data || [],
+            sections: fullRow.data || exam.sections || []
+          };
+
+          // Cập nhật vào state bộ nhớ để các lần bấm tiếp theo dùng ngay lập tức
+          setInternalExams((prev) =>
+            prev.map((item) =>
+              String(item?.id) === String(exam.id) ? enrichedExam : item
+            )
+          );
+
+          return enrichedExam;
+        }
+      } catch (err) {
+        console.error("Lỗi tải chi tiết đề thi theo ID:", err);
+      } finally {
+        setLoadingSingleExamId(null);
+      }
+
+      return exam;
+    },
+    [effectiveSupabase]
+  );
+
+  // 4. HỢP NHẤT TOÀN DIỆN & SẮP XẾP ĐỀ MỚI NHẤT LÊN ĐẦU (INDEX 0)
   const effectiveChapters = useMemo(() => {
     if (Array.isArray(propChapters) && propChapters.length > 0) return propChapters;
     return internalChapters;
@@ -568,17 +683,21 @@ export default function PracticeTab({
         id,
         title: String(ex.title || existing?.title || "Đề luyện thi"),
         category: resolvedCat,
-        duration_minutes: Number(ex.duration_minutes || existing?.duration_minutes || 90)
+        duration_minutes: Number(ex.duration_minutes || existing?.duration_minutes || 90),
+        data: ex.data || existing?.data,
+        sections: ex.sections || existing?.sections,
+        created_at:
+          ex.created_at ||
+          existing?.created_at ||
+          ex.updated_at ||
+          existing?.updated_at ||
+          undefined
       });
     };
 
-    // Nguồn 1: Đề từ propPracticeExams (bảng practice_exams truyền từ Admin)
     (propPracticeExams || []).forEach((ex) => pushExam(ex));
-
-    // Nguồn 2: Đề từ internalExams (đã lấy từ Supabase + LocalStorage)
     (internalExams || []).forEach((ex) => pushExam(ex));
 
-    // Nguồn 3: Toàn bộ Đề kiểm tra định kỳ, Giữa kỳ, Học kỳ & BTVN trong các Chương/Bài học
     (effectiveChapters || []).forEach((chap: any) => {
       (chap?.lessons || []).forEach((les: any) => {
         (les?.test_quizzes || []).forEach((tq: any) => {
@@ -597,7 +716,6 @@ export default function PracticeTab({
       });
     });
 
-    // Nguồn 4: Khôi phục thêm các đề đã từng có học sinh nộp bài trong lịch sử `allAttempts` nhưng bị thiếu trong danh mục
     const allAtt =
       Array.isArray(propAllAttempts) && propAllAttempts.length > 0
         ? propAllAttempts
@@ -621,16 +739,27 @@ export default function PracticeTab({
           {
             id: qId,
             title: qTitle,
-            isHomework: Boolean(att.isHomework || att.is_homework || att.type === "homework"),
+            isHomework: Boolean(
+              att.isHomework || att.is_homework || att.type === "homework"
+            ),
             duration_minutes: 90,
-            data: []
+            created_at: att.created_at || att.createdAt
           },
-          att.isHomework || att.is_homework ? "Bài tập về nhà (BTVN)" : "Đề luyện thi thực chiến"
+          att.isHomework || att.is_homework
+            ? "Bài tập về nhà (BTVN)"
+            : "Kho Luyện đề thực chiến / BTVN"
         );
       }
     });
 
-    return Array.from(unifiedMap.values());
+    return Array.from(unifiedMap.values()).sort((a, b) => {
+      const timeA = extractExamTimestampScore(a);
+      const timeB = extractExamTimestampScore(b);
+      if (timeB !== timeA) {
+        return timeB - timeA;
+      }
+      return String(b.id || "").localeCompare(String(a.id || ""));
+    });
   }, [
     propPracticeExams,
     internalExams,
@@ -718,46 +847,71 @@ export default function PracticeTab({
     return directory;
   }, [effectiveStudents]);
 
-  // Đếm số lượng đề theo từng danh mục để hiển thị trực quan trên Dropdown lọc
+  const doesExamMatchCategory = useCallback((exam: any, targetCategory: string): boolean => {
+    if (!targetCategory || targetCategory === "Tất cả danh mục") return true;
+    const rawCat = String(exam?.category || "").trim();
+    const smartCat = resolveSmartCategory(exam, rawCat);
+
+    if (rawCat === targetCategory || smartCat === targetCategory) return true;
+
+    if (targetCategory === "Kho Luyện đề thực chiến / BTVN") {
+      return (
+        rawCat === "Bài tập về nhà (BTVN)" ||
+        smartCat === "Bài tập về nhà (BTVN)" ||
+        Boolean(exam?.isHomework || exam?.is_homework)
+      );
+    }
+
+    return false;
+  }, []);
+
   const categoryCountsMap = useMemo(() => {
     const counts: Record<string, number> = {
       "Tất cả danh mục": effectiveExams.length
     };
     PRACTICE_CATEGORIES.forEach((cat) => {
-      if (cat !== "Tất cả danh mục") counts[cat] = 0;
-    });
-    effectiveExams.forEach((ex) => {
-      const cat = ex?.category || "Tự do";
-      counts[cat] = (counts[cat] || 0) + 1;
+      if (cat !== "Tất cả danh mục") {
+        counts[cat] = effectiveExams.filter((ex) => doesExamMatchCategory(ex, cat)).length;
+      }
     });
     return counts;
-  }, [effectiveExams]);
+  }, [effectiveExams, doesExamMatchCategory]);
 
   const computedExamsWithScores = useMemo(() => {
     let list = Array.isArray(effectiveExams) ? [...effectiveExams] : [];
-    if (practiceCategoryFilter && practiceCategoryFilter !== "Tất cả danh mục") {
-      list = list.filter((ex) => {
-        const cat = ex?.category || "Tự do";
-        if (cat === practiceCategoryFilter) return true;
-        return resolveSmartCategory(ex) === practiceCategoryFilter;
-      });
+
+    if (activeCategoryFilter && activeCategoryFilter !== "Tất cả danh mục") {
+      list = list.filter((ex) => doesExamMatchCategory(ex, activeCategoryFilter));
     }
 
     if (searchKeyword.trim()) {
-      const kw = normalizeStr(searchKeyword);
-      list = list.filter(
-        (ex) =>
-          normalizeStr(ex?.title).includes(kw) ||
-          normalizeStr(ex?.category).includes(kw) ||
-          deriveExamCode3Digits(ex).includes(kw)
-      );
+      const kwRaw = normalizeStr(searchKeyword);
+      const kwNoAccent = normalizeVietnameseSearch(searchKeyword);
+
+      list = list.filter((ex) => {
+        const titleRaw = normalizeStr(ex?.title);
+        const titleNoAccent = normalizeVietnameseSearch(ex?.title);
+        const catNoAccent = normalizeVietnameseSearch(ex?.category);
+        const codeStr = String(ex?.exam_code || deriveExamCode3Digits(ex)).toLowerCase();
+        const idStr = String(ex?.id || "").toLowerCase();
+
+        return (
+          titleNoAccent.includes(kwNoAccent) ||
+          titleRaw.includes(kwRaw) ||
+          codeStr.includes(kwNoAccent) ||
+          catNoAccent.includes(kwNoAccent) ||
+          idStr.includes(kwNoAccent)
+        );
+      });
     }
 
-    return list.map((ex) => {
+    return list.map((ex, displayIndex) => {
       const exId = String(ex?.id || "").trim().toLowerCase();
       const exTitleNorm = normalizeStr(ex?.title);
       const counts = extractExamQuestionCounts(ex);
-      const examCode = deriveExamCode3Digits(ex);
+      const examCode = ex?.exam_code
+        ? String(ex.exam_code).padStart(3, "0").slice(-3)
+        : deriveExamCode3Digits(ex);
 
       const matchingAttempts = (effectiveAttempts || []).filter((a: any) => {
         if (!a) return false;
@@ -791,10 +945,21 @@ export default function PracticeTab({
         scores.length > 0 ? scores.reduce((sum, v) => sum + v, 0) / scores.length : 0;
       const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
 
+      // Ưu tiên lấy tổng số câu từ cột `total_questions` hoặc từ lượt nộp bài nếu chưa tải cột `data`
+      const attemptMaxTotalQ = matchingAttempts.reduce(
+        (maxQ: number, a: any) =>
+          Math.max(maxQ, Number(a?.total_questions || a?.totalQuestions || 0)),
+        0
+      );
+
+      const resolvedTotalQuestions =
+        Number(ex?.total_questions) || attemptMaxTotalQ || counts.totalCount || 22;
+
       return {
         ...ex,
+        displayStt: displayIndex + 1,
         examCode,
-        totalQuestionsCount: counts.totalCount,
+        totalQuestionsCount: resolvedTotalQuestions,
         part1Count: counts.part1Count,
         part2Count: counts.part2Count,
         part3Count: counts.part3Count,
@@ -805,7 +970,13 @@ export default function PracticeTab({
         attempts: matchingAttempts
       };
     });
-  }, [effectiveExams, practiceCategoryFilter, searchKeyword, effectiveAttempts]);
+  }, [
+    effectiveExams,
+    activeCategoryFilter,
+    searchKeyword,
+    effectiveAttempts,
+    doesExamMatchCategory
+  ]);
 
   const selectedSbdExamObj = useMemo(() => {
     if (!sbdSelectedExamId || sbdSelectedExamId === "none") return null;
@@ -1017,7 +1188,7 @@ export default function PracticeTab({
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Quản lý toàn bộ Đề thi giữa kỳ, học kỳ, định kỳ, luyện đề thực chiến & BTVN.
+              Đề mới tải lên luôn được ưu tiên xếp ở vị trí đầu tiên. Hỗ trợ lọc danh mục và tìm kiếm theo tên/mã đề.
             </p>
           </div>
 
@@ -1052,8 +1223,12 @@ export default function PracticeTab({
 
             <button
               type="button"
-              onClick={() => {
-                setScannerTargetExam(computedExamsWithScores[0] || effectiveExams[0] || null);
+              onClick={async () => {
+                const firstTarget = computedExamsWithScores[0] || effectiveExams[0] || null;
+                const fullTarget = firstTarget
+                  ? await ensureFullExamDataLoaded(firstTarget)
+                  : null;
+                setScannerTargetExam(fullTarget);
                 setIsScannerOpen(true);
               }}
               className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
@@ -1083,7 +1258,7 @@ export default function PracticeTab({
           </div>
         </div>
 
-        {/* THANH CHUYỂN TAB & BỘ LỌC DANH MỤC ĐẦY ĐỦ */}
+        {/* 2. THANH CHUYỂN TAB, DROPDOWN LỌC DANH MỤC & Ô TÌM KIẾM THỜI GIAN THỰC */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg w-fit">
             <button
@@ -1112,10 +1287,8 @@ export default function PracticeTab({
 
           <div className="flex flex-wrap items-center gap-2">
             <select
-              value={practiceCategoryFilter}
-              onChange={(e) =>
-                setPracticeCategoryFilter && setPracticeCategoryFilter(e.target.value)
-              }
+              value={activeCategoryFilter}
+              onChange={(e) => handleSelectCategoryFilter(e.target.value)}
               className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
             >
               {PRACTICE_CATEGORIES.map((cat) => (
@@ -1125,13 +1298,13 @@ export default function PracticeTab({
               ))}
             </select>
 
-            <div className="relative min-w-[210px]">
+            <div className="relative min-w-[230px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="Tìm tên đề, mã đề..."
+                placeholder="Tìm tên đề, mã đề (VD: 280, Giữa kỳ)..."
                 className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-blue-600"
               />
               {searchKeyword && (
@@ -1139,6 +1312,7 @@ export default function PracticeTab({
                   type="button"
                   onClick={() => setSearchKeyword("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Xóa từ khóa tìm kiếm"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1148,7 +1322,7 @@ export default function PracticeTab({
         </div>
       </div>
 
-      {/* 3. DANH SÁCH ĐỀ LUYỆN THI HOẶC BẢNG THỐNG KÊ ĐIỂM */}
+      {/* 3. BẢNG DANH SÁCH ĐỀ LUYỆN THI */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         {(propIsLoadingExams || isSelfFetching) && computedExamsWithScores.length === 0 ? (
           <div className="py-14 text-center space-y-2">
@@ -1162,24 +1336,24 @@ export default function PracticeTab({
             <FolderOpen className="w-8 h-8 text-slate-300 mx-auto" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-slate-700">
-                Không có đề thi nào khớp với danh mục "{practiceCategoryFilter}"
+                Không tìm thấy đề thi nào khớp với điều kiện lọc hiện tại
               </h4>
               <p className="text-xs text-slate-400">
-                Hãy chuyển bộ lọc về <strong>"Tất cả danh mục"</strong> hoặc bấm{" "}
-                <strong>"🔄 Đồng bộ"</strong>.
+                Danh mục: <strong>{activeCategoryFilter}</strong>
+                {searchKeyword ? ` • Từ khóa: "${searchKeyword}"` : ""}
               </p>
             </div>
             <div className="flex items-center justify-center gap-2">
-              {practiceCategoryFilter !== "Tất cả danh mục" && (
+              {(activeCategoryFilter !== "Tất cả danh mục" || searchKeyword.trim() !== "") && (
                 <button
                   type="button"
-                  onClick={() =>
-                    setPracticeCategoryFilter &&
-                    setPracticeCategoryFilter("Tất cả danh mục")
-                  }
+                  onClick={() => {
+                    handleSelectCategoryFilter("Tất cả danh mục");
+                    setSearchKeyword("");
+                  }}
                   className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer"
                 >
-                  Xem tất cả ({effectiveExams.length} đề)
+                  Xóa bộ lọc & Xem tất cả ({effectiveExams.length} đề)
                 </button>
               )}
               <button
@@ -1187,7 +1361,7 @@ export default function PracticeTab({
                 onClick={() => fetchExamsAndStudentsSafely(true)}
                 className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Tải lại từ Supabase
+                <RefreshCw className="w-3.5 h-3.5" /> Đồng bộ từ Supabase
               </button>
             </div>
           </div>
@@ -1206,151 +1380,183 @@ export default function PracticeTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {computedExamsWithScores.map((exam, idx) => (
-                  <tr key={exam.id || idx} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
-                      {idx + 1}
-                    </td>
+                {computedExamsWithScores.map((exam, idx) => {
+                  const isRowLoadingDetail = loadingSingleExamId === String(exam.id);
+                  return (
+                    <tr key={exam.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
+                        {idx + 1}
+                      </td>
 
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-800 text-xs sm:text-sm">
-                        {exam.title}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-slate-500">
-                        <span>
-                          {exam.totalQuestionsCount} câu (P1: {exam.part1Count} • P2:{" "}
-                          {exam.part2Count} • P3: {exam.part3Count})
-                        </span>
-                        {exam.solutionVideoUrl && (
-                          <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
-                            Có Video chữa
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-800 text-xs sm:text-sm">
+                            {exam.title}
                           </span>
-                        )}
-                      </div>
-                    </td>
+                          {idx === 0 &&
+                            activeCategoryFilter === "Tất cả danh mục" &&
+                            !searchKeyword.trim() && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold">
+                                Mới nhất
+                              </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-slate-500">
+                          <span>
+                            {exam.totalQuestionsCount} câu
+                            {Array.isArray(exam.data) && exam.data.length > 0
+                              ? ` (P1: ${exam.part1Count} • P2: ${exam.part2Count} • P3: ${exam.part3Count})`
+                              : ""}
+                          </span>
+                          {exam.solutionVideoUrl && (
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                              Có Video chữa
+                            </span>
+                          )}
+                        </div>
+                      </td>
 
-                    <td className="py-3.5 px-3 text-center">
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs">
-                        {exam.examCode}
-                      </span>
-                    </td>
+                      <td className="py-3.5 px-3 text-center">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs">
+                          {exam.examCode}
+                        </span>
+                      </td>
 
-                    <td className="py-3.5 px-3">
-                      <select
-                        value={exam.category || "Tự do"}
-                        onChange={(e) => handleLocalChangeCategory(exam.id, e.target.value)}
-                        className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
-                      >
-                        {PRACTICE_CATEGORIES.filter((c) => c !== "Tất cả danh mục").map(
-                          (cat) => (
-                            <option key={cat} value={cat}>
-                              {cat}
-                            </option>
-                          )
-                        )}
-                      </select>
-                    </td>
+                      <td className="py-3.5 px-3">
+                        <select
+                          value={exam.category || "Tự do"}
+                          onChange={(e) => handleLocalChangeCategory(exam.id, e.target.value)}
+                          className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
+                        >
+                          {PRACTICE_CATEGORIES.filter((c) => c !== "Tất cả danh mục").map(
+                            (cat) => (
+                              <option key={cat} value={cat}>
+                                {cat}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </td>
 
-                    <td className="py-3.5 px-3 text-center font-semibold text-slate-600">
-                      {exam.duration_minutes || 90} phút
-                    </td>
+                      <td className="py-3.5 px-3 text-center font-semibold text-slate-600">
+                        {exam.duration_minutes || 90} phút
+                      </td>
 
-                    <td className="py-3.5 px-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAzotaScoreViewModal &&
-                          setAzotaScoreViewModal({
-                            isOpen: true,
-                            examTitle: exam.title,
-                            attempts: exam.attempts || []
-                          })
-                        }
-                        className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs cursor-pointer transition"
-                      >
-                        {exam.totalSubmissions} bài ({exam.uniqueStudentCount} HS)
-                      </button>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
+                      <td className="py-3.5 px-3 text-center">
                         <button
                           type="button"
                           onClick={() =>
-                            openPrintableDynamicAnswerSheet({
-                              ...exam,
+                            setAzotaScoreViewModal &&
+                            setAzotaScoreViewModal({
+                              isOpen: true,
                               examTitle: exam.title,
-                              examCode: exam.examCode
+                              attempts: exam.attempts || []
                             })
                           }
-                          className="px-2.5 py-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs cursor-pointer transition"
                         >
-                          <Printer className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Phiếu A4</span>
+                          {exam.totalSubmissions} bài ({exam.uniqueStudentCount} HS)
                         </button>
+                      </td>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setScannerTargetExam(exam);
-                            setIsScannerOpen(true);
-                          }}
-                          className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <Camera className="w-3.5 h-3.5" />
-                          <span>Chấm OMR</span>
-                        </button>
-
-                        {onOpenExamEditor && (
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* Nút In Phiếu A4: Tự động Lazy-Load câu hỏi của riêng đề này nếu chưa có */}
                           <button
                             type="button"
-                            onClick={() => onOpenExamEditor(exam)}
-                            className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
-                            title="Sửa câu hỏi & đáp án đề thi"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-
-                        {setVideoModalExam && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (setSolutionVideoInput) {
-                                setSolutionVideoInput(exam.solutionVideoUrl || "");
-                              }
-                              setVideoModalExam(exam);
+                            disabled={isRowLoadingDetail}
+                            onClick={async () => {
+                              const fullExam = await ensureFullExamDataLoaded(exam);
+                              openPrintableDynamicAnswerSheet({
+                                ...fullExam,
+                                examTitle: fullExam.title,
+                                examCode: exam.examCode
+                              });
                             }}
-                            className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
-                            title="Gắn link Video chữa đề"
+                            className="px-2.5 py-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                           >
-                            <Video className="w-3.5 h-3.5" />
+                            {isRowLoadingDetail ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                            ) : (
+                              <Printer className="w-3.5 h-3.5 text-blue-600" />
+                            )}
+                            <span>Phiếu A4</span>
                           </button>
-                        )}
 
-                        {onTestExam && (
+                          {/* Nút Chấm OMR: Tự động Lazy-Load đáp án của đúng mã đề này khi mở Camera */}
                           <button
                             type="button"
-                            onClick={() => onTestExam(exam)}
-                            className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
-                            title="Mở phòng thi thử"
+                            disabled={isRowLoadingDetail}
+                            onClick={async () => {
+                              const fullExam = await ensureFullExamDataLoaded(exam);
+                              setScannerTargetExam(fullExam);
+                              setIsScannerOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                           >
-                            <Play className="w-3.5 h-3.5" />
+                            <Camera className="w-3.5 h-3.5" />
+                            <span>Chấm OMR</span>
                           </button>
-                        )}
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePracticeExam(exam)}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                          title="Xóa đề thi"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {onOpenExamEditor && (
+                            <button
+                              type="button"
+                              disabled={isRowLoadingDetail}
+                              onClick={async () => {
+                                const fullExam = await ensureFullExamDataLoaded(exam);
+                                onOpenExamEditor(fullExam);
+                              }}
+                              className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                              title="Sửa câu hỏi & đáp án đề thi"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {setVideoModalExam && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (setSolutionVideoInput) {
+                                  setSolutionVideoInput(exam.solutionVideoUrl || "");
+                                }
+                                setVideoModalExam(exam);
+                              }}
+                              className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                              title="Gắn link Video chữa đề"
+                            >
+                              <Video className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {onTestExam && (
+                            <button
+                              type="button"
+                              disabled={isRowLoadingDetail}
+                              onClick={async () => {
+                                const fullExam = await ensureFullExamDataLoaded(exam);
+                                onTestExam(fullExam);
+                              }}
+                              className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                              title="Mở phòng thi thử"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePracticeExam(exam)}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            title="Xóa đề thi"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
