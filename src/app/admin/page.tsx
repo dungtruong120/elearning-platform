@@ -973,7 +973,7 @@ function AdminDashboardContent() {
           supabase
             .from("practice_exams")
             .select(
-              "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, data, created_at"
+              "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
             )
             .order("created_at", { ascending: false })
             .limit(100),
