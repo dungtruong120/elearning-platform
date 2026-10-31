@@ -6,7 +6,6 @@ import {
   Award,
   Copy,
   Printer,
-  Sparkles,
   PlusCircle,
   UserCheck,
   Check,
@@ -16,22 +15,20 @@ import {
   Trash2,
   BookOpen,
   Download,
-  ImageIcon,
   Search,
   ChevronRight,
   ShieldCheck,
-  Filter,
   CheckSquare,
   Square,
   FileText,
-  Layers,
   ZoomIn,
   ZoomOut,
   Calendar,
   FileSpreadsheet,
   CheckCircle2,
   XCircle,
-  Clock
+  Clock,
+  CalendarPlus
 } from "lucide-react";
 import {
   OMR_CANONICAL_WIDTH,
@@ -50,6 +47,68 @@ import {
   openPrintOrDownloadClassReport,
   FullQuestionReviewRow
 } from "@/lib/reportPdfGenerator";
+
+export type ExtendedAttendanceStatus =
+  | "present"
+  | "makeup_done"
+  | "absent_need_makeup"
+  | "late"
+  | "absent";
+
+export interface MakeupSupportSessionItem {
+  id: string;
+  date: string; // VD: "Thứ 5 (05/11)"
+  shiftId: string;
+  shiftLabel: string; // VD: "Ca Tối 1 (18:00 - 19:30)"
+  timeSlot: string; // VD: "18:00 - 19:30"
+  type: "makeup" | "support"; // 'makeup' = Học bù bài vắng (Cam) | 'support' = Bổ trợ tăng cường (Xanh)
+  note?: string;
+}
+
+export const AVAILABLE_MAKEUP_SHIFTS = [
+  {
+    id: "morning_1",
+    group: "Ca Sáng",
+    label: "Sáng 1 (08:00 - 09:30)",
+    timeSlot: "08:00 - 09:30"
+  },
+  {
+    id: "morning_2",
+    group: "Ca Sáng",
+    label: "Sáng 2 (09:30 - 11:00)",
+    timeSlot: "09:30 - 11:00"
+  },
+  {
+    id: "afternoon_1",
+    group: "Ca Chiều",
+    label: "Chiều 1 (14:30 - 16:00)",
+    timeSlot: "14:30 - 16:00"
+  },
+  {
+    id: "afternoon_2",
+    group: "Ca Chiều",
+    label: "Chiều 2 (16:00 - 17:30)",
+    timeSlot: "16:00 - 17:30"
+  },
+  {
+    id: "evening_1",
+    group: "Ca Tối",
+    label: "Tối 1 (18:00 - 19:30)",
+    timeSlot: "18:00 - 19:30"
+  },
+  {
+    id: "evening_2",
+    group: "Ca Tối",
+    label: "Tối 2 (19:30 - 21:00)",
+    timeSlot: "19:30 - 21:00"
+  },
+  {
+    id: "night_online",
+    group: "Ca Đêm (Online)",
+    label: "Đêm Online (22:00 - 23:00)",
+    timeSlot: "22:00 - 23:00"
+  }
+];
 
 interface Props {
   registeredStudents: any[];
@@ -95,6 +154,28 @@ function normalizeText(str: any): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function formatVietnameseDayAndDate(isoDateStr: string): string {
+  if (!isoDateStr) return "";
+  const parts = isoDateStr.split("-");
+  if (parts.length !== 3) return isoDateStr;
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  const dateObj = new Date(y, m - 1, d);
+  if (isNaN(dateObj.getTime())) return isoDateStr;
+  const days = [
+    "Chủ Nhật",
+    "Thứ 2",
+    "Thứ 3",
+    "Thứ 4",
+    "Thứ 5",
+    "Thứ 6",
+    "Thứ 7"
+  ];
+  const dayLabel = days[dateObj.getDay()];
+  return `${dayLabel} (${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")})`;
 }
 
 function drawRoundedRect(
@@ -486,6 +567,14 @@ export default function AdminStudentReportPanel({
     )}/${d.getFullYear()}`;
   }, []);
 
+  const defaultMakeupIsoDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
+  }, []);
+
   const [reportViewType, setReportViewType] = useState<"daily" | "monthly" | "manual">("daily");
   const reportMode = reportViewType === "manual" ? "manual" : "auto";
 
@@ -494,7 +583,6 @@ export default function AdminStudentReportPanel({
   const [customDateStr, setCustomDateStr] = useState<string>(todayFormatted);
   const [overrideTopicTitle, setOverrideTopicTitle] = useState<string>("");
 
-  // NGUỒN BTVN CẦN ĐỐI SOÁT: Mặc định là 'auto_prev' (Tự động lấy BTVN của buổi/tuần liền trước)
   const [selectedDailyHomeworkSource, setSelectedDailyHomeworkSource] =
     useState<string>("auto_prev");
   const [selectedDailyPracticeId, setSelectedDailyPracticeId] = useState<string>("none");
@@ -503,6 +591,21 @@ export default function AdminStudentReportPanel({
   >("all");
   const [includeCoverSummaryPage, setIncludeCoverSummaryPage] = useState<boolean>(true);
 
+  // STATE CHỌN HỌC SINH ĐỂ XUẤT PDF (CHECKBOX)
+  const [selectedExportStudentIds, setSelectedExportStudentIds] = useState<Set<string>>(
+    new Set()
+  );
+  const hasInitializedSelectionRef = useRef<boolean>(false);
+
+  // STATE FORM CHỌN LỊCH BÙ / BỔ TRỢ LINH HOẠT
+  const [schedulerIsoDate, setSchedulerIsoDate] = useState<string>(defaultMakeupIsoDate);
+  const [schedulerSessionType, setSchedulerSessionType] = useState<"makeup" | "support">(
+    "makeup"
+  );
+  const [schedulerNote, setSchedulerNote] = useState<string>("");
+  const [showSupportSchedulerPanel, setShowSupportSchedulerPanel] = useState<boolean>(false);
+
+  // GHI NHẬN CHỈNH SỬA THỦ CÔNG ĐIỂM SỐ / ĐIỂM DANH 3 TRẠNG THÁI / LỊCH HỌC BÙ / BỔ TRỢ
   const [dailyStudentOverrides, setDailyStudentOverrides] = useState<
     Record<
       string,
@@ -512,8 +615,10 @@ export default function AdminStudentReportPanel({
         practiceScore?: string;
         teacherComment?: string;
         attendance?: "present" | "late" | "absent";
+        attendanceStatus?: ExtendedAttendanceStatus;
         homeworkStatus?: "completed" | "missing" | "late";
         questionStatusOverrides?: Record<number, boolean>;
+        makeupSessions?: MakeupSupportSessionItem[];
       }
     >
   >({});
@@ -583,28 +688,115 @@ export default function AdminStudentReportPanel({
     5: ""
   });
 
+  /**
+   * 1. CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
+   * - Gắn chết SBD vào từng student.id và lưu bền vững vào `edunexus_permanent_sbd_map`.
+   * - Học sinh mới thêm vào tự động nhận `MAX(sbd) + 1` (VD: đang có 000011 -> cấp 000012).
+   * - Khi xóa bất kỳ học sinh nào ở giữa danh sách, SBD của các học sinh còn lại giữ nguyên 100%.
+   */
   const sbdDirectoryMap = useMemo(() => {
-    const sorted = [...(registeredStudents || [])].filter(Boolean);
-    sorted.sort((a, b) =>
+    const permanentMap: Record<string, string> = {};
+    let maxSbdNumber = 0;
+
+    if (typeof window !== "undefined") {
+      try {
+        const savedMapRaw = localStorage.getItem("edunexus_permanent_sbd_map");
+        if (savedMapRaw) {
+          const parsed = JSON.parse(savedMapRaw);
+          if (parsed && typeof parsed === "object") {
+            Object.entries(parsed).forEach(([stuId, sbdVal]) => {
+              const cleanSbd = String(sbdVal || "").trim();
+              if (/^\d{6}$/.test(cleanSbd)) {
+                permanentMap[stuId] = cleanSbd;
+                const num = parseInt(cleanSbd, 10);
+                if (!isNaN(num) && num > maxSbdNumber) {
+                  maxSbdNumber = num;
+                }
+              }
+            });
+          }
+        }
+
+        // Khôi phục thêm từ `edunexus_sbd_directory` cũ nếu có
+        const savedDirRaw = localStorage.getItem("edunexus_sbd_directory");
+        if (savedDirRaw) {
+          const parsedDir = JSON.parse(savedDirRaw);
+          if (Array.isArray(parsedDir)) {
+            parsedDir.forEach((entry: any) => {
+              const stuId = String(entry?.id || "").trim();
+              const cleanSbd = String(entry?.sbd || "").trim();
+              if (stuId && /^\d{6}$/.test(cleanSbd) && !permanentMap[stuId]) {
+                permanentMap[stuId] = cleanSbd;
+                const num = parseInt(cleanSbd, 10);
+                if (!isNaN(num) && num > maxSbdNumber) {
+                  maxSbdNumber = num;
+                }
+              }
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // Bước 1: Ghi nhận tất cả học viên đã có sẵn trường `sbd` cố định trong dữ liệu gốc
+    const validStudents = [...(registeredStudents || [])].filter(Boolean);
+    validStudents.forEach((stu) => {
+      const id = String(stu.id || "").trim();
+      if (!id) return;
+      if (stu.sbd) {
+        const cleanSbd = String(stu.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6);
+        if (/^\d{6}$/.test(cleanSbd) && cleanSbd !== "000000") {
+          permanentMap[id] = cleanSbd;
+          const num = parseInt(cleanSbd, 10);
+          if (!isNaN(num) && num > maxSbdNumber) {
+            maxSbdNumber = num;
+          }
+        }
+      }
+    });
+
+    // Bước 2: Với học viên chưa có SBD, cấp mới bằng MAX(sbd) + 1 (sắp xếp theo tên cho lần khởi tạo đầu tiên)
+    const unassignedStudents = validStudents.filter((stu) => {
+      const id = String(stu.id || "").trim();
+      return id && !permanentMap[id];
+    });
+
+    unassignedStudents.sort((a, b) =>
       String(a.full_name || a.name || "").localeCompare(
         String(b.full_name || b.name || ""),
         "vi"
       )
     );
-    const map = new Map<string, { sbd: string; stt: number; mode: "Online" | "Offline" }>();
-    sorted.forEach((stu, idx) => {
+
+    unassignedStudents.forEach((stu) => {
+      const id = String(stu.id || "").trim();
+      maxSbdNumber += 1;
+      permanentMap[id] = formatStudentAutoSBD(maxSbdNumber);
+    });
+
+    // Lưu lại bảng ánh xạ SBD vĩnh viễn vào localStorage
+    if (typeof window !== "undefined" && Object.keys(permanentMap).length > 0) {
+      try {
+        localStorage.setItem("edunexus_permanent_sbd_map", JSON.stringify(permanentMap));
+      } catch {}
+    }
+
+    const result = new Map<string, { sbd: string; stt: number; mode: "Online" | "Offline" }>();
+    validStudents.forEach((stu, idx) => {
       const id = String(stu.id || "").trim();
       const rawMode = String(stu.learning_mode || stu.study_mode || "offline").toLowerCase();
-      map.set(id, {
-        stt: idx + 1,
-        sbd: stu.sbd ? String(stu.sbd).padStart(6, "0").slice(-6) : formatStudentAutoSBD(idx + 1),
+      const fixedSbd = permanentMap[id] || formatStudentAutoSBD(maxSbdNumber + idx + 1);
+      result.set(id, {
+        stt: parseInt(fixedSbd, 10) || idx + 1,
+        sbd: fixedSbd,
         mode: rawMode.includes("on") ? "Online" : "Offline"
       });
     });
-    return map;
+
+    return result;
   }, [registeredStudents]);
 
-  // 1. TRẢI PHẲNG TOÀN BỘ DANH SÁCH BÀI HỌC TRONG KHÓA HỌC THEO THỨ TỰ THỜI GIAN ĐỂ XỬ LÝ "LỆCH PHA BTVN TUẦN TRƯỚC"
+  // 2. TRẢI PHẲNG TOÀN BỘ DANH SÁCH BÀI HỌC TRONG KHÓA HỌC THEO THỨ TỰ THỜI GIAN
   const allFlattenedLessons = useMemo<FlattenedLessonEntry[]>(() => {
     const list: FlattenedLessonEntry[] = [];
     let orderCounter = 0;
@@ -664,7 +856,6 @@ export default function AdminStudentReportPanel({
     return list;
   }, [chapters]);
 
-  // 2. LUỒNG 2 (CHUYÊN ĐỀ HÔM NAY & BÀI TEST TẠI LỚP): KHỚP VỚI TUẦN HIỆN TẠI (dailyMonth, dailyWeek)
   const currentSessionLessons = useMemo(() => {
     return allFlattenedLessons.filter(
       (l) => l.month === dailyMonth && l.week === dailyWeek
@@ -685,9 +876,7 @@ export default function AdminStudentReportPanel({
     setOverrideTopicTitle("");
   }, [dailyMonth, dailyWeek]);
 
-  // 3. LUỒNG 1 (BTVN THU & CHẤM HÔM NAY): TỰ ĐỘNG XÁC ĐỊNH BTVN CỦA BUỔI / TUẦN LIỀN TRƯỚC
   const autoPreviousHomeworkSource = useMemo(() => {
-    // Tính (Tháng, Tuần) liền kề trước đó theo lịch năm học (Tháng 8 -> Tháng 12 -> Tháng 1 -> Tháng 7)
     const prevMonth = dailyWeek > 1 ? dailyMonth : dailyMonth === 1 ? 12 : dailyMonth - 1;
 
     if (dailyWeek > 1) {
@@ -705,7 +894,6 @@ export default function AdminStudentReportPanel({
         };
       }
     } else {
-      // Nếu đang ở Tuần 1 của Tháng mới (VD: Tuần 1 Tháng 11) -> Tìm Tuần cuối cùng có BTVN của Tháng trước (VD: Tuần 4 hoặc Tuần 3 Tháng 10)
       for (let w = 5; w >= 1; w--) {
         const lessonsInLastMonth = allFlattenedLessons.filter(
           (l) => l.month === prevMonth && l.week === w && l.hwItems.length > 0
@@ -722,7 +910,6 @@ export default function AdminStudentReportPanel({
       }
     }
 
-    // Fallback thông minh: Nếu tuần lịch liền trước nghỉ lễ, tự động lùi theo index mảng bài học ngay trước bài học hôm nay
     if (currentSessionLessons.length > 0) {
       const firstCurrentOrder = currentSessionLessons[0].globalOrder;
       for (let idx = firstCurrentOrder - 1; idx >= 0; idx--) {
@@ -737,7 +924,6 @@ export default function AdminStudentReportPanel({
       }
     }
 
-    // Nếu là buổi học đầu tiên của khóa học, lấy BTVN của chính buổi hiện tại
     if (currentSessionLessons.some((l) => l.hwItems.length > 0)) {
       const withHw = currentSessionLessons.filter((l) => l.hwItems.length > 0);
       return {
@@ -764,7 +950,6 @@ export default function AdminStudentReportPanel({
     };
   }, [allFlattenedLessons, currentSessionLessons, dailyMonth, dailyWeek]);
 
-  // Danh sách toàn bộ các lựa chọn BTVN cho Dropdown chọn nhanh
   const allHomeworkOptionsForDropdown = useMemo(() => {
     const options: {
       value: string;
@@ -795,7 +980,6 @@ export default function AdminStudentReportPanel({
     return options;
   }, [allFlattenedLessons]);
 
-  // Nguồn BTVN thực tế đang được áp dụng (Tự động lấy tuần trước HOẶC do giáo viên chọn trong Dropdown)
   const effectiveHomeworkTarget = useMemo(() => {
     if (selectedDailyHomeworkSource === "none") {
       return {
@@ -846,7 +1030,6 @@ export default function AdminStudentReportPanel({
       }
     }
 
-    // Mặc định: 'auto_prev' (Lấy BTVN của buổi / tuần liền trước)
     const ids = new Set<string>();
     const titles = new Set<string>();
     autoPreviousHomeworkSource.lessons.forEach((l) => {
@@ -964,20 +1147,24 @@ export default function AdminStudentReportPanel({
     [quizAssignmentMap]
   );
 
-  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY VỚI 2 LUỒNG TÁCH BIỆT:
-  //    - Luồng 1 (BTVN): Đối soát với `effectiveHomeworkTarget` (BTVN tuần trước)
-  //    - Luồng 2 (Test tại lớp): Đối soát với `currentSessionLessons` (Bài học tuần này)
+  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY VỚI ĐIỂM DANH 3 TRẠNG THÁI & LỊCH HỌC BÙ / BỔ TRỢ
   const computeStudentDailyScoreRecord = useCallback(
     (
       student: any
     ): StudentDailyScoreData & {
       allQuestionsReviewList?: FullQuestionReviewRow[];
       homeworkQuizTitle?: string;
+      attendanceStatus?: ExtendedAttendanceStatus;
+      attendanceNote?: string;
+      makeupSessions?: MakeupSupportSessionItem[];
     } => {
       const stuId = String(student?.id || "").trim();
       const stuName = String(student?.full_name || student?.name || "Học sinh").trim();
       const dirInfo = sbdDirectoryMap.get(stuId);
-      const sbd = dirInfo?.sbd || formatStudentAutoSBD(1);
+      const sbd =
+        (student?.sbd
+          ? String(student.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6)
+          : dirInfo?.sbd) || "000001";
       const learningMode: "Online" | "Offline" = dirInfo?.mode || "Offline";
 
       const stuAttempts = (allAttempts || []).filter((att: any) => {
@@ -1023,7 +1210,6 @@ export default function AdminStudentReportPanel({
         const isTest = Boolean(meta?.isTest || att.type === "test" || (isPaper && !isHw));
         const sc = Number(att.score ?? att.points ?? 0);
 
-        // LUỒNG 1: KHỚP BTVN THEO NGUỒN TUẦN TRƯỚC (HOẶC BÀI BTVN ĐÃ CHỌN TRONG DROPDOWN)
         if (!effectiveHomeworkTarget.isNone && isHw) {
           const matchByIdOrTitle =
             (qId && effectiveHomeworkTarget.hwIds.has(qId)) ||
@@ -1046,7 +1232,6 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        // LUỒNG 2: KHỚP BÀI KIỂM TRA TẠI LỚP THEO TUẦN HIỆN TẠI (dailyMonth, dailyWeek)
         const belongsToCurrentSessionTest = currentSessionLessons.some(
           (m) => (qId && m.testIds.has(qId)) || (qTitle && m.testTitles.has(qTitle))
         );
@@ -1063,7 +1248,6 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        // LUỒNG 3: KHỚP ĐỀ LUYỆN THI THỰC CHIẾN TRONG THÁNG
         if (
           selectedDailyPracticeId !== "none" &&
           selectedDailyPracticeId !== "auto" &&
@@ -1223,7 +1407,37 @@ export default function AdminStudentReportPanel({
         }
       }
 
-      const defaultComment =
+      const resolvedAttendanceStatus: ExtendedAttendanceStatus =
+        ov.attendanceStatus ||
+        (ov.attendance === "absent"
+          ? "absent_need_makeup"
+          : ov.attendance === "late"
+          ? "late"
+          : "present");
+
+      const legacyAttendance: "present" | "late" | "absent" =
+        resolvedAttendanceStatus === "present"
+          ? "present"
+          : resolvedAttendanceStatus === "makeup_done" || resolvedAttendanceStatus === "late"
+          ? "late"
+          : "absent";
+
+      const makeupSessions: MakeupSupportSessionItem[] = Array.isArray(ov.makeupSessions)
+        ? ov.makeupSessions
+        : [];
+
+      const attendanceNote =
+        resolvedAttendanceStatus === "makeup_done"
+          ? "Nghỉ buổi học chính - Đã hoàn thành học bù và bài tập."
+          : resolvedAttendanceStatus === "absent_need_makeup"
+          ? makeupSessions.length > 0
+            ? `Nghỉ buổi học chính - Đã xếp lịch hẹn học bù (${makeupSessions
+                .map((s) => `${s.shiftLabel} ${s.date}`)
+                .join("; ")}).`
+            : "Nghỉ buổi học chính - Cần sắp xếp lịch học bù."
+          : "";
+
+      const baseComment =
         testScore !== null && testScore >= 8
           ? `Em ${stuName} nắm vững kiến thức chuyên đề "${
               overrideTopicTitle || autoSyncedTopicTitle
@@ -1235,6 +1449,11 @@ export default function AdminStudentReportPanel({
           : `Em ${stuName} tham gia học tập nghiêm túc chuyên đề "${
               overrideTopicTitle || autoSyncedTopicTitle
             }". Gia đình nhắc nhở con hoàn thành đầy đủ bài tập về nhà và ôn kỹ các công thức trọng tâm của buổi học.`;
+
+      const defaultComment =
+        resolvedAttendanceStatus === "makeup_done"
+          ? `[Nghỉ buổi học chính - Đã hoàn thành học bù và bài tập] ${baseComment}`
+          : baseComment;
 
       const resolvedHomeworkStatus: "completed" | "missing" | "late" =
         ov.homeworkStatus !== undefined
@@ -1292,7 +1511,10 @@ export default function AdminStudentReportPanel({
         part2Score: part2ScoreStr,
         part3Score: part3ScoreStr,
         teacherComment: ov.teacherComment !== undefined ? ov.teacherComment : defaultComment,
-        attendance: ov.attendance !== undefined ? ov.attendance : "present",
+        attendance: legacyAttendance,
+        attendanceStatus: resolvedAttendanceStatus,
+        attendanceNote,
+        makeupSessions,
         homeworkStatus: resolvedHomeworkStatus,
         hasPaperOMR,
         paperExamTitle,
@@ -1340,6 +1562,66 @@ export default function AdminStudentReportPanel({
     });
   };
 
+  // HÀM BẬT / TẮT CA HỌC BÙ HOẶC CA BỔ TRỢ CHO HỌC SINH ĐANG CHỌN
+  const handleToggleMakeupShiftForStudent = (
+    studentId: string,
+    shiftObj: (typeof AVAILABLE_MAKEUP_SHIFTS)[0]
+  ) => {
+    const formattedDate = formatVietnameseDayAndDate(schedulerIsoDate);
+    setDailyStudentOverrides((prev) => {
+      const curStu = prev[studentId] || {};
+      const existingList: MakeupSupportSessionItem[] = Array.isArray(curStu.makeupSessions)
+        ? [...curStu.makeupSessions]
+        : [];
+
+      const existingIdx = existingList.findIndex(
+        (s) => s.date === formattedDate && s.shiftId === shiftObj.id
+      );
+
+      let nextList: MakeupSupportSessionItem[];
+      if (existingIdx >= 0) {
+        nextList = existingList.filter((_, idx) => idx !== existingIdx);
+      } else {
+        nextList = [
+          ...existingList,
+          {
+            id: `${formattedDate}_${shiftObj.id}_${Date.now()}`,
+            date: formattedDate,
+            shiftId: shiftObj.id,
+            shiftLabel: shiftObj.label,
+            timeSlot: shiftObj.timeSlot,
+            type: schedulerSessionType,
+            note: schedulerNote.trim() || undefined
+          }
+        ];
+      }
+
+      return {
+        ...prev,
+        [studentId]: {
+          ...curStu,
+          makeupSessions: nextList
+        }
+      };
+    });
+  };
+
+  const handleRemoveMakeupSessionItem = (studentId: string, sessionId: string) => {
+    setDailyStudentOverrides((prev) => {
+      const curStu = prev[studentId] || {};
+      const existingList: MakeupSupportSessionItem[] = Array.isArray(curStu.makeupSessions)
+        ? curStu.makeupSessions
+        : [];
+      return {
+        ...prev,
+        [studentId]: {
+          ...curStu,
+          makeupSessions: existingList.filter((s) => s.id !== sessionId)
+        }
+      };
+    });
+  };
+
   const filteredStudents = useMemo(() => {
     return (registeredStudents || []).filter((s) => {
       const matchSearch =
@@ -1356,6 +1638,49 @@ export default function AdminStudentReportPanel({
       return true;
     });
   }, [registeredStudents, searchStudent, reportViewType, dailyStudentFilterMode]);
+
+  // Mặc định chọn tất cả học sinh khi mới tải danh sách lần đầu
+  useEffect(() => {
+    if (!hasInitializedSelectionRef.current && registeredStudents.length > 0) {
+      hasInitializedSelectionRef.current = true;
+      setSelectedExportStudentIds(
+        new Set(registeredStudents.map((s) => String(s?.id || "")).filter(Boolean))
+      );
+    }
+  }, [registeredStudents]);
+
+  const selectedFilteredStudents = useMemo(() => {
+    return filteredStudents.filter((s) => selectedExportStudentIds.has(String(s.id)));
+  }, [filteredStudents, selectedExportStudentIds]);
+
+  const handleToggleStudentExportCheckbox = (studentId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedExportStudentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(studentId)) {
+        next.delete(studentId);
+      } else {
+        next.add(studentId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFilteredStudents = () => {
+    setSelectedExportStudentIds((prev) => {
+      const next = new Set(prev);
+      filteredStudents.forEach((s) => next.add(String(s.id)));
+      return next;
+    });
+  };
+
+  const handleDeselectAllFilteredStudents = () => {
+    setSelectedExportStudentIds((prev) => {
+      const next = new Set(prev);
+      filteredStudents.forEach((s) => next.delete(String(s.id)));
+      return next;
+    });
+  };
 
   const currentStudent = useMemo(() => {
     return (
@@ -1376,10 +1701,14 @@ export default function AdminStudentReportPanel({
       ? currentStudent
         ? [currentStudent]
         : []
-      : filteredStudents;
+      : selectedFilteredStudents;
 
     if (targetStudents.length === 0) {
-      alert("Không có học sinh nào trong danh sách để xuất báo cáo!");
+      alert(
+        onlyCurrentStudent
+          ? "Vui lòng chọn 1 học sinh để xem báo cáo!"
+          : "Bạn chưa tích chọn học sinh nào để xuất PDF! Hãy tích chọn ít nhất 1 học sinh ở danh sách bên trái."
+      );
       return;
     }
 
@@ -1398,7 +1727,7 @@ export default function AdminStudentReportPanel({
       includeCoverSummaryPage: !onlyCurrentStudent && includeCoverSummaryPage
     };
 
-    const htmlDoc = generateClassDailyReportHTML(config, studentsScoreData);
+    const htmlDoc = generateClassDailyReportHTML(config, studentsScoreData as any);
     openPrintOrDownloadClassReport(htmlDoc);
   };
 
@@ -1407,17 +1736,36 @@ export default function AdminStudentReportPanel({
     const d = currentStudentDailyData;
     const topic = (overrideTopicTitle && overrideTopicTitle.trim()) || autoSyncedTopicTitle;
     const attText =
-      d.attendance === "present"
+      d.attendanceStatus === "present"
         ? "Có mặt đúng giờ"
+        : d.attendanceStatus === "makeup_done"
+        ? "Nghỉ buổi chính (Đã hoàn thành học bù & bài tập)"
+        : d.attendanceStatus === "absent_need_makeup"
+        ? "Nghỉ học (Chưa học bù)"
         : d.attendance === "late"
         ? "Đi học muộn"
         : "Nghỉ học";
+
     const hwStatusText =
       d.homeworkStatus === "completed"
         ? "Hoàn thành đầy đủ"
         : d.homeworkStatus === "late"
         ? "Nộp muộn"
         : "Chưa hoàn thành";
+
+    const makeupLines =
+      d.makeupSessions && d.makeupSessions.length > 0
+        ? `\n📌 THÔNG BÁO LỊCH HỌC BÙ / BỔ TRỢ:\n` +
+          d.makeupSessions
+            .map(
+              (s) =>
+                `• [${s.type === "makeup" ? "Học bù bài vắng" : "Bổ trợ kiến thức"}] ${
+                  s.date
+                } — ${s.shiftLabel}${s.note ? ` (${s.note})` : ""}`
+            )
+            .join("\n") +
+          "\n"
+        : "";
 
     const msg =
       `[TRUNG TÂM TOÁN TÂM CHÍ TÀI - TCT]\n` +
@@ -1445,8 +1793,9 @@ export default function AdminStudentReportPanel({
       }\n` +
       `------------------------------------\n` +
       `II. NHẬN XÉT CỦA GIÁO VIÊN:\n` +
-      `"${d.teacherComment}"\n\n` +
-      `📞 Hotline TCT: 0972 26 16 16 • Đ/c: Số 10 Tạ Quang Bửu, Bách Khoa, Hà Nội.`;
+      `"${d.teacherComment}"\n` +
+      makeupLines +
+      `\n📞 Hotline TCT: 0972 26 16 16 • Đ/c: Số 10 Tạ Quang Bửu, Bách Khoa, Hà Nội.`;
 
     if (typeof navigator !== "undefined") {
       navigator.clipboard.writeText(msg);
@@ -2357,54 +2706,59 @@ export default function AdminStudentReportPanel({
     });
   }, [pickerSourceList, practiceMonthFilter, resolveAttemptMonthAndWeek]);
 
+  const formattedCurrentSchedulerDate = useMemo(
+    () => formatVietnameseDayAndDate(schedulerIsoDate),
+    [schedulerIsoDate]
+  );
+
   return (
-    <div className="space-y-5 max-w-6xl mx-auto text-left font-sans">
-      {/* 1. THANH CHUYỂN CHẾ ĐỘ BÁO CÁO (NGÀY / THÁNG / TỰ TẠO) & NÚT XUẤT PDF CẢ LỚP */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3.5 bg-white rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 w-fit">
+    <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
+      {/* 1. THANH CHUYỂN CHẾ ĐỘ BÁO CÁO TỐI GIẢN & NÚT XUẤT PDF THEO SỐ LƯỢNG HS ĐƯỢC CHỌN */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200/80 shadow-2xs">
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100/90 rounded-lg w-fit">
           <button
             type="button"
             onClick={() => setReportViewType("daily")}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-extrabold text-xs transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-bold text-xs transition cursor-pointer ${
               reportViewType === "daily"
-                ? "bg-[#003399] text-white shadow-xs"
+                ? "bg-[#003399] text-white shadow-2xs"
                 : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <Calendar className="w-4 h-4" />
-            <span>📅 Báo cáo theo Ngày / Buổi học</span>
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Báo cáo Ngày / Buổi học</span>
           </button>
 
           <button
             type="button"
             onClick={() => setReportViewType("monthly")}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-extrabold text-xs transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-bold text-xs transition cursor-pointer ${
               reportViewType === "monthly"
-                ? "bg-white text-[#1D4ED8] shadow-xs"
+                ? "bg-white text-[#1D4ED8] shadow-2xs"
                 : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <UserCheck className="w-4 h-4 text-blue-600" />
-            <span>📊 Báo cáo Tổng kết Tháng</span>
+            <UserCheck className="w-3.5 h-3.5 text-blue-600" />
+            <span>Tổng kết Tháng</span>
           </button>
 
           <button
             type="button"
             onClick={() => setReportViewType("manual")}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-extrabold text-xs transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-bold text-xs transition cursor-pointer ${
               reportViewType === "manual"
-                ? "bg-white text-emerald-700 shadow-xs"
+                ? "bg-white text-emerald-700 shadow-2xs"
                 : "text-slate-600 hover:text-slate-900"
             }`}
           >
-            <PlusCircle className="w-4 h-4 text-emerald-600" />
-            <span>Tự tạo đánh giá (HS mới)</span>
+            <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Tự tạo (HS mới)</span>
           </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {copiedToast && (
-            <span className="text-xs text-emerald-600 font-bold animate-in fade-in flex items-center gap-1">
+            <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
               <Check className="w-3.5 h-3.5" /> Đã sao chép!
             </span>
           )}
@@ -2412,9 +2766,9 @@ export default function AdminStudentReportPanel({
           <button
             type="button"
             onClick={handleCopyZalo}
-            className="px-3 py-2 bg-white border border-slate-300 hover:border-blue-600 text-slate-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+            className="px-3 py-1.5 bg-white border border-slate-200 hover:border-blue-600 text-slate-700 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
           >
-            <Copy className="w-3.5 h-3.5 text-blue-600" /> Sao chép gửi Zalo
+            <Copy className="w-3.5 h-3.5 text-blue-600" /> Sao chép Zalo
           </button>
 
           {reportViewType === "daily" ? (
@@ -2422,7 +2776,7 @@ export default function AdminStudentReportPanel({
               <button
                 type="button"
                 onClick={() => handleExportClassDailyPDF(true)}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Eye className="w-3.5 h-3.5" /> Xem / In cá nhân
               </button>
@@ -2430,37 +2784,36 @@ export default function AdminStudentReportPanel({
               <button
                 type="button"
                 onClick={() => handleExportClassDailyPDF(false)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
               >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>📑 Xuất PDF Báo Cáo Cả Lớp ({filteredStudents.length} HS)</span>
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Xuất PDF Báo Cáo ({selectedFilteredStudents.length} HS)</span>
               </button>
             </>
           ) : (
             <button
               type="button"
               onClick={() => setShowOfficialModal(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer"
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
             >
-              <Eye className="w-4 h-4" /> Xem bản chính thức (Để tải ảnh/in)
+              <Eye className="w-3.5 h-3.5" /> Xem bản chính thức (Tải ảnh/in)
             </button>
           )}
         </div>
       </div>
 
-      {/* 2. THANH CẤU HÌNH TÁCH RIÊNG: BÀI HỌC / TEST HÔM NAY (TUẦN NÀY) VS BTVN CẦN ĐỐI SOÁT (TUẦN TRƯỚC) */}
+      {/* 2. THANH CẤU HÌNH NHANH BUỔI HỌC (GỌN GÀNG, HIỆN ĐẠI) */}
       {reportViewType === "daily" && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3.5 shadow-2xs">
-          {/* HÀNG 1: CHỌN BUỔI HỌC HÔM NAY & CHUYÊN ĐỀ TUẦN HIỆN TẠI */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-3.5 space-y-3 shadow-2xs">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
             <div className="md:col-span-2">
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                Tháng của buổi học:
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                Tháng học:
               </label>
               <select
                 value={dailyMonth}
                 onChange={(e) => setDailyMonth(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-[#003399] outline-none focus:border-blue-600 cursor-pointer"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-bold text-[#003399] outline-none focus:border-blue-600 cursor-pointer"
               >
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                   <option key={m} value={m}>
@@ -2471,51 +2824,48 @@ export default function AdminStudentReportPanel({
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                Tuần của buổi học:
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                Tuần học:
               </label>
               <select
                 value={dailyWeek}
                 onChange={(e) => setDailyWeek(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-[#003399] outline-none focus:border-blue-600 cursor-pointer"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-bold text-[#003399] outline-none focus:border-blue-600 cursor-pointer"
               >
                 {[1, 2, 3, 4, 5].map((w) => (
                   <option key={w} value={w}>
-                    Tuần {w} - Tháng {dailyMonth}
+                    Tuần {w} - T{dailyMonth}
                   </option>
                 ))}
               </select>
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                Ngày học (in lên phiếu):
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                Ngày in lên phiếu:
               </label>
               <input
                 type="text"
                 value={customDateStr}
                 onChange={(e) => setCustomDateStr(e.target.value)}
-                placeholder="VD: 28/10/2026"
-                className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 outline-none focus:border-blue-600"
+                placeholder="VD: 31/10/2026"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-800 outline-none focus:border-blue-600"
               />
             </div>
 
             <div className="md:col-span-6">
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                <label className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
                   <BookOpen className="w-3.5 h-3.5 text-amber-600" />
-                  <span>
-                    Chuyên đề học hôm nay & Test tại lớp (Tuần {dailyWeek} - Tháng{" "}
-                    {dailyMonth}):
-                  </span>
+                  <span>Chuyên đề học hôm nay & Test tại lớp (T{dailyWeek}.{dailyMonth}):</span>
                 </label>
                 {overrideTopicTitle && (
                   <button
                     type="button"
                     onClick={() => setOverrideTopicTitle("")}
-                    className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
+                    className="text-[10px] font-semibold text-blue-600 hover:underline cursor-pointer"
                   >
-                    Khôi phục theo bài học gốc
+                    Khôi phục mặc định
                   </button>
                 )}
               </div>
@@ -2524,24 +2874,21 @@ export default function AdminStudentReportPanel({
                 value={overrideTopicTitle !== "" ? overrideTopicTitle : autoSyncedTopicTitle}
                 onChange={(e) => setOverrideTopicTitle(e.target.value)}
                 placeholder="Tên bài học hôm nay..."
-                className="w-full px-3.5 py-2 rounded-xl bg-amber-50/70 border border-amber-300 text-xs font-extrabold text-slate-900 outline-none focus:border-amber-600 focus:bg-white"
+                className="w-full px-3 py-1.5 rounded-lg bg-amber-50/50 border border-amber-200 text-xs font-bold text-slate-900 outline-none focus:border-amber-500 focus:bg-white"
               />
             </div>
           </div>
 
-          {/* HÀNG 2: CẤU HÌNH NGUỒN BTVN TUẦN TRƯỚC & ĐỀ THỰC CHIẾN THÁNG */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-2 border-t border-slate-100 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 pt-2 border-t border-slate-100 items-end">
             <div className="md:col-span-7">
-              <label className="block text-[11px] font-bold text-emerald-800 mb-1 flex items-center gap-1">
+              <label className="block text-[11px] font-semibold text-emerald-700 mb-1 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                <span>
-                  Bài BTVN cần thu & đối soát hôm nay (Mặc định lấy BTVN của buổi/tuần liền trước):
-                </span>
+                <span>Bài BTVN cần thu & đối soát hôm nay (Mặc định lấy BTVN tuần liền trước):</span>
               </label>
               <select
                 value={selectedDailyHomeworkSource}
                 onChange={(e) => setSelectedDailyHomeworkSource(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-emerald-50/80 border border-emerald-300 text-xs font-extrabold text-emerald-950 outline-none focus:border-emerald-600 cursor-pointer"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-emerald-50/60 border border-emerald-200 text-xs font-bold text-emerald-950 outline-none focus:border-emerald-600 cursor-pointer"
               >
                 <option value="auto_prev">
                   ⚡ Tự động (Tuần trước): {autoPreviousHomeworkSource.displayTitle} [
@@ -2551,7 +2898,7 @@ export default function AdminStudentReportPanel({
                   📘 Lấy BTVN của chính Tuần hiện tại (Tuần {dailyWeek} - Tháng {dailyMonth})
                 </option>
                 <option value="none">🚫 Không thu / Không đối soát BTVN buổi này</option>
-                <optgroup label="--- Hoặc chọn chỉ định 1 bài BTVN cụ thể trong khóa học ---">
+                <optgroup label="--- Hoặc chọn chỉ định 1 bài BTVN cụ thể ---">
                   {allHomeworkOptionsForDropdown.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
@@ -2562,13 +2909,13 @@ export default function AdminStudentReportPanel({
             </div>
 
             <div className="md:col-span-5">
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
                 Đề luyện thi thực chiến trong tháng (Cột điểm số 3):
               </label>
               <select
                 value={selectedDailyPracticeId}
                 onChange={(e) => setSelectedDailyPracticeId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 outline-none cursor-pointer"
               >
                 <option value="none">-- Không kiểm tra đề tháng --</option>
                 <option value="auto">Tự động lấy đề thực chiến Tháng {dailyMonth}</option>
@@ -2581,20 +2928,19 @@ export default function AdminStudentReportPanel({
             </div>
           </div>
 
-          {/* HÀNG 3: LỌC DANH SÁCH HỌC SINH XUẤT PDF */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-bold text-slate-500">Lọc danh sách xuất PDF:</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-semibold text-slate-500">Phân hệ:</span>
               {[
                 { key: "all", label: `Tất cả (${registeredStudents.length})` },
-                { key: "offline", label: "Học sinh Offline" },
-                { key: "online", label: "Học sinh Online" }
+                { key: "offline", label: "Offline" },
+                { key: "online", label: "Online" }
               ].map((t) => (
                 <button
                   key={t.key}
                   type="button"
                   onClick={() => setDailyStudentFilterMode(t.key as any)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold border transition cursor-pointer ${
                     dailyStudentFilterMode === t.key
                       ? "bg-slate-800 text-white border-slate-800"
                       : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -2604,85 +2950,136 @@ export default function AdminStudentReportPanel({
                 </button>
               ))}
 
-              <label className="inline-flex items-center gap-1.5 ml-2 font-semibold text-slate-600 cursor-pointer">
+              <label className="inline-flex items-center gap-1.5 ml-2 font-medium text-slate-600 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={includeCoverSummaryPage}
                   onChange={(e) => setIncludeCoverSummaryPage(e.target.checked)}
                   className="rounded border-slate-300 text-blue-600"
                 />
-                <span>Kèm trang bìa tổng hợp điểm cả lớp</span>
+                <span>Kèm trang bìa tổng hợp lớp</span>
               </label>
             </div>
 
-            <div className="text-[11px] text-emerald-700 font-bold">
-              ✓ Đang đối soát BTVN: {effectiveHomeworkTarget.displayTitle}
+            <div className="text-[11px] text-emerald-700 font-semibold">
+              ✓ BTVN: {effectiveHomeworkTarget.displayTitle}
             </div>
           </div>
         </div>
       )}
 
-      {/* 3. GIAO DIỆN CHÍNH: DANH SÁCH HỌC VIÊN BÊN TRÁI + CHI TIẾT BÁO CÁO BÊN PHẢI */}
+      {/* 3. GIAO DIỆN CHÍNH: DANH SÁCH HỌC VIÊN CÓ CHECKBOX BÊN TRÁI + CHI TIẾT BÊN PHẢI */}
       {reportMode === "auto" ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* CỘT TRÁI: DANH SÁCH HỌC SINH */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs flex flex-col h-[780px]">
-            <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
-              <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                <User className="w-4 h-4 text-[#003399]" /> Danh sách học viên
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* CỘT TRÁI: DANH SÁCH HỌC SINH + CHECKBOX CHỌN XUẤT PDF */}
+          <div className="bg-white rounded-xl p-3.5 border border-slate-200/80 shadow-2xs flex flex-col h-[780px]">
+            <div className="pb-2.5 border-b border-slate-100 flex items-center justify-between gap-2">
+              <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-[#003399]" /> Học viên ({selectedFilteredStudents.length}/{filteredStudents.length})
               </h4>
-              <span className="text-[11px] font-bold text-slate-400">
-                {filteredStudents.length} bạn
-              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleSelectAllFilteredStudents}
+                  className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold transition cursor-pointer"
+                >
+                  Chọn tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeselectAllFilteredStudents}
+                  className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-semibold transition cursor-pointer"
+                >
+                  Bỏ chọn
+                </button>
+              </div>
             </div>
 
-            <div className="my-3 relative">
+            <div className="my-2.5 relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchStudent}
                 onChange={(e) => setSearchStudent(e.target.value)}
                 placeholder="Tìm tên hoặc trường..."
-                className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none focus:border-blue-600"
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-blue-600"
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+            <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar pr-1">
               {filteredStudents.map((student) => {
-                const isSelected = student.id === currentStudent?.id;
-                const dirInfo = sbdDirectoryMap.get(String(student.id || "").trim());
+                const stuId = String(student.id || "").trim();
+                const isSelected = stuId === currentStudent?.id;
+                const isCheckedForExport = selectedExportStudentIds.has(stuId);
+                const dirInfo = sbdDirectoryMap.get(stuId);
+                const fixedSbd =
+                  (student.sbd
+                    ? String(student.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6)
+                    : dirInfo?.sbd) || "000001";
+                const stuOverride = dailyStudentOverrides[stuId];
+                const attStatus = stuOverride?.attendanceStatus || "present";
+
                 return (
                   <div
-                    key={student.id}
-                    onClick={() => setSelectedStudentId(student.id)}
+                    key={stuId}
+                    onClick={() => setSelectedStudentId(stuId)}
                     className={
-                      "p-3 rounded-xl border transition cursor-pointer flex items-center justify-between " +
+                      "p-2.5 rounded-lg border transition cursor-pointer flex items-center justify-between gap-2 " +
                       (isSelected
-                        ? "bg-blue-50/90 border-[#003399] shadow-2xs"
+                        ? "bg-blue-50/80 border-[#003399]"
                         : "bg-white border-slate-200/60 hover:bg-slate-50")
                     }
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono font-bold text-[10px] border border-slate-200">
-                          {dirInfo?.sbd || "000001"}
-                        </span>
-                        <span
-                          className={
-                            "font-bold text-xs block truncate " +
-                            (isSelected ? "text-[#003399]" : "text-slate-800")
-                          }
-                        >
-                          {student.full_name}
-                        </span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleStudentExportCheckbox(stuId, e)}
+                        className="text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer"
+                        title="Tích chọn để xuất PDF báo cáo"
+                      >
+                        {isCheckedForExport ? (
+                          <CheckSquare className="w-4 h-4 text-[#003399]" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-300" />
+                        )}
+                      </button>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono font-bold text-[10px] border border-slate-200">
+                            {fixedSbd}
+                          </span>
+                          <span
+                            className={
+                              "font-bold text-xs block truncate " +
+                              (isSelected ? "text-[#003399]" : "text-slate-800")
+                            }
+                          >
+                            {student.full_name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {student.school || "THPT"} • {dirInfo?.mode || "Offline"}
+                          </p>
+                          {attStatus === "makeup_done" && (
+                            <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold text-[9px]">
+                              Đã bù
+                            </span>
+                          )}
+                          {attStatus === "absent_need_makeup" && (
+                            <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 font-bold text-[9px]">
+                              Chưa bù
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                        {student.school || "THPT"} • {dirInfo?.mode || "Offline"}
-                      </p>
                     </div>
+
                     <ChevronRight
                       className={
-                        "w-4 h-4 " + (isSelected ? "text-[#003399]" : "text-slate-300")
+                        "w-4 h-4 shrink-0 " + (isSelected ? "text-[#003399]" : "text-slate-300")
                       }
                     />
                   </div>
@@ -2691,29 +3088,29 @@ export default function AdminStudentReportPanel({
             </div>
           </div>
 
-          {/* CỘT PHẢI: HIỂN THỊ THEO CHẾ ĐỘ NGÀY HOẶC CHẾ ĐỘ THÁNG */}
-          <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-5">
+          {/* CỘT PHẢI: CHI TIẾT BÁO CÁO NGÀY HOẶC THÁNG */}
+          <div className="lg:col-span-2 bg-white rounded-xl p-4 border border-slate-200/80 shadow-2xs space-y-4">
             {reportViewType === "daily" && currentStudentDailyData ? (
-              /* ================= NHÁNH 1: BÁO CÁO THEO NGÀY / BUỔI HỌC (BRANDING TCT 100%) ================= */
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-3.5">
+                {/* Header thông tin nhanh của học sinh */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded bg-[#003399] text-white font-bold text-[10px] uppercase">
                         TÂM CHÍ TÀI (TCT)
                       </span>
                       <span className="font-mono font-bold text-xs text-blue-700">
-                        SBD: {currentStudentDailyData.sbd}
+                        SBD Cố định: {currentStudentDailyData.sbd}
                       </span>
-                      <span className="text-xs text-slate-500 font-semibold">
+                      <span className="text-xs text-slate-500 font-medium">
                         • Học sinh {currentStudentDailyData.learningMode}
                       </span>
                     </div>
-                    <h3 className="text-lg font-bold text-slate-900 mt-1">
+                    <h3 className="text-base font-bold text-slate-900 mt-1">
                       {currentStudentDailyData.studentName}
                     </h3>
                     <p className="text-xs text-slate-500">
-                      {currentStudentDailyData.school} • Ngày báo cáo:{" "}
+                      {currentStudentDailyData.school} • Ngày:{" "}
                       <strong className="text-slate-800">{customDateStr}</strong> (Tuần{" "}
                       {dailyWeek} - Tháng {dailyMonth})
                     </p>
@@ -2722,39 +3119,26 @@ export default function AdminStudentReportPanel({
                   <div className="flex items-center gap-2">
                     {currentStudentDailyData.hasPaperOMR && (
                       <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> Đã đính kèm Phiếu OMR
+                        <Check className="w-3.5 h-3.5" /> Có Phiếu OMR
                       </span>
                     )}
                     <button
                       type="button"
                       onClick={() => handleExportClassDailyPDF(true)}
-                      className="px-3.5 py-2 rounded-xl bg-[#003399] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-[#003399] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Printer className="w-3.5 h-3.5" /> In phiếu của bạn này
+                      <Printer className="w-3.5 h-3.5" /> In phiếu bạn này
                     </button>
                   </div>
                 </div>
 
-                {/* Khối chuyên đề buổi học hôm nay & BTVN tuần trước */}
-                <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-amber-800 block">
-                    NỘI DUNG CHUYÊN ĐỀ HỌC HÔM NAY (TUẦN {dailyWeek} - THÁNG {dailyMonth}):
-                  </span>
-                  <div className="text-sm font-bold text-slate-900">
-                    📘 {overrideTopicTitle || autoSyncedTopicTitle}
-                  </div>
-                  <div className="text-[11px] font-semibold text-emerald-800 pt-0.5">
-                    📚 BTVN thu & đối soát hôm nay: {effectiveHomeworkTarget.displayTitle}
-                  </div>
-                </div>
-
                 {/* 3 Cột Điểm số trong ngày */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200">
                     <span className="text-[10px] font-bold uppercase text-emerald-800 block">
                       1. ĐIỂM BTVN (TUẦN TRƯỚC)
                     </span>
-                    <div className="flex items-center gap-1.5 mt-1.5">
+                    <div className="flex items-center gap-1.5 mt-1">
                       <input
                         type="number"
                         step="0.1"
@@ -2778,7 +3162,7 @@ export default function AdminStudentReportPanel({
                             }
                           }));
                         }}
-                        className="w-28 px-2.5 py-1 rounded-lg bg-white border border-emerald-300 font-bold text-sm text-emerald-900 outline-none"
+                        className="w-24 px-2 py-1 rounded-md bg-white border border-emerald-300 font-bold text-sm text-emerald-900 outline-none"
                       />
                       <span className="text-xs font-bold text-emerald-700">/ 10</span>
                     </div>
@@ -2790,11 +3174,11 @@ export default function AdminStudentReportPanel({
                     </p>
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200">
+                  <div className="p-3 rounded-xl bg-blue-50/60 border border-blue-200">
                     <span className="text-[10px] font-bold uppercase text-blue-800 block">
                       2. ĐIỂM TEST TẠI LỚP (HÔM NAY)
                     </span>
-                    <div className="flex items-center gap-1.5 mt-1.5">
+                    <div className="flex items-center gap-1.5 mt-1">
                       <input
                         type="number"
                         step="0.1"
@@ -2815,7 +3199,7 @@ export default function AdminStudentReportPanel({
                             }
                           }))
                         }
-                        className="w-28 px-2.5 py-1 rounded-lg bg-white border border-blue-300 font-bold text-sm text-blue-900 outline-none"
+                        className="w-24 px-2 py-1 rounded-md bg-white border border-blue-300 font-bold text-sm text-blue-900 outline-none"
                       />
                       <span className="text-xs font-bold text-blue-700">/ 10</span>
                     </div>
@@ -2824,7 +3208,7 @@ export default function AdminStudentReportPanel({
                     </p>
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-orange-50/70 border border-orange-200">
+                  <div className="p-3 rounded-xl bg-orange-50/60 border border-orange-200">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold uppercase text-orange-800 block">
                         3. ĐỀ THỰC CHIẾN THÁNG
@@ -2843,11 +3227,11 @@ export default function AdminStudentReportPanel({
                           }
                           className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
                         >
-                          Đặt Không KT
+                          Không KT
                         </button>
                       )}
                     </div>
-                    <div className="flex items-center gap-1.5 mt-1.5">
+                    <div className="flex items-center gap-1.5 mt-1">
                       <input
                         type="number"
                         step="0.1"
@@ -2868,7 +3252,7 @@ export default function AdminStudentReportPanel({
                             }
                           }))
                         }
-                        className="w-32 px-2.5 py-1 rounded-lg bg-white border border-orange-300 font-bold text-xs text-orange-900 outline-none"
+                        className="w-28 px-2 py-1 rounded-md bg-white border border-orange-300 font-bold text-xs text-orange-900 outline-none"
                       />
                       <span className="text-xs font-bold text-orange-700">/ 10</span>
                     </div>
@@ -2878,59 +3262,247 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* KHỐI CHỌN TRỰC QUAN CHUYÊN CẦN & Ý THỨC BTVN */}
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                  <div>
-                    <span className="text-xs font-extrabold text-slate-800 uppercase block mb-2">
-                      Chuyên cần buổi học (Hiển thị thẻ lớn trên Báo cáo):
+                {/* KHỐI ĐIỂM DANH 3 TRẠNG THÁI & XẾP LỊCH HỌC BÙ / BỔ TRỢ LINH HOẠT */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 uppercase">
+                      Điểm danh & Phân loại Học bù:
                     </span>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        {
-                          key: "present",
-                          label: "✓ Có mặt đúng giờ",
-                          activeCls: "bg-emerald-600 text-white border-emerald-700 shadow-xs"
-                        },
-                        {
-                          key: "late",
-                          label: "⚠️ Đi học muộn",
-                          activeCls: "bg-amber-500 text-white border-amber-600 shadow-xs"
-                        },
-                        {
-                          key: "absent",
-                          label: "✕ Nghỉ học",
-                          activeCls: "bg-rose-600 text-white border-rose-700 shadow-xs"
-                        }
-                      ].map((opt) => {
-                        const active = currentStudentDailyData.attendance === opt.key;
-                        return (
-                          <button
-                            key={opt.key}
-                            type="button"
-                            onClick={() =>
-                              setDailyStudentOverrides((prev) => ({
-                                ...prev,
-                                [currentStudentDailyData.studentId]: {
-                                  ...(prev[currentStudentDailyData.studentId] || {}),
-                                  attendance: opt.key as any
-                                }
-                              }))
-                            }
-                            className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
-                              active
-                                ? opt.activeCls
-                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowSupportSchedulerPanel((prev) => !prev)}
+                      className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <CalendarPlus className="w-3.5 h-3.5" />
+                      <span>
+                        {showSupportSchedulerPanel
+                          ? "Thu gọn bảng xếp lịch"
+                          : "+ Xếp lịch Bổ trợ / Học bù"}
+                      </span>
+                    </button>
                   </div>
 
-                  <div>
-                    <span className="text-xs font-extrabold text-slate-800 uppercase block mb-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {[
+                      {
+                        key: "present" as ExtendedAttendanceStatus,
+                        label: "✓ Có mặt đúng giờ",
+                        activeCls: "bg-emerald-600 text-white border-emerald-700 shadow-2xs"
+                      },
+                      {
+                        key: "makeup_done" as ExtendedAttendanceStatus,
+                        label: "↺ Nghỉ (Đã học bù)",
+                        activeCls: "bg-amber-500 text-white border-amber-600 shadow-2xs"
+                      },
+                      {
+                        key: "absent_need_makeup" as ExtendedAttendanceStatus,
+                        label: "✕ Nghỉ (Chưa bù)",
+                        activeCls: "bg-rose-600 text-white border-rose-700 shadow-2xs"
+                      }
+                    ].map((opt) => {
+                      const active = currentStudentDailyData.attendanceStatus === opt.key;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => {
+                            if (opt.key === "absent_need_makeup") {
+                              setSchedulerSessionType("makeup");
+                              setShowSupportSchedulerPanel(true);
+                            }
+                            setDailyStudentOverrides((prev) => ({
+                              ...prev,
+                              [currentStudentDailyData.studentId]: {
+                                ...(prev[currentStudentDailyData.studentId] || {}),
+                                attendanceStatus: opt.key,
+                                attendance:
+                                  opt.key === "present"
+                                    ? "present"
+                                    : opt.key === "makeup_done"
+                                    ? "late"
+                                    : "absent"
+                              }
+                            }));
+                          }}
+                          className={`py-2 px-3 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                            active
+                              ? opt.activeCls
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {currentStudentDailyData.attendanceStatus === "makeup_done" && (
+                    <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-900">
+                      ✓ Đã ghi nhận vào báo cáo: <strong>"Nghỉ buổi học chính - Đã hoàn thành học bù và bài tập"</strong> (Điểm BTVN và điểm kiểm tra được giữ nguyên).
+                    </div>
+                  )}
+
+                  {/* BỘ CHỌN LỊCH BÙ / BỔ TRỢ ĐA CA LIÊN TIẾP (TỰ ĐỘNG MỞ KHI CHỌN "NGHỈ - CHƯA BÙ" HOẶC BẤM NÚT XẾP LỊCH) */}
+                  {(currentStudentDailyData.attendanceStatus === "absent_need_makeup" ||
+                    showSupportSchedulerPanel ||
+                    (currentStudentDailyData.makeupSessions &&
+                      currentStudentDailyData.makeupSessions.length > 0)) && (
+                    <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                        <span className="text-xs font-bold text-[#003399] flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-orange-500" />
+                          <span>Xếp lịch Học bù / Bổ trợ (In trực tiếp xuống đáy Trang 2 A4)</span>
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSchedulerSessionType("makeup")}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold border cursor-pointer ${
+                              schedulerSessionType === "makeup"
+                                ? "bg-orange-500 text-white border-orange-600"
+                                : "bg-slate-50 text-slate-600 border-slate-200"
+                            }`}
+                          >
+                            🟧 Học bù bài vắng
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSchedulerSessionType("support")}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold border cursor-pointer ${
+                              schedulerSessionType === "support"
+                                ? "bg-blue-600 text-white border-blue-700"
+                                : "bg-slate-50 text-slate-600 border-slate-200"
+                            }`}
+                          >
+                            🟦 Bổ trợ tăng cường
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                        <div className="sm:col-span-5">
+                          <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
+                            Chọn Thứ / Ngày hẹn học ({formattedCurrentSchedulerDate}):
+                          </label>
+                          <input
+                            type="date"
+                            value={schedulerIsoDate}
+                            onChange={(e) => setSchedulerIsoDate(e.target.value)}
+                            className="w-full px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800 outline-none"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-7">
+                          <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
+                            Ghi chú ca học (Tùy chọn):
+                          </label>
+                          <input
+                            type="text"
+                            value={schedulerNote}
+                            onChange={(e) => setSchedulerNote(e.target.value)}
+                            placeholder="VD: Bù bài Nguyên hàm / Bổ trợ vận dụng cao..."
+                            className="w-full px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="block text-[10px] font-semibold text-slate-500 mb-1.5">
+                          Tích chọn 1 hoặc nhiều ca liên tiếp trong ngày{" "}
+                          <strong className="text-slate-800">
+                            {formattedCurrentSchedulerDate}
+                          </strong>
+                          :
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                          {AVAILABLE_MAKEUP_SHIFTS.map((shift) => {
+                            const matchedSession = (
+                              currentStudentDailyData.makeupSessions || []
+                            ).find(
+                              (s) =>
+                                s.date === formattedCurrentSchedulerDate &&
+                                s.shiftId === shift.id
+                            );
+                            const isSelectedShift = Boolean(matchedSession);
+                            const isMakeupType =
+                              (matchedSession?.type || schedulerSessionType) === "makeup";
+
+                            return (
+                              <button
+                                key={shift.id}
+                                type="button"
+                                onClick={() =>
+                                  handleToggleMakeupShiftForStudent(
+                                    currentStudentDailyData.studentId,
+                                    shift
+                                  )
+                                }
+                                className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                                  isSelectedShift
+                                    ? isMakeupType
+                                      ? "bg-orange-50 border-orange-500 text-orange-950 font-bold"
+                                      : "bg-blue-50 border-blue-600 text-blue-950 font-bold"
+                                    : "bg-slate-50/70 border-slate-200 text-slate-600 hover:bg-slate-100"
+                                }`}
+                              >
+                                <div className="text-[10px] uppercase opacity-75">
+                                  {shift.group}
+                                </div>
+                                <div className="text-[11px] font-bold mt-0.5">
+                                  {shift.timeSlot}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Danh sách các ca đã chọn của học sinh */}
+                      {currentStudentDailyData.makeupSessions &&
+                        currentStudentDailyData.makeupSessions.length > 0 && (
+                          <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                            <span className="text-[10px] font-bold uppercase text-slate-500 block">
+                              Các ca đã xếp cho {currentStudentDailyData.studentName} (
+                              {currentStudentDailyData.makeupSessions.length} ca):
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {currentStudentDailyData.makeupSessions.map((sess) => (
+                                <span
+                                  key={sess.id}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold border ${
+                                    sess.type === "makeup"
+                                      ? "bg-orange-50 text-orange-900 border-orange-300"
+                                      : "bg-blue-50 text-blue-900 border-blue-300"
+                                  }`}
+                                >
+                                  <span>
+                                    [{sess.type === "makeup" ? "Học bù" : "Bổ trợ"}] {sess.date} •{" "}
+                                    {sess.shiftLabel}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleRemoveMakeupSessionItem(
+                                        currentStudentDailyData.studentId,
+                                        sess.id
+                                      )
+                                    }
+                                    className="hover:text-rose-600 cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                  )}
+
+                  {/* Ý thức làm BTVN */}
+                  <div className="pt-1">
+                    <span className="text-xs font-bold text-slate-800 uppercase block mb-1.5">
                       Ý thức làm Bài tập về nhà (BTVN tuần trước):
                     </span>
                     <div className="grid grid-cols-3 gap-2">
@@ -2938,17 +3510,17 @@ export default function AdminStudentReportPanel({
                         {
                           key: "completed",
                           label: "✓ Hoàn thành đầy đủ",
-                          activeCls: "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                          activeCls: "bg-emerald-600 text-white border-emerald-700"
                         },
                         {
                           key: "late",
                           label: "⚠️ Nộp muộn",
-                          activeCls: "bg-amber-500 text-white border-amber-600 shadow-xs"
+                          activeCls: "bg-amber-500 text-white border-amber-600"
                         },
                         {
                           key: "missing",
                           label: "✕ Chưa hoàn thành",
-                          activeCls: "bg-rose-600 text-white border-rose-700 shadow-xs"
+                          activeCls: "bg-rose-600 text-white border-rose-700"
                         }
                       ].map((opt) => {
                         const active = currentStudentDailyData.homeworkStatus === opt.key;
@@ -2965,7 +3537,7 @@ export default function AdminStudentReportPanel({
                                 }
                               }))
                             }
-                            className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                            className={`py-1.5 px-3 rounded-lg text-xs font-bold border transition cursor-pointer ${
                               active
                                 ? opt.activeCls
                                 : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
@@ -2979,9 +3551,9 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* Nhận xét của Giáo viên trong ngày */}
+                {/* Nhận xét của Giáo viên */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
                     Nhận xét của Giáo viên trong buổi học:
                   </label>
                   <textarea
@@ -2996,29 +3568,29 @@ export default function AdminStudentReportPanel({
                         }
                       }))
                     }
-                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:bg-white"
+                    className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:bg-white"
                   />
                 </div>
 
-                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR TRƯỚC KHI XUẤT PDF */}
+                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR */}
                 {currentStudentDailyData.hasPaperOMR &&
                   currentStudentDailyData.scannedPaperImageUrl && (
-                    <div className="p-4 rounded-xl bg-slate-900 text-white space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                    <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
                         <div>
                           <span className="text-[10px] font-bold uppercase text-emerald-400 block">
-                            ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR (TRANG 2) — BẤM VÀO CÂU ĐỂ ĐỔI ĐÚNG/SAI NẾU CẦN
+                            ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR (TRANG 2) — BẤM VÀO CÂU ĐỂ ĐỔI ĐÚNG/SAI
                           </span>
                           <h4 className="text-xs font-bold text-white mt-0.5">
-                            Bài thi: {currentStudentDailyData.paperExamTitle} (Mã đề:{" "}
+                            {currentStudentDailyData.paperExamTitle} (Mã đề:{" "}
                             {currentStudentDailyData.paperExamCode}) — Đúng:{" "}
                             <span className="text-emerald-400">
                               {currentStudentDailyData.dailyTestCorrect}/
-                              {currentStudentDailyData.dailyTestTotal} câu
+                              {currentStudentDailyData.dailyTestTotal}
                             </span>{" "}
                             • Sai/Trống:{" "}
                             <span className="text-rose-400">
-                              {currentStudentDailyData.wrongQuestionsList?.length || 0} câu
+                              {currentStudentDailyData.wrongQuestionsList?.length || 0}
                             </span>
                           </h4>
                         </div>
@@ -3041,15 +3613,15 @@ export default function AdminStudentReportPanel({
                               }
                             });
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                         >
-                          <Eye className="w-3.5 h-3.5" /> Phóng to xem phiếu OMR
+                          <Eye className="w-3.5 h-3.5" /> Xem phiếu OMR
                         </button>
                       </div>
 
                       {currentStudentDailyData.allQuestionsReviewList &&
                         currentStudentDailyData.allQuestionsReviewList.length > 0 && (
-                          <div className="max-h-56 overflow-y-auto custom-scrollbar pr-1 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          <div className="max-h-52 overflow-y-auto custom-scrollbar pr-1 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                             {currentStudentDailyData.allQuestionsReviewList.map((qRow) => (
                               <div
                                 key={qRow.questionNumber}
@@ -3060,7 +3632,6 @@ export default function AdminStudentReportPanel({
                                     qRow.isCorrect
                                   )
                                 }
-                                title="Bấm để đảo trạng thái Đúng / Sai cho câu này"
                                 className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 cursor-pointer transition ${
                                   qRow.isCorrect
                                     ? "bg-emerald-950/40 border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/50"
@@ -3071,11 +3642,11 @@ export default function AdminStudentReportPanel({
                                   <span className="font-bold">
                                     Câu {qRow.questionNumber} ({qRow.part}):
                                   </span>{" "}
-                                  <span>Chọn: {qRow.studentAnswer}</span>{" "}
+                                  <span>{qRow.studentAnswer}</span>{" "}
                                   <span className="opacity-75">(ĐA: {qRow.correctAnswer})</span>
                                 </div>
                                 <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-extrabold shrink-0 flex items-center gap-1 ${
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 flex items-center gap-1 ${
                                     qRow.isCorrect
                                       ? "bg-emerald-600 text-white"
                                       : "bg-rose-600 text-white"
@@ -3416,7 +3987,7 @@ export default function AdminStudentReportPanel({
         </div>
       ) : (
         /* CHẾ ĐỘ 3: TỰ TẠO ĐÁNH GIÁ HỌC SINH MỚI */
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 space-y-5">
+        <div className="bg-white rounded-xl p-5 border border-slate-200 space-y-4">
           <h4 className="font-bold text-slate-800 text-sm">
             Điền thông tin đánh giá học viên mới (Tâm Chí Tài TCT)
           </h4>
