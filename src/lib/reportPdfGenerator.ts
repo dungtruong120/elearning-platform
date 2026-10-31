@@ -23,7 +23,7 @@ export type ExtendedAttendanceStatus =
 
 export interface MakeupSessionItem {
   id: string;
-  date: string; // VD: "Thứ 6 (06/11)"
+  date: string; // VD: "Thứ 6 (06/11)" hoặc "31/10/2026"
   shiftId: string;
   shiftLabel: string; // VD: "Tối 2 (19:30 - 21:00)"
   timeSlot?: string; // VD: "19:30 - 21:00"
@@ -32,13 +32,55 @@ export interface MakeupSessionItem {
 }
 
 export const STANDARD_SUPPORT_SHIFTS = [
-  { id: "morning_1", label: "Ca Sáng 1", time: "08:00 - 09:30" },
-  { id: "morning_2", label: "Ca Sáng 2", time: "09:30 - 11:00" },
-  { id: "afternoon_1", label: "Ca Chiều 1", time: "14:30 - 16:00" },
-  { id: "afternoon_2", label: "Ca Chiều 2", time: "16:00 - 17:30" },
-  { id: "evening_1", label: "Ca Tối 1", time: "18:00 - 19:30" },
-  { id: "evening_2", label: "Ca Tối 2", time: "19:30 - 21:00" },
-  { id: "night_online", label: "Ca Đêm (Online)", time: "22:00 - 23:00" },
+  {
+    id: "morning_1",
+    code: "CA 1",
+    shortBadge: "CA 1 (08h-09h30)",
+    label: "Ca Sáng 1",
+    time: "08:00 - 09:30",
+  },
+  {
+    id: "morning_2",
+    code: "CA 2",
+    shortBadge: "CA 2 (09h30-11h)",
+    label: "Ca Sáng 2",
+    time: "09:30 - 11:00",
+  },
+  {
+    id: "afternoon_1",
+    code: "CA 3",
+    shortBadge: "CA 3 (14h30-16h)",
+    label: "Ca Chiều 1",
+    time: "14:30 - 16:00",
+  },
+  {
+    id: "afternoon_2",
+    code: "CA 4",
+    shortBadge: "CA 4 (16h-17h30)",
+    label: "Ca Chiều 2",
+    time: "16:00 - 17:30",
+  },
+  {
+    id: "evening_1",
+    code: "CA 5",
+    shortBadge: "CA 5 (18h-19h30)",
+    label: "Ca Tối 1",
+    time: "18:00 - 19:30",
+  },
+  {
+    id: "evening_2",
+    code: "CA 6",
+    shortBadge: "CA 6 (19h30-21h)",
+    label: "Ca Tối 2",
+    time: "19:30 - 21:00",
+  },
+  {
+    id: "night_online",
+    code: "CA 7 (ĐÊM)",
+    shortBadge: "CA ĐÊM (22h-23h)",
+    label: "Ca Đêm (Online)",
+    time: "22:00 - 23:00",
+  },
 ];
 
 export type ExtendedStudentDailyReportData = StudentDailyScoreData & {
@@ -48,6 +90,21 @@ export type ExtendedStudentDailyReportData = StudentDailyScoreData & {
   attendanceNote?: string;
   makeupSessions?: MakeupSessionItem[];
 };
+
+export interface DayColumnScheduleItem {
+  dayIndex: number; // 0 = Thứ 2 ... 6 = Chủ Nhật
+  dayTitle: string; // "THỨ 2" ... "CHỦ NHẬT"
+  shortDate: string; // VD: "26/10"
+  isReportDay: boolean;
+  sessions: {
+    id: string;
+    badgeText: string;
+    shiftLabel: string;
+    timeSlot: string;
+    type: "makeup" | "support";
+    note?: string;
+  }[];
+}
 
 function escapeHtml(raw: any): string {
   if (raw === null || raw === undefined) return "";
@@ -87,30 +144,176 @@ function resolveEffectiveAttendanceStatus(
   return "absent_need_makeup";
 }
 
+function parseFlexibleDateString(
+  rawStr: string,
+  fallbackYear: number = 2026
+): Date | null {
+  if (!rawStr) return null;
+  const clean = String(rawStr).trim();
+
+  // Định dạng DD/MM/YYYY
+  const dmyMatch = clean.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dmyMatch) {
+    const d = Number(dmyMatch[1]);
+    const m = Number(dmyMatch[2]);
+    const y = Number(dmyMatch[3]);
+    const dt = new Date(y, m - 1, d);
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  // Định dạng YYYY-MM-DD
+  const isoMatch = clean.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const y = Number(isoMatch[1]);
+    const m = Number(isoMatch[2]);
+    const d = Number(isoMatch[3]);
+    const dt = new Date(y, m - 1, d);
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  // Định dạng "Thứ 6 (06/11)" hoặc "26/10"
+  const dmMatch = clean.match(/(\d{1,2})\/(\d{1,2})/);
+  if (dmMatch) {
+    const d = Number(dmMatch[1]);
+    const m = Number(dmMatch[2]);
+    const dt = new Date(fallbackYear, m - 1, d);
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  return null;
+}
+
+function formatDayMonth2Digits(dt: Date): string {
+  return `${String(dt.getDate()).padStart(2, "0")}/${String(
+    dt.getMonth() + 1
+  ).padStart(2, "0")}`;
+}
+
+function getMondayOfWeek(dt: Date): Date {
+  const copy = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const day = copy.getDay(); // 0 = CN, 1 = T2 ... 6 = T7
+  const diff = day === 0 ? -6 : 1 - day;
+  copy.setDate(copy.getDate() + diff);
+  return copy;
+}
+
+/**
+ * XÂY DỰNG DỮ LIỆU LƯỚI LỊCH TUẦN 7 NGÀY (THỨ 2 -> CHỦ NHẬT) VÀ KHỚP CÁC CA ĐÃ CHỌN
+ */
+export function buildWeeklyCalendar7Days(
+  customDateStr: string,
+  makeupSessions: MakeupSessionItem[] = []
+): {
+  weekRangeLabel: string;
+  days: DayColumnScheduleItem[];
+} {
+  const reportDate =
+    parseFlexibleDateString(customDateStr, 2026) || new Date(2026, 9, 31);
+  const reportYear = reportDate.getFullYear();
+
+  // Nếu học sinh có lịch hẹn học bù/bổ trợ, ưu tiên hiển thị tuần chứa lịch hẹn đầu tiên
+  let anchorDate = reportDate;
+  if (Array.isArray(makeupSessions) && makeupSessions.length > 0) {
+    const firstSessionDate = parseFlexibleDateString(
+      makeupSessions[0].date,
+      reportYear
+    );
+    if (firstSessionDate) {
+      anchorDate = firstSessionDate;
+    }
+  }
+
+  const monday = getMondayOfWeek(anchorDate);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const weekRangeLabel = `${formatDayMonth2Digits(
+    monday
+  )} — ${formatDayMonth2Digits(sunday)}`;
+
+  const dayHeaders = [
+    "THỨ 2",
+    "THỨ 3",
+    "THỨ 4",
+    "THỨ 5",
+    "THỨ 6",
+    "THỨ 7",
+    "CHỦ NHẬT",
+  ];
+
+  const reportShortDate = formatDayMonth2Digits(reportDate);
+
+  const days: DayColumnScheduleItem[] = dayHeaders.map((title, idx) => {
+    const curDate = new Date(monday);
+    curDate.setDate(monday.getDate() + idx);
+    const shortDate = formatDayMonth2Digits(curDate);
+
+    // Lọc các ca khớp với ngày này (theo DD/MM hoặc theo Thứ trong tuần)
+    const matchedSessions = (makeupSessions || [])
+      .filter((sess) => {
+        if (!sess || !sess.date) return false;
+        const parsedSessDate = parseFlexibleDateString(sess.date, reportYear);
+        if (parsedSessDate) {
+          return formatDayMonth2Digits(parsedSessDate) === shortDate;
+        }
+        const norm = sess.date.toLowerCase();
+        if (idx === 6 && (norm.includes("chủ nhật") || norm.includes("cn"))) {
+          return true;
+        }
+        return norm.includes(`thứ ${idx + 2}`);
+      })
+      .map((sess) => {
+        const stdShift = STANDARD_SUPPORT_SHIFTS.find(
+          (s) => s.id === sess.shiftId
+        );
+        const badgeText =
+          stdShift?.shortBadge || sess.shiftLabel || "CA BỔ TRỢ";
+        return {
+          id: sess.id,
+          badgeText,
+          shiftLabel: stdShift?.label || sess.shiftLabel,
+          timeSlot: stdShift?.time || sess.timeSlot || "",
+          type: sess.type,
+          note: sess.note,
+        };
+      });
+
+    return {
+      dayIndex: idx,
+      dayTitle: title,
+      shortDate,
+      isReportDay: shortDate === reportShortDate,
+      sessions: matchedSessions,
+    };
+  });
+
+  return { weekRangeLabel, days };
+}
+
 /**
  * DỰNG VECTOR SVG BANNER HEADER THƯƠNG HIỆU TCT (100% TÂM CHÍ TÀI - CHUẨN FONT TIMES NEW ROMAN)
  */
 function renderTCTBrandHeaderHTML(): string {
   return `
     <div class="tct-brand-header">
-      <svg viewBox="0 0 1068 76" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-header-svg">
-        <polygon points="8,12 152,12 138,70 0,70" fill="#F58220" />
-        <polygon points="0,4 142,4 128,62 0,62" fill="#FFFFFF" stroke="#003399" stroke-width="2.4" />
-        <text x="68" y="40" font-family="'Times New Roman', Times, serif" font-size="32" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TCT</text>
-        <text x="66" y="55" font-family="'Times New Roman', Times, serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TÂM CHÍ TÀI</text>
+      <svg viewBox="0 0 1068 74" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-header-svg">
+        <polygon points="8,11 152,11 138,68 0,68" fill="#F58220" />
+        <polygon points="0,3 142,3 128,60 0,60" fill="#FFFFFF" stroke="#003399" stroke-width="2.4" />
+        <text x="68" y="39" font-family="'Times New Roman', Times, serif" font-size="31" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TCT</text>
+        <text x="66" y="54" font-family="'Times New Roman', Times, serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TÂM CHÍ TÀI</text>
 
-        <text x="372" y="31" font-family="'Times New Roman', Times, serif" font-size="18.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
+        <text x="372" y="30" font-family="'Times New Roman', Times, serif" font-size="18.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
           Chuyên luyện thi vào 10, HSA, TSA và THPT
         </text>
-        <text x="372" y="53" font-family="'Times New Roman', Times, serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1E293B">
+        <text x="372" y="52" font-family="'Times New Roman', Times, serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1E293B">
           Hotline: 0972 26 16 16  •  Đ/c: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội
         </text>
 
-        <polygon points="586,20 628,20 613,58 571,58" fill="#F58220" />
-        <polygon points="642,20 684,20 669,58 627,58" fill="#F58220" />
+        <polygon points="586,19 628,19 613,56 571,56" fill="#F58220" />
+        <polygon points="642,19 684,19 669,56 627,56" fill="#F58220" />
 
-        <polygon points="700,20 1065,20 1065,58 685,58" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
-        <text x="878" y="44" font-family="'Times New Roman', Times, serif" font-size="16.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
+        <polygon points="700,19 1065,19 1065,56 685,56" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
+        <text x="878" y="43" font-family="'Times New Roman', Times, serif" font-size="16.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
           Chuyên Toán Tư Duy - Trắc Nghiệm Tia Chớp
         </text>
       </svg>
@@ -127,24 +330,24 @@ function renderTCTBrandFooterHTML(
 ): string {
   return `
     <div class="tct-brand-footer">
-      <svg viewBox="0 0 1068 40" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-footer-svg">
-        <circle cx="24" cy="20" r="11" fill="none" stroke="#003399" stroke-width="1.8" />
-        <path d="M19,14 C21,12 23,15 22,17 C21,19 24,22 26,21 C28,20 31,22 29,24 C26,27 17,18 19,14 Z" fill="#003399" />
-        <text x="44" y="25" font-family="'Times New Roman', Times, serif" font-size="15" font-weight="bold" fill="#003399">0972 26 16 16</text>
+      <svg viewBox="0 0 1068 38" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-footer-svg">
+        <circle cx="24" cy="19" r="10.5" fill="none" stroke="#003399" stroke-width="1.8" />
+        <path d="M19,13 C21,11 23,14 22,16 C21,18 24,21 26,20 C28,19 31,21 29,23 C26,26 17,17 19,13 Z" fill="#003399" />
+        <text x="44" y="24" font-family="'Times New Roman', Times, serif" font-size="14.5" font-weight="bold" fill="#003399">0972 26 16 16</text>
 
-        <circle cx="215" cy="20" r="11" fill="#003399" />
-        <polygon points="215,12 207,19 210,19 210,26 220,26 220,19 223,19" fill="#FFFFFF" />
-        <text x="235" y="25" font-family="'Times New Roman', Times, serif" font-size="15" font-weight="bold" fill="#003399">
+        <circle cx="215" cy="19" r="10.5" fill="#003399" />
+        <polygon points="215,11 207,18 210,18 210,25 220,25 220,18 223,18" fill="#FFFFFF" />
+        <text x="235" y="24" font-family="'Times New Roman', Times, serif" font-size="14.5" font-weight="bold" fill="#003399">
           Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội
         </text>
 
-        <text x="560" y="25" font-family="'Times New Roman', Times, serif" font-size="12.5" font-weight="bold" fill="#475569">
+        <text x="560" y="24" font-family="'Times New Roman', Times, serif" font-size="12.5" font-weight="bold" fill="#475569">
           ${escapeHtml(studentQuickTag)}
         </text>
 
-        <polygon points="835,3 857,3 843,37 821,37" fill="#F58220" />
-        <polygon points="859,3 1065,3 1065,37 845,37" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
-        <text x="955" y="25" font-family="'Times New Roman', Times, serif" font-size="14.5" font-weight="bold" text-anchor="middle" fill="#0033CC">
+        <polygon points="835,3 857,3 843,35 821,35" fill="#F58220" />
+        <polygon points="859,3 1065,3 1065,35 845,35" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
+        <text x="955" y="24" font-family="'Times New Roman', Times, serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0033CC">
           ${escapeHtml(pageNumberLabel)}
         </text>
       </svg>
@@ -456,7 +659,7 @@ function renderSingleStudentDailyReportPageHTML(
                 })`
             )
             .join("  •  ")}
-          <em>(Xem bảng lịch chi tiết ở đáy Trang 2)</em>
+          <em>(Xem bảng lịch tuần 7 ngày ở đáy Trang 2)</em>
         </div>
       `
       : "";
@@ -616,7 +819,7 @@ function renderSingleStudentDailyReportPageHTML(
 }
 
 /**
- * KHỐI LỊCH HỌC BÙ & BỔ TRỢ ĐẶT Ở ĐÁY TRANG 2 (CHIẾM ~22% CHIỀU CAO TRANG, CĂN CHỈNH SẮC NÉT)
+ * KHỐI LỊCH TUẦN 7 NGÀY (THỨ 2 -> CHỦ NHẬT) + THANH 7 KHUNG GIỜ CA CHUẨN Ở ĐÁY TRANG 2 (~58mm)
  */
 function renderBottomMakeupScheduleSectionHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -626,110 +829,154 @@ function renderBottomMakeupScheduleSectionHTML(
     ? student.makeupSessions
     : [];
 
+  const { weekRangeLabel, days } = buildWeeklyCalendar7Days(
+    config.customDateStr,
+    sessions
+  );
+
   const hasMakeup = sessions.some((s) => s.type === "makeup");
   const hasSupport = sessions.some((s) => s.type === "support");
 
   const sessionsSummaryText = sessions
-    .map((s) => `${s.shiftLabel} - ${s.date}`)
+    .map((s) => `${s.date} - ${s.shiftLabel}`)
     .join("; ");
 
-  const absentDateLabel = config.customDateStr || "hôm nay";
+  const purposeText =
+    hasMakeup && hasSupport
+      ? "học bù & bổ trợ"
+      : hasMakeup
+      ? "học bù bài vắng"
+      : "bổ trợ tăng cường";
 
-  let notificationBoxHtml = "";
-  if (sessions.length > 0 && hasMakeup && !hasSupport) {
-    notificationBoxHtml = `
-      <div class="parent-schedule-notice notice-active">
-        📌 <strong>THÔNG BÁO LỊCH HỌC BÙ:</strong> Kính gửi phụ huynh, do buổi học chính khóa ngày <strong>${escapeHtml(
-          absentDateLabel
-        )}</strong> học sinh <strong>${escapeHtml(
-      student.studentName
-    )}</strong> vắng mặt, trung tâm đã xếp lịch học bù vào: <strong>${escapeHtml(
-      sessionsSummaryText
-    )}</strong>. Kính mong phụ huynh nhắc nhở con tham gia đầy đủ.
-      </div>
-    `;
-  } else if (sessions.length > 0) {
-    const purposeLabel =
-      hasMakeup && hasSupport
-        ? "học bù bài vắng và bổ trợ tăng cường kiến thức"
-        : "bổ trợ tăng cường kiến thức";
-
-    notificationBoxHtml = `
-      <div class="parent-schedule-notice notice-active">
-        📌 <strong>THÔNG BÁO LỊCH HỌC:</strong> Kính gửi phụ huynh, học sinh <strong>${escapeHtml(
-          student.studentName
-        )}</strong> có lịch <strong>${purposeLabel}</strong> vào: <strong>${escapeHtml(
-      sessionsSummaryText
-    )}</strong>. Kính mong phụ huynh nhắc nhở con tham gia đầy đủ, đúng giờ.
-      </div>
-    `;
-  } else {
-    notificationBoxHtml = `
-      <div class="parent-schedule-notice notice-default">
-        📌 <strong>THÔNG BÁO:</strong> Học sinh <strong>${escapeHtml(
-          student.studentName
-        )}</strong> duy trì lịch học chính khóa đầy đủ. Bảng bên dưới là khung giờ bổ trợ cố định của trung tâm nếu con có nhu cầu củng cố bài tập.
-      </div>
-    `;
-  }
-
-  // Dựng lưới 7 ca chuẩn (Hàng 1: 4 ô Sáng/Chiều, Hàng 2: 3 ô Tối/Đêm Online)
-  const shiftCardsHtml = STANDARD_SUPPORT_SHIFTS.map((shift) => {
-    const matchedSessions = sessions.filter((s) => s.shiftId === shift.id);
-    const isSelected = matchedSessions.length > 0;
-    const isMakeupType = matchedSessions.some((s) => s.type === "makeup");
-
-    const cardClass = isSelected
-      ? isMakeupType
-        ? "shift-slot-card slot-active-orange"
-        : "shift-slot-card slot-active-blue"
-      : "shift-slot-card slot-inactive";
-
-    const datesBadge = isSelected
-      ? `<div class="slot-date-tag">${matchedSessions
-          .map((m) => escapeHtml(m.date))
-          .join(", ")}</div>`
-      : `<div class="slot-date-placeholder">Lịch cố định TCT</div>`;
-
-    const typeBadge = isSelected
-      ? `<span class="slot-type-pill">${
-          isMakeupType ? "HỌC BÙ BÀI VẮNG" : "BỔ TRỢ KIẾN THỨC"
-        }</span>`
-      : "";
-
-    return `
-      <div class="${cardClass}">
-        <div class="slot-top-row">
-          <strong class="slot-label-text">${escapeHtml(shift.label)}</strong>
-          ${typeBadge}
+  const alertBoxHtml =
+    sessions.length > 0
+      ? `
+        <div class="weekly-alert-bar">
+          <span>📌</span>
+          <div>
+            Kính gửi phụ huynh, học sinh <strong>${escapeHtml(
+              student.studentName
+            )}</strong> có lịch <strong>${purposeText}</strong> vào: <strong>${escapeHtml(
+          sessionsSummaryText
+        )}</strong>. Kính mong phụ huynh nhắc con đi học đúng giờ.
+          </div>
         </div>
-        <div class="slot-time-text">${escapeHtml(shift.time)}</div>
-        ${datesBadge}
+      `
+      : `
+        <div class="weekly-alert-bar">
+          <span>📌</span>
+          <div>
+            Học sinh <strong>${escapeHtml(
+              student.studentName
+            )}</strong> tham gia học chính khóa đầy đủ. Khung lịch dưới đây hiển thị các ca bổ trợ / giải đáp bài tập định kỳ trong tuần của TCT.
+          </div>
+        </div>
+      `;
+
+  // Lưới 7 cột (Thứ 2 -> Chủ Nhật)
+  const sevenDayColumnsHtml = days
+    .map((dayCol) => {
+      const hasScheduled = dayCol.sessions.length > 0;
+      const isMakeupDay = dayCol.sessions.some((s) => s.type === "makeup");
+
+      const colCardClass = hasScheduled
+        ? isMakeupDay
+          ? "day-col-card day-col-makeup"
+          : "day-col-card day-col-support"
+        : dayCol.isReportDay
+        ? "day-col-card day-col-today"
+        : "day-col-card day-col-empty";
+
+      const todayPill =
+        dayCol.isReportDay && !hasScheduled
+          ? `<span class="day-today-badge">HÔM NAY</span>`
+          : "";
+
+      const bodyHtml = hasScheduled
+        ? `<div class="day-sessions-stack">
+            ${dayCol.sessions
+              .map(
+                (sess) => `
+                  <div class="day-session-pill ${
+                    sess.type === "makeup"
+                      ? "pill-makeup-orange"
+                      : "pill-support-blue"
+                  }">
+                    <div class="pill-shift-code">${escapeHtml(
+                      sess.badgeText
+                    )}</div>
+                    <div class="pill-shift-type">${
+                      sess.type === "makeup" ? "Học bù" : "Bổ trợ"
+                    }</div>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>`
+        : `<div class="day-empty-label">Không có ca học</div>`;
+
+      return `
+        <div class="${colCardClass}">
+          <div class="day-col-header">
+            <div class="day-col-top-line">
+              <span class="day-title-text">${escapeHtml(dayCol.dayTitle)}</span>
+              ${todayPill}
+            </div>
+            <div class="day-date-text">${escapeHtml(dayCol.shortDate)}</div>
+          </div>
+          ${bodyHtml}
+        </div>
+      `;
+    })
+    .join("");
+
+  // Thanh 7 khung giờ ca chuẩn xác định trước ở dưới cùng
+  const standardShiftPillsHtml = STANDARD_SUPPORT_SHIFTS.map(
+    (s) => `
+      <div class="std-shift-mini-pill">
+        <span class="std-pill-code">${escapeHtml(s.code)}:</span>
+        <span class="std-pill-time">${escapeHtml(s.time)}</span>
       </div>
-    `;
-  }).join("");
+    `
+  ).join("");
 
   return `
-    <div class="bottom-schedule-box">
-      <div class="schedule-box-header">
-        <span class="schedule-header-title">BẢNG LỊCH HỌC BÙ & BỔ TRỢ TĂNG CƯỜNG KIẾN THỨC TRONG TUẦN</span>
-        <div class="schedule-legend-inline">
-          <span class="sched-badge-orange">■ Màu Cam: Ca học bù bài vắng</span>
-          <span class="sched-badge-blue">■ Màu Xanh: Ca bổ trợ / Online đêm</span>
+    <div class="bottom-weekly-schedule-container">
+      <!-- 1. Header & Chú thích màu -->
+      <div class="weekly-header-bar">
+        <div class="weekly-title-group">
+          <span class="weekly-main-title">BẢNG LỊCH HỌC BÙ & BỔ TRỢ TĂNG CƯỜNG KIẾN THỨC TRONG TUẦN</span>
+          <span class="weekly-date-range-badge">${escapeHtml(
+            weekRangeLabel
+          )}</span>
+        </div>
+        <div class="weekly-legend-group">
+          <span class="legend-tag-orange">■ Màu Cam: Học bù bài vắng</span>
+          <span class="legend-tag-blue">■ Màu Xanh: Bổ trợ / Online đêm</span>
         </div>
       </div>
 
-      ${notificationBoxHtml}
+      <!-- 2. Thanh thông báo gửi phụ huynh -->
+      ${alertBoxHtml}
 
-      <div class="schedule-shifts-grid">
-        ${shiftCardsHtml}
+      <!-- 3. Lưới Lịch Tuần 7 Cột (Thứ 2 -> Chủ Nhật) -->
+      <div class="weekly-seven-cols-grid">
+        ${sevenDayColumnsHtml}
+      </div>
+
+      <!-- 4. Thanh 7 Khung Giờ Ca Chuẩn Cố Định Ở Dưới Cùng -->
+      <div class="weekly-std-shifts-bar">
+        <div class="std-shifts-label">🕒 7 KHUNG GIỜ CA HỌC CHUẨN XÁC ĐỊNH TRƯỚC TẠI TCT:</div>
+        <div class="std-shifts-pills-row">
+          ${standardShiftPillsHtml}
+        </div>
       </div>
     </div>
   `;
 }
 
 /**
- * DỰNG TRANG 2: ĐỐI SOÁT BÀI THI GIẤY OMR (HOẶC KHUNG TỰ LUYỆN) + BẢNG LỊCH Ở ĐÁY TRANG
+ * DỰNG TRANG 2: ĐỐI SOÁT BÀI THI GIẤY OMR (HOẶC KHUNG TỰ LUYỆN) + LỊCH TUẦN 7 NGÀY Ở ĐÁY TRANG
  * CĂN CHỈNH PIXEL-PERFECT VỪA KHÍT 1 TRANG A4 (297mm), TUYỆT ĐỐI KHÔNG TRÀN SANG TRANG 3
  */
 function renderStudentSecondPageHTML(
@@ -752,7 +999,9 @@ function renderStudentSecondPageHTML(
     ? student.allQuestionsReviewList
     : [];
 
-  const wrongList: WrongQuestionReviewItem[] = Array.isArray(student.wrongQuestionsList)
+  const wrongList: WrongQuestionReviewItem[] = Array.isArray(
+    student.wrongQuestionsList
+  )
     ? student.wrongQuestionsList
     : [];
 
@@ -929,7 +1178,7 @@ function renderStudentSecondPageHTML(
           </div>
           <div class="study-step-card">
             <div class="study-step-title">4. ĐĂNG KÝ CA HỌC BÙ / BỔ TRỢ KHI CẦN</div>
-            <p>Nếu con vắng mặt hoặc còn vướng mắc ở các câu vận dụng, gia đình theo dõi bảng lịch hỗ trợ bên dưới để cho con tham gia học bù kịp thời.</p>
+            <p>Nếu con vắng mặt hoặc còn vướng mắc ở các câu vận dụng, gia đình theo dõi bảng lịch tuần 7 ngày bên dưới để cho con tham gia học bù kịp thời.</p>
           </div>
         </div>
       </div>
@@ -1100,7 +1349,7 @@ export function generateClassDailyReportHTML(
         .a4-inner {
           width: 100%;
           height: 100%;
-          padding: 7.5mm 10mm 6.5mm 10mm;
+          padding: 7mm 10mm 6mm 10mm;
           display: flex;
           flex-direction: column;
           justify-content: flex-start;
@@ -1131,8 +1380,8 @@ export function generateClassDailyReportHTML(
           background: #F8FAFC;
           border-top: 2px solid #003399;
           border-bottom: 2px solid #F58220;
-          padding: 5px 10px;
-          margin-bottom: 6px;
+          padding: 4.5px 10px;
+          margin-bottom: 5px;
           flex-shrink: 0;
         }
         .omr-banner-accent {
@@ -1140,14 +1389,14 @@ export function generateClassDailyReportHTML(
         }
         .report-title-banner h1 {
           margin: 0;
-          font-size: 17.5px;
+          font-size: 17px;
           font-weight: bold;
           color: #003399;
           letter-spacing: 0.2px;
         }
         .report-subtitle {
           margin-top: 2px;
-          font-size: 13px;
+          font-size: 12.5px;
           color: #0F172A;
         }
         .section-box {
@@ -1358,14 +1607,14 @@ export function generateClassDailyReportHTML(
         }
 
         /* ==============================================================
-           TRANG 2: THÂN TRÊN (ĐỐI SOÁT OMR ~160mm) + ĐÁY TRANG (BẢNG LỊCH)
+           TRANG 2: THÂN TRÊN (ĐỐI SOÁT OMR ~152mm) + ĐÁY TRANG (LỊCH 7 NGÀY ~60mm)
            ============================================================== */
         .omr-appendix-two-cols {
           display: grid;
           grid-template-columns: 48% 50.5%;
           gap: 1.5%;
-          height: 160mm;
-          max-height: 160mm;
+          height: 152mm;
+          max-height: 152mm;
           margin-bottom: 5px;
           flex-shrink: 0;
         }
@@ -1373,27 +1622,27 @@ export function generateClassDailyReportHTML(
         .omr-right-table-col {
           border: 1px solid #94A3B8;
           border-radius: 6px;
-          padding: 6px;
+          padding: 5.5px;
           display: flex;
           flex-direction: column;
           overflow: hidden;
           background: #FFFFFF;
         }
         .omr-col-title {
-          font-size: 11.5px;
+          font-size: 11px;
           font-weight: bold;
           color: #003399;
           text-align: center;
           border-bottom: 1px solid #CBD5E1;
           padding-bottom: 3px;
-          margin-bottom: 5px;
+          margin-bottom: 4px;
           text-transform: uppercase;
           flex-shrink: 0;
         }
         .omr-sheet-frame {
           position: relative;
-          height: 145mm;
-          max-height: 145mm;
+          height: 138mm;
+          max-height: 138mm;
           aspect-ratio: 1200 / 1700;
           margin: 0 auto;
           border: 1px solid #64748B;
@@ -1417,21 +1666,21 @@ export function generateClassDailyReportHTML(
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 5px;
-          margin-bottom: 5px;
+          margin-bottom: 4px;
           flex-shrink: 0;
         }
         .omr-stat-pill {
-          padding: 2.5px 4px;
+          padding: 2px 4px;
           border-radius: 4px;
           text-align: center;
-          font-size: 10.5px;
+          font-size: 10px;
         }
         .omr-stat-pill span {
           display: block;
           color: #334155;
         }
         .omr-stat-pill strong {
-          font-size: 12.5px;
+          font-size: 12px;
         }
         .stat-blue {
           background: #EFF6FF;
@@ -1451,18 +1700,18 @@ export function generateClassDailyReportHTML(
         .omr-wrong-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 10.5px;
-          margin-bottom: 4px;
+          font-size: 10.2px;
+          margin-bottom: 3px;
         }
         .omr-wrong-table th,
         .omr-wrong-table td {
           border: 1px solid #94A3B8;
-          padding: 1.5px 4px;
-          line-height: 1.15;
+          padding: 1.25px 4px;
+          line-height: 1.12;
         }
         .omr-wrong-table th {
           background: #F1F5F9;
-          font-size: 9.8px;
+          font-size: 9.5px;
           text-transform: uppercase;
           color: #0F172A;
         }
@@ -1471,20 +1720,20 @@ export function generateClassDailyReportHTML(
           background: #F8FAFC;
           border: 1px solid #CBD5E1;
           border-radius: 4px;
-          padding: 4px 6px;
-          font-size: 10.2px;
+          padding: 3.5px 6px;
+          font-size: 10px;
           flex-shrink: 0;
         }
         .legend-title {
-          font-size: 9.8px;
+          font-size: 9.5px;
           font-weight: bold;
           color: #003399;
-          margin-bottom: 2px;
+          margin-bottom: 1.5px;
         }
         .legend-grid-compact {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
-          gap: 2px 8px;
+          gap: 1.5px 8px;
         }
         .legend-item {
           display: flex;
@@ -1492,8 +1741,8 @@ export function generateClassDailyReportHTML(
           gap: 5px;
         }
         .legend-dot {
-          width: 8px;
-          height: 8px;
+          width: 7.5px;
+          height: 7.5px;
           border-radius: 50%;
           display: inline-block;
           flex-shrink: 0;
@@ -1522,8 +1771,8 @@ export function generateClassDailyReportHTML(
           padding: 10px 14px;
           margin-bottom: 5px;
           background: #FFFFFF;
-          height: 160mm;
-          max-height: 160mm;
+          height: 152mm;
+          max-height: 152mm;
           display: flex;
           flex-direction: column;
           flex-shrink: 0;
@@ -1532,161 +1781,246 @@ export function generateClassDailyReportHTML(
           background: #FFFBEB;
           border: 1.5px solid #F58220;
           border-radius: 6px;
-          padding: 8px 12px;
-          font-size: 14px;
+          padding: 7px 12px;
+          font-size: 13.5px;
           color: #0F172A;
-          margin-bottom: 10px;
+          margin-bottom: 8px;
         }
         .study-checklist-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
+          gap: 8px;
           flex: 1;
         }
         .study-step-card {
           border: 1px solid #CBD5E1;
           border-radius: 6px;
-          padding: 10px 12px;
+          padding: 8px 11px;
           background: #F8FAFC;
         }
         .study-step-title {
-          font-size: 13px;
+          font-size: 12.5px;
           font-weight: bold;
           color: #003399;
-          margin-bottom: 6px;
+          margin-bottom: 5px;
         }
         .study-step-card p {
           margin: 0;
-          font-size: 13px;
-          line-height: 1.45;
+          font-size: 12.5px;
+          line-height: 1.4;
           color: #1E293B;
         }
 
         /* ==============================================================
-           KHUNG LỊCH HỌC BÙ & BỔ TRỢ TĂNG CƯỜNG Ở ĐÁY TRANG 2 (~22% CHIỀU CAO)
+           KHUNG LỊCH TUẦN 7 NGÀY (THỨ 2 -> CHỦ NHẬT) Ở ĐÁY TRANG 2 (~60mm)
            ============================================================== */
-        .bottom-schedule-box {
+        .bottom-weekly-schedule-container {
           border: 2px solid #1E40AF;
-          border-radius: 8px;
-          padding: 7px 10px;
+          border-radius: 10px;
+          padding: 6.5px 9px;
           background: #FFFFFF;
+          color: #1E293B;
           margin-top: auto;
-          margin-bottom: 3px;
+          margin-bottom: 2px;
           flex-shrink: 0;
         }
-        .schedule-box-header {
+        .weekly-header-bar {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 8px;
-          border-bottom: 1px solid #CBD5E1;
-          padding-bottom: 4px;
-          margin-bottom: 5px;
+          gap: 6px;
+          border-bottom: 1px solid #E2E8F0;
+          padding-bottom: 3.5px;
+          margin-bottom: 4.5px;
         }
-        .schedule-header-title {
-          font-size: 11.5px;
+        .weekly-title-group {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+        }
+        .weekly-main-title {
+          font-size: 11px;
           font-weight: bold;
           color: #003399;
           text-transform: uppercase;
           white-space: nowrap;
         }
-        .schedule-legend-inline {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          font-size: 10.5px;
+        .weekly-date-range-badge {
+          font-size: 10px;
+          font-weight: bold;
+          color: #1E3A8A;
+          background: #EFF6FF;
+          border: 1px solid #BFDBFE;
+          padding: 0.5px 6px;
+          border-radius: 4px;
           white-space: nowrap;
         }
-        .sched-badge-orange {
+        .weekly-legend-group {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 10px;
+          white-space: nowrap;
+        }
+        .legend-tag-orange {
           color: #EA580C;
           font-weight: bold;
         }
-        .sched-badge-blue {
+        .legend-tag-blue {
           color: #2563EB;
           font-weight: bold;
         }
-        .parent-schedule-notice {
-          padding: 5.5px 9px;
-          border-radius: 6px;
-          font-size: 11.8px;
-          line-height: 1.35;
-          margin-bottom: 6px;
-        }
-        .notice-active {
-          background: #FFF7ED;
-          border: 1px solid #F97316;
-          color: #9A3412;
-        }
-        .notice-default {
-          background: #FFF7ED;
+        .weekly-alert-bar {
           border: 1px solid #FDBA74;
+          background: #FFF7ED;
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 11px;
+          line-height: 1.3;
           color: #9A3412;
-        }
-        .schedule-shifts-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
+          margin-bottom: 5px;
+          display: flex;
+          align-items: center;
           gap: 5px;
         }
-        .shift-slot-card {
-          padding: 4.5px 7px;
-          border-radius: 6px;
-          font-size: 10.5px;
+        .weekly-seven-cols-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 5px;
+          margin-bottom: 5px;
+        }
+        .day-col-card {
+          border-radius: 7px;
+          padding: 4px 4.5px;
+          text-align: center;
+          min-height: 54px;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          min-height: 44px;
         }
-        .slot-inactive {
+        .day-col-empty {
+          border: 1px solid #E2E8F0;
           background: #F8FAFC;
-          border: 1px solid #CBD5E1;
-          color: #334155;
         }
-        .slot-active-orange {
+        .day-col-today {
+          border: 1.5px solid #60A5FA;
+          background: #EFF6FF;
+        }
+        .day-col-makeup {
+          border: 2px solid #F97316;
           background: #FFF7ED;
-          border: 2px solid #EA580C;
-          color: #7C2D12;
+        }
+        .day-col-support {
+          border: 2px solid #2563EB;
+          background: #EFF6FF;
+        }
+        .day-col-header {
+          border-bottom: 1px solid #E2E8F0;
+          padding-bottom: 2px;
+          margin-bottom: 3px;
+        }
+        .day-col-top-line {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 3px;
+        }
+        .day-title-text {
+          font-size: 10px;
+          font-weight: bold;
+          color: #0F172A;
+        }
+        .day-today-badge {
+          font-size: 7.5px;
+          font-weight: bold;
+          background: #2563EB;
+          color: #FFFFFF;
+          padding: 0.5px 3.5px;
+          border-radius: 3px;
+        }
+        .day-date-text {
+          font-size: 9px;
+          color: #64748B;
           font-weight: bold;
         }
-        .slot-active-blue {
-          background: #EFF6FF;
-          border: 2px solid #2563EB;
+        .day-empty-label {
+          font-size: 8.8px;
+          color: #94A3B8;
+          font-style: italic;
+          margin: auto 0;
+        }
+        .day-sessions-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 2.5px;
+          margin: auto 0;
+        }
+        .day-session-pill {
+          border-radius: 4px;
+          padding: 2px 3px;
+          font-size: 8.8px;
+          line-height: 1.15;
+        }
+        .pill-makeup-orange {
+          background: #FFEDD5;
+          border: 1px solid #EA580C;
+          color: #9A3412;
+          font-weight: bold;
+        }
+        .pill-support-blue {
+          background: #DBEAFE;
+          border: 1px solid #2563EB;
           color: #1E3A8A;
           font-weight: bold;
         }
-        .slot-top-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 3px;
-        }
-        .slot-label-text {
-          font-size: 11px;
-        }
-        .slot-type-pill {
-          font-size: 8px;
+        .pill-shift-code {
+          font-size: 8.8px;
           font-weight: bold;
-          padding: 1px 4px;
-          border-radius: 3px;
+        }
+        .pill-shift-type {
+          font-size: 7.8px;
+          text-transform: uppercase;
+          opacity: 0.9;
+        }
+        .weekly-std-shifts-bar {
+          background: #F8FAFC;
+          border: 1px solid #E2E8F0;
+          border-radius: 6px;
+          padding: 3.5px 6px;
+        }
+        .std-shifts-label {
+          font-size: 8.8px;
+          font-weight: bold;
+          color: #334155;
+          text-transform: uppercase;
+          margin-bottom: 2.5px;
+        }
+        .std-shifts-pills-row {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 4px;
+        }
+        .std-shift-mini-pill {
           background: #FFFFFF;
-          border: 1px solid currentColor;
+          border: 1px solid #E2E8F0;
+          border-radius: 4px;
+          padding: 1.5px 2px;
+          text-align: center;
+          font-size: 8.5px;
           white-space: nowrap;
         }
-        .slot-time-text {
-          font-size: 10.5px;
-          margin-top: 1px;
-        }
-        .slot-date-tag {
-          margin-top: 1.5px;
-          font-size: 10.5px;
+        .std-pill-code {
           font-weight: bold;
-          text-decoration: underline;
+          color: #1D4ED8;
+          display: block;
+          font-size: 8.2px;
         }
-        .slot-date-placeholder {
-          margin-top: 1.5px;
-          font-size: 9.8px;
-          color: #64748B;
-          font-style: italic;
+        .std-pill-time {
+          color: #0F172A;
+          font-weight: bold;
+          font-size: 8.3px;
         }
+
         .summary-cover-table {
           width: 100%;
           border-collapse: collapse;
@@ -1730,7 +2064,7 @@ export function generateClassDailyReportHTML(
         <div class="toolbar-info">
           <strong>HỆ THỐNG BÁO CÁO HỌC TẬP TÂM CHÍ TÀI (TCT)</strong> — Ngày ${escapeHtml(
             reportConfig.customDateStr
-          )} (${totalStudents} học sinh • Chuẩn 2 trang A4/HS kèm Lịch Bổ Trợ)
+          )} (${totalStudents} học sinh • Chuẩn 2 trang A4/HS kèm Lịch Tuần 7 Ngày)
         </div>
         <div class="toolbar-actions">
           <button class="btn-print-pdf" onclick="window.print()">
