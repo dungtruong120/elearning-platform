@@ -449,7 +449,8 @@ function buildFullOMRQuestionsReview(
 
   // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
- const detectedPartByIndex: any[] = [];
+  const detectedPartByIndex: number[] = [];
+
   if (rawQuizObj) {
     let rawSections =
       rawQuizObj.sections ||
@@ -468,8 +469,7 @@ function buildFullOMRQuestionsReview(
     if (Array.isArray(rawSections) && rawSections.length > 0) {
       rawSections.forEach((sec: any, sIdx: number) => {
         const secTitle = normalizeText(sec?.title || sec?.name || sec?.part || "");
-        let inferredSecPart: 1 | 2 | 3 =
-          sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3;
+        let inferredSecPart: number = sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3;
         if (
           secTitle.includes("phan iii") ||
           secTitle.includes("phan 3") ||
@@ -495,7 +495,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart);
+            detectedPartByIndex.push(inferredSecPart as any);
           });
         } else if (
           sec &&
@@ -503,13 +503,13 @@ function buildFullOMRQuestionsReview(
         ) {
           flatQuestions.push(sec);
           const qType = String(sec.type || "").toLowerCase();
-          const p: 1 | 2 | 3 =
+          const p: number =
             qType.includes("short") || sec.shortAnswer !== undefined
               ? 3
               : qType.includes("true") || Array.isArray(sec.statements)
               ? 2
               : 1;
-          detectedPartByIndex.push(p);
+          detectedPartByIndex.push(p as any);
         }
       });
     }
@@ -527,7 +527,7 @@ function buildFullOMRQuestionsReview(
         directQuestions.forEach((q: any, qIdx: number) => {
           flatQuestions.push(q);
           const qType = String(q?.type || "").toLowerCase();
-          let p: 1 | 2 | 3 = 1;
+          let p: number = 1;
           if (qType.includes("short") || q?.shortAnswer !== undefined || q?.part === 3) {
             p = 3;
           } else if (
@@ -541,7 +541,7 @@ function buildFullOMRQuestionsReview(
           } else if (directQuestions.length === 22) {
             p = qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3;
           }
-          detectedPartByIndex.push(p);
+          detectedPartByIndex.push(p as any);
         });
       }
     }
@@ -640,6 +640,7 @@ function buildFullOMRQuestionsReview(
     } else {
       partNum = 3;
     }
+
     let localNum = 1;
     if (partNum === 1) {
       localP1Counter += 1;
@@ -810,8 +811,8 @@ function buildFullOMRQuestionsReview(
       }
       correctDisplay = normalizedCorChoice;
 
-      p1StudentKey = studentDisplay as "A" | "B" | "C" | "D" | "";
-      p1CorrectKey = correctDisplay as "A" | "B" | "C" | "D";
+      p1StudentKey = (studentDisplay || "") as "A" | "B" | "C" | "D" | "";
+      p1CorrectKey = (correctDisplay || "A") as "A" | "B" | "C" | "D";
 
       if (gDetail) {
         autoIsCorrect = gDetail.status === "correct";
@@ -1031,7 +1032,7 @@ function buildFullOMRQuestionsReview(
   }
 
   // =========================================================================
-  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM 9.10 / 10
+  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM THỰC TẾ (VD: 9.10 / 10)
   // =========================================================================
   const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
   const explicitCorrectCount = Number(
@@ -1310,9 +1311,9 @@ function buildFullOMRQuestionsReview(
 }
 
 /**
- * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY THÀNH "PHIẾU OMR ẢO" CHUẨN TCT (1200 x 1700 px)
- * - Vẽ phôi phiếu trắc nghiệm chuẩn TCT.
- * - Tô vết chì mô phỏng (`rgba(45, 45, 45, 0.85)`) vào SBD, Mã đề và các phương án học sinh đã chọn.
+ * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY / PHIẾU SCAN MỜ THÀNH "PHIẾU OMR CANVAS AI" CHUẨN TCT (1200 x 1700 px)
+ * - Vẽ phôi phiếu trắc nghiệm vector sắc nét chuẩn TCT.
+ * - Tô vết chì đậm mô phỏng (`rgba(45, 45, 45, 0.85)`) vào SBD (6 cột), Mã đề (3 cột) và các phương án học sinh đã chọn.
  * - Sinh mảng `bubbleCoordinates` đầy đủ: `correct` (Xanh lá), `wrong` (Đỏ), `expected_missed` (Vàng nét đứt) và `sbd`/`exam_code` (Xanh dương).
  */
 export function generateVirtualOMRSheet(
@@ -1895,7 +1896,7 @@ export function generateVirtualOMRSheet(
     1642
   );
 
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
   virtualOMRCache.set(cacheSignature, { dataUrl, bubbleCoordinates });
 
   return {
@@ -2495,7 +2496,7 @@ export default function AdminStudentReportPanel({
     [quizAssignmentMap]
   );
 
-  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (TỰ ĐỘNG SINH PHIẾU OMR ẢO NẾU BÀI LÀM TRÊN WEB CHƯA CÓ ẢNH QUÉT)
+  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (ĐỒNG BỘ SBD MỚI NHẤT TỪ OMR & TỰ ĐỘNG DỰNG PHIẾU OMR CANVAS AI)
   const computeStudentDailyScoreRecord = useCallback(
     (
       student: any
@@ -2509,7 +2510,7 @@ export default function AdminStudentReportPanel({
       const stuId = String(student?.id || "").trim();
       const stuName = String(student?.full_name || student?.name || "Học sinh").trim();
       const dirInfo = sbdDirectoryMap.get(stuId);
-      const sbd =
+      const baseFallbackSbd =
         (student?.sbd
           ? String(student.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6)
           : dirInfo?.sbd) || "000001";
@@ -2520,16 +2521,16 @@ export default function AdminStudentReportPanel({
         const aStuId = String(att.studentId || att.student_id || att.user_id || "").trim();
         const aStuName = normalizeText(att.studentName || att.student_name || att.full_name || "");
         const aSbd = String(
-          att.sbd ||
-            att.detected_sbd ||
-            att.omr_raw_data?.detected_sbd ||
+          att.omr_raw_data?.detected_sbd ||
             att.answers?.__paper_omr_meta?.detected_sbd ||
+            att.sbd ||
+            att.detected_sbd ||
             ""
         ).trim();
         return (
           (stuId && aStuId === stuId) ||
           (stuName && aStuName === normalizeText(stuName)) ||
-          (sbd && aSbd === sbd)
+          (baseFallbackSbd && aSbd === baseFallbackSbd)
         );
       });
 
@@ -2671,6 +2672,19 @@ export default function AdminStudentReportPanel({
         bestPracticeAttempt = null;
       }
 
+      // ĐỒNG BỘ ƯU TIÊN SỐ BÁO DANH (SBD) TỪ BÀI LÀM OMR MỚI NHẤT TRƯỚC
+      const rawResolvedSbd =
+        (bestDailyTestAttempt?.omr_raw_data?.detected_sbd ||
+          bestDailyTestAttempt?.answers?.__paper_omr_meta?.detected_sbd ||
+          bestDailyTestAttempt?.sbd ||
+          student?.sbd ||
+          dirInfo?.sbd) || "000001";
+
+      const sbd = String(rawResolvedSbd)
+        .replace(/\D/g, "")
+        .padStart(6, "0")
+        .slice(-6);
+
       const ov = dailyStudentOverrides[stuId] || {};
 
       const hwScore =
@@ -2703,7 +2717,7 @@ export default function AdminStudentReportPanel({
       const pracScore =
         rawPracScore !== null && !isNaN(rawPracScore) && rawPracScore > 0 ? rawPracScore : null;
 
-      // Xác định bài thi dùng để đối soát OMR Trang 2 (Ưu tiên bài Test tại lớp -> Đề thực chiến -> BTVN nếu là bài làm trên Web)
+      // Xác định bài thi dùng để đối soát OMR Trang 2 (Ưu tiên bài Test tại lớp -> Đề thực chiến -> BTVN)
       const primaryReviewAtt = bestDailyTestAttempt || bestPracticeAttempt || bestHwAttempt || null;
 
       let hasPaperOMR = false;
@@ -2825,48 +2839,39 @@ export default function AdminStudentReportPanel({
           currentSessionLessons[0]?.hwItems[0]?.rawObj ||
           null;
 
-        if (existingScanUrl) {
-          // Trường hợp 1: Đã có ảnh phiếu OMR quét thật -> giải mã & bổ sung đầy đủ tọa độ `expected_missed`
+        // TỰ ĐỘNG CHUYỂN ĐỔI & DỰNG "PHIẾU OMR CANVAS AI" SẮC NÉT (1200x1700) CHO BÁO CÁO PHỤ HUYNH
+        const virtualBuilt = generateVirtualOMRSheet(
+          primaryReviewAtt,
+          fallbackSessionQuizObj,
+          sbd,
+          stuName,
+          paperExamTitle,
+          paperExamCode,
+          ov.questionStatusOverrides
+        );
+
+        if (virtualBuilt.dataUrl) {
+          hasPaperOMR = true;
+          scannedPaperImageUrl = virtualBuilt.dataUrl;
+          bubbleCoordinates = virtualBuilt.bubbleCoordinates;
+          allQuestionsReviewList = virtualBuilt.reviewData.allRows;
+          wrongQuestionsList = virtualBuilt.reviewData.wrongRows;
+          part1ScoreStr = virtualBuilt.reviewData.part1Summary;
+          part2ScoreStr = virtualBuilt.reviewData.part2Summary;
+          part3ScoreStr = virtualBuilt.reviewData.part3Summary;
+          computedCorrectCount = virtualBuilt.reviewData.correctCount;
+          computedTotalQuestions = virtualBuilt.reviewData.totalQuestions;
+        } else if (existingScanUrl) {
           hasPaperOMR = true;
           scannedPaperImageUrl = existingScanUrl;
-          const reviewBuilt = buildFullOMRQuestionsReview(
-            primaryReviewAtt,
-            fallbackSessionQuizObj,
-            ov.questionStatusOverrides
-          );
-
-          bubbleCoordinates = reviewBuilt.enrichedBubbleCoordinates;
-          allQuestionsReviewList = reviewBuilt.allRows;
-          wrongQuestionsList = reviewBuilt.wrongRows;
-          part1ScoreStr = reviewBuilt.part1Summary;
-          part2ScoreStr = reviewBuilt.part2Summary;
-          part3ScoreStr = reviewBuilt.part3Summary;
-          computedCorrectCount = reviewBuilt.correctCount;
-          computedTotalQuestions = reviewBuilt.totalQuestions;
-        } else {
-          // Trường hợp 2: Học sinh làm bài trên Web (Online) chưa có ảnh chụp -> Tự động dựng "Phiếu OMR Ảo"
-          const virtualBuilt = generateVirtualOMRSheet(
-            primaryReviewAtt,
-            fallbackSessionQuizObj,
-            sbd,
-            stuName,
-            paperExamTitle,
-            paperExamCode,
-            ov.questionStatusOverrides
-          );
-
-          if (virtualBuilt.dataUrl) {
-            hasPaperOMR = true;
-            scannedPaperImageUrl = virtualBuilt.dataUrl;
-            bubbleCoordinates = virtualBuilt.bubbleCoordinates;
-            allQuestionsReviewList = virtualBuilt.reviewData.allRows;
-            wrongQuestionsList = virtualBuilt.reviewData.wrongRows;
-            part1ScoreStr = virtualBuilt.reviewData.part1Summary;
-            part2ScoreStr = virtualBuilt.reviewData.part2Summary;
-            part3ScoreStr = virtualBuilt.reviewData.part3Summary;
-            computedCorrectCount = virtualBuilt.reviewData.correctCount;
-            computedTotalQuestions = virtualBuilt.reviewData.totalQuestions;
-          }
+          bubbleCoordinates = virtualBuilt.reviewData.enrichedBubbleCoordinates;
+          allQuestionsReviewList = virtualBuilt.reviewData.allRows;
+          wrongQuestionsList = virtualBuilt.reviewData.wrongRows;
+          part1ScoreStr = virtualBuilt.reviewData.part1Summary;
+          part2ScoreStr = virtualBuilt.reviewData.part2Summary;
+          part3ScoreStr = virtualBuilt.reviewData.part3Summary;
+          computedCorrectCount = virtualBuilt.reviewData.correctCount;
+          computedTotalQuestions = virtualBuilt.reviewData.totalQuestions;
         }
       }
 
@@ -4563,7 +4568,7 @@ export default function AdminStudentReportPanel({
                         TÂM CHÍ TÀI (TCT)
                       </span>
                       <span className="font-mono font-bold text-xs text-blue-700">
-                        SBD Cố định: {currentStudentDailyData.sbd}
+                        SBD Đồng bộ: {currentStudentDailyData.sbd}
                       </span>
                       <span className="text-xs text-slate-500 font-medium">
                         • Học sinh {currentStudentDailyData.learningMode}
