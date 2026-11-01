@@ -506,7 +506,8 @@ export function extractExamQuestionCounts(examDataOrQuestions: any): {
       (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2) ||
       (Array.isArray(q?.options) &&
         q.options.length > 0 &&
-        typeof q.options[0]?.is_true_false_ans === "boolean");
+        typeof q.options[0]?.is_true_false_ans === "boolean") ||
+      (Array.isArray(q?.statements) && q.statements.length > 0);
 
     const isShort =
       !isTF &&
@@ -934,6 +935,11 @@ function detectWhitePaperBoundingBox(
   };
 }
 
+/**
+ * NÂNG CẤP: DÒ TÂM Ô VUÔNG ĐỊNH VỊ ĐA TỶ LỆ (MULTI-SCALE FIDUCIAL SQUARE DETECTOR)
+ * - Tự thích nghi khi người dùng cầm điện thoại/iPad xa hoặc gần (kích thước mốc đen từ 10px đến 40px)
+ * - Kiểm tra độ đặc hình vuông (Solidity) + Vành trắng cô lập (Quiet Zone) 12 hướng để không bao giờ bắt nhầm khung bảng Giám thị hay chữ TCT
+ */
 export function detectOMRCornerMarkers(
   binary: Uint8Array,
   width: number,
@@ -955,6 +961,16 @@ export function detectOMRCornerMarkers(
   const paperW = Math.max(120, paperBox.right - paperBox.left);
   const paperH = Math.max(120, paperBox.bottom - paperBox.top);
 
+  const baseScale = Math.min(paperW, paperH);
+  // Quét đa tỷ lệ kích thước ô vuông đen (nhỏ khi cầm xa, chuẩn, và lớn khi dí sát)
+  const candidatePatchSizes = Array.from(
+    new Set([
+      Math.max(8, Math.round(baseScale * 0.013)),
+      Math.max(10, Math.round(baseScale * 0.018)),
+      Math.max(12, Math.round(baseScale * 0.024)),
+    ])
+  );
+
   const findCornerSquareCentroid = (
     minX: number,
     maxX: number,
@@ -963,96 +979,157 @@ export function detectOMRCornerMarkers(
     targetCornerX: number,
     targetCornerY: number
   ): OMRCornerPoint | null => {
-    const patchSize = Math.max(10, Math.round(Math.min(paperW, paperH) * 0.02));
-    const step = Math.max(2, Math.floor(patchSize / 4));
-    const ringRadius = Math.max(patchSize + 4, Math.round(patchSize * 1.55));
-
     let bestCandidate: { x: number; y: number; score: number } | null = null;
 
-    for (let y = minY; y <= maxY - patchSize; y += step) {
-      for (let x = minX; x <= maxX - patchSize; x += step) {
-        let innerDark = 0;
-        let innerTotal = 0;
-        for (let py = 0; py < patchSize; py += 2) {
-          const rowOffset = (y + py) * width + x;
-          for (let px = 0; px < patchSize; px += 2) {
-            innerTotal++;
-            if (binary[rowOffset + px] === 1) innerDark++;
-          }
-        }
-        const innerDensity = innerDark / Math.max(1, innerTotal);
-        if (innerDensity < 0.62) continue;
+    for (const patchSize of candidatePatchSizes) {
+      const step = Math.max(2, Math.floor(patchSize / 4));
 
-        const centerX = Math.round(x + patchSize / 2);
-        const centerY = Math.round(y + patchSize / 2);
-
-        let spanLeft = 0;
-        while (spanLeft < patchSize * 1.45 && centerX - spanLeft >= 0 && binary[centerY * width + (centerX - spanLeft)] === 1) {
-          spanLeft++;
-        }
-        let spanRight = 0;
-        while (spanRight < patchSize * 1.45 && centerX + spanRight < width && binary[centerY * width + (centerX + spanRight)] === 1) {
-          spanRight++;
-        }
-        let spanUp = 0;
-        while (spanUp < patchSize * 1.45 && centerY - spanUp >= 0 && binary[(centerY - spanUp) * width + centerX] === 1) {
-          spanUp++;
-        }
-        let spanDown = 0;
-        while (spanDown < patchSize * 1.45 && centerY + spanDown < height && binary[(centerY + spanDown) * width + centerX] === 1) {
-          spanDown++;
-        }
-
-        const blobW = Math.max(1, spanLeft + spanRight);
-        const blobH = Math.max(1, spanUp + spanDown);
-        const aspectRatio = blobW / blobH;
-        if (aspectRatio < 0.75 || aspectRatio > 1.32) continue;
-
-        let ringWhiteCount = 0;
-        let ringSamples = 0;
-        const ringDirs = [
-          [-ringRadius, 0],
-          [ringRadius, 0],
-          [0, -ringRadius],
-          [0, ringRadius],
-          [-ringRadius, -ringRadius],
-          [ringRadius, -ringRadius],
-          [-ringRadius, ringRadius],
-          [ringRadius, ringRadius],
-        ];
-
-        for (const [dx, dy] of ringDirs) {
-          const rx = centerX + dx;
-          const ry = centerY + dy;
-          if (rx >= 0 && rx < width && ry >= 0 && ry < height) {
-            ringSamples++;
-            const isWhiteBinary = binary[ry * width + rx] === 0;
-            const isBrightGray = optionalGray ? optionalGray[ry * width + rx] >= 130 : true;
-            if (isWhiteBinary && isBrightGray) {
-              ringWhiteCount++;
+      for (let y = minY; y <= maxY - patchSize; y += step) {
+        for (let x = minX; x <= maxX - patchSize; x += step) {
+          let innerDark = 0;
+          let innerTotal = 0;
+          for (let py = 0; py < patchSize; py += 2) {
+            const rowOffset = (y + py) * width + x;
+            for (let px = 0; px < patchSize; px += 2) {
+              innerTotal++;
+              if (binary[rowOffset + px] === 1) innerDark++;
             }
           }
-        }
+          const innerDensity = innerDark / Math.max(1, innerTotal);
+          if (innerDensity < 0.58) continue;
 
-        const quietZoneRatio = ringWhiteCount / Math.max(1, ringSamples);
-        if (quietZoneRatio < 0.62) continue;
+          const centerX = Math.round(x + patchSize / 2);
+          const centerY = Math.round(y + patchSize / 2);
 
-        const refinedCx = Math.round(centerX + (spanRight - spanLeft) * 0.5);
-        const refinedCy = Math.round(centerY + (spanDown - spanUp) * 0.5);
+          // Đo kích thước thực tế của khối đen theo 4 hướng từ tâm
+          const maxSpan = Math.round(patchSize * 1.75);
+          let spanLeft = 0;
+          while (
+            spanLeft < maxSpan &&
+            centerX - spanLeft >= 0 &&
+            binary[centerY * width + (centerX - spanLeft)] === 1
+          ) {
+            spanLeft++;
+          }
+          let spanRight = 0;
+          while (
+            spanRight < maxSpan &&
+            centerX + spanRight < width &&
+            binary[centerY * width + (centerX + spanRight)] === 1
+          ) {
+            spanRight++;
+          }
+          let spanUp = 0;
+          while (
+            spanUp < maxSpan &&
+            centerY - spanUp >= 0 &&
+            binary[(centerY - spanUp) * width + centerX] === 1
+          ) {
+            spanUp++;
+          }
+          let spanDown = 0;
+          while (
+            spanDown < maxSpan &&
+            centerY + spanDown < height &&
+            binary[(centerY + spanDown) * width + centerX] === 1
+          ) {
+            spanDown++;
+          }
 
-        const distToCorner = Math.hypot(refinedCx - targetCornerX, refinedCy - targetCornerY);
-        const maxDist = Math.hypot(paperW, paperH);
-        const proximityScore = 1 - distToCorner / maxDist;
-        const squarenessScore = 1 - Math.min(0.4, Math.abs(1 - aspectRatio));
+          const blobW = Math.max(1, spanLeft + spanRight);
+          const blobH = Math.max(1, spanUp + spanDown);
+          // Loại bỏ các đường kẻ dài hoặc chữ nhật dẹt
+          if (blobW < 6 || blobH < 6 || blobW > baseScale * 0.055 || blobH > baseScale * 0.055) {
+            continue;
+          }
+          const aspectRatio = blobW / blobH;
+          if (aspectRatio < 0.70 || aspectRatio > 1.40) continue;
 
-        const totalScore =
-          innerDensity * 0.3 +
-          quietZoneRatio * 0.3 +
-          proximityScore * 0.25 +
-          squarenessScore * 0.15;
+          const refinedCx = Math.round(centerX + (spanRight - spanLeft) * 0.5);
+          const refinedCy = Math.round(centerY + (spanDown - spanUp) * 0.5);
 
-        if (!bestCandidate || totalScore > bestCandidate.score) {
-          bestCandidate = { x: refinedCx, y: refinedCy, score: totalScore };
+          // Kiểm tra độ đặc (Solidity) trong đúng khung chữ nhật của khối đen vừa tìm được
+          const halfBw = Math.max(3, Math.floor(blobW * 0.42));
+          const halfBh = Math.max(3, Math.floor(blobH * 0.42));
+          let boxDark = 0;
+          let boxTotal = 0;
+          let sumDarkX = 0;
+          let sumDarkY = 0;
+          for (let by = refinedCy - halfBh; by <= refinedCy + halfBh; by++) {
+            if (by < 0 || by >= height) continue;
+            const rOff = by * width;
+            for (let bx = refinedCx - halfBw; bx <= refinedCx + halfBw; bx++) {
+              if (bx < 0 || bx >= width) continue;
+              boxTotal++;
+              if (binary[rOff + bx] === 1) {
+                boxDark++;
+                sumDarkX += bx;
+                sumDarkY += by;
+              }
+            }
+          }
+          const solidity = boxDark / Math.max(1, boxTotal);
+          if (solidity < 0.62) continue;
+
+          const centroidX = boxDark > 0 ? Math.round(sumDarkX / boxDark) : refinedCx;
+          const centroidY = boxDark > 0 ? Math.round(sumDarkY / boxDark) : refinedCy;
+
+          // Kiểm tra vành trắng cô lập (Quiet Zone) bao quanh khối vuông đen
+          const ringRx = Math.max(Math.round(blobW * 0.82), Math.round(blobW / 2) + 5);
+          const ringRy = Math.max(Math.round(blobH * 0.82), Math.round(blobH / 2) + 5);
+          const ringDirs = [
+            [-ringRx, 0],
+            [ringRx, 0],
+            [0, -ringRy],
+            [0, ringRy],
+            [-ringRx, -ringRy],
+            [ringRx, -ringRy],
+            [-ringRx, ringRy],
+            [ringRx, ringRy],
+            [-Math.round(ringRx * 0.5), -ringRy],
+            [Math.round(ringRx * 0.5), -ringRy],
+            [-Math.round(ringRx * 0.5), ringRy],
+            [Math.round(ringRx * 0.5), ringRy],
+          ];
+
+          let ringWhiteCount = 0;
+          let ringSamples = 0;
+
+          for (const [dx, dy] of ringDirs) {
+            const rx = centroidX + dx;
+            const ry = centroidY + dy;
+            if (rx >= 0 && rx < width && ry >= 0 && ry < height) {
+              ringSamples++;
+              const isWhiteBinary = binary[ry * width + rx] === 0;
+              const isBrightGray = optionalGray
+                ? optionalGray[ry * width + rx] >= 120
+                : true;
+              if (isWhiteBinary && isBrightGray) {
+                ringWhiteCount++;
+              }
+            }
+          }
+
+          const quietZoneRatio = ringWhiteCount / Math.max(1, ringSamples);
+          if (quietZoneRatio < 0.65) continue;
+
+          const distToCorner = Math.hypot(
+            centroidX - targetCornerX,
+            centroidY - targetCornerY
+          );
+          const maxDist = Math.hypot(paperW, paperH);
+          const proximityScore = 1 - distToCorner / maxDist;
+          const squarenessScore = 1 - Math.min(0.4, Math.abs(1 - aspectRatio));
+
+          const totalScore =
+            solidity * 0.32 +
+            quietZoneRatio * 0.32 +
+            proximityScore * 0.22 +
+            squarenessScore * 0.14;
+
+          if (!bestCandidate || totalScore > bestCandidate.score) {
+            bestCandidate = { x: centroidX, y: centroidY, score: totalScore };
+          }
         }
       }
     }
@@ -1060,8 +1137,9 @@ export function detectOMRCornerMarkers(
     return bestCandidate ? { x: bestCandidate.x, y: bestCandidate.y } : null;
   };
 
-  const searchW = Math.floor(paperW * 0.18);
-  const searchH = Math.floor(paperH * 0.16);
+  // Mở rộng nhẹ vùng tìm kiếm góc (24% ngang x 20% dọc) để bắt được cả khi tờ giấy đặt thụt lề trong khung ngắm
+  const searchW = Math.floor(paperW * 0.24);
+  const searchH = Math.floor(paperH * 0.20);
 
   const tl = findCornerSquareCentroid(
     paperBox.left + 2,
@@ -1105,14 +1183,20 @@ export function detectOMRCornerMarkers(
     const leftEdge = Math.hypot(bl.x - tl.x, bl.y - tl.y);
     const rightEdge = Math.hypot(br.x - tr.x, br.y - tr.y);
 
-    const widthRatio = Math.min(topEdge, bottomEdge) / Math.max(1, Math.max(topEdge, bottomEdge));
-    const heightRatio = Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
+    const widthRatio =
+      Math.min(topEdge, bottomEdge) / Math.max(1, Math.max(topEdge, bottomEdge));
+    const heightRatio =
+      Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
+    const aspectHtoW =
+      (leftEdge + rightEdge) / Math.max(1, topEdge + bottomEdge);
 
     if (
-      widthRatio >= 0.78 &&
-      heightRatio >= 0.78 &&
+      widthRatio >= 0.72 &&
+      heightRatio >= 0.72 &&
       topEdge > width * 0.45 &&
-      leftEdge > height * 0.52
+      leftEdge > height * 0.58 &&
+      aspectHtoW >= 1.12 &&
+      aspectHtoW <= 1.75
     ) {
       return {
         topLeft: tl,
@@ -1132,13 +1216,144 @@ export function detectOMRCornerMarkers(
   if (!br) missingList.push("Dưới-Phải");
 
   return {
-    topLeft: tl || { x: Math.round(paperBox.left + paperW * 0.035), y: Math.round(paperBox.top + paperH * 0.025) },
-    topRight: tr || { x: Math.round(paperBox.right - paperW * 0.035), y: Math.round(paperBox.top + paperH * 0.025) },
-    bottomRight: br || { x: Math.round(paperBox.right - paperW * 0.035), y: Math.round(paperBox.bottom - paperH * 0.025) },
-    bottomLeft: bl || { x: Math.round(paperBox.left + paperW * 0.035), y: Math.round(paperBox.bottom - paperH * 0.025) },
+    topLeft: tl || {
+      x: Math.round(paperBox.left + paperW * 0.035),
+      y: Math.round(paperBox.top + paperH * 0.025),
+    },
+    topRight: tr || {
+      x: Math.round(paperBox.right - paperW * 0.035),
+      y: Math.round(paperBox.top + paperH * 0.025),
+    },
+    bottomRight: br || {
+      x: Math.round(paperBox.right - paperW * 0.035),
+      y: Math.round(paperBox.bottom - paperH * 0.025),
+    },
+    bottomLeft: bl || {
+      x: Math.round(paperBox.left + paperW * 0.035),
+      y: Math.round(paperBox.bottom - paperH * 0.025),
+    },
     detected: false,
     missingCornersError: true,
-    geometryWarning: `⚠️ CẢNH BÁO: Ảnh chụp bị thiếu mốc góc định vị (${missingList.join(", ") || "méo tỷ lệ khung"}). Vui lòng dùng chuột KÉO 4 CHỐT GHIM MÀU XANH trên ảnh vào đúng 4 góc phiếu rồi bấm [⚡ Nắn phẳng & Quét lại], hoặc chụp lại đủ 4 góc!`,
+    geometryWarning: `⚠️ CẢNH BÁO: Ảnh chụp bị thiếu mốc góc định vị (${
+      missingList.join(", ") || "méo tỷ lệ khung"
+    }). Vui lòng dùng chuột KÉO 4 CHỐT GHIM MÀU XANH trên ảnh vào đúng 4 góc phiếu rồi bấm [⚡ Nắn phẳng & Quét lại], hoặc chụp lại đủ 4 góc!`,
+  };
+}
+
+/**
+ * HÀM TINH CHỈNH TỌA ĐỘ 4 GÓC TRÊN ẢNH ĐỘ PHÂN GIẢI CAO (1200x1700)
+ * Khi Camera Realtime truyền `customCorners` (scale từ khung 440px lên), hàm này sẽ tự động hút (snap)
+ * từng điểm góc vào đúng trọng tâm (centroid) thực tế của ô vuông đen trên ảnh 1200px nếu nằm trong bán kính lân cận,
+ * giúp triệt tiêu sai số phóng đại mà vẫn giữ nguyên vị trí nếu người dùng kéo ghim thủ công.
+ */
+export function refineCornerPointsOnHighRes(
+  binary: Uint8Array,
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  inputCorners: CustomFourCornersInput
+): CustomFourCornersInput {
+  const snapSingleCorner = (pt: OMRCornerPoint): OMRCornerPoint => {
+    const searchRadius = Math.max(18, Math.round(Math.min(width, height) * 0.032));
+    const minX = Math.max(2, Math.round(pt.x - searchRadius));
+    const maxX = Math.min(width - 3, Math.round(pt.x + searchRadius));
+    const minY = Math.max(2, Math.round(pt.y - searchRadius));
+    const maxY = Math.min(height - 3, Math.round(pt.y + searchRadius));
+
+    const patchSizes = [
+      Math.max(10, Math.round(Math.min(width, height) * 0.015)),
+      Math.max(14, Math.round(Math.min(width, height) * 0.021)),
+    ];
+
+    let bestCenter: OMRCornerPoint | null = null;
+    let bestScore = -1;
+
+    for (const pSize of patchSizes) {
+      for (let y = minY; y <= maxY - pSize; y += 2) {
+        for (let x = minX; x <= maxX - pSize; x += 2) {
+          let dark = 0;
+          let total = 0;
+          for (let py = 0; py < pSize; py += 2) {
+            const rOff = (y + py) * width + x;
+            for (let px = 0; px < pSize; px += 2) {
+              total++;
+              if (binary[rOff + px] === 1) dark++;
+            }
+          }
+          const density = dark / Math.max(1, total);
+          if (density < 0.62) continue;
+
+          const cx = Math.round(x + pSize / 2);
+          const cy = Math.round(y + pSize / 2);
+          const ringR = Math.round(pSize * 1.45);
+          const dirs = [
+            [-ringR, 0],
+            [ringR, 0],
+            [0, -ringR],
+            [0, ringR],
+            [-ringR, -ringR],
+            [ringR, -ringR],
+            [-ringR, ringR],
+            [ringR, ringR],
+          ];
+          let whiteRing = 0;
+          let ringTotal = 0;
+          for (const [dx, dy] of dirs) {
+            const rx = cx + dx;
+            const ry = cy + dy;
+            if (rx >= 0 && rx < width && ry >= 0 && ry < height) {
+              ringTotal++;
+              if (binary[ry * width + rx] === 0 && gray[ry * width + rx] >= 120) {
+                whiteRing++;
+              }
+            }
+          }
+          const quietRatio = whiteRing / Math.max(1, ringTotal);
+          if (quietRatio < 0.62) continue;
+
+          const distPenalty = Math.hypot(cx - pt.x, cy - pt.y) / (searchRadius * 2);
+          const score = density * 0.5 + quietRatio * 0.5 - distPenalty * 0.15;
+          if (score > bestScore) {
+            bestScore = score;
+            bestCenter = { x: cx, y: cy };
+          }
+        }
+      }
+    }
+
+    if (!bestCenter) return pt;
+
+    // Tính trọng tâm (centroid) chính xác của khối vuông đen quanh bestCenter
+    const halfWin = Math.max(12, Math.round(Math.min(width, height) * 0.015));
+    let sumX = 0;
+    let sumY = 0;
+    let count = 0;
+    for (let y = Math.max(0, bestCenter.y - halfWin); y <= Math.min(height - 1, bestCenter.y + halfWin); y++) {
+      const rOff = y * width;
+      for (let x = Math.max(0, bestCenter.x - halfWin); x <= Math.min(width - 1, bestCenter.x + halfWin); x++) {
+        if (binary[rOff + x] === 1) {
+          sumX += x;
+          sumY += y;
+          count++;
+        }
+      }
+    }
+
+    if (count >= 20) {
+      return {
+        x: Math.round(sumX / count),
+        y: Math.round(sumY / count),
+      };
+    }
+
+    return bestCenter;
+  };
+
+  return {
+    topLeft: snapSingleCorner(inputCorners.topLeft),
+    topRight: snapSingleCorner(inputCorners.topRight),
+    bottomRight: snapSingleCorner(inputCorners.bottomRight),
+    bottomLeft: snapSingleCorner(inputCorners.bottomLeft),
   };
 }
 
@@ -1171,7 +1386,7 @@ export function detectRealtimeCornerBoxes(
   const imgData = ctx.getImageData(0, 0, W, H);
   const data = imgData.data;
 
-  // Quét nhanh 1 vùng góc ROI (không cần tính Integral Image toàn khung hình để siêu nhanh)
+  // Quét nhanh 1 vùng góc ROI với đa kích thước mẫu thử (8px & 11px) và kiểm tra tính đối xứng vuông
   const scanCornerROI = (
     roiX0: number,
     roiY0: number,
@@ -1197,71 +1412,121 @@ export function detectRealtimeCornerBoxes(
       }
     }
     const meanLum = countLum > 0 ? sumLum / countLum : 170;
-    const darkThresh = Math.min(145, meanLum * 0.72);
-    const brightThresh = Math.max(125, meanLum * 0.92);
+    const darkThresh = Math.min(142, meanLum * 0.70);
+    const brightThresh = Math.max(125, meanLum * 0.90);
 
-    const patchSize = Math.max(8, Math.round(Math.min(W, H) * 0.024));
-    const step = Math.max(2, Math.floor(patchSize / 3));
-    const ringR = Math.round(patchSize * 1.45);
+    const candidateSizes = [
+      Math.max(7, Math.round(Math.min(W, H) * 0.018)),
+      Math.max(10, Math.round(Math.min(W, H) * 0.025)),
+    ];
 
     let bestPt: OMRCornerPoint | null = null;
     let bestScore = 0;
 
-    for (let y = yStart; y <= yEnd - patchSize; y += step) {
-      for (let x = xStart; x <= xEnd - patchSize; x += step) {
-        let darkPixels = 0;
-        let totalSamples = 0;
-        for (let py = 0; py < patchSize; py += 2) {
-          const rOff = (y + py) * W * 4;
-          for (let px = 0; px < patchSize; px += 2) {
-            totalSamples++;
-            const pIdx = rOff + (x + px) * 4;
+    for (const patchSize of candidateSizes) {
+      const step = Math.max(2, Math.floor(patchSize / 3));
+      const ringR = Math.round(patchSize * 1.55);
+
+      for (let y = yStart; y <= yEnd - patchSize; y += step) {
+        for (let x = xStart; x <= xEnd - patchSize; x += step) {
+          let darkPixels = 0;
+          let totalSamples = 0;
+          for (let py = 0; py < patchSize; py += 2) {
+            const rOff = (y + py) * W * 4;
+            for (let px = 0; px < patchSize; px += 2) {
+              totalSamples++;
+              const pIdx = rOff + (x + px) * 4;
+              const lum =
+                0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
+              if (lum < darkThresh) darkPixels++;
+            }
+          }
+
+          const darkRatio = darkPixels / Math.max(1, totalSamples);
+          if (darkRatio < 0.65) continue;
+
+          const cx = Math.round(x + patchSize / 2);
+          const cy = Math.round(y + patchSize / 2);
+
+          // Kiểm tra kích thước ngang/dọc của vết đen để loại bỏ đường kẻ bảng dài
+          const maxSpan = Math.round(patchSize * 1.8);
+          let spanL = 0;
+          while (spanL < maxSpan && cx - spanL >= 0) {
+            const pIdx = (cy * W + (cx - spanL)) * 4;
             const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
-            if (lum < darkThresh) darkPixels++;
+            if (lum >= darkThresh) break;
+            spanL++;
           }
-        }
-
-        const darkRatio = darkPixels / Math.max(1, totalSamples);
-        if (darkRatio < 0.62) continue;
-
-        const cx = Math.round(x + patchSize / 2);
-        const cy = Math.round(y + patchSize / 2);
-
-        // Kiểm tra 8 điểm viền trắng Quiet Zone xung quanh
-        const ringDirs = [
-          [-ringR, 0],
-          [ringR, 0],
-          [0, -ringR],
-          [0, ringR],
-          [-ringR, -ringR],
-          [ringR, -ringR],
-          [-ringR, ringR],
-          [ringR, ringR],
-        ];
-        let brightRing = 0;
-        let validRing = 0;
-        for (const [dx, dy] of ringDirs) {
-          const rx = cx + dx;
-          const ry = cy + dy;
-          if (rx >= 0 && rx < W && ry >= 0 && ry < H) {
-            validRing++;
-            const rIdx = (ry * W + rx) * 4;
-            const rLum = 0.299 * data[rIdx] + 0.587 * data[rIdx + 1] + 0.114 * data[rIdx + 2];
-            if (rLum >= brightThresh) brightRing++;
+          let spanR = 0;
+          while (spanR < maxSpan && cx + spanR < W) {
+            const pIdx = (cy * W + (cx + spanR)) * 4;
+            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
+            if (lum >= darkThresh) break;
+            spanR++;
           }
-        }
+          let spanU = 0;
+          while (spanU < maxSpan && cy - spanU >= 0) {
+            const pIdx = ((cy - spanU) * W + cx) * 4;
+            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
+            if (lum >= darkThresh) break;
+            spanU++;
+          }
+          let spanD = 0;
+          while (spanD < maxSpan && cy + spanD < H) {
+            const pIdx = ((cy + spanD) * W + cx) * 4;
+            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
+            if (lum >= darkThresh) break;
+            spanD++;
+          }
 
-        const quietRatio = brightRing / Math.max(1, validRing);
-        if (quietRatio < 0.6) continue;
+          const blobW = spanL + spanR;
+          const blobH = spanU + spanD;
+          if (blobW < 5 || blobH < 5 || blobW >= maxSpan * 1.7 || blobH >= maxSpan * 1.7) {
+            continue;
+          }
+          const aspect = blobW / Math.max(1, blobH);
+          if (aspect < 0.68 || aspect > 1.45) continue;
 
-        const dist = Math.hypot(cx - targetX, cy - targetY);
-        const maxD = Math.hypot(roiW, roiH);
-        const prox = Math.max(0, 1 - dist / Math.max(1, maxD));
+          const refinedCx = Math.round(cx + (spanR - spanL) * 0.5);
+          const refinedCy = Math.round(cy + (spanD - spanU) * 0.5);
 
-        const sc = darkRatio * 0.4 + quietRatio * 0.4 + prox * 0.2;
-        if (sc > bestScore) {
-          bestScore = sc;
-          bestPt = { x: cx, y: cy };
+          // Kiểm tra 8 điểm viền trắng Quiet Zone xung quanh
+          const ringDirs = [
+            [-ringR, 0],
+            [ringR, 0],
+            [0, -ringR],
+            [0, ringR],
+            [-ringR, -ringR],
+            [ringR, -ringR],
+            [-ringR, ringR],
+            [ringR, ringR],
+          ];
+          let brightRing = 0;
+          let validRing = 0;
+          for (const [dx, dy] of ringDirs) {
+            const rx = refinedCx + dx;
+            const ry = refinedCy + dy;
+            if (rx >= 0 && rx < W && ry >= 0 && ry < H) {
+              validRing++;
+              const rIdx = (ry * W + rx) * 4;
+              const rLum =
+                0.299 * data[rIdx] + 0.587 * data[rIdx + 1] + 0.114 * data[rIdx + 2];
+              if (rLum >= brightThresh) brightRing++;
+            }
+          }
+
+          const quietRatio = brightRing / Math.max(1, validRing);
+          if (quietRatio < 0.68) continue;
+
+          const dist = Math.hypot(refinedCx - targetX, refinedCy - targetY);
+          const maxD = Math.hypot(roiW, roiH);
+          const prox = Math.max(0, 1 - dist / Math.max(1, maxD));
+
+          const sc = darkRatio * 0.4 + quietRatio * 0.4 + prox * 0.2;
+          if (sc > bestScore) {
+            bestScore = sc;
+            bestPt = { x: refinedCx, y: refinedCy };
+          }
         }
       }
     }
@@ -1269,19 +1534,20 @@ export function detectRealtimeCornerBoxes(
     return { point: bestPt, score: bestScore };
   };
 
-  const roiW = W * 0.26;
-  const roiH = H * 0.24;
+  // Thu gọn vùng ROI dọc ở trên/dưới (18% chiều cao) để không bao giờ quét xuống bảng Giám thị ở giữa tờ giấy
+  const roiW = W * 0.24;
+  const roiH = H * 0.18;
 
-  const tlRes = scanCornerROI(0, 0, roiW, roiH, W * 0.08, H * 0.08);
-  const trRes = scanCornerROI(W - roiW, 0, roiW, roiH, W * 0.92, H * 0.08);
-  const brRes = scanCornerROI(W - roiW, H - roiH, roiW, roiH, W * 0.92, H * 0.92);
-  const blRes = scanCornerROI(0, H - roiH, roiW, roiH, W * 0.08, H * 0.92);
+  const tlRes = scanCornerROI(0, 0, roiW, roiH, W * 0.06, H * 0.05);
+  const trRes = scanCornerROI(W - roiW, 0, roiW, roiH, W * 0.94, H * 0.05);
+  const brRes = scanCornerROI(W - roiW, H - roiH, roiW, roiH, W * 0.94, H * 0.95);
+  const blRes = scanCornerROI(0, H - roiH, roiW, roiH, W * 0.06, H * 0.95);
 
   const cornerStatus = {
-    topLeft: Boolean(tlRes.point && tlRes.score >= 0.62),
-    topRight: Boolean(trRes.point && trRes.score >= 0.62),
-    bottomRight: Boolean(brRes.point && brRes.score >= 0.62),
-    bottomLeft: Boolean(blRes.point && blRes.score >= 0.62),
+    topLeft: Boolean(tlRes.point && tlRes.score >= 0.64),
+    topRight: Boolean(trRes.point && trRes.score >= 0.64),
+    bottomRight: Boolean(brRes.point && brRes.score >= 0.64),
+    bottomLeft: Boolean(blRes.point && blRes.score >= 0.64),
   };
 
   if (
@@ -1294,19 +1560,37 @@ export function detectRealtimeCornerBoxes(
     cornerStatus.bottomRight &&
     cornerStatus.bottomLeft
   ) {
-    const topEdge = Math.hypot(trRes.point.x - tlRes.point.x, trRes.point.y - tlRes.point.y);
-    const botEdge = Math.hypot(brRes.point.x - blRes.point.x, brRes.point.y - blRes.point.y);
-    const leftEdge = Math.hypot(blRes.point.x - tlRes.point.x, blRes.point.y - tlRes.point.y);
-    const rightEdge = Math.hypot(brRes.point.x - trRes.point.x, brRes.point.y - trRes.point.y);
+    const topEdge = Math.hypot(
+      trRes.point.x - tlRes.point.x,
+      trRes.point.y - tlRes.point.y
+    );
+    const botEdge = Math.hypot(
+      brRes.point.x - blRes.point.x,
+      brRes.point.y - blRes.point.y
+    );
+    const leftEdge = Math.hypot(
+      blRes.point.x - tlRes.point.x,
+      blRes.point.y - tlRes.point.y
+    );
+    const rightEdge = Math.hypot(
+      brRes.point.x - trRes.point.x,
+      brRes.point.y - trRes.point.y
+    );
 
     const wRatio = Math.min(topEdge, botEdge) / Math.max(1, Math.max(topEdge, botEdge));
-    const hRatio = Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
+    const hRatio =
+      Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
+    const aspectHtoW =
+      (leftEdge + rightEdge) / Math.max(1, topEdge + bottomEdge);
 
+    // Ràng buộc chặt tỷ lệ khung A4: chiều cao tứ giác phải đạt tối thiểu 64% khung ngắm (chống cắt cụt đầu phiếu như Ảnh 1)
     const isQuadValid =
       wRatio >= 0.76 &&
       hRatio >= 0.76 &&
-      topEdge > W * 0.42 &&
-      leftEdge > H * 0.46;
+      topEdge > W * 0.52 &&
+      leftEdge > H * 0.64 &&
+      aspectHtoW >= 1.15 &&
+      aspectHtoW <= 1.72;
 
     const avgConf = Math.round(
       ((tlRes.score + trRes.score + brRes.score + blRes.score) / 4) * 100
@@ -1436,9 +1720,14 @@ export function warpPerspectiveToCanonical(
   ];
 
   const H = solvePerspectiveHomography3x3(dstTargets, srcCorners);
-  const h00 = H[0], h01 = H[1], h02 = H[2];
-  const h10 = H[3], h11 = H[4], h12 = H[5];
-  const h20 = H[6], h21 = H[7];
+  const h00 = H[0],
+    h01 = H[1],
+    h02 = H[2];
+  const h10 = H[3],
+    h11 = H[4],
+    h12 = H[5];
+  const h20 = H[6],
+    h21 = H[7];
 
   for (let y = 0; y < dstHeight; y++) {
     const rowBaseX = h01 * y + h02;
@@ -1521,40 +1810,223 @@ function measureTimingTrackVerticalOffset(
   return diffs[Math.floor(diffs.length / 2)];
 }
 
+/**
+ * HÀM MỚI: DÒ ĐƯỜNG KẺ KHUNG VIỀN HÌNH CHỮ NHẬT BAO QUANH TỪNG PHẦN (LOCAL SECTION BOX ANCHOR)
+ * Trên tờ phiếu TCT, mỗi bảng (SBD, Mã đề, Khung Phần I, Khung đôi Phần II, Khung Phần III) đều có đường kẻ khung chữ nhật.
+ * Hàm này tìm chính xác vị trí cạnh trên (topY) và cạnh trái (leftX) của khung chữ nhật thực tế trên ảnh đã warp
+ * để bù trừ độ cong tờ giấy hoặc co giãn lề máy in trước khi khớp từng ô tròn.
+ */
+function detectSectionBoxAnchorOffset(
+  binary: Uint8Array,
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  expectedLeftX: number,
+  expectedTopY: number,
+  boxW: number,
+  boxH: number,
+  maxSearchX: number = 14,
+  maxSearchY: number = 16
+): { dx: number; dy: number } {
+  let bestDy = 0;
+  let bestTopScore = 0;
+
+  const sampleXStart = Math.max(10, Math.round(expectedLeftX + boxW * 0.12));
+  const sampleXEnd = Math.min(width - 10, Math.round(expectedLeftX + boxW * 0.88));
+  const xStep = Math.max(3, Math.floor((sampleXEnd - sampleXStart) / 36));
+
+  // 1. Dò đường kẻ ngang cạnh trên (top border) và cạnh dưới (bottom border) của khung
+  for (let dy = -maxSearchY; dy <= maxSearchY; dy++) {
+    const ty = Math.round(expectedTopY + dy);
+    const by = Math.round(expectedTopY + boxH + dy);
+    if (ty < 8 || ty >= height - 8) continue;
+
+    let lineScore = 0;
+    let samples = 0;
+    for (let x = sampleXStart; x <= sampleXEnd; x += xStep) {
+      samples++;
+      const topIdx = ty * width + x;
+      const aboveTopIdx = (ty - 4) * width + x;
+      const topContrast = Math.max(0, gray[aboveTopIdx] - gray[topIdx]);
+      if (binary[topIdx] === 1 || topContrast > 18) {
+        lineScore += (binary[topIdx] === 1 ? 22 : 0) + topContrast;
+      }
+
+      if (by > 8 && by < height - 8) {
+        const botIdx = by * width + x;
+        const belowBotIdx = (by + 4) * width + x;
+        const botContrast = Math.max(0, gray[belowBotIdx] - gray[botIdx]);
+        if (binary[botIdx] === 1 || botContrast > 18) {
+          lineScore += ((binary[botIdx] === 1 ? 22 : 0) + botContrast) * 0.65;
+        }
+      }
+    }
+
+    const avgScore = samples > 0 ? lineScore / samples : 0;
+    const regularized = avgScore - Math.abs(dy) * 0.45;
+    if (regularized > bestTopScore) {
+      bestTopScore = regularized;
+      bestDy = dy;
+    }
+  }
+
+  // Chỉ áp dụng dy nếu tín hiệu đường kẻ khung rõ ràng
+  if (bestTopScore < 14) {
+    bestDy = 0;
+  }
+
+  // 2. Dò đường kẻ dọc cạnh trái (left border) và cạnh phải (right border) của khung
+  let bestDx = 0;
+  let bestLeftScore = 0;
+  const sampleYStart = Math.max(10, Math.round(expectedTopY + bestDy + boxH * 0.15));
+  const sampleYEnd = Math.min(height - 10, Math.round(expectedTopY + bestDy + boxH * 0.85));
+  const yStep = Math.max(3, Math.floor((sampleYEnd - sampleYStart) / 28));
+
+  for (let dx = -maxSearchX; dx <= maxSearchX; dx++) {
+    const lx = Math.round(expectedLeftX + dx);
+    const rx = Math.round(expectedLeftX + boxW + dx);
+    if (lx < 8 || lx >= width - 8) continue;
+
+    let colScore = 0;
+    let samples = 0;
+    for (let y = sampleYStart; y <= sampleYEnd; y += yStep) {
+      samples++;
+      const leftIdx = y * width + lx;
+      const outLeftIdx = y * width + (lx - 4);
+      const leftContrast = Math.max(0, gray[outLeftIdx] - gray[leftIdx]);
+      if (binary[leftIdx] === 1 || leftContrast > 18) {
+        colScore += (binary[leftIdx] === 1 ? 22 : 0) + leftContrast;
+      }
+
+      if (rx > 8 && rx < width - 8) {
+        const rightIdx = y * width + rx;
+        const outRightIdx = y * width + (rx + 4);
+        const rightContrast = Math.max(0, gray[outRightIdx] - gray[rightIdx]);
+        if (binary[rightIdx] === 1 || rightContrast > 18) {
+          colScore += ((binary[rightIdx] === 1 ? 22 : 0) + rightContrast) * 0.65;
+        }
+      }
+    }
+
+    const avgScore = samples > 0 ? colScore / samples : 0;
+    const regularized = avgScore - Math.abs(dx) * 0.45;
+    if (regularized > bestLeftScore) {
+      bestLeftScore = regularized;
+      bestDx = dx;
+    }
+  }
+
+  if (bestLeftScore < 14) {
+    bestDx = 0;
+  }
+
+  return { dx: bestDx, dy: bestDy };
+}
+
+/**
+ * NÂNG CẤP TRIỆT ĐỂ: KHỚP LƯỚI Ô TRÒN DỰA TRÊN VÀNH TRÒN IN (CIRCLE RIM) & Ô TÔ ĐẬM
+ * - Khắc phục hoàn toàn lỗi cũ: Hàm cũ đo độ tối tại tâm (cx, cy) của mọi ô tròn khiến các ô trống (tâm trắng)
+ *   bị kéo lệch 10-12px lên trên để đè tâm vào đường viền tròn hoặc chữ tiêu đề "A B C D" / "Đúng Sai"!
+ * - Cơ chế mới:
+ *   1. Đo độ tương phản của VÀNH TRÒN IN (8 điểm ở bán kính `r`) so với nền giấy trắng bên ngoài (`r + 4`).
+ *   2. Nếu có các ô được học sinh tô chì thật sự đậm, kết hợp hút tâm vào đúng giữa vết chì đó.
+ *   3. Giới hạn phạm vi tinh chỉnh vi mô để không bao giờ nhảy dòng.
+ */
 function snapSubGridOffsetToBubbleCentroids(
   binary: Uint8Array,
   gray: Uint8Array,
   width: number,
   height: number,
   sampleCenters: { x: number; y: number; r: number }[],
-  maxShiftX: number = 14,
-  maxShiftY: number = 14
+  maxShiftX: number = 8,
+  maxShiftY: number = 8
 ): { dx: number; dy: number } {
   if (sampleCenters.length === 0) return { dx: 0, dy: 0 };
 
+  const clampedMaxX = Math.min(8, maxShiftX);
+  const clampedMaxY = Math.min(8, maxShiftY);
+
+  // Chọn tối đa 24 ô đại diện phân bố đều trong khối để tính toán cực nhanh và chính xác
+  const stride = Math.max(1, Math.floor(sampleCenters.length / 24));
+  const subset: { x: number; y: number; r: number }[] = [];
+  for (let i = 0; i < sampleCenters.length; i += stride) {
+    subset.push(sampleCenters[i]);
+  }
+
+  // Unit vectors cho 8 hướng quanh vành tròn
+  const rimDirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [0.707, 0.707],
+    [-0.707, 0.707],
+    [0.707, -0.707],
+    [-0.707, -0.707],
+  ];
+
   let bestDx = 0;
   let bestDy = 0;
-  let bestContrastScore = -1;
+  let bestTotalScore = -1e9;
 
-  for (let dy = -maxShiftY; dy <= maxShiftY; dy += 2) {
-    for (let dx = -maxShiftX; dx <= maxShiftX; dx += 2) {
-      let score = 0;
-      for (let i = 0; i < sampleCenters.length; i++) {
-        const c = sampleCenters[i];
-        const cx = Math.round(c.x + dx);
-        const cy = Math.round(c.y + dy);
-        if (cx < 10 || cx >= width - 10 || cy < 10 || cy >= height - 10) continue;
+  for (let dy = -clampedMaxY; dy <= clampedMaxY; dy += 1) {
+    for (let dx = -clampedMaxX; dx <= clampedMaxX; dx += 1) {
+      let rimMatchScore = 0;
+      let filledCoreScore = 0;
 
-        const centerIdx = cy * width + cx;
-        const darkVal = 255 - gray[centerIdx];
-        if (darkVal > 75) {
-          score += darkVal * (binary[centerIdx] === 1 ? 1.5 : 0.8);
+      for (let i = 0; i < subset.length; i++) {
+        const c = subset[i];
+        const cx = c.x + dx;
+        const cy = c.y + dy;
+        const r = c.r || 9;
+        if (cx < 16 || cx >= width - 16 || cy < 16 || cy >= height - 16) continue;
+
+        let rimDarkSum = 0;
+        let outerWhiteSum = 0;
+        const outerR = r + 4.2;
+
+        for (let d = 0; d < rimDirs.length; d++) {
+          const ux = rimDirs[d][0];
+          const uy = rimDirs[d][1];
+          const rx = Math.round(cx + ux * r);
+          const ry = Math.round(cy + uy * r);
+          const ox = Math.round(cx + ux * outerR);
+          const oy = Math.round(cy + uy * outerR);
+
+          const rimIdx = ry * width + rx;
+          const outIdx = oy * width + ox;
+
+          rimDarkSum += (255 - gray[rimIdx]) + (binary[rimIdx] === 1 ? 25 : 0);
+          outerWhiteSum += gray[outIdx];
+        }
+
+        const avgRimDark = rimDarkSum / 8;
+        const avgOuterWhite = outerWhiteSum / 8;
+        // Vành tròn chuẩn phải tối hơn vùng giấy trắng bên ngoài nó
+        const rimContrast = avgRimDark - (255 - avgOuterWhite);
+        if (rimContrast > 6) {
+          rimMatchScore += rimContrast;
+        }
+
+        // Kiểm tra nếu ô này được tô chì đặc ở giữa (5 điểm trong lòng ô đều tối và bên ngoài sáng)
+        const cIdx = Math.round(cy) * width + Math.round(cx);
+        const cLeft = Math.round(cy) * width + Math.round(cx - r * 0.4);
+        const cRight = Math.round(cy) * width + Math.round(cx + r * 0.4);
+        const cUp = Math.round(cy - r * 0.4) * width + Math.round(cx);
+        const cDown = Math.round(cy + r * 0.4) * width + Math.round(cx);
+
+        const coreMeanGray =
+          (gray[cIdx] + gray[cLeft] + gray[cRight] + gray[cUp] + gray[cDown]) / 5;
+        if (avgOuterWhite - coreMeanGray > 55 && binary[cIdx] === 1) {
+          filledCoreScore += (avgOuterWhite - coreMeanGray) * 1.4;
         }
       }
-      const penalty = (Math.abs(dx) + Math.abs(dy)) * 1.2;
-      const total = score - penalty;
-      if (total > bestContrastScore) {
-        bestContrastScore = total;
+
+      const distancePenalty = (Math.abs(dx) + Math.abs(dy)) * 2.2;
+      const total = rimMatchScore + filledCoreScore - distancePenalty;
+
+      if (total > bestTotalScore) {
+        bestTotalScore = total;
         bestDx = dx;
         bestDy = dy;
       }
@@ -1564,6 +2036,12 @@ function snapSubGridOffsetToBubbleCentroids(
   return { dx: bestDx, dy: bestDy };
 }
 
+/**
+ * NÂNG CẤP: ĐO MẬT ĐỘ TÔ CHÌ BẰNG ĐỘ TƯƠNG PHẢN CỤC BỘ SO VỚI NỀN GIẤY TRẮNG QUANH Ô
+ * - Chỉ đo phần lòng trong của ô tròn (`radius * 0.72`) để loại bỏ đường viền mực in của vòng tròn
+ * - Lấy độ sáng nền giấy trắng ngay sát ngoài vòng tròn (`radius + 2.5` đến `radius + 5`) làm chuẩn đối chiếu,
+ *   giúp miễn nhiễm với bóng đổ của tay/điện thoại và không bao giờ bắt nhầm chữ in mờ bên trong ô trống!
+ */
 export function measureBubbleWithLocalPeak(
   binary: Uint8Array,
   gray: Uint8Array,
@@ -1573,42 +2051,87 @@ export function measureBubbleWithLocalPeak(
   centerY: number,
   radius: number
 ): { density: number; peakX: number; peakY: number } {
+  // Đo độ sáng nền giấy trắng ngay xung quanh ô tròn (bán kính từ r + 2.5 đến r + 5.0)
+  const measureLocalPaperBg = (cx: number, cy: number): number => {
+    const ringR = radius + 3.8;
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [0.707, 0.707],
+      [-0.707, 0.707],
+      [0.707, -0.707],
+      [-0.707, -0.707],
+    ];
+    let bgValues: number[] = [];
+    for (const [ux, uy] of dirs) {
+      const px = Math.round(cx + ux * ringR);
+      const py = Math.round(cy + uy * ringR);
+      if (px >= 0 && px < width && py >= 0 && py < height) {
+        bgValues.push(gray[py * width + px]);
+      }
+    }
+    if (bgValues.length === 0) return 210;
+    bgValues.sort((a, b) => b - a);
+    // Lấy trung bình nửa trên các điểm sáng nhất quanh ô (bỏ qua nếu 1 hướng vướng nét chữ bên cạnh)
+    const topHalf = bgValues.slice(0, Math.max(2, Math.ceil(bgValues.length / 2)));
+    const sum = topHalf.reduce((acc, v) => acc + v, 0);
+    return Math.max(125, sum / topHalf.length);
+  };
+
+  const localPaperBg = measureLocalPaperBg(centerX, centerY);
+
   const sampleAtPoint = (cx: number, cy: number): number => {
-    const rInner = Math.max(3, radius * 0.78);
+    // Chỉ lấy mẫu lòng trong (0.72 * radius) để không chạm vào đường viền mực in của vòng tròn
+    const rInner = Math.max(3, radius * 0.72);
     const rSq = rInner * rInner;
     const minX = Math.max(0, Math.floor(cx - rInner));
     const maxX = Math.min(width - 1, Math.ceil(cx + rInner));
     const minY = Math.max(0, Math.floor(cy - rInner));
     const maxY = Math.min(height - 1, Math.ceil(cy + rInner));
 
-    let totalSamples = 0;
+    let totalWeight = 0;
     let weightedDarkSum = 0;
+
+    // Ngưỡng nền giấy động tại đúng vị trí ô tròn này
+    const effectiveWhiteFloor = Math.max(110, localPaperBg - 18);
 
     for (let y = minY; y <= maxY; y++) {
       const dy = y - cy;
       const rowOffset = y * width;
       for (let x = minX; x <= maxX; x++) {
         const dx = x - cx;
-        if (dx * dx + dy * dy <= rSq) {
-          totalSamples++;
+        const distSq = dx * dx + dy * dy;
+        if (distSq <= rSq) {
+          // Trọng số Gaussian nhẹ ưu tiên vùng tâm của vết chì tô
+          const pixelWeight = distSq <= rSq * 0.5 ? 1.2 : 0.9;
+          totalWeight += pixelWeight;
+
           const idx = rowOffset + x;
           const isBinaryDark = binary[idx] === 1 ? 1 : 0;
-          const grayDarkness = Math.max(0, (218 - gray[idx]) / 218);
-          weightedDarkSum += isBinaryDark * 0.65 + grayDarkness * 0.35;
+          const relGrayDarkness = Math.max(
+            0,
+            (effectiveWhiteFloor - gray[idx]) / Math.max(45, effectiveWhiteFloor)
+          );
+          const pixelScore = isBinaryDark * 0.62 + relGrayDarkness * 0.38;
+          weightedDarkSum += pixelScore * pixelWeight;
         }
       }
     }
 
-    if (totalSamples === 0) return 0;
-    return weightedDarkSum / totalSamples;
+    if (totalWeight === 0) return 0;
+    return weightedDarkSum / totalWeight;
   };
 
   let bestDensity = sampleAtPoint(centerX, centerY);
   let bestX = centerX;
   let bestY = centerY;
 
-  if (bestDensity >= 0.14) {
-    const offsets = [-3, -1.5, 0, 1.5, 3];
+  // Chỉ dịch tâm nhẹ (±2px) để ôm khít vết chì khi ô thực sự có dấu hiệu được tô đậm (>= 0.24)
+  // Tránh việc ô trống bị dịch tâm chạy về phía chữ in ngoài rìa!
+  if (bestDensity >= 0.24) {
+    const offsets = [-2, -1, 0, 1, 2];
     for (const ox of offsets) {
       for (const oy of offsets) {
         if (ox === 0 && oy === 0) continue;
@@ -1642,6 +2165,12 @@ export function measureBubbleDensity(
     .density;
 }
 
+/**
+ * NÂNG CẤP: CHỌN Ô ĐƯỢC TÔ DỰA TRÊN ĐỘ CHÊNH LỆCH SO VỚI NỀN TRUNG VỊ CỦA CÙNG CÂU / CÙNG CỘT
+ * - Trong mỗi câu (A, B, C, D) hoặc mỗi cột số (0..9), các ô trống đều có chữ cái/chữ số in mờ bên trong.
+ * - Ô được học sinh tô chì bắt buộc phải có mật độ vượt lên trên mức nền (baseline) của các ô không tô
+ *   tối thiểu `0.10`, giúp triệt tiêu 100% hiện tượng nhận nhầm ô trống thành ô đã tô!
+ */
 function pickDominantBubble<T extends { key: string; density: number }>(
   candidates: T[],
   minThreshold: number = MIN_FILLED_DENSITY,
@@ -1664,6 +2193,17 @@ function pickDominantBubble<T extends { key: string; density: number }>(
 
   if (!second) {
     return { selected: top, isAmbiguous: false };
+  }
+
+  // Tính mật độ nền (baseline) từ các ô thấp hơn trong cùng câu/cột (vốn là các ô trống chỉ có chữ in)
+  const baselinePool = sorted.slice(1);
+  const baselineMedian =
+    baselinePool[Math.floor(baselinePool.length / 2)]?.density ?? second.density;
+  const contrastAboveBaseline = top.density - baselineMedian;
+
+  // Nếu ô cao nhất không đậm hơn các ô trống còn lại trong cùng câu tối thiểu 0.10 -> cả câu đang để trống!
+  if (contrastAboveBaseline < 0.10 && top.density < 0.52) {
+    return { selected: null, isAmbiguous: false };
   }
 
   const ratio = second.density > 0.04 ? top.density / second.density : 99;
@@ -1714,12 +2254,24 @@ export function scanOMRSheetFromCanvas(
 
   const initialMask = computeAdaptiveBinaryMask(rawImageData);
 
-  const cornerResult = customCorners
+  // Nếu có customCorners truyền vào (ví dụ từ Camera Realtime 440px hoặc kéo tay),
+  // tự động tinh chỉnh (snap) vào đúng tâm khối vuông đen trên ảnh độ phân giải cao nếu nằm gần mốc đen
+  const refinedCustomCorners = customCorners
+    ? refineCornerPointsOnHighRes(
+        initialMask.binary,
+        initialMask.gray,
+        initialMask.width,
+        initialMask.height,
+        customCorners
+      )
+    : null;
+
+  const cornerResult = refinedCustomCorners
     ? {
-        topLeft: customCorners.topLeft,
-        topRight: customCorners.topRight,
-        bottomRight: customCorners.bottomRight,
-        bottomLeft: customCorners.bottomLeft,
+        topLeft: refinedCustomCorners.topLeft,
+        topRight: refinedCustomCorners.topRight,
+        bottomRight: refinedCustomCorners.bottomRight,
+        bottomLeft: refinedCustomCorners.bottomLeft,
         detected: true,
         missingCornersError: false,
         geometryWarning: undefined,
@@ -1765,25 +2317,46 @@ export function scanOMRSheetFromCanvas(
   // 1. QUÉT KHUNG SỐ BÁO DANH (6 CỘT x 10 HÀNG)
   const sbdDigits: string[] = [];
   if (targetPageIndex === 1) {
+    const sbdBoxAnchor = detectSectionBoxAnchorOffset(
+      binary,
+      gray,
+      width,
+      height,
+      blueprint.sbd.startX - 14,
+      blueprint.sbd.startY - 13 + timingTrackDy,
+      blueprint.sbd.cols * blueprint.sbd.colStep,
+      10 * blueprint.sbd.rowStep,
+      10,
+      10
+    );
+
     const sbdPreviewCenters: { x: number; y: number; r: number }[] = [];
     for (let col = 0; col < blueprint.sbd.cols; col++) {
       for (let digit = 0; digit <= 9; digit++) {
         sbdPreviewCenters.push({
-          x: blueprint.sbd.startX + col * blueprint.sbd.colStep,
-          y: blueprint.sbd.startY + digit * blueprint.sbd.rowStep + timingTrackDy,
+          x: blueprint.sbd.startX + col * blueprint.sbd.colStep + sbdBoxAnchor.dx,
+          y:
+            blueprint.sbd.startY +
+            digit * blueprint.sbd.rowStep +
+            timingTrackDy +
+            sbdBoxAnchor.dy,
           r: blueprint.sbd.radius,
         });
       }
     }
-    const sbdShift = snapSubGridOffsetToBubbleCentroids(
+    const sbdFineShift = snapSubGridOffsetToBubbleCentroids(
       binary,
       gray,
       width,
       height,
       sbdPreviewCenters,
-      10,
-      10
+      6,
+      6
     );
+    const sbdShift = {
+      dx: sbdBoxAnchor.dx + sbdFineShift.dx,
+      dy: sbdBoxAnchor.dy + sbdFineShift.dy,
+    };
 
     for (let col = 0; col < blueprint.sbd.cols; col++) {
       const theoreticalCx =
@@ -1846,25 +2419,49 @@ export function scanOMRSheetFromCanvas(
   // 2. QUÉT KHUNG MÃ ĐỀ THI (3 CỘT x 10 HÀNG)
   const examCodeDigits: string[] = [];
   if (targetPageIndex === 1) {
+    const codeBoxAnchor = detectSectionBoxAnchorOffset(
+      binary,
+      gray,
+      width,
+      height,
+      blueprint.examCode.startX - 14,
+      blueprint.examCode.startY - 13 + timingTrackDy,
+      blueprint.examCode.cols * blueprint.examCode.colStep,
+      10 * blueprint.examCode.rowStep,
+      10,
+      10
+    );
+
     const codePreviewCenters: { x: number; y: number; r: number }[] = [];
     for (let col = 0; col < blueprint.examCode.cols; col++) {
       for (let digit = 0; digit <= 9; digit++) {
         codePreviewCenters.push({
-          x: blueprint.examCode.startX + col * blueprint.examCode.colStep,
-          y: blueprint.examCode.startY + digit * blueprint.examCode.rowStep + timingTrackDy,
+          x:
+            blueprint.examCode.startX +
+            col * blueprint.examCode.colStep +
+            codeBoxAnchor.dx,
+          y:
+            blueprint.examCode.startY +
+            digit * blueprint.examCode.rowStep +
+            timingTrackDy +
+            codeBoxAnchor.dy,
           r: blueprint.examCode.radius,
         });
       }
     }
-    const codeShift = snapSubGridOffsetToBubbleCentroids(
+    const codeFineShift = snapSubGridOffsetToBubbleCentroids(
       binary,
       gray,
       width,
       height,
       codePreviewCenters,
-      10,
-      10
+      6,
+      6
     );
+    const codeShift = {
+      dx: codeBoxAnchor.dx + codeFineShift.dx,
+      dy: codeBoxAnchor.dy + codeFineShift.dy,
+    };
 
     for (let col = 0; col < blueprint.examCode.cols; col++) {
       const theoreticalCx =
@@ -1931,28 +2528,51 @@ export function scanOMRSheetFromCanvas(
   blueprint.part1.blocks
     .filter((b) => (b.pageIndex || 1) === targetPageIndex)
     .forEach((block) => {
+      const numRows = block.endQuestion - block.startQuestion + 1;
+      const p1BoxW = 232;
+      const p1BoxH = Math.max(66, numRows * block.rowStepY + 34);
+
+      // Bước 1: Khóa vào đường kẻ khung chữ nhật của khối Phần I
+      const p1BoxAnchor = detectSectionBoxAnchorOffset(
+        binary,
+        gray,
+        width,
+        height,
+        block.startX - 48,
+        block.startY - 42,
+        p1BoxW,
+        p1BoxH,
+        14,
+        16
+      );
+
+      // Bước 2: Tinh chỉnh vi mô theo vành tròn in & các ô có tô chì
       const p1PreviewCenters: { x: number; y: number; r: number }[] = [];
       for (let qNum = block.startQuestion; qNum <= block.endQuestion; qNum++) {
         const rowIdx = qNum - block.startQuestion;
-        const cy = block.startY + rowIdx * block.rowStepY;
+        const cy = block.startY + rowIdx * block.rowStepY + p1BoxAnchor.dy;
         optionKeys.forEach((_, optIdx) => {
           p1PreviewCenters.push({
-            x: block.startX + optIdx * block.optionStepX,
+            x: block.startX + optIdx * block.optionStepX + p1BoxAnchor.dx,
             y: cy,
             r: block.radius,
           });
         });
       }
 
-      const p1Shift = snapSubGridOffsetToBubbleCentroids(
+      const p1FineShift = snapSubGridOffsetToBubbleCentroids(
         binary,
         gray,
         width,
         height,
         p1PreviewCenters,
-        12,
-        12
+        6,
+        6
       );
+      const p1Shift = {
+        dx: p1BoxAnchor.dx + p1FineShift.dx,
+        dy: p1BoxAnchor.dy + p1FineShift.dy,
+      };
 
       for (let qNum = block.startQuestion; qNum <= block.endQuestion; qNum++) {
         const rowIdx = qNum - block.startQuestion;
@@ -2020,220 +2640,290 @@ export function scanOMRSheetFromCanvas(
   const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
   const p1Offset = blueprint.part1TotalQuestions ?? 40;
 
-  blueprint.part2.blocks
-    .filter((b) => (b.pageIndex || 1) === targetPageIndex)
-    .forEach((block) => {
-      const qNum = block.questionNumber;
-      const globalQOrder = p1Offset + qNum;
-      part2Answers[qNum] = { a: null, b: null, c: null, d: null };
+  const pageP2Blocks = blueprint.part2.blocks.filter(
+    (b) => (b.pageIndex || 1) === targetPageIndex
+  );
 
-      const p2PreviewCenters: { x: number; y: number; r: number }[] = [];
-      subKeys.forEach((_, subIdx) => {
-        const cy = block.startY + subIdx * block.rowStepY;
-        p2PreviewCenters.push({ x: block.trueX, y: cy, r: block.radius });
-        p2PreviewCenters.push({ x: block.falseX, y: cy, r: block.radius });
+  pageP2Blocks.forEach((block, bIdxInPage) => {
+    const qNum = block.questionNumber;
+    const globalQOrder = p1Offset + qNum;
+    part2Answers[qNum] = { a: null, b: null, c: null, d: null };
+
+    // Khóa vào khung đôi Phần II (mỗi khung đôi chứa 2 câu: [C1|C2], [C3|C4]...)
+    const pairFirstBlock =
+      bIdxInPage % 2 === 1 && pageP2Blocks[bIdxInPage - 1]
+        ? pageP2Blocks[bIdxInPage - 1]
+        : block;
+    const hasSecondInPair =
+      bIdxInPage % 2 === 1 || Boolean(pageP2Blocks[bIdxInPage + 1]);
+    const pairBoxLeft = pairFirstBlock.trueX - 53;
+    const pairBoxTop = block.startY - 48;
+    const pairBoxWidth = hasSecondInPair ? 214 : 118;
+    const pairBoxHeight = 160;
+
+    const p2BoxAnchor = detectSectionBoxAnchorOffset(
+      binary,
+      gray,
+      width,
+      height,
+      pairBoxLeft,
+      pairBoxTop,
+      pairBoxWidth,
+      pairBoxHeight,
+      14,
+      16
+    );
+
+    const p2PreviewCenters: { x: number; y: number; r: number }[] = [];
+    subKeys.forEach((_, subIdx) => {
+      const cy = block.startY + subIdx * block.rowStepY + p2BoxAnchor.dy;
+      p2PreviewCenters.push({
+        x: block.trueX + p2BoxAnchor.dx,
+        y: cy,
+        r: block.radius,
       });
+      p2PreviewCenters.push({
+        x: block.falseX + p2BoxAnchor.dx,
+        y: cy,
+        r: block.radius,
+      });
+    });
 
-      const p2Shift = snapSubGridOffsetToBubbleCentroids(
+    const p2FineShift = snapSubGridOffsetToBubbleCentroids(
+      binary,
+      gray,
+      width,
+      height,
+      p2PreviewCenters,
+      6,
+      6
+    );
+    const p2Shift = {
+      dx: p2BoxAnchor.dx + p2FineShift.dx,
+      dy: p2BoxAnchor.dy + p2FineShift.dy,
+    };
+
+    subKeys.forEach((subK, subIdx) => {
+      const theoreticalCy = block.startY + subIdx * block.rowStepY + p2Shift.dy;
+      const measuredTrue = measureBubbleWithLocalPeak(
         binary,
         gray,
         width,
         height,
-        p2PreviewCenters,
-        12,
-        12
+        block.trueX + p2Shift.dx,
+        theoreticalCy,
+        block.radius
+      );
+      const measuredFalse = measureBubbleWithLocalPeak(
+        binary,
+        gray,
+        width,
+        height,
+        block.falseX + p2Shift.dx,
+        theoreticalCy,
+        block.radius
       );
 
-      subKeys.forEach((subK, subIdx) => {
-        const theoreticalCy = block.startY + subIdx * block.rowStepY + p2Shift.dy;
-        const measuredTrue = measureBubbleWithLocalPeak(
-          binary,
-          gray,
-          width,
-          height,
-          block.trueX + p2Shift.dx,
-          theoreticalCy,
-          block.radius
-        );
-        const measuredFalse = measureBubbleWithLocalPeak(
-          binary,
-          gray,
-          width,
-          height,
-          block.falseX + p2Shift.dx,
-          theoreticalCy,
-          block.radius
-        );
+      const pairCandidates = [
+        { key: "T", density: measuredTrue.density, x: measuredTrue.peakX, y: measuredTrue.peakY },
+        {
+          key: "F",
+          density: measuredFalse.density,
+          x: measuredFalse.peakX,
+          y: measuredFalse.peakY,
+        },
+      ];
 
-        const pairCandidates = [
-          { key: "T", density: measuredTrue.density, x: measuredTrue.peakX, y: measuredTrue.peakY },
-          { key: "F", density: measuredFalse.density, x: measuredFalse.peakX, y: measuredFalse.peakY },
-        ];
+      const { selected, isAmbiguous } = pickDominantBubble(
+        pairCandidates,
+        MIN_FILLED_DENSITY
+      );
+      if (selected) {
+        part2Answers[qNum][subK] = selected.key === "T";
+        confidenceSum += isAmbiguous ? 68 : Math.min(100, 78 + selected.density * 32);
+        confidenceCount++;
+      }
+      if (isAmbiguous) {
+        flaggedQuestionsSet.add(globalQOrder);
+      }
 
-        const { selected, isAmbiguous } = pickDominantBubble(
-          pairCandidates,
-          MIN_FILLED_DENSITY
-        );
-        if (selected) {
-          part2Answers[qNum][subK] = selected.key === "T";
-          confidenceSum += isAmbiguous ? 68 : Math.min(100, 78 + selected.density * 32);
-          confidenceCount++;
-        }
-        if (isAmbiguous) {
-          flaggedQuestionsSet.add(globalQOrder);
-        }
-
-        pairCandidates.forEach((cand) => {
-          const isSel = selected?.key === cand.key;
-          bubbleCoordinates.push({
-            id: `p2-q${qNum}-${subK}-${cand.key}`,
-            pageIndex: targetPageIndex,
-            section: "part2",
-            questionNumber: qNum,
-            subKey: subK,
-            optionKey: cand.key,
-            x: cand.x,
-            y: cand.y,
-            r: block.radius,
-            density: cand.density,
-            isSelected: isSel,
-            status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
-          });
+      pairCandidates.forEach((cand) => {
+        const isSel = selected?.key === cand.key;
+        bubbleCoordinates.push({
+          id: `p2-q${qNum}-${subK}-${cand.key}`,
+          pageIndex: targetPageIndex,
+          section: "part2",
+          questionNumber: qNum,
+          subKey: subK,
+          optionKey: cand.key,
+          x: cand.x,
+          y: cand.y,
+          r: block.radius,
+          density: cand.density,
+          isSelected: isSel,
+          status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
         });
       });
     });
+  });
 
   // 5. QUÉT PHẦN III: TRẢ LỜI NGẮN (4 CỘT SỐ MỖI CÂU)
   const part3Answers: Record<number, string> = {};
   const p2Offset = p1Offset + (blueprint.part2TotalQuestions ?? 8);
 
-  blueprint.part3.blocks
-    .filter((b) => (b.pageIndex || 1) === targetPageIndex)
-    .forEach((block) => {
-      const qNum = block.questionNumber;
-      const globalQOrder = p2Offset + qNum;
-      const chars: string[] = [];
+  const pageP3Blocks = blueprint.part3.blocks.filter(
+    (b) => (b.pageIndex || 1) === targetPageIndex
+  );
 
-      const p3PreviewCenters: { x: number; y: number; r: number }[] = [];
-      for (let col = 0; col < 4; col++) {
-        const cx = block.startX + col * block.colStepX;
-        for (let d = 0; d <= 9; d++) {
-          p3PreviewCenters.push({
-            x: cx,
-            y: block.digit0Y + d * block.rowStepY,
-            r: block.radius,
-          });
-        }
+  pageP3Blocks.forEach((block, idxInP3) => {
+    const qNum = block.questionNumber;
+    const globalQOrder = p2Offset + qNum;
+    const chars: string[] = [];
+
+    const cellW = block.boxWidth || 178;
+    const cellLeft = 65 + (idxInP3 % 6) * cellW;
+    const boxTop = block.minusY - 76;
+    const boxHeight = 382;
+
+    // Bước 1: Khóa vào đường kẻ khung của cột câu hỏi Phần III
+    const p3BoxAnchor = detectSectionBoxAnchorOffset(
+      binary,
+      gray,
+      width,
+      height,
+      cellLeft,
+      boxTop,
+      cellW,
+      boxHeight,
+      14,
+      18
+    );
+
+    // Bước 2: Tinh chỉnh vi mô theo vành tròn in & các ô có tô chì
+    const p3PreviewCenters: { x: number; y: number; r: number }[] = [];
+    for (let col = 0; col < 4; col++) {
+      const cx = block.startX + col * block.colStepX + p3BoxAnchor.dx;
+      for (let d = 0; d <= 9; d++) {
+        p3PreviewCenters.push({
+          x: cx,
+          y: block.digit0Y + d * block.rowStepY + p3BoxAnchor.dy,
+          r: block.radius,
+        });
       }
+    }
 
-      const p3Shift = snapSubGridOffsetToBubbleCentroids(
-        binary,
-        gray,
-        width,
-        height,
-        p3PreviewCenters,
-        12,
-        12
-      );
+    const p3FineShift = snapSubGridOffsetToBubbleCentroids(
+      binary,
+      gray,
+      width,
+      height,
+      p3PreviewCenters,
+      6,
+      6
+    );
+    const p3Shift = {
+      dx: p3BoxAnchor.dx + p3FineShift.dx,
+      dy: p3BoxAnchor.dy + p3FineShift.dy,
+    };
 
-      for (let col = 0; col < 4; col++) {
-        const theoreticalCx = block.startX + col * block.colStepX + p3Shift.dx;
-        const colCandidates: {
-          key: string;
-          density: number;
-          x: number;
-          y: number;
-        }[] = [];
+    for (let col = 0; col < 4; col++) {
+      const theoreticalCx = block.startX + col * block.colStepX + p3Shift.dx;
+      const colCandidates: {
+        key: string;
+        density: number;
+        x: number;
+        y: number;
+      }[] = [];
 
-        if (col === 0) {
-          const mMinus = measureBubbleWithLocalPeak(
-            binary,
-            gray,
-            width,
-            height,
-            theoreticalCx,
-            block.minusY + p3Shift.dy,
-            block.radius
-          );
-          colCandidates.push({
-            key: "-",
-            density: mMinus.density,
-            x: mMinus.peakX,
-            y: mMinus.peakY,
-          });
-        }
-
-        if (col === 1 || col === 2) {
-          const mComma = measureBubbleWithLocalPeak(
-            binary,
-            gray,
-            width,
-            height,
-            theoreticalCx,
-            block.commaY + p3Shift.dy,
-            block.radius
-          );
-          colCandidates.push({
-            key: ",",
-            density: mComma.density,
-            x: mComma.peakX,
-            y: mComma.peakY,
-          });
-        }
-
-        for (let digit = 0; digit <= 9; digit++) {
-          const theoreticalCy = block.digit0Y + digit * block.rowStepY + p3Shift.dy;
-          const mDigit = measureBubbleWithLocalPeak(
-            binary,
-            gray,
-            width,
-            height,
-            theoreticalCx,
-            theoreticalCy,
-            block.radius
-          );
-          colCandidates.push({
-            key: String(digit),
-            density: mDigit.density,
-            x: mDigit.peakX,
-            y: mDigit.peakY,
-          });
-        }
-
-        const { selected, isAmbiguous } = pickDominantBubble(
-          colCandidates,
-          MIN_FILLED_DENSITY
+      if (col === 0) {
+        const mMinus = measureBubbleWithLocalPeak(
+          binary,
+          gray,
+          width,
+          height,
+          theoreticalCx,
+          block.minusY + p3Shift.dy,
+          block.radius
         );
-        if (selected) {
-          chars.push(selected.key);
-          confidenceSum += isAmbiguous ? 68 : Math.min(100, 78 + selected.density * 32);
-          confidenceCount++;
-        }
-        if (isAmbiguous) {
-          flaggedQuestionsSet.add(globalQOrder);
-        }
-
-        colCandidates.forEach((cand) => {
-          const isSel = selected?.key === cand.key;
-          bubbleCoordinates.push({
-            id: `p3-q${qNum}-c${col}-${cand.key}`,
-            pageIndex: targetPageIndex,
-            section: "part3",
-            questionNumber: qNum,
-            subKey: String(col),
-            optionKey: cand.key,
-            x: cand.x,
-            y: cand.y,
-            r: block.radius,
-            density: cand.density,
-            isSelected: isSel,
-            status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
-          });
+        colCandidates.push({
+          key: "-",
+          density: mMinus.density,
+          x: mMinus.peakX,
+          y: mMinus.peakY,
         });
       }
 
-      part3Answers[qNum] = chars.join("");
-    });
+      if (col === 1 || col === 2) {
+        const mComma = measureBubbleWithLocalPeak(
+          binary,
+          gray,
+          width,
+          height,
+          theoreticalCx,
+          block.commaY + p3Shift.dy,
+          block.radius
+        );
+        colCandidates.push({
+          key: ",",
+          density: mComma.density,
+          x: mComma.peakX,
+          y: mComma.peakY,
+        });
+      }
+
+      for (let digit = 0; digit <= 9; digit++) {
+        const theoreticalCy = block.digit0Y + digit * block.rowStepY + p3Shift.dy;
+        const mDigit = measureBubbleWithLocalPeak(
+          binary,
+          gray,
+          width,
+          height,
+          theoreticalCx,
+          theoreticalCy,
+          block.radius
+        );
+        colCandidates.push({
+          key: String(digit),
+          density: mDigit.density,
+          x: mDigit.peakX,
+          y: mDigit.peakY,
+        });
+      }
+
+      const { selected, isAmbiguous } = pickDominantBubble(
+        colCandidates,
+        MIN_FILLED_DENSITY
+      );
+      if (selected) {
+        chars.push(selected.key);
+        confidenceSum += isAmbiguous ? 68 : Math.min(100, 78 + selected.density * 32);
+        confidenceCount++;
+      }
+      if (isAmbiguous) {
+        flaggedQuestionsSet.add(globalQOrder);
+      }
+
+      colCandidates.forEach((cand) => {
+        const isSel = selected?.key === cand.key;
+        bubbleCoordinates.push({
+          id: `p3-q${qNum}-c${col}-${cand.key}`,
+          pageIndex: targetPageIndex,
+          section: "part3",
+          questionNumber: qNum,
+          subKey: String(col),
+          optionKey: cand.key,
+          x: cand.x,
+          y: cand.y,
+          r: block.radius,
+          density: cand.density,
+          isSelected: isSel,
+          status: isAmbiguous && isSel ? "ambiguous" : isSel ? "detected" : "unfilled",
+        });
+      });
+    }
+
+    part3Answers[qNum] = chars.join("");
+  });
 
   const avgConfidence =
     confidenceCount > 0 ? Number((confidenceSum / confidenceCount).toFixed(1)) : 98.0;
@@ -2341,7 +3031,8 @@ export function gradeOMRSubmission(
       (["Đ", "S", "T", "F"].includes(cleanAns[0]) && cleanAns.length >= 2) ||
       (Array.isArray(q?.options) &&
         q.options.length > 0 &&
-        typeof q.options[0]?.is_true_false_ans === "boolean");
+        typeof q.options[0]?.is_true_false_ans === "boolean") ||
+      (Array.isArray(q?.statements) && q.statements.length > 0);
 
     const isShort =
       !isTF &&
@@ -2359,7 +3050,11 @@ export function gradeOMRSubmission(
         localNumberInPart: p2Counter,
         type: "true_false",
         correctAnswer: rawCorrect,
-        options: Array.isArray(q?.options) ? q.options : [],
+        options: Array.isArray(q?.options)
+          ? q.options
+          : Array.isArray(q?.statements)
+          ? q.statements
+          : [],
       });
     } else if (isShort) {
       p3Counter++;
@@ -2513,6 +3208,15 @@ export function gradeOMRSubmission(
         const optItem = Array.isArray(q.options) ? q.options[idx] : null;
         if (optItem && typeof optItem.is_true_false_ans === "boolean") {
           expectedBoolMap[sk] = optItem.is_true_false_ans;
+        } else if (
+          optItem &&
+          (optItem.isTrue !== undefined ||
+            optItem.correct !== undefined ||
+            optItem.answer !== undefined)
+        ) {
+          expectedBoolMap[sk] = Boolean(
+            optItem.isTrue ?? optItem.correct ?? optItem.answer
+          );
         } else {
           const expChar = cleanExpected[idx] || "Đ";
           expectedBoolMap[sk] = expChar === "Đ" || expChar === "D" || expChar === "T";
@@ -2628,13 +3332,24 @@ export function gradeOMRSubmission(
       else if (status === "wrong") wrongCount++;
       else skippedCount++;
 
+      // Chuẩn hóa đáp án đúng Phần III sang từng cột để hiển thị cả vòng tròn vàng nét đứt khi sai/trống
+      const normalizedExpChars = expRawStr.replace(/\./g, ",").split("");
+
       updatedCoordinates.forEach((b) => {
-        if (
-          b.section === "part3" &&
-          b.questionNumber === q.localNumberInPart &&
-          b.isSelected
-        ) {
-          b.status = isRight ? "correct" : "wrong";
+        if (b.section === "part3" && b.questionNumber === q.localNumberInPart) {
+          const colIdx = Number(b.subKey ?? 0);
+          const expectedCharInCol = normalizedExpChars[colIdx];
+          const bKey = String(b.optionKey || "").trim();
+          const isExpectedBubble =
+            expectedCharInCol !== undefined &&
+            (bKey === expectedCharInCol ||
+              (expectedCharInCol === "," && (bKey === "," || bKey === ".")));
+
+          if (b.isSelected) {
+            b.status = isRight || isExpectedBubble ? "correct" : "wrong";
+          } else if (isExpectedBubble && !isRight) {
+            b.status = "expected_missed";
+          }
         }
       });
 
