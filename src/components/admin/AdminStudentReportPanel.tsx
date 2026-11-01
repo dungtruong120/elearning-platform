@@ -449,7 +449,7 @@ function buildFullOMRQuestionsReview(
 
   // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
-  const detectedPartByIndex: Array<1 | 2 | 3> = [];
+  const detectedPartByIndex: number[] = [];
 
   if (rawQuizObj) {
     let rawSections =
@@ -496,7 +496,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart);
+            detectedPartByIndex.push(inferredSecPart as any);
           });
         } else if (
           sec &&
@@ -627,7 +627,7 @@ function buildFullOMRQuestionsReview(
     const gDetail = gradedDetails[i] || null;
     const qId = String(qObj?.id ?? `q_${qOrder}`);
 
-    let partNum: 1 | 2 | 3 = 1;
+    let partNum: 1 | 2 | 3 = (detectedPartByIndex[i] as 1 | 2 | 3) || 1;
     if (gDetail?.part) {
       partNum = Number(gDetail.part) as 1 | 2 | 3;
     } else if (detectedPartByIndex[i]) {
