@@ -1274,8 +1274,6 @@ export function generateVirtualOMRSheet(
     rawQuizObj,
     questionStatusOverrides
   );
-
-  const cleanSbd = String(sbd || "000001")
   const cleanSbd = String(sbd || "000001")
     .replace(/\D/g, "")
     .padStart(6, "0")
