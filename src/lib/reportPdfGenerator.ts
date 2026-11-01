@@ -296,24 +296,24 @@ export function buildWeeklyCalendar7Days(
 function renderTCTBrandHeaderHTML(): string {
   return `
     <div class="tct-brand-header">
-      <svg viewBox="0 0 1068 74" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-header-svg">
-        <polygon points="8,11 152,11 138,68 0,68" fill="#F58220" />
-        <polygon points="0,3 142,3 128,60 0,60" fill="#FFFFFF" stroke="#003399" stroke-width="2.4" />
-        <text x="68" y="39" font-family="'Times New Roman', Times, serif" font-size="31" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TCT</text>
-        <text x="66" y="54" font-family="'Times New Roman', Times, serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TÂM CHÍ TÀI</text>
+      <svg viewBox="0 0 1068 72" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-header-svg">
+        <polygon points="8,10 152,10 138,66 0,66" fill="#F58220" />
+        <polygon points="0,3 142,3 128,58 0,58" fill="#FFFFFF" stroke="#003399" stroke-width="2.4" />
+        <text x="68" y="38" font-family="'Times New Roman', Times, serif" font-size="30" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TCT</text>
+        <text x="66" y="53" font-family="'Times New Roman', Times, serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="#003399" letter-spacing="1">TÂM CHÍ TÀI</text>
 
-        <text x="372" y="30" font-family="'Times New Roman', Times, serif" font-size="18.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
+        <text x="372" y="29" font-family="'Times New Roman', Times, serif" font-size="18" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
           Chuyên luyện thi vào 10, HSA, TSA và THPT
         </text>
-        <text x="372" y="52" font-family="'Times New Roman', Times, serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#1E293B">
+        <text x="372" y="50" font-family="'Times New Roman', Times, serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#1E293B">
           Hotline: 0972 26 16 16  •  Đ/c: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội
         </text>
 
-        <polygon points="586,19 628,19 613,56 571,56" fill="#F58220" />
-        <polygon points="642,19 684,19 669,56 627,56" fill="#F58220" />
+        <polygon points="586,18 628,18 613,54 571,54" fill="#F58220" />
+        <polygon points="642,18 684,18 669,54 627,54" fill="#F58220" />
 
-        <polygon points="700,19 1065,19 1065,56 685,56" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
-        <text x="878" y="43" font-family="'Times New Roman', Times, serif" font-size="16.5" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
+        <polygon points="700,18 1065,18 1065,54 685,54" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
+        <text x="878" y="41" font-family="'Times New Roman', Times, serif" font-size="16" font-style="italic" font-weight="bold" text-anchor="middle" fill="#003399">
           Chuyên Toán Tư Duy - Trắc Nghiệm Tia Chớp
         </text>
       </svg>
@@ -330,24 +330,24 @@ function renderTCTBrandFooterHTML(
 ): string {
   return `
     <div class="tct-brand-footer">
-      <svg viewBox="0 0 1068 38" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-footer-svg">
-        <circle cx="24" cy="19" r="10.5" fill="none" stroke="#003399" stroke-width="1.8" />
-        <path d="M19,13 C21,11 23,14 22,16 C21,18 24,21 26,20 C28,19 31,21 29,23 C26,26 17,17 19,13 Z" fill="#003399" />
-        <text x="44" y="24" font-family="'Times New Roman', Times, serif" font-size="14.5" font-weight="bold" fill="#003399">0972 26 16 16</text>
+      <svg viewBox="0 0 1068 36" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" class="tct-footer-svg">
+        <circle cx="24" cy="18" r="10" fill="none" stroke="#003399" stroke-width="1.8" />
+        <path d="M19,12 C21,10 23,13 22,15 C21,17 24,20 26,19 C28,18 31,20 29,22 C26,25 17,16 19,12 Z" fill="#003399" />
+        <text x="44" y="23" font-family="'Times New Roman', Times, serif" font-size="14" font-weight="bold" fill="#003399">0972 26 16 16</text>
 
-        <circle cx="215" cy="19" r="10.5" fill="#003399" />
-        <polygon points="215,11 207,18 210,18 210,25 220,25 220,18 223,18" fill="#FFFFFF" />
-        <text x="235" y="24" font-family="'Times New Roman', Times, serif" font-size="14.5" font-weight="bold" fill="#003399">
+        <circle cx="215" cy="18" r="10" fill="#003399" />
+        <polygon points="215,10 207,17 210,17 210,24 220,24 220,17 223,17" fill="#FFFFFF" />
+        <text x="235" y="23" font-family="'Times New Roman', Times, serif" font-size="14" font-weight="bold" fill="#003399">
           Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội
         </text>
 
-        <text x="560" y="24" font-family="'Times New Roman', Times, serif" font-size="12.5" font-weight="bold" fill="#475569">
+        <text x="560" y="23" font-family="'Times New Roman', Times, serif" font-size="12" font-weight="bold" fill="#475569">
           ${escapeHtml(studentQuickTag)}
         </text>
 
-        <polygon points="835,3 857,3 843,35 821,35" fill="#F58220" />
-        <polygon points="859,3 1065,3 1065,35 845,35" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
-        <text x="955" y="24" font-family="'Times New Roman', Times, serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0033CC">
+        <polygon points="835,3 857,3 843,33 821,33" fill="#F58220" />
+        <polygon points="859,3 1065,3 1065,33 845,33" fill="#FFFFFF" stroke="#003399" stroke-width="2" />
+        <text x="955" y="23" font-family="'Times New Roman', Times, serif" font-size="13.5" font-weight="bold" text-anchor="middle" fill="#0033CC">
           ${escapeHtml(pageNumberLabel)}
         </text>
       </svg>
@@ -356,7 +356,7 @@ function renderTCTBrandFooterHTML(
 }
 
 /**
- * DỰNG LỚP PHỦ VECTOR SVG KHOANH XANH / ĐỎ / NÉT ĐỨT ĐÈ LÊN ẢNH PHIẾU CHẤM OMR
+ * DỰNG LỚP PHỦ VECTOR SVG KHOANH XANH LÁ (ĐÚNG) / ĐỎ (SAI) / VÀNG HỔ PHÁCH NÉT ĐỨT (ĐÁP ÁN ĐÚNG KHI LÀM SAI HOẶC BỎ TRỐNG) / XANH DƯƠNG (SBD & MÃ ĐỀ)
  */
 function renderOMROverlaySVG(student: StudentDailyScoreData): string {
   const coords = student.bubbleCoordinates;
@@ -371,15 +371,17 @@ function renderOMROverlaySVG(student: StudentDailyScoreData): string {
   const circlesHtml = activeBubbles
     .map((b) => {
       const isSbdOrCode = b.section === "sbd" || b.section === "exam_code";
+      const isExpectedMissed = b.status === "expected_missed";
+
       const strokeColor = isSbdOrCode
         ? "#2563EB"
         : b.status === "correct"
         ? "#10B981"
         : b.status === "wrong"
         ? "#EF4444"
-        : b.status === "expected_missed"
+        : isExpectedMissed
         ? "#F59E0B"
-        : "#6366F1";
+        : "#2563EB";
 
       const fillColor = isSbdOrCode
         ? "rgba(37, 99, 235, 0.20)"
@@ -387,10 +389,11 @@ function renderOMROverlaySVG(student: StudentDailyScoreData): string {
         ? "rgba(16, 185, 129, 0.22)"
         : b.status === "wrong"
         ? "rgba(239, 68, 68, 0.24)"
+        : isExpectedMissed
+        ? "rgba(245, 158, 11, 0.18)"
         : "none";
 
-      const dashAttr =
-        b.status === "expected_missed" ? `stroke-dasharray="4 2"` : "";
+      const dashAttr = isExpectedMissed ? `stroke-dasharray="4 2"` : "";
 
       return `<circle cx="${b.x}" cy="${b.y}" r="${
         (b.r || 9) + 2.5
@@ -406,7 +409,8 @@ function renderOMROverlaySVG(student: StudentDailyScoreData): string {
 }
 
 /**
- * DỰNG TRANG BÌA TỔNG KẾT ĐIỂM CẢ LỚP (ĐỒNG BỘ CỘT CHUYÊN CẦN & LỊCH HẸN BÙ)
+ * DỰNG TRANG BÌA TỔNG KẾT ĐIỂM CẢ LỚP
+ * CỘT CHUYÊN CẦN ĐỒNG BỘ TỰ ĐỘNG: ✓ Có mặt (Xanh lá) | Nghỉ (Đã bù) (Cam) | Vắng (Hẹn bù [Ngày]) (Đỏ)
  */
 function renderClassSummaryCoverPageHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -492,7 +496,7 @@ function renderClassSummaryCoverPageHTML(
               <th style="width:72px; text-align:center;">Điểm BTVN</th>
               <th style="width:76px; text-align:center;">Test Ngày</th>
               <th style="width:80px; text-align:center;">Đề Tháng</th>
-              <th style="width:155px; text-align:center;">Chuyên cần & Lịch bù</th>
+              <th style="width:155px; text-align:center;">Chuyên Cần</th>
             </tr>
           </thead>
           <tbody>
@@ -543,13 +547,9 @@ function renderSingleStudentDailyReportPageHTML(
     student.dailyTestCorrect !== null &&
     student.dailyTestCorrect !== undefined &&
     student.dailyTestTotal
-      ? `Kiểm tra buổi hôm nay: Đúng ${student.dailyTestCorrect}/${student.dailyTestTotal} câu (${
-          student.hasPaperOMR ? "Chấm phiếu OMR" : "Làm trên hệ thống"
-        })`
+      ? `Kiểm tra buổi hôm nay: Đúng ${student.dailyTestCorrect}/${student.dailyTestTotal} câu (Đối soát OMR Trang 2)`
       : student.dailyTestScore !== null
-      ? student.hasPaperOMR
-        ? "Kiểm tra trong buổi học hôm nay (Phiếu OMR)"
-        : "Kiểm tra trong buổi học hôm nay"
+      ? "Kiểm tra trong buổi học hôm nay (Có phiếu OMR Trang 2)"
       : "Chưa có điểm kiểm tra buổi hôm nay";
 
   const hasPracticeExam =
@@ -819,7 +819,7 @@ function renderSingleStudentDailyReportPageHTML(
 }
 
 /**
- * KHỐI LỊCH TUẦN 7 NGÀY (THỨ 2 -> CHỦ NHẬT) + THANH 7 KHUNG GIỜ CA CHUẨN Ở ĐÁY TRANG 2 (~58mm)
+ * KHỐI LỊCH TUẦN 7 NGÀY (THỨ 2 -> CHỦ NHẬT) + THANH 7 KHUNG GIỜ CA CHUẨN Ở ĐÁY TRANG 2 (CHIỀU CAO CỐ ĐỊNH 56mm - 58mm)
  */
 function renderBottomMakeupScheduleSectionHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -895,6 +895,7 @@ function renderBottomMakeupScheduleSectionHTML(
       const bodyHtml = hasScheduled
         ? `<div class="day-sessions-stack">
             ${dayCol.sessions
+              .slice(0, 2)
               .map(
                 (sess) => `
                   <div class="day-session-pill ${
@@ -976,8 +977,8 @@ function renderBottomMakeupScheduleSectionHTML(
 }
 
 /**
- * DỰNG TRANG 2: ĐỐI SOÁT BÀI THI GIẤY OMR (HOẶC KHUNG TỰ LUYỆN) + LỊCH TUẦN 7 NGÀY Ở ĐÁY TRANG
- * CĂN CHỈNH PIXEL-PERFECT VỪA KHÍT 1 TRANG A4 (297mm), TUYỆT ĐỐI KHÔNG TRÀN SANG TRANG 3
+ * DỰNG TRANG 2: ĐỐI SOÁT BÀI THI OMR (145mm) + BẢNG LỊCH TUẦN 7 NGÀY (57mm) Ở ĐÁY TRANG
+ * KHÓA CỨNG TRONG 1 TRANG A4 DUY NHẤT (297mm), TUYỆT ĐỐI KHÔNG TRÀN SANG TRANG 3
  */
 function renderStudentSecondPageHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -1037,7 +1038,7 @@ function renderStudentSecondPageHTML(
     displayRows.length === 0
       ? `
         <tr>
-          <td colspan="5" style="text-align:center; padding:12px; color:#047857; font-weight:bold; font-size:12px;">
+          <td colspan="5" style="text-align:center; padding:10px; color:#047857; font-weight:bold; font-size:11px;">
             Bài thi đã được chấm điểm tự động qua hệ thống OMR (${formatStandardScore(
               student.dailyTestScore
             )}).
@@ -1117,11 +1118,11 @@ function renderStudentSecondPageHTML(
           <table class="omr-wrong-table">
             <thead>
               <tr>
-                <th style="width:44px; text-align:center;">Câu</th>
-                <th style="width:52px; text-align:center;">Phần</th>
+                <th style="width:42px; text-align:center;">Câu</th>
+                <th style="width:50px; text-align:center;">Phần</th>
                 <th style="text-align:center;">Con chọn</th>
                 <th style="text-align:center;">Đáp án TCT</th>
-                <th style="width:62px; text-align:center;">Kết quả</th>
+                <th style="width:58px; text-align:center;">Kết quả</th>
               </tr>
             </thead>
             <tbody>
@@ -1185,7 +1186,7 @@ function renderStudentSecondPageHTML(
     `;
 
   return `
-    <section class="a4-page ${isLastPageOfWholeDoc ? "" : "page-break"}">
+    <section class="a4-page ${isLastPageOfWholeDoc ? "last-a4-page" : "page-break"}">
       <div class="a4-inner">
         ${renderTCTBrandHeaderHTML()}
 
@@ -1330,6 +1331,7 @@ export function generateClassDailyReportHTML(
         .btn-print-pdf:hover {
           background: #1D4ED8;
         }
+        /* KHÓA CHẶT KÍCH THƯỚC MỖI TRANG A4 297MM - CHỐNG TRÀN TRANG 3 TUYỆT ĐỐI */
         .a4-page {
           width: 210mm;
           min-height: 297mm;
@@ -1340,7 +1342,13 @@ export function generateClassDailyReportHTML(
           box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
           position: relative;
           overflow: hidden;
+          page-break-after: always;
+          break-after: page;
           box-sizing: border-box;
+        }
+        .last-a4-page {
+          page-break-after: auto;
+          break-after: auto;
         }
         .page-break {
           page-break-after: always;
@@ -1349,14 +1357,14 @@ export function generateClassDailyReportHTML(
         .a4-inner {
           width: 100%;
           height: 100%;
-          padding: 7mm 10mm 6mm 10mm;
+          padding: 6.5mm 10mm 5.5mm 10mm;
           display: flex;
           flex-direction: column;
           justify-content: flex-start;
         }
         .tct-brand-header {
           width: 100%;
-          margin-bottom: 3px;
+          margin-bottom: 2.5px;
           flex-shrink: 0;
         }
         .tct-header-svg {
@@ -1367,7 +1375,7 @@ export function generateClassDailyReportHTML(
         .tct-brand-footer {
           width: 100%;
           margin-top: auto;
-          padding-top: 3px;
+          padding-top: 2.5px;
           flex-shrink: 0;
         }
         .tct-footer-svg {
@@ -1380,8 +1388,8 @@ export function generateClassDailyReportHTML(
           background: #F8FAFC;
           border-top: 2px solid #003399;
           border-bottom: 2px solid #F58220;
-          padding: 4.5px 10px;
-          margin-bottom: 5px;
+          padding: 4px 10px;
+          margin-bottom: 4.5px;
           flex-shrink: 0;
         }
         .omr-banner-accent {
@@ -1389,14 +1397,14 @@ export function generateClassDailyReportHTML(
         }
         .report-title-banner h1 {
           margin: 0;
-          font-size: 17px;
+          font-size: 16.5px;
           font-weight: bold;
           color: #003399;
           letter-spacing: 0.2px;
         }
         .report-subtitle {
-          margin-top: 2px;
-          font-size: 12.5px;
+          margin-top: 1.5px;
+          font-size: 12px;
           color: #0F172A;
         }
         .section-box {
@@ -1607,42 +1615,42 @@ export function generateClassDailyReportHTML(
         }
 
         /* ==============================================================
-           TRANG 2: THÂN TRÊN (ĐỐI SOÁT OMR ~152mm) + ĐÁY TRANG (LỊCH 7 NGÀY ~60mm)
+           TRANG 2: THÂN TRÊN (ĐỐI SOÁT OMR 145mm) + ĐÁY TRANG (LỊCH 7 NGÀY 57mm)
            ============================================================== */
         .omr-appendix-two-cols {
           display: grid;
           grid-template-columns: 48% 50.5%;
           gap: 1.5%;
-          height: 152mm;
-          max-height: 152mm;
-          margin-bottom: 5px;
+          height: 145mm;
+          max-height: 145mm;
+          margin-bottom: 4px;
           flex-shrink: 0;
         }
         .omr-left-image-col,
         .omr-right-table-col {
           border: 1px solid #94A3B8;
           border-radius: 6px;
-          padding: 5.5px;
+          padding: 5px;
           display: flex;
           flex-direction: column;
           overflow: hidden;
           background: #FFFFFF;
         }
         .omr-col-title {
-          font-size: 11px;
+          font-size: 10.5px;
           font-weight: bold;
           color: #003399;
           text-align: center;
           border-bottom: 1px solid #CBD5E1;
-          padding-bottom: 3px;
-          margin-bottom: 4px;
+          padding-bottom: 2.5px;
+          margin-bottom: 3.5px;
           text-transform: uppercase;
           flex-shrink: 0;
         }
         .omr-sheet-frame {
           position: relative;
-          height: 138mm;
-          max-height: 138mm;
+          height: 132mm;
+          max-height: 132mm;
           aspect-ratio: 1200 / 1700;
           margin: 0 auto;
           border: 1px solid #64748B;
@@ -1665,22 +1673,22 @@ export function generateClassDailyReportHTML(
         .omr-quick-stats {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 5px;
-          margin-bottom: 4px;
+          gap: 4px;
+          margin-bottom: 3.5px;
           flex-shrink: 0;
         }
         .omr-stat-pill {
-          padding: 2px 4px;
+          padding: 2px 3px;
           border-radius: 4px;
           text-align: center;
-          font-size: 10px;
+          font-size: 9.5px;
         }
         .omr-stat-pill span {
           display: block;
           color: #334155;
         }
         .omr-stat-pill strong {
-          font-size: 12px;
+          font-size: 11.5px;
         }
         .stat-blue {
           background: #EFF6FF;
@@ -1700,18 +1708,18 @@ export function generateClassDailyReportHTML(
         .omr-wrong-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 10.2px;
+          font-size: 9.5px;
           margin-bottom: 3px;
         }
         .omr-wrong-table th,
         .omr-wrong-table td {
           border: 1px solid #94A3B8;
-          padding: 1.25px 4px;
-          line-height: 1.12;
+          padding: 1.2px 3px;
+          line-height: 1.1;
         }
         .omr-wrong-table th {
           background: #F1F5F9;
-          font-size: 9.5px;
+          font-size: 9px;
           text-transform: uppercase;
           color: #0F172A;
         }
@@ -1720,12 +1728,12 @@ export function generateClassDailyReportHTML(
           background: #F8FAFC;
           border: 1px solid #CBD5E1;
           border-radius: 4px;
-          padding: 3.5px 6px;
-          font-size: 10px;
+          padding: 3px 5px;
+          font-size: 9.5px;
           flex-shrink: 0;
         }
         .legend-title {
-          font-size: 9.5px;
+          font-size: 9px;
           font-weight: bold;
           color: #003399;
           margin-bottom: 1.5px;
@@ -1733,16 +1741,16 @@ export function generateClassDailyReportHTML(
         .legend-grid-compact {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
-          gap: 1.5px 8px;
+          gap: 1.5px 6px;
         }
         .legend-item {
           display: flex;
           align-items: center;
-          gap: 5px;
+          gap: 4px;
         }
         .legend-dot {
-          width: 7.5px;
-          height: 7.5px;
+          width: 7px;
+          height: 7px;
           border-radius: 50%;
           display: inline-block;
           flex-shrink: 0;
@@ -1756,7 +1764,7 @@ export function generateClassDailyReportHTML(
           border: 1.5px solid #EF4444;
         }
         .dot-amber {
-          background: transparent;
+          background: rgba(245, 158, 11, 0.18);
           border: 1.5px dashed #F59E0B;
         }
         .dot-blue {
@@ -1764,15 +1772,15 @@ export function generateClassDailyReportHTML(
           border: 1.5px solid #2563EB;
         }
 
-        /* KHUNG NỘI DUNG TỰ LUYỆN KHI HỌC SINH KHÔNG CÓ BÀI KIỂM TRA OMR */
+        /* KHUNG NỘI DUNG TỰ LUYỆN KHI HỌC SINH CHƯA CÓ BÀI KIỂM TRA */
         .self-study-guideline-box {
           border: 1px solid #94A3B8;
           border-radius: 6px;
-          padding: 10px 14px;
-          margin-bottom: 5px;
+          padding: 9px 12px;
+          margin-bottom: 4px;
           background: #FFFFFF;
-          height: 152mm;
-          max-height: 152mm;
+          height: 145mm;
+          max-height: 145mm;
           display: flex;
           flex-direction: column;
           flex-shrink: 0;
@@ -1781,10 +1789,10 @@ export function generateClassDailyReportHTML(
           background: #FFFBEB;
           border: 1.5px solid #F58220;
           border-radius: 6px;
-          padding: 7px 12px;
-          font-size: 13.5px;
+          padding: 6px 10px;
+          font-size: 13px;
           color: #0F172A;
-          margin-bottom: 8px;
+          margin-bottom: 7px;
         }
         .study-checklist-grid {
           display: grid;
@@ -1795,34 +1803,40 @@ export function generateClassDailyReportHTML(
         .study-step-card {
           border: 1px solid #CBD5E1;
           border-radius: 6px;
-          padding: 8px 11px;
+          padding: 7px 10px;
           background: #F8FAFC;
         }
         .study-step-title {
-          font-size: 12.5px;
+          font-size: 12px;
           font-weight: bold;
           color: #003399;
-          margin-bottom: 5px;
+          margin-bottom: 4px;
         }
         .study-step-card p {
           margin: 0;
-          font-size: 12.5px;
-          line-height: 1.4;
+          font-size: 12px;
+          line-height: 1.38;
           color: #1E293B;
         }
 
         /* ==============================================================
-           KHUNG LỊCH TUẦN 7 NGÀY (THỨ 2 -> CHỦ NHẬT) Ở ĐÁY TRANG 2 (~60mm)
+           KHUNG LỊCH TUẦN 7 NGÀY (THỨ 2 -> CHỦ NHẬT) Ở ĐÁY TRANG 2 (56mm - 58mm)
            ============================================================== */
         .bottom-weekly-schedule-container {
           border: 2px solid #1E40AF;
-          border-radius: 10px;
-          padding: 6.5px 9px;
+          border-radius: 9px;
+          padding: 5.5px 8px;
           background: #FFFFFF;
           color: #1E293B;
+          height: 57mm;
+          max-height: 58mm;
           margin-top: auto;
           margin-bottom: 2px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
           flex-shrink: 0;
+          overflow: hidden;
         }
         .weekly-header-bar {
           display: flex;
@@ -1830,36 +1844,37 @@ export function generateClassDailyReportHTML(
           align-items: center;
           gap: 6px;
           border-bottom: 1px solid #E2E8F0;
-          padding-bottom: 3.5px;
-          margin-bottom: 4.5px;
+          padding-bottom: 2.5px;
+          margin-bottom: 3px;
+          flex-shrink: 0;
         }
         .weekly-title-group {
           display: flex;
           align-items: center;
-          gap: 7px;
+          gap: 6px;
         }
         .weekly-main-title {
-          font-size: 11px;
+          font-size: 10.5px;
           font-weight: bold;
           color: #003399;
           text-transform: uppercase;
           white-space: nowrap;
         }
         .weekly-date-range-badge {
-          font-size: 10px;
+          font-size: 9.5px;
           font-weight: bold;
           color: #1E3A8A;
           background: #EFF6FF;
           border: 1px solid #BFDBFE;
-          padding: 0.5px 6px;
+          padding: 0.5px 5px;
           border-radius: 4px;
           white-space: nowrap;
         }
         .weekly-legend-group {
           display: flex;
           align-items: center;
-          gap: 10px;
-          font-size: 10px;
+          gap: 9px;
+          font-size: 9.5px;
           white-space: nowrap;
         }
         .legend-tag-orange {
@@ -1873,30 +1888,34 @@ export function generateClassDailyReportHTML(
         .weekly-alert-bar {
           border: 1px solid #FDBA74;
           background: #FFF7ED;
-          padding: 4px 8px;
-          border-radius: 6px;
-          font-size: 11px;
-          line-height: 1.3;
+          padding: 3px 7px;
+          border-radius: 5px;
+          font-size: 10.2px;
+          line-height: 1.25;
           color: #9A3412;
-          margin-bottom: 5px;
+          margin-bottom: 3.5px;
           display: flex;
           align-items: center;
           gap: 5px;
+          flex-shrink: 0;
         }
         .weekly-seven-cols-grid {
           display: grid;
           grid-template-columns: repeat(7, 1fr);
-          gap: 5px;
-          margin-bottom: 5px;
+          gap: 4.5px;
+          margin-bottom: 3.5px;
+          flex: 1;
+          min-height: 0;
         }
         .day-col-card {
-          border-radius: 7px;
-          padding: 4px 4.5px;
+          border-radius: 6px;
+          padding: 3px 3.5px;
           text-align: center;
-          min-height: 54px;
+          height: 100%;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
+          overflow: hidden;
         }
         .day-col-empty {
           border: 1px solid #E2E8F0;
@@ -1916,35 +1935,35 @@ export function generateClassDailyReportHTML(
         }
         .day-col-header {
           border-bottom: 1px solid #E2E8F0;
-          padding-bottom: 2px;
-          margin-bottom: 3px;
+          padding-bottom: 1.5px;
+          margin-bottom: 2px;
         }
         .day-col-top-line {
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 3px;
+          gap: 2.5px;
         }
         .day-title-text {
-          font-size: 10px;
+          font-size: 9.5px;
           font-weight: bold;
           color: #0F172A;
         }
         .day-today-badge {
-          font-size: 7.5px;
+          font-size: 7px;
           font-weight: bold;
           background: #2563EB;
           color: #FFFFFF;
-          padding: 0.5px 3.5px;
-          border-radius: 3px;
+          padding: 0.5px 3px;
+          border-radius: 2.5px;
         }
         .day-date-text {
-          font-size: 9px;
+          font-size: 8.5px;
           color: #64748B;
           font-weight: bold;
         }
         .day-empty-label {
-          font-size: 8.8px;
+          font-size: 8.2px;
           color: #94A3B8;
           font-style: italic;
           margin: auto 0;
@@ -1952,14 +1971,14 @@ export function generateClassDailyReportHTML(
         .day-sessions-stack {
           display: flex;
           flex-direction: column;
-          gap: 2.5px;
+          gap: 2px;
           margin: auto 0;
         }
         .day-session-pill {
-          border-radius: 4px;
-          padding: 2px 3px;
-          font-size: 8.8px;
-          line-height: 1.15;
+          border-radius: 3.5px;
+          padding: 1.5px 2px;
+          font-size: 8.2px;
+          line-height: 1.1;
         }
         .pill-makeup-orange {
           background: #FFEDD5;
@@ -1974,51 +1993,52 @@ export function generateClassDailyReportHTML(
           font-weight: bold;
         }
         .pill-shift-code {
-          font-size: 8.8px;
+          font-size: 8.2px;
           font-weight: bold;
         }
         .pill-shift-type {
-          font-size: 7.8px;
+          font-size: 7.2px;
           text-transform: uppercase;
           opacity: 0.9;
         }
         .weekly-std-shifts-bar {
           background: #F8FAFC;
           border: 1px solid #E2E8F0;
-          border-radius: 6px;
-          padding: 3.5px 6px;
+          border-radius: 5px;
+          padding: 2.5px 5px;
+          flex-shrink: 0;
         }
         .std-shifts-label {
-          font-size: 8.8px;
+          font-size: 8.2px;
           font-weight: bold;
           color: #334155;
           text-transform: uppercase;
-          margin-bottom: 2.5px;
+          margin-bottom: 1.5px;
         }
         .std-shifts-pills-row {
           display: grid;
           grid-template-columns: repeat(7, 1fr);
-          gap: 4px;
+          gap: 3.5px;
         }
         .std-shift-mini-pill {
           background: #FFFFFF;
           border: 1px solid #E2E8F0;
-          border-radius: 4px;
-          padding: 1.5px 2px;
+          border-radius: 3.5px;
+          padding: 1px 2px;
           text-align: center;
-          font-size: 8.5px;
+          font-size: 8px;
           white-space: nowrap;
         }
         .std-pill-code {
           font-weight: bold;
           color: #1D4ED8;
           display: block;
-          font-size: 8.2px;
+          font-size: 7.8px;
         }
         .std-pill-time {
           color: #0F172A;
           font-weight: bold;
-          font-size: 8.3px;
+          font-size: 7.9px;
         }
 
         .summary-cover-table {
@@ -2055,6 +2075,7 @@ export function generateClassDailyReportHTML(
             min-height: 297mm;
             height: 297mm;
             max-height: 297mm;
+            overflow: hidden;
           }
         }
       </style>
@@ -2064,7 +2085,7 @@ export function generateClassDailyReportHTML(
         <div class="toolbar-info">
           <strong>HỆ THỐNG BÁO CÁO HỌC TẬP TÂM CHÍ TÀI (TCT)</strong> — Ngày ${escapeHtml(
             reportConfig.customDateStr
-          )} (${totalStudents} học sinh • Chuẩn 2 trang A4/HS kèm Lịch Tuần 7 Ngày)
+          )} (${totalStudents} học sinh • Chuẩn 2 trang A4/HS kèm Phiếu OMR & Lịch Tuần 7 Ngày)
         </div>
         <div class="toolbar-actions">
           <button class="btn-print-pdf" onclick="window.print()">
@@ -2080,7 +2101,7 @@ export function generateClassDailyReportHTML(
 }
 
 /**
- * MỞ CỬA SỔ IN / LƯU FILE PDF ĐA TRANG GỘP TOÀN BỘ HỌC SINH
+ * MỞ CỬA SỔ IN / LƯU FILE PDF ĐA TRANG GỘP TOÀN BỘ HỌC SINH ĐƯỢC CHỌN
  */
 export function openPrintOrDownloadClassReport(htmlContent: string): void {
   if (typeof window === "undefined" || !htmlContent) return;
