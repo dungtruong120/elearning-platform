@@ -447,9 +447,8 @@ function buildFullOMRQuestionsReview(
     ? rawCoords.map((b: any) => ({ ...b }))
     : [];
 
-  // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
- const detectedPartByIndex: (1 | 2 | 3)[] = [];
+  const detectedPartByIndex: (1 | 2 | 3)[] = [];
 
   if (rawQuizObj) {
     let rawSections =
@@ -545,14 +544,14 @@ function buildFullOMRQuestionsReview(
         });
       }
     }
+  }
 
-  // Nếu toàn bộ detectedPartByIndex bị dồn hết vào Phần 1 trong một đề chuẩn 22 câu -> tự động phân bổ 12 - 4 - 6
   if (
     detectedPartByIndex.length === 22 &&
     detectedPartByIndex.every((p) => p === 1)
   ) {
     for (let idx = 0; idx < 22; idx++) {
-      detectedPartByIndex[idx] = idx < 12 ? 1 : idx < 16 ? 2 : 3;
+      detectedPartByIndex[idx] = (idx < 12 ? 1 : idx < 16 ? 2 : 3) as 1 | 2 | 3;
     }
   }
 
@@ -655,7 +654,6 @@ function buildFullOMRQuestionsReview(
     const partLabel = `Phần ${partNum === 1 ? "I" : partNum === 2 ? "II" : "III"}`;
     const sectionTag = `part${partNum}`;
 
-    // Tìm câu trả lời của học sinh qua mọi định dạng key có thể có
     const candidateKeys = [
       qId,
       String(qOrder),
@@ -764,7 +762,6 @@ function buildFullOMRQuestionsReview(
       }
       studentDisplay = normalizedStuChoice;
 
-      // Giải mã đáp án đúng Phần I từ đề gốc
       let rawCorrectOption =
         gDetail?.correctAnswerDisplay ??
         qObj?.correctAnswer ??
@@ -1031,25 +1028,6 @@ function buildFullOMRQuestionsReview(
   }
 
   // =========================================================================
-  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM THỰC TẾ (VD: 9.10 / 10)
-  // =========================================================================
-  const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
-  const explicitCorrectCount = Number(
-    attempt?.correct_answers_count ?? attempt?.correct_count ?? attempt?.correctCount ?? 0
-  );
-
-  // Tính số câu đúng mục tiêu (Ví dụ 9.1/10 của 22 câu = 20 câu đúng)
-  const targetCorrectFromScore =
-    explicitCorrectCount > 0
-      ? Math.min(totalCount, explicitCorrectCount)
-      : attemptScoreNum > 0
-      ? Math.min(totalCount, Math.max(1, Math.round((attemptScoreNum / 10) * totalCount)))
-      : 0;
-
-  const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
-
-  // ĐIỀU KIỆN KÍCH HOẠT: Nếu học sinh có điểm (> 0) mà số câu đúng trích xuất được bị bằng 0 hoặc bị hụt do lệch key
- // =========================================================================
   // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM THỰC TẾ
   // =========================================================================
   const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
@@ -1154,9 +1132,10 @@ function buildFullOMRQuestionsReview(
         metaItem.p3StudentChars = chosenStr.replace(/\./g, ",").slice(0, 4).split("");
         metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
       }
-    } // Đóng vòng for (let idx = 0; ...)
-  } // Đóng khối if (targetCorrectFromScore > 0 ...)
- // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
+    }
+  }
+
+  // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
   if (clonedCoords.length > 0) {
     parsedMetaList.forEach((metaItem) => {
       const { partNum, localNum, isCorrect: finalIsCorrect } = metaItem;
