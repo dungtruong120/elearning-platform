@@ -1142,7 +1142,7 @@ function buildFullOMRQuestionsReview(
     }
   }
 
-  // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
+ // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
   if (clonedCoords.length > 0) {
     parsedMetaList.forEach((metaItem) => {
       const { partNum, localNum, isCorrect: finalIsCorrect } = metaItem;
@@ -1308,13 +1308,6 @@ function buildFullOMRQuestionsReview(
     enrichedBubbleCoordinates: clonedCoords
   };
 }
-
-/**
- * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY / PHIẾU SCAN MỜ THÀNH "PHIẾU OMR CANVAS AI" CHUẨN TCT (1200 x 1700 px)
- * - Vẽ phôi phiếu trắc nghiệm vector sắc nét chuẩn TCT.
- * - Tô vết chì đậm mô phỏng (`rgba(45, 45, 45, 0.85)`) vào SBD (6 cột), Mã đề (3 cột) và các phương án học sinh đã chọn.
- * - Sinh mảng `bubbleCoordinates` đầy đủ: `correct` (Xanh lá), `wrong` (Đỏ), `expected_missed` (Vàng nét đứt) và `sbd`/`exam_code` (Xanh dương).
- */
 export function generateVirtualOMRSheet(
   attempt: any,
   rawQuizObj: any,
