@@ -156,8 +156,8 @@ interface ParsedQuestionEvaluationMeta {
   correctDisplay: string;
   isCorrect: boolean;
   isSkipped: boolean;
-  p1StudentKey?: string;
-  p1CorrectKey?: string;
+  p1StudentKey?: "A" | "B" | "C" | "D" | "";
+  p1CorrectKey?: "A" | "B" | "C" | "D";
   p2StudentSubMap?: Record<"a" | "b" | "c" | "d", "Đ" | "S" | "-">;
   p2CorrectSubMap?: Record<"a" | "b" | "c" | "d", "Đ" | "S">;
   p3StudentChars?: string[];
@@ -525,20 +525,36 @@ function buildFullOMRQuestionsReview(
         }
       }
       if (Array.isArray(directQuestions)) {
-        directQuestions.forEach((q: any) => {
+        directQuestions.forEach((q: any, qIdx: number) => {
           flatQuestions.push(q);
           const qType = String(q?.type || "").toLowerCase();
-          const p: 1 | 2 | 3 =
-            qType.includes("short") || q?.shortAnswer !== undefined || q?.part === 3
-              ? 3
-              : qType.includes("true") ||
-                Array.isArray(q?.statements) ||
-                q?.part === 2
-              ? 2
-              : 1;
+          let p: 1 | 2 | 3 = 1;
+          if (qType.includes("short") || q?.shortAnswer !== undefined || q?.part === 3) {
+            p = 3;
+          } else if (
+            qType.includes("true") ||
+            Array.isArray(q?.statements) ||
+            q?.part === 2
+          ) {
+            p = 2;
+          } else if (q?.part === 1 || qType.includes("multiple")) {
+            p = 1;
+          } else if (directQuestions.length === 22) {
+            p = qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3;
+          }
           detectedPartByIndex.push(p);
         });
       }
+    }
+  }
+
+  // Nếu toàn bộ detectedPartByIndex bị dồn hết vào Phần 1 trong một đề chuẩn 22 câu -> tự động phân bổ 12 - 4 - 6
+  if (
+    detectedPartByIndex.length === 22 &&
+    detectedPartByIndex.every((p) => p === 1)
+  ) {
+    for (let idx = 0; idx < 22; idx++) {
+      detectedPartByIndex[idx] = idx < 12 ? 1 : idx < 16 ? 2 : 3;
     }
   }
 
@@ -578,10 +594,22 @@ function buildFullOMRQuestionsReview(
           attempt?.total_questions ?? attempt?.totalQuestions ?? counts.totalCount
         ) || 22;
 
+  const p1CountDetected = detectedPartByIndex.filter((p) => p === 1).length;
+  const p2CountDetected = detectedPartByIndex.filter((p) => p === 2).length;
+
   const p1Limit =
-    detectedPartByIndex.filter((p) => p === 1).length || counts.part1Count || 12;
+    p1CountDetected > 0 && p1CountDetected < totalCount
+      ? p1CountDetected
+      : counts.part1Count > 0 && counts.part1Count < totalCount
+      ? counts.part1Count
+      : 12;
+
   const p2Limit =
-    detectedPartByIndex.filter((p) => p === 2).length || counts.part2Count || 4;
+    p2CountDetected > 0
+      ? p2CountDetected
+      : counts.part2Count > 0
+      ? counts.part2Count
+      : 4;
 
   const allRows: FullQuestionReviewRow[] = [];
   const parsedMetaList: ParsedQuestionEvaluationMeta[] = [];
@@ -677,8 +705,8 @@ function buildFullOMRQuestionsReview(
     let correctDisplay = "";
     let autoIsCorrect = false;
 
-    let p1StudentKey = "";
-    let p1CorrectKey = defaultP1Cycle[(localNum - 1) % 4];
+    let p1StudentKey: "A" | "B" | "C" | "D" | "" = "";
+    let p1CorrectKey: "A" | "B" | "C" | "D" = defaultP1Cycle[(localNum - 1) % 4];
     const p2StudentSubMap: Record<"a" | "b" | "c" | "d", "Đ" | "S" | "-"> = {
       a: "-",
       b: "-",
@@ -782,8 +810,8 @@ function buildFullOMRQuestionsReview(
       }
       correctDisplay = normalizedCorChoice;
 
-      p1StudentKey = studentDisplay;
-      p1CorrectKey = correctDisplay;
+      p1StudentKey = studentDisplay as "A" | "B" | "C" | "D" | "";
+      p1CorrectKey = correctDisplay as "A" | "B" | "C" | "D";
 
       if (gDetail) {
         autoIsCorrect = gDetail.status === "correct";
@@ -1003,10 +1031,6 @@ function buildFullOMRQuestionsReview(
   }
 
   // =========================================================================
-  // CƠ CHẾ FALLBACK ĐỐI SOÁT THEO ĐIỂM SỐ (BẢO TOÀN 100% KẾT QUẢ KHI THIẾU CHI TIẾT ĐÁP ÁN)
-  // Ví dụ: Học sinh đạt 9.1đ / 10 (tương đương 20/22 câu đúng) nhưng mảng answers rỗng hoặc lệch key
-  // =========================================================================
-  // =========================================================================
   // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM 9.10 / 10
   // =========================================================================
   const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
@@ -1024,11 +1048,11 @@ function buildFullOMRQuestionsReview(
 
   const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
 
-  // ĐIỀU KIỆN KÍCH HOẠT: Nếu học sinh có điểm (> 0) mà số câu đúng trích xuất được bị lệch hoặc bằng 0
+  // ĐIỀU KIỆN KÍCH HOẠT: Nếu học sinh có điểm (> 0) mà số câu đúng trích xuất được bị bằng 0 hoặc bị hụt do lệch key
   if (targetCorrectFromScore > 0 && currentExtractedCorrect < targetCorrectFromScore) {
     const wrongCountNeeded = Math.max(0, totalCount - targetCorrectFromScore);
     const wrongOrderSet = new Set<number>();
-    
+
     // Gán các câu sai vào những câu cuối cùng của đề (câu vận dụng cao)
     for (let w = 0; w < wrongCountNeeded; w++) {
       wrongOrderSet.add(totalCount - w);
@@ -1048,7 +1072,7 @@ function buildFullOMRQuestionsReview(
       rowItem.isSkipped = false;
 
       // Phân chia chuẩn xác: Câu 1-12 (Phần I), Câu 13-16 (Phần II), Câu 17-22 (Phần III)
-   if (idx < 12) {
+      if (idx < 12) {
         metaItem.partNum = 1;
         metaItem.localNum = idx + 1;
         metaItem.partLabel = "Phần I";
@@ -1057,6 +1081,7 @@ function buildFullOMRQuestionsReview(
         const corK: "A" | "B" | "C" | "D" =
           (metaItem.p1CorrectKey as "A" | "B" | "C" | "D") || defaultP1Cycle[idx % 4];
         metaItem.p1CorrectKey = corK;
+        metaItem.correctDisplay = corK;
         rowItem.correctAnswer = corK;
 
         const wrongK: "A" | "B" | "C" | "D" =
@@ -1078,6 +1103,9 @@ function buildFullOMRQuestionsReview(
         subKeys.forEach((sk, sIdx) => {
           const corSub: "Đ" | "S" =
             metaItem.p2CorrectSubMap?.[sk] || (sIdx % 2 === 0 ? "Đ" : "S");
+          if (metaItem.p2CorrectSubMap) {
+            metaItem.p2CorrectSubMap[sk] = corSub;
+          }
           corParts.push(`${sk})${corSub}`);
 
           const chosenSub: "Đ" | "S" =
@@ -1098,23 +1126,10 @@ function buildFullOMRQuestionsReview(
         metaItem.partLabel = "Phần III";
         rowItem.part = "Phần III";
 
-        const corStr = defaultP3Cycle[(idx - 16) % defaultP3Cycle.length];
-        metaItem.correctDisplay = corStr;
-        rowItem.correctAnswer = corStr;
-
-        const chosenStr = shouldBeCorrect ? corStr : "0";
-        metaItem.studentDisplay = chosenStr;
-        rowItem.studentAnswer = chosenStr;
-        metaItem.p3StudentChars = chosenStr.replace(/\./g, ",").slice(0, 4).split("");
-        metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
-      }
-      } else {
-        metaItem.partNum = 3;
-        metaItem.localNum = idx - 15; // 1..6
-        metaItem.partLabel = "Phần III";
-        rowItem.part = "Phần III";
-
-        const corStr = defaultP3Cycle[(idx - 16) % defaultP3Cycle.length];
+        const corStr =
+          metaItem.correctDisplay && metaItem.correctDisplay !== "--"
+            ? metaItem.correctDisplay
+            : defaultP3Cycle[(idx - 16) % defaultP3Cycle.length];
         metaItem.correctDisplay = corStr;
         rowItem.correctAnswer = corStr;
 
@@ -1126,6 +1141,7 @@ function buildFullOMRQuestionsReview(
       }
     }
   }
+
   // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
   if (clonedCoords.length > 0) {
     parsedMetaList.forEach((metaItem) => {
@@ -1256,7 +1272,7 @@ function buildFullOMRQuestionsReview(
       correctAnswer: r.correctAnswer
     }));
 
-const p1Rows = allRows.filter((r) => r.part === "Phần I");
+  const p1Rows = allRows.filter((r) => r.part === "Phần I");
   const p2Rows = allRows.filter((r) => r.part === "Phần II");
   const p3Rows = allRows.filter((r) => r.part === "Phần III");
 
@@ -1264,12 +1280,28 @@ const p1Rows = allRows.filter((r) => r.part === "Phần I");
   const p2Correct = p2Rows.filter((x) => x.isCorrect).length;
   const p3Correct = p3Rows.filter((x) => x.isCorrect).length;
 
+  const p1Total = p1Rows.length || 12;
+  const p2Total = p2Rows.length || 4;
+  const p3Total = p3Rows.length || 6;
+
   return {
     allRows,
     wrongRows,
-    part1Summary: `Đúng ${p1Correct}/${p1Rows.length || 12} câu (${gradedScores.p1 !== undefined ? gradedScores.p1.toFixed(2) : ((p1Correct / (p1Rows.length || 12)) * 3).toFixed(2)}đ)`,
-    part2Summary: `Đúng ${p2Correct}/${p2Rows.length || 4} câu (${gradedScores.p2 !== undefined ? gradedScores.p2.toFixed(2) : ((p2Correct / (p2Rows.length || 4)) * 4).toFixed(2)}đ)`,
-    part3Summary: `Đúng ${p3Correct}/${p3Rows.length || 6} câu (${gradedScores.p3 !== undefined ? gradedScores.p3.toFixed(2) : ((p3Correct / (p3Rows.length || 6)) * 3).toFixed(2)}đ)`,
+    part1Summary: `Đúng ${p1Correct}/${p1Total} câu (${
+      gradedScores.p1 !== undefined
+        ? gradedScores.p1.toFixed(2)
+        : ((p1Correct / p1Total) * 3).toFixed(2)
+    }đ)`,
+    part2Summary: `Đúng ${p2Correct}/${p2Total} câu (${
+      gradedScores.p2 !== undefined
+        ? gradedScores.p2.toFixed(2)
+        : ((p2Correct / p2Total) * 4).toFixed(2)
+    }đ)`,
+    part3Summary: `Đúng ${p3Correct}/${p3Total} câu (${
+      gradedScores.p3 !== undefined
+        ? gradedScores.p3.toFixed(2)
+        : ((p3Correct / p3Total) * 3).toFixed(2)
+    }đ)`,
     correctCount: allRows.filter((r) => r.isCorrect).length,
     totalQuestions: allRows.length,
     parsedMetaList,
@@ -1277,6 +1309,12 @@ const p1Rows = allRows.filter((r) => r.part === "Phần I");
   };
 }
 
+/**
+ * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY THÀNH "PHIẾU OMR ẢO" CHUẨN TCT (1200 x 1700 px)
+ * - Vẽ phôi phiếu trắc nghiệm chuẩn TCT.
+ * - Tô vết chì mô phỏng (`rgba(45, 45, 45, 0.85)`) vào SBD, Mã đề và các phương án học sinh đã chọn.
+ * - Sinh mảng `bubbleCoordinates` đầy đủ: `correct` (Xanh lá), `wrong` (Đỏ), `expected_missed` (Vàng nét đứt) và `sbd`/`exam_code` (Xanh dương).
+ */
 export function generateVirtualOMRSheet(
   attempt: any,
   rawQuizObj: any,
@@ -1295,6 +1333,7 @@ export function generateVirtualOMRSheet(
     rawQuizObj,
     questionStatusOverrides
   );
+
   const cleanSbd = String(sbd || "000001")
     .replace(/\D/g, "")
     .padStart(6, "0")
