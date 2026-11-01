@@ -147,6 +147,29 @@ interface FlattenedLessonEntry {
   testTitles: Set<string>;
 }
 
+interface ParsedQuestionEvaluationMeta {
+  questionOrder: number;
+  partNum: 1 | 2 | 3;
+  localNum: number;
+  partLabel: string;
+  studentDisplay: string;
+  correctDisplay: string;
+  isCorrect: boolean;
+  isSkipped: boolean;
+  p1StudentKey?: string;
+  p1CorrectKey?: string;
+  p2StudentSubMap?: Record<"a" | "b" | "c" | "d", "Đ" | "S" | "-">;
+  p2CorrectSubMap?: Record<"a" | "b" | "c" | "d", "Đ" | "S">;
+  p3StudentChars?: string[];
+  p3CorrectChars?: string[];
+}
+
+// Bộ nhớ đệm cho Phiếu OMR ảo giúp tối ưu hiệu năng render
+const virtualOMRCache = new Map<
+  string,
+  { dataUrl: string; bubbleCoordinates: any[] }
+>();
+
 function normalizeText(str: any): string {
   if (!str) return "";
   return String(str)
@@ -252,7 +275,57 @@ function formatCategoryWithSubmissionMode(
 }
 
 /**
- * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI (ĐÚNG, SAI & BỎ TRỐNG) CHO PHỤ BẢN OMR TRANG 2
+ * TÍNH TOÁN TỌA ĐỘ CHUẨN TRÊN KHUNG 1200x1700 CHO TỪNG Ô TRÒN OMR (DÙNG CHO CẢ PHIẾU ẢO & BỔ SUNG VÒNG TRÒN VÀNG NÉT ĐỨT)
+ */
+function getCanonicalBubblePosition(
+  partNum: 1 | 2 | 3,
+  localNum: number,
+  optionKey: string,
+  subKey?: "a" | "b" | "c" | "d",
+  colIndex?: number
+): { x: number; y: number; r: number } {
+  if (partNum === 1) {
+    const colGroup = Math.floor((localNum - 1) / 6); // 0, 1, 2
+    const rowInCol = (localNum - 1) % 6; // 0..5
+    const baseGroupX = 115 + colGroup * 340;
+    const optIdx = Math.max(0, ["A", "B", "C", "D"].indexOf(optionKey.toUpperCase()));
+    const x = baseGroupX + 58 + optIdx * 56;
+    const y = 515 + rowInCol * 38;
+    return { x, y, r: 10.5 };
+  }
+
+  if (partNum === 2) {
+    const boxIdx = Math.min(3, Math.max(0, localNum - 1));
+    const boxX = 95 + boxIdx * 260;
+    const subIdx = Math.max(0, ["a", "b", "c", "d"].indexOf(subKey || "a"));
+    const isTrueOpt = optionKey.toUpperCase() === "T" || optionKey.toUpperCase() === "Đ";
+    const x = boxX + (isTrueOpt ? 118 : 186);
+    const y = 868 + subIdx * 40;
+    return { x, y, r: 10.5 };
+  }
+
+  // Phần III: 6 câu trả lời ngắn
+  const qIdx = Math.min(5, Math.max(0, localNum - 1));
+  const boxX = 88 + qIdx * 174;
+  const cIdx = Math.min(3, Math.max(0, colIndex ?? 0));
+  const x = boxX + 32 + cIdx * 36;
+
+  const cleanKey = String(optionKey).trim();
+  let rowIdx = 2;
+  if (cleanKey === "-") {
+    rowIdx = 0;
+  } else if (cleanKey === "," || cleanKey === ".") {
+    rowIdx = 1;
+  } else {
+    const num = parseInt(cleanKey, 10);
+    rowIdx = !isNaN(num) ? 2 + num : 2;
+  }
+  const y = 1190 + rowIdx * 32;
+  return { x, y, r: 9.5 };
+}
+
+/**
+ * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI (ĐÚNG, SAI & BỎ TRỐNG) VÀ BỔ SUNG ĐẦY ĐỦ TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT)
  */
 function buildFullOMRQuestionsReview(
   attempt: any,
@@ -266,74 +339,17 @@ function buildFullOMRQuestionsReview(
   part3Summary: string;
   correctCount: number;
   totalQuestions: number;
+  parsedMetaList: ParsedQuestionEvaluationMeta[];
+  enrichedBubbleCoordinates: any[];
 } {
   const answersMap = attempt?.answers || attempt?.user_answers || attempt?.userAnswers || {};
   const meta = answersMap?.__paper_omr_meta || {};
-  const coords: any[] =
+  const rawCoords: any[] =
     attempt?.omr_raw_data?.bubble_coordinates || meta?.bubble_coordinates || [];
 
-  if (
-    rawQuizObj &&
-    attempt?.omr_raw_data &&
-    (attempt.omr_raw_data.part1_answers ||
-      attempt.omr_raw_data.part2_answers ||
-      attempt.omr_raw_data.part3_answers)
-  ) {
-    try {
-      const graded = gradeOMRSubmission(attempt.omr_raw_data, rawQuizObj);
-      if (Array.isArray(graded.questionDetails) && graded.questionDetails.length > 0) {
-        const allRows: FullQuestionReviewRow[] = graded.questionDetails.map((qd: any) => {
-          const qNum = Number(qd.questionOrder);
-          const manualOverride = questionStatusOverrides?.[qNum];
-          const isRight =
-            manualOverride !== undefined ? manualOverride : qd.status === "correct";
-          const rawAns = String(qd.studentAnswerDisplay || "").trim();
-          const isSkipped = !rawAns || rawAns === "Bỏ trống";
-
-          return {
-            questionNumber: qNum,
-            part: `Phần ${qd.part === 1 ? "I" : qd.part === 2 ? "II" : "III"}`,
-            studentAnswer: isSkipped ? "Bỏ trống / Chưa tô" : rawAns,
-            correctAnswer: String(qd.correctAnswerDisplay || "--"),
-            isCorrect: isRight,
-            isSkipped
-          };
-        });
-
-        const wrongRows: WrongQuestionReviewItem[] = allRows
-          .filter((r) => !r.isCorrect)
-          .map((r) => ({
-            questionNumber: r.questionNumber,
-            part: r.part,
-            studentAnswer: r.studentAnswer,
-            correctAnswer: r.correctAnswer
-          }));
-
-        const p1Rows = allRows.filter((r) => r.part === "Phần I");
-        const p2Rows = allRows.filter((r) => r.part === "Phần II");
-        const p3Rows = allRows.filter((r) => r.part === "Phần III");
-
-        return {
-          allRows,
-          wrongRows,
-          part1Summary:
-            p1Rows.length > 0
-              ? `Đúng ${p1Rows.filter((x) => x.isCorrect).length}/${p1Rows.length} câu (${graded.part1Score.toFixed(2)}đ)`
-              : "Không có trong đề",
-          part2Summary:
-            p2Rows.length > 0
-              ? `Đúng ${p2Rows.filter((x) => x.isCorrect).length}/${p2Rows.length} câu (${graded.part2Score.toFixed(2)}đ)`
-              : "Không có trong đề",
-          part3Summary:
-            p3Rows.length > 0
-              ? `Đúng ${p3Rows.filter((x) => x.isCorrect).length}/${p3Rows.length} câu (${graded.part3Score.toFixed(2)}đ)`
-              : "Không có trong đề",
-          correctCount: allRows.filter((r) => r.isCorrect).length,
-          totalQuestions: allRows.length
-        };
-      }
-    } catch {}
-  }
+  const clonedCoords: any[] = Array.isArray(rawCoords)
+    ? rawCoords.map((b: any) => ({ ...b }))
+    : [];
 
   const flatQuestions: any[] = [];
   if (rawQuizObj) {
@@ -356,8 +372,33 @@ function buildFullOMRQuestionsReview(
     ? extractExamQuestionCounts(rawQuizObj)
     : { part1Count: 12, part2Count: 4, part3Count: 6, totalCount: 22 };
 
+  let gradedDetails: any[] = [];
+  let gradedScores: { p1?: number; p2?: number; p3?: number } = {};
+
+  if (
+    rawQuizObj &&
+    attempt?.omr_raw_data &&
+    (attempt.omr_raw_data.part1_answers ||
+      attempt.omr_raw_data.part2_answers ||
+      attempt.omr_raw_data.part3_answers)
+  ) {
+    try {
+      const graded = gradeOMRSubmission(attempt.omr_raw_data, rawQuizObj);
+      if (Array.isArray(graded.questionDetails) && graded.questionDetails.length > 0) {
+        gradedDetails = graded.questionDetails;
+        gradedScores = {
+          p1: graded.part1Score,
+          p2: graded.part2Score,
+          p3: graded.part3Score
+        };
+      }
+    } catch {}
+  }
+
   const totalCount =
-    flatQuestions.length > 0
+    gradedDetails.length > 0
+      ? gradedDetails.length
+      : flatQuestions.length > 0
       ? flatQuestions.length
       : Number(attempt?.total_questions ?? attempt?.totalQuestions ?? counts.totalCount) || 22;
 
@@ -365,15 +406,22 @@ function buildFullOMRQuestionsReview(
   const p2Limit = counts.part2Count || 4;
 
   const allRows: FullQuestionReviewRow[] = [];
+  const parsedMetaList: ParsedQuestionEvaluationMeta[] = [];
 
   for (let i = 0; i < totalCount; i++) {
     const qOrder = i + 1;
     const qObj = flatQuestions[i] || null;
+    const gDetail = gradedDetails[i] || null;
     const qId = String(qObj?.id || `q_${qOrder}`);
 
     let partNum: 1 | 2 | 3 = 1;
     let localNum = qOrder;
-    if (qOrder <= p1Limit) {
+    if (gDetail?.part) {
+      partNum = Number(gDetail.part) as 1 | 2 | 3;
+      if (partNum === 1) localNum = qOrder;
+      else if (partNum === 2) localNum = qOrder - p1Limit;
+      else localNum = qOrder - p1Limit - p2Limit;
+    } else if (qOrder <= p1Limit) {
       partNum = 1;
       localNum = qOrder;
     } else if (qOrder <= p1Limit + p2Limit) {
@@ -383,22 +431,42 @@ function buildFullOMRQuestionsReview(
       partNum = 3;
       localNum = qOrder - p1Limit - p2Limit;
     }
+    localNum = Math.max(1, localNum);
 
     const partLabel = `Phần ${partNum === 1 ? "I" : partNum === 2 ? "II" : "III"}`;
+    const sectionTag = `part${partNum}`;
 
     const rawStuVal =
       answersMap[qId] ??
       answersMap[String(qOrder)] ??
-      answersMap[`p${partNum}_q${localNum}`];
+      answersMap[`q_${qOrder}`] ??
+      answersMap[`p${partNum}_q${localNum}`] ??
+      attempt?.omr_raw_data?.[`part${partNum}_answers`]?.[localNum];
 
-    const sectionTag = `part${partNum}`;
-    const qCoords = coords.filter(
+    const qCoords = clonedCoords.filter(
       (b: any) => b && b.section === sectionTag && Number(b.questionNumber) === localNum
     );
 
     let studentDisplay = "";
     let correctDisplay = "";
     let autoIsCorrect = false;
+
+    let p1StudentKey = "";
+    let p1CorrectKey = "A";
+    const p2StudentSubMap: Record<"a" | "b" | "c" | "d", "Đ" | "S" | "-"> = {
+      a: "-",
+      b: "-",
+      c: "-",
+      d: "-"
+    };
+    const p2CorrectSubMap: Record<"a" | "b" | "c" | "d", "Đ" | "S"> = {
+      a: "Đ",
+      b: "S",
+      c: "Đ",
+      d: "S"
+    };
+    let p3StudentChars: string[] = [];
+    let p3CorrectChars: string[] = [];
 
     if (partNum === 1) {
       const pickedBubble = qCoords.find(
@@ -408,22 +476,38 @@ function buildFullOMRQuestionsReview(
         (b: any) => b.status === "correct" || b.status === "expected_missed"
       );
 
-      studentDisplay = String(rawStuVal || pickedBubble?.optionKey || "")
-        .trim()
-        .toUpperCase();
+      const rawFromGraded =
+        gDetail && gDetail.studentAnswerDisplay !== "Bỏ trống"
+          ? gDetail.studentAnswerDisplay
+          : "";
 
-      correctDisplay = String(
-        qObj?.correctAnswer || qObj?.answer || expectedBubble?.optionKey || "A"
+      studentDisplay = String(
+        rawFromGraded || rawStuVal || pickedBubble?.optionKey || ""
       )
         .trim()
         .toUpperCase();
+      if (!["A", "B", "C", "D"].includes(studentDisplay)) {
+        studentDisplay = "";
+      }
 
-      const hasWrongBubble = qCoords.some((b: any) => b.status === "wrong");
-      const hasMissedBubble = qCoords.some((b: any) => b.status === "expected_missed");
+      correctDisplay = String(
+        gDetail?.correctAnswerDisplay ||
+          qObj?.correctAnswer ||
+          qObj?.answer ||
+          expectedBubble?.optionKey ||
+          "A"
+      )
+        .trim()
+        .toUpperCase();
+      if (!["A", "B", "C", "D"].includes(correctDisplay)) {
+        correctDisplay = "A";
+      }
 
-      if (qCoords.length > 0) {
-        autoIsCorrect =
-          Boolean(studentDisplay) && !hasWrongBubble && !hasMissedBubble;
+      p1StudentKey = studentDisplay;
+      p1CorrectKey = correctDisplay;
+
+      if (gDetail) {
+        autoIsCorrect = gDetail.status === "correct";
       } else {
         autoIsCorrect = Boolean(studentDisplay) && studentDisplay === correctDisplay;
       }
@@ -433,6 +517,9 @@ function buildFullOMRQuestionsReview(
       const corParts: string[] = [];
       let allSubRight = true;
 
+      const gradedStuStr = String(gDetail?.studentAnswerDisplay || "");
+      const gradedCorStr = String(gDetail?.correctAnswerDisplay || "");
+
       subKeys.forEach((sk, idx) => {
         const subCoords = qCoords.filter((b: any) => b.subKey === sk);
         const pickedSub = subCoords.find(
@@ -441,24 +528,49 @@ function buildFullOMRQuestionsReview(
         const subVal =
           rawStuVal && typeof rawStuVal === "object" ? rawStuVal[sk] : undefined;
 
-        let stuSubChar = "-";
-        if (subVal === true || pickedSub?.optionKey === "T") stuSubChar = "Đ";
-        else if (subVal === false || pickedSub?.optionKey === "F") stuSubChar = "S";
-        else allSubRight = false;
+        let stuSubChar: "Đ" | "S" | "-" = "-";
+        if (subVal === true || subVal === "T" || subVal === "Đ" || pickedSub?.optionKey === "T") {
+          stuSubChar = "Đ";
+        } else if (
+          subVal === false ||
+          subVal === "F" ||
+          subVal === "S" ||
+          pickedSub?.optionKey === "F"
+        ) {
+          stuSubChar = "S";
+        } else if (gradedStuStr) {
+          const m = gradedStuStr.match(new RegExp(`${sk}\\)\\s*([ĐSTF-])`, "i"));
+          if (m && m[1]) {
+            const c = m[1].toUpperCase();
+            if (c === "Đ" || c === "T") stuSubChar = "Đ";
+            else if (c === "S" || c === "F") stuSubChar = "S";
+          }
+        }
 
+        if (stuSubChar === "-") allSubRight = false;
+        p2StudentSubMap[sk] = stuSubChar;
         stuParts.push(`${sk})${stuSubChar}`);
 
         const stmtObj = Array.isArray(qObj?.statements) ? qObj.statements[idx] : null;
         const expectedSub = subCoords.find(
           (b: any) => b.status === "correct" || b.status === "expected_missed"
         );
-        let corSubChar = "Đ";
+        let corSubChar: "Đ" | "S" = idx % 2 === 0 ? "Đ" : "S";
+
         if (stmtObj !== null && stmtObj !== undefined) {
           const isT = Boolean(stmtObj.isTrue ?? stmtObj.correct ?? stmtObj.answer);
           corSubChar = isT ? "Đ" : "S";
+        } else if (gradedCorStr) {
+          const m = gradedCorStr.match(new RegExp(`${sk}\\)\\s*([ĐSTF])`, "i"));
+          if (m && m[1]) {
+            const c = m[1].toUpperCase();
+            corSubChar = c === "Đ" || c === "T" ? "Đ" : "S";
+          }
         } else if (expectedSub) {
           corSubChar = expectedSub.optionKey === "T" ? "Đ" : "S";
         }
+
+        p2CorrectSubMap[sk] = corSubChar;
         corParts.push(`${sk})${corSubChar}`);
 
         if (stuSubChar !== corSubChar) {
@@ -469,28 +581,39 @@ function buildFullOMRQuestionsReview(
       const isAllBlank = stuParts.every((p) => p.endsWith("-"));
       studentDisplay = isAllBlank ? "" : stuParts.join(" ");
       correctDisplay = corParts.join(" ");
-      autoIsCorrect = !isAllBlank && allSubRight;
+      autoIsCorrect = gDetail ? gDetail.status === "correct" : !isAllBlank && allSubRight;
     } else {
       const pickedCols = qCoords
         .filter((b: any) => b.isSelected || b.status === "correct" || b.status === "wrong")
         .sort((a: any, b: any) => Number(a.colIndex || 0) - Number(b.colIndex || 0));
 
       const reconstructedFromBubbles = pickedCols.map((b: any) => b.optionKey).join("");
+      const rawFromGraded =
+        gDetail && gDetail.studentAnswerDisplay !== "Bỏ trống"
+          ? gDetail.studentAnswerDisplay
+          : "";
+
       studentDisplay = String(
-        rawStuVal !== undefined && rawStuVal !== null && String(rawStuVal).trim() !== ""
-          ? rawStuVal
-          : reconstructedFromBubbles
+        rawFromGraded ||
+          (rawStuVal !== undefined && rawStuVal !== null && String(rawStuVal).trim() !== ""
+            ? rawStuVal
+            : reconstructedFromBubbles)
       ).trim();
 
       correctDisplay = String(
-        qObj?.correctAnswer ?? qObj?.shortAnswer ?? qObj?.answer ?? "--"
+        gDetail?.correctAnswerDisplay ??
+          qObj?.correctAnswer ??
+          qObj?.shortAnswer ??
+          qObj?.answer ??
+          "--"
       ).trim();
 
       const normStu = studentDisplay.replace(",", ".");
       const normCor = correctDisplay.replace(",", ".");
-      const hasWrongCol = qCoords.some((b: any) => b.status === "wrong");
 
-      if (!studentDisplay) {
+      if (gDetail) {
+        autoIsCorrect = gDetail.status === "correct";
+      } else if (!studentDisplay) {
         autoIsCorrect = false;
       } else if (correctDisplay !== "--" && normCor !== "") {
         autoIsCorrect =
@@ -499,8 +622,16 @@ function buildFullOMRQuestionsReview(
             !isNaN(Number(normCor)) &&
             Math.abs(Number(normStu) - Number(normCor)) < 1e-4);
       } else {
-        autoIsCorrect = !hasWrongCol && pickedCols.length > 0;
+        autoIsCorrect = pickedCols.length > 0 && !qCoords.some((b: any) => b.status === "wrong");
       }
+
+      p3StudentChars = studentDisplay
+        ? studentDisplay.replace(/\./g, ",").slice(0, 4).split("")
+        : [];
+      p3CorrectChars =
+        correctDisplay && correctDisplay !== "--"
+          ? correctDisplay.replace(/\./g, ",").slice(0, 4).split("")
+          : [];
     }
 
     const isSkipped = !studentDisplay;
@@ -516,6 +647,127 @@ function buildFullOMRQuestionsReview(
       isCorrect: finalIsCorrect,
       isSkipped
     });
+
+    parsedMetaList.push({
+      questionOrder: qOrder,
+      partNum,
+      localNum,
+      partLabel,
+      studentDisplay,
+      correctDisplay,
+      isCorrect: finalIsCorrect,
+      isSkipped,
+      p1StudentKey,
+      p1CorrectKey,
+      p2StudentSubMap,
+      p2CorrectSubMap,
+      p3StudentChars,
+      p3CorrectChars
+    });
+
+    // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) TRONG `clonedCoords` CHO PHIẾU QUÉT THẬT
+    if (clonedCoords.length > 0) {
+      if (partNum === 1) {
+        qCoords.forEach((b: any) => {
+          const bOpt = String(b.optionKey || "").toUpperCase();
+          if (bOpt === p1StudentKey) {
+            b.status = finalIsCorrect ? "correct" : "wrong";
+          } else if (!finalIsCorrect && bOpt === p1CorrectKey) {
+            b.status = "expected_missed";
+          }
+        });
+        if (
+          !finalIsCorrect &&
+          p1CorrectKey &&
+          !qCoords.some((b: any) => String(b.optionKey || "").toUpperCase() === p1CorrectKey)
+        ) {
+          const pos = getCanonicalBubblePosition(1, localNum, p1CorrectKey);
+          clonedCoords.push({
+            id: `p1_q${localNum}_expected_${p1CorrectKey}`,
+            section: "part1",
+            questionNumber: localNum,
+            optionKey: p1CorrectKey,
+            x: pos.x,
+            y: pos.y,
+            r: pos.r,
+            status: "expected_missed"
+          });
+        }
+      } else if (partNum === 2) {
+        (["a", "b", "c", "d"] as const).forEach((sk) => {
+          const stuSub = p2StudentSubMap[sk];
+          const corSub = p2CorrectSubMap[sk];
+          const expectedOptKey = corSub === "Đ" ? "T" : "F";
+          const pickedOptKey = stuSub === "Đ" ? "T" : stuSub === "S" ? "F" : "";
+          const isSubRight = stuSub === corSub;
+
+          const subCoords = qCoords.filter((b: any) => b.subKey === sk);
+          subCoords.forEach((b: any) => {
+            const bOpt = String(b.optionKey || "").toUpperCase();
+            if (bOpt === pickedOptKey) {
+              b.status = isSubRight ? "correct" : "wrong";
+            } else if (!isSubRight && bOpt === expectedOptKey) {
+              b.status = "expected_missed";
+            }
+          });
+
+          if (
+            !isSubRight &&
+            !subCoords.some((b: any) => String(b.optionKey || "").toUpperCase() === expectedOptKey)
+          ) {
+            const pos = getCanonicalBubblePosition(2, localNum, expectedOptKey, sk);
+            clonedCoords.push({
+              id: `p2_q${localNum}_${sk}_expected_${expectedOptKey}`,
+              section: "part2",
+              questionNumber: localNum,
+              subKey: sk,
+              optionKey: expectedOptKey,
+              x: pos.x,
+              y: pos.y,
+              r: pos.r,
+              status: "expected_missed"
+            });
+          }
+        });
+      } else if (partNum === 3) {
+        const maxCols = Math.max(p3StudentChars.length, p3CorrectChars.length, 4);
+        for (let c = 0; c < Math.min(4, maxCols); c++) {
+          const stuCh = p3StudentChars[c] || "";
+          const corCh = p3CorrectChars[c] || "";
+          const isColRight = Boolean(stuCh) && (finalIsCorrect || stuCh === corCh);
+
+          const colCoords = qCoords.filter((b: any) => Number(b.colIndex ?? 0) === c);
+          colCoords.forEach((b: any) => {
+            const bKey = String(b.optionKey || "").trim();
+            if (stuCh && bKey === stuCh) {
+              b.status = isColRight ? "correct" : "wrong";
+            } else if (!finalIsCorrect && corCh && bKey === corCh) {
+              b.status = "expected_missed";
+            }
+          });
+
+          if (
+            !finalIsCorrect &&
+            corCh &&
+            stuCh !== corCh &&
+            !colCoords.some((b: any) => String(b.optionKey || "").trim() === corCh)
+          ) {
+            const pos = getCanonicalBubblePosition(3, localNum, corCh, undefined, c);
+            clonedCoords.push({
+              id: `p3_q${localNum}_c${c}_expected_${corCh}`,
+              section: "part3",
+              questionNumber: localNum,
+              colIndex: c,
+              optionKey: corCh,
+              x: pos.x,
+              y: pos.y,
+              r: pos.r,
+              status: "expected_missed"
+            });
+          }
+        }
+      }
+    }
   }
 
   const wrongRows: WrongQuestionReviewItem[] = allRows
@@ -536,18 +788,622 @@ function buildFullOMRQuestionsReview(
     wrongRows,
     part1Summary:
       p1Rows.length > 0
-        ? `Đúng ${p1Rows.filter((x) => x.isCorrect).length}/${p1Rows.length} câu`
+        ? `Đúng ${p1Rows.filter((x) => x.isCorrect).length}/${p1Rows.length} câu${
+            gradedScores.p1 !== undefined ? ` (${gradedScores.p1.toFixed(2)}đ)` : ""
+          }`
         : "Không có trong đề",
     part2Summary:
       p2Rows.length > 0
-        ? `Đúng ${p2Rows.filter((x) => x.isCorrect).length}/${p2Rows.length} câu`
+        ? `Đúng ${p2Rows.filter((x) => x.isCorrect).length}/${p2Rows.length} câu${
+            gradedScores.p2 !== undefined ? ` (${gradedScores.p2.toFixed(2)}đ)` : ""
+          }`
         : "Không có trong đề",
     part3Summary:
       p3Rows.length > 0
-        ? `Đúng ${p3Rows.filter((x) => x.isCorrect).length}/${p3Rows.length} câu`
+        ? `Đúng ${p3Rows.filter((x) => x.isCorrect).length}/${p3Rows.length} câu${
+            gradedScores.p3 !== undefined ? ` (${gradedScores.p3.toFixed(2)}đ)` : ""
+          }`
         : "Không có trong đề",
     correctCount: allRows.filter((r) => r.isCorrect).length,
-    totalQuestions: allRows.length
+    totalQuestions: allRows.length,
+    parsedMetaList,
+    enrichedBubbleCoordinates: clonedCoords
+  };
+}
+
+/**
+ * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY THÀNH "PHIẾU OMR ẢO" CHUẨN TCT (1200 x 1700 px)
+ * - Vẽ phôi phiếu trắc nghiệm chuẩn TCT.
+ * - Tô vết chì mô phỏng (`rgba(45, 45, 45, 0.85)`) vào SBD, Mã đề và các phương án học sinh đã chọn.
+ * - Sinh mảng `bubbleCoordinates` đầy đủ: `correct` (Xanh lá), `wrong` (Đỏ), `expected_missed` (Vàng nét đứt) và `sbd`/`exam_code` (Xanh dương).
+ */
+export function generateVirtualOMRSheet(
+  attempt: any,
+  rawQuizObj: any,
+  sbd: string,
+  studentName: string,
+  examTitle?: string,
+  examCode: string = "101",
+  questionStatusOverrides?: Record<number, boolean>
+): {
+  dataUrl: string;
+  bubbleCoordinates: any[];
+  reviewData: ReturnType<typeof buildFullOMRQuestionsReview>;
+} {
+  const reviewData = buildFullOMRQuestionsReview(
+    attempt,
+    rawQuizObj,
+    questionStatusOverrides
+  );
+
+  const cleanSbd = String(sbd || "000001")
+    .replace(/\D/g, "")
+    .padStart(6, "0")
+    .slice(-6);
+  const cleanCode = String(examCode || "101")
+    .replace(/\D/g, "")
+    .padStart(3, "0")
+    .slice(-3);
+  const titleText = examTitle || attempt?.exam_title || attempt?.examTitle || "Kiểm tra định kỳ";
+
+  const cacheSignature = JSON.stringify({
+    sbd: cleanSbd,
+    code: cleanCode,
+    stu: studentName,
+    title: titleText,
+    rows: reviewData.allRows.map((r) => [r.questionNumber, r.studentAnswer, r.correctAnswer, r.isCorrect])
+  });
+
+  const cached = virtualOMRCache.get(cacheSignature);
+  if (cached) {
+    return {
+      dataUrl: cached.dataUrl,
+      bubbleCoordinates: cached.bubbleCoordinates,
+      reviewData
+    };
+  }
+
+  const bubbleCoordinates: any[] = [];
+  const W = OMR_CANONICAL_WIDTH; // 1200
+  const H = OMR_CANONICAL_HEIGHT; // 1700
+
+  // 1. Tạo tọa độ SBD (6 cột)
+  const sbdStartX = 772;
+  const sbdColStep = 34;
+  const sbdBubbleStartY = 148;
+  const sbdRowStep = 24;
+  for (let col = 0; col < 6; col++) {
+    const pickedDigit = parseInt(cleanSbd[col], 10);
+    const cx = sbdStartX + col * sbdColStep;
+    for (let d = 0; d <= 9; d++) {
+      const cy = sbdBubbleStartY + d * sbdRowStep;
+      if (d === pickedDigit) {
+        bubbleCoordinates.push({
+          id: `sbd_col${col}_${d}`,
+          section: "sbd",
+          x: cx,
+          y: cy,
+          r: 8.5,
+          isSelected: true,
+          status: "detected"
+        });
+      }
+    }
+  }
+
+  // 2. Tạo tọa độ Mã đề (3 cột)
+  const codeStartX = 1004;
+  for (let col = 0; col < 3; col++) {
+    const pickedDigit = parseInt(cleanCode[col], 10);
+    const cx = codeStartX + col * sbdColStep;
+    for (let d = 0; d <= 9; d++) {
+      const cy = sbdBubbleStartY + d * sbdRowStep;
+      if (d === pickedDigit) {
+        bubbleCoordinates.push({
+          id: `code_col${col}_${d}`,
+          section: "exam_code",
+          x: cx,
+          y: cy,
+          r: 8.5,
+          isSelected: true,
+          status: "detected"
+        });
+      }
+    }
+  }
+
+  // 3. Tạo tọa độ cho Phần I, Phần II, Phần III kèm `expected_missed`
+  reviewData.parsedMetaList.forEach((qMeta) => {
+    if (qMeta.partNum === 1) {
+      const stuKey = qMeta.p1StudentKey || "";
+      const corKey = qMeta.p1CorrectKey || "A";
+      ["A", "B", "C", "D"].forEach((optKey) => {
+        const pos = getCanonicalBubblePosition(1, qMeta.localNum, optKey);
+        if (optKey === stuKey) {
+          bubbleCoordinates.push({
+            id: `p1_q${qMeta.localNum}_${optKey}`,
+            section: "part1",
+            questionNumber: qMeta.localNum,
+            optionKey: optKey,
+            x: pos.x,
+            y: pos.y,
+            r: pos.r,
+            isSelected: true,
+            status: qMeta.isCorrect ? "correct" : "wrong"
+          });
+        } else if (!qMeta.isCorrect && optKey === corKey) {
+          bubbleCoordinates.push({
+            id: `p1_q${qMeta.localNum}_${optKey}`,
+            section: "part1",
+            questionNumber: qMeta.localNum,
+            optionKey: optKey,
+            x: pos.x,
+            y: pos.y,
+            r: pos.r,
+            isSelected: false,
+            status: "expected_missed"
+          });
+        }
+      });
+    } else if (qMeta.partNum === 2) {
+      (["a", "b", "c", "d"] as const).forEach((sk) => {
+        const stuSub = qMeta.p2StudentSubMap?.[sk] || "-";
+        const corSub = qMeta.p2CorrectSubMap?.[sk] || "Đ";
+        const isSubRight = qMeta.isCorrect ? true : stuSub === corSub;
+
+        const pickedOptKey = stuSub === "Đ" ? "T" : stuSub === "S" ? "F" : "";
+        const expectedOptKey = corSub === "Đ" ? "T" : "F";
+
+        (["T", "F"] as const).forEach((optK) => {
+          const pos = getCanonicalBubblePosition(2, qMeta.localNum, optK, sk);
+          if (optK === pickedOptKey) {
+            bubbleCoordinates.push({
+              id: `p2_q${qMeta.localNum}_${sk}_${optK}`,
+              section: "part2",
+              questionNumber: qMeta.localNum,
+              subKey: sk,
+              optionKey: optK,
+              x: pos.x,
+              y: pos.y,
+              r: pos.r,
+              isSelected: true,
+              status: isSubRight ? "correct" : "wrong"
+            });
+          } else if (!isSubRight && optK === expectedOptKey) {
+            bubbleCoordinates.push({
+              id: `p2_q${qMeta.localNum}_${sk}_${optK}`,
+              section: "part2",
+              questionNumber: qMeta.localNum,
+              subKey: sk,
+              optionKey: optK,
+              x: pos.x,
+              y: pos.y,
+              r: pos.r,
+              isSelected: false,
+              status: "expected_missed"
+            });
+          }
+        });
+      });
+    } else if (qMeta.partNum === 3) {
+      const stuChars = qMeta.p3StudentChars || [];
+      const corChars = qMeta.p3CorrectChars || [];
+      for (let c = 0; c < 4; c++) {
+        const stuCh = stuChars[c] || "";
+        const corCh = corChars[c] || "";
+        const isColRight = Boolean(stuCh) && (qMeta.isCorrect || stuCh === corCh);
+
+        if (stuCh) {
+          const pos = getCanonicalBubblePosition(3, qMeta.localNum, stuCh, undefined, c);
+          bubbleCoordinates.push({
+            id: `p3_q${qMeta.localNum}_c${c}_${stuCh}`,
+            section: "part3",
+            questionNumber: qMeta.localNum,
+            colIndex: c,
+            optionKey: stuCh,
+            x: pos.x,
+            y: pos.y,
+            r: pos.r,
+            isSelected: true,
+            status: isColRight ? "correct" : "wrong"
+          });
+        }
+
+        if (!qMeta.isCorrect && corCh && stuCh !== corCh) {
+          const pos = getCanonicalBubblePosition(3, qMeta.localNum, corCh, undefined, c);
+          bubbleCoordinates.push({
+            id: `p3_q${qMeta.localNum}_c${c}_expected_${corCh}`,
+            section: "part3",
+            questionNumber: qMeta.localNum,
+            colIndex: c,
+            optionKey: corCh,
+            x: pos.x,
+            y: pos.y,
+            r: pos.r,
+            isSelected: false,
+            status: "expected_missed"
+          });
+        }
+      }
+    }
+  });
+
+  if (typeof document === "undefined") {
+    return { dataUrl: "", bubbleCoordinates, reviewData };
+  }
+
+  // 4. Vẽ phôi phiếu A4 chuẩn TCT (1200 x 1700) và vết chấm chì mô phỏng lên Canvas
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return { dataUrl: "", bubbleCoordinates, reviewData };
+  }
+
+  const FONT_SERIF = "'Times New Roman', Times, serif";
+  const PENCIL_FILL = "rgba(45, 45, 45, 0.85)";
+
+  // Nền giấy trắng hơi ngà tự nhiên
+  ctx.fillStyle = "#FCFDFE";
+  ctx.fillRect(0, 0, W, H);
+
+  // Viền ngoài trang phiếu
+  ctx.strokeStyle = "#94A3B8";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(24, 24, W - 48, H - 48);
+
+  // 4 Mốc vuông đen định vị ở 4 góc
+  const markerSize = 34;
+  ctx.fillStyle = "#0F172A";
+  ctx.fillRect(36, 36, markerSize, markerSize);
+  ctx.fillRect(W - 36 - markerSize, 36, markerSize, markerSize);
+  ctx.fillRect(36, H - 36 - markerSize, markerSize, markerSize);
+  ctx.fillRect(W - 36 - markerSize, H - 36 - markerSize, markerSize, markerSize);
+
+  // KHỐI HEADER TRÁI: THÔNG TIN KỲ THI & THÍ SINH
+  drawRoundedRect(ctx, 84, 52, 636, 350, 8, "#FFFFFF", "#475569", 1.8);
+
+  // Logo TCT
+  drawRoundedRect(ctx, 102, 66, 110, 46, 6, "#003399");
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = "bold 24px " + FONT_SERIF;
+  ctx.textAlign = "center";
+  ctx.fillText("TCT", 157, 94);
+  ctx.font = "bold 9px " + FONT_SERIF;
+  ctx.fillText("TÂM CHÍ TÀI", 157, 107);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#003399";
+  ctx.font = "bold italic 16px " + FONT_SERIF;
+  ctx.fillText("Chuyên luyện thi vào 10, HSA, TSA và THPT", 226, 84);
+  ctx.fillStyle = "#334155";
+  ctx.font = "bold 13px " + FONT_SERIF;
+  ctx.fillText("CHUYÊN TOÁN TƯ DUY - TRẮC NGHIỆM TIA CHỚP", 226, 105);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#0F172A";
+  ctx.font = "bold 22px " + FONT_SERIF;
+  ctx.fillText("PHIẾU TRẢ LỜI TRẮC NGHIỆM", 402, 148);
+  ctx.fillStyle = "#1E293B";
+  ctx.font = "bold 14.5px " + FONT_SERIF;
+  ctx.fillText(`Chuyên đề: ${String(titleText).slice(0, 52)}`, 402, 173);
+
+  ctx.textAlign = "left";
+  const infoLines = [
+    { label: "1. Hội đồng thi:", val: "Trung tâm Toán Tâm Chí Tài (TCT)" },
+    { label: "2. Điểm thi:", val: "Cơ sở Số 10 Tạ Quang Bửu - Bách Khoa - Hà Nội" },
+    { label: "3. Họ và tên thí sinh:", val: studentName, highlight: true },
+    {
+      label: "4. Hình thức bài làm:",
+      val: "Hệ thống đồng bộ tự động (Phiếu đối soát OMR)"
+    },
+    {
+      label: "5. Kết quả chấm:",
+      val: `Đúng ${reviewData.correctCount}/${reviewData.totalQuestions} câu`
+    }
+  ];
+
+  infoLines.forEach((line, idx) => {
+    const ly = 212 + idx * 34;
+    ctx.fillStyle = "#334155";
+    ctx.font = "14.5px " + FONT_SERIF;
+    ctx.fillText(line.label, 108, ly);
+
+    ctx.fillStyle = line.highlight ? "#003399" : "#0F172A";
+    ctx.font = (line.highlight ? "bold 17px " : "bold 14.5px ") + FONT_SERIF;
+    ctx.fillText(line.val, 260, ly);
+
+    ctx.strokeStyle = "#CBD5E1";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(255, ly + 6);
+    ctx.lineTo(695, ly + 6);
+    ctx.stroke();
+  });
+
+  // KHỐI HEADER PHẢI: SỐ BÁO DANH & MÃ ĐỀ THI
+  drawRoundedRect(ctx, 736, 52, 380, 350, 8, "#FFFFFF", "#475569", 1.8);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#003399";
+  ctx.font = "bold 13.5px " + FONT_SERIF;
+  ctx.fillText("7. SỐ BÁO DANH", 856, 76);
+  ctx.fillText("8. MÃ ĐỀ THI", 1038, 76);
+
+  // Vẽ 6 cột SBD
+  for (let col = 0; col < 6; col++) {
+    const cx = sbdStartX + col * sbdColStep;
+    drawRoundedRect(ctx, cx - 14, 86, 28, 32, 3, "#F8FAFC", "#475569", 1.2);
+    ctx.fillStyle = "#003399";
+    ctx.font = "bold 17px " + FONT_SERIF;
+    ctx.fillText(cleanSbd[col], cx, 108);
+
+    const pickedDigit = parseInt(cleanSbd[col], 10);
+    for (let d = 0; d <= 9; d++) {
+      const cy = sbdBubbleStartY + d * sbdRowStep;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8.5, 0, Math.PI * 2);
+      if (d === pickedDigit) {
+        ctx.fillStyle = PENCIL_FILL;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+        ctx.strokeStyle = "#64748B";
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+        ctx.fillStyle = "#475569";
+        ctx.font = "bold 10px " + FONT_SERIF;
+        ctx.fillText(String(d), cx, cy + 3.5);
+      }
+    }
+  }
+
+  // Vẽ 3 cột Mã đề
+  for (let col = 0; col < 3; col++) {
+    const cx = codeStartX + col * sbdColStep;
+    drawRoundedRect(ctx, cx - 14, 86, 28, 32, 3, "#F8FAFC", "#475569", 1.2);
+    ctx.fillStyle = "#003399";
+    ctx.font = "bold 17px " + FONT_SERIF;
+    ctx.fillText(cleanCode[col], cx, 108);
+
+    const pickedDigit = parseInt(cleanCode[col], 10);
+    for (let d = 0; d <= 9; d++) {
+      const cy = sbdBubbleStartY + d * sbdRowStep;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8.5, 0, Math.PI * 2);
+      if (d === pickedDigit) {
+        ctx.fillStyle = PENCIL_FILL;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+        ctx.strokeStyle = "#64748B";
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+        ctx.fillStyle = "#475569";
+        ctx.font = "bold 10px " + FONT_SERIF;
+        ctx.fillText(String(d), cx, cy + 3.5);
+      }
+    }
+  }
+
+  // =========================================================================
+  // PHẦN I: TRẮC NGHIỆM NHIỀU PHƯƠNG ÁN LỰA CHỌN (A, B, C, D)
+  // =========================================================================
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#003399";
+  ctx.font = "bold 15.5px " + FONT_SERIF;
+  ctx.fillText(
+    "PHẦN I. Thí sinh trả lời từ câu 1 đến câu 12 (Mỗi câu chỉ tô một phương án A, B, C hoặc D)",
+    84,
+    436
+  );
+
+  drawRoundedRect(ctx, 84, 448, 1032, 290, 8, "#FFFFFF", "#475569", 1.6);
+
+  const p1Metas = reviewData.parsedMetaList.filter((m) => m.partNum === 1);
+  const p1MaxQ = Math.max(12, p1Metas.length);
+
+  for (let colGroup = 0; colGroup < 3; colGroup++) {
+    const baseGroupX = 115 + colGroup * 340;
+    ["A", "B", "C", "D"].forEach((optK, oIdx) => {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#003399";
+      ctx.font = "bold 14px " + FONT_SERIF;
+      ctx.fillText(optK, baseGroupX + 58 + oIdx * 56, 478);
+    });
+  }
+
+  for (let q = 1; q <= Math.min(18, p1MaxQ); q++) {
+    const colGroup = Math.floor((q - 1) / 6);
+    const rowInCol = (q - 1) % 6;
+    const baseGroupX = 115 + colGroup * 340;
+    const cy = 515 + rowInCol * 38;
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#0F172A";
+    ctx.font = "bold 14.5px " + FONT_SERIF;
+    ctx.fillText(String(q), baseGroupX + 22, cy + 5);
+
+    const qMeta = p1Metas.find((m) => m.localNum === q);
+    const stuKey = qMeta?.p1StudentKey || "";
+
+    ["A", "B", "C", "D"].forEach((optK) => {
+      const pos = getCanonicalBubblePosition(1, q, optK);
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, pos.r, 0, Math.PI * 2);
+      if (stuKey === optK) {
+        ctx.fillStyle = PENCIL_FILL;
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fill();
+        ctx.strokeStyle = "#64748B";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#475569";
+        ctx.font = "bold 11.5px " + FONT_SERIF;
+        ctx.fillText(optK, pos.x, pos.y + 4);
+      }
+    });
+  }
+
+  // =========================================================================
+  // PHẦN II: TRẮC NGHIỆM ĐÚNG / SAI (4 CÂU x 4 MỆNH ĐỀ a, b, c, d)
+  // =========================================================================
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#003399";
+  ctx.font = "bold 15.5px " + FONT_SERIF;
+  ctx.fillText(
+    "PHẦN II. Thí sinh trả lời từ câu 1 đến câu 4. Trong mỗi ý a), b), c), d) thí sinh chọn Đúng hoặc Sai",
+    84,
+    774
+  );
+
+  drawRoundedRect(ctx, 84, 786, 1032, 240, 8, "#FFFFFF", "#475569", 1.6);
+
+  const p2Metas = reviewData.parsedMetaList.filter((m) => m.partNum === 2);
+
+  for (let q = 1; q <= 4; q++) {
+    const boxX = 95 + (q - 1) * 260;
+    drawRoundedRect(ctx, boxX, 800, 232, 212, 6, "#F8FAFC", "#94A3B8", 1.2);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#003399";
+    ctx.font = "bold 15px " + FONT_SERIF;
+    ctx.fillText(`Câu ${q}`, boxX + 18, 828);
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#1E293B";
+    ctx.font = "bold 13px " + FONT_SERIF;
+    ctx.fillText("Đúng", boxX + 118, 830);
+    ctx.fillText("Sai", boxX + 186, 830);
+
+    const qMeta = p2Metas.find((m) => m.localNum === q);
+
+    (["a", "b", "c", "d"] as const).forEach((sk, sIdx) => {
+      const cy = 868 + sIdx * 40;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#0F172A";
+      ctx.font = "bold 15px " + FONT_SERIF;
+      ctx.fillText(`${sk})`, boxX + 24, cy + 5);
+
+      const stuSub = qMeta?.p2StudentSubMap?.[sk] || "-";
+      const pickedOptKey = stuSub === "Đ" ? "T" : stuSub === "S" ? "F" : "";
+
+      (["T", "F"] as const).forEach((optK) => {
+        const pos = getCanonicalBubblePosition(2, q, optK, sk);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, pos.r, 0, Math.PI * 2);
+        if (pickedOptKey === optK) {
+          ctx.fillStyle = PENCIL_FILL;
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fill();
+          ctx.strokeStyle = "#64748B";
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#64748B";
+          ctx.font = "bold 11px " + FONT_SERIF;
+          ctx.fillText(optK === "T" ? "Đ" : "S", pos.x, pos.y + 4);
+        }
+      });
+    });
+  }
+
+  // =========================================================================
+  // PHẦN III: TRẢ LỜI NGẮN — ĐIỀN ĐÁP SỐ (6 CÂU)
+  // =========================================================================
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#003399";
+  ctx.font = "bold 15.5px " + FONT_SERIF;
+  ctx.fillText(
+    "PHẦN III. Thí sinh trả lời từ câu 1 đến câu 6 (Ghi và tô kết quả số vào các ô tương ứng)",
+    84,
+    1062
+  );
+
+  drawRoundedRect(ctx, 84, 1074, 1032, 526, 8, "#FFFFFF", "#475569", 1.6);
+
+  const p3Metas = reviewData.parsedMetaList.filter((m) => m.partNum === 3);
+
+  for (let q = 1; q <= 6; q++) {
+    const boxX = 88 + (q - 1) * 174;
+    drawRoundedRect(ctx, boxX + 4, 1086, 162, 502, 6, "#F8FAFC", "#94A3B8", 1.2);
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#003399";
+    ctx.font = "bold 15px " + FONT_SERIF;
+    ctx.fillText(`Câu ${q}`, boxX + 85, 1110);
+
+    const qMeta = p3Metas.find((m) => m.localNum === q);
+    const stuChars = qMeta?.p3StudentChars || [];
+
+    // 4 ô viết tay đáp số ở đỉnh mỗi cột câu
+    for (let c = 0; c < 4; c++) {
+      const cx = boxX + 32 + c * 36;
+      drawRoundedRect(ctx, cx - 15, 1120, 30, 32, 3, "#FFFFFF", "#475569", 1.2);
+      if (stuChars[c]) {
+        ctx.fillStyle = "#003399";
+        ctx.font = "bold 17px " + FONT_SERIF;
+        ctx.fillText(stuChars[c], cx, 1143);
+      }
+    }
+
+    // Các hàng tô dấu (-), dấu (,) và các chữ số 0..9
+    const rowSymbols = ["-", ",", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    rowSymbols.forEach((sym, rIdx) => {
+      const cy = 1190 + rIdx * 32;
+      for (let c = 0; c < 4; c++) {
+        // Dấu (-) chỉ ở cột đầu, dấu (,) ở cột 2 & 3
+        if (sym === "-" && c > 0) continue;
+        if (sym === "," && (c === 0 || c === 3)) continue;
+
+        const cx = boxX + 32 + c * 36;
+        const isPicked = stuChars[c] === sym || (sym === "," && stuChars[c] === ".");
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 9.5, 0, Math.PI * 2);
+        if (isPicked) {
+          ctx.fillStyle = PENCIL_FILL;
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fill();
+          ctx.strokeStyle = "#64748B";
+          ctx.lineWidth = 1.1;
+          ctx.stroke();
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#475569";
+          ctx.font = "bold 10.5px " + FONT_SERIF;
+          ctx.fillText(sym, cx, cy + 3.5);
+        }
+      }
+    });
+  }
+
+  // CHÂN TRANG TRÊN PHIẾU OMR
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#334155";
+  ctx.font = "bold 13.5px " + FONT_SERIF;
+  ctx.fillText(
+    "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT)  •  Hotline: 0972 26 16 16  •  Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội",
+    W / 2,
+    1642
+  );
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  virtualOMRCache.set(cacheSignature, { dataUrl, bubbleCoordinates });
+
+  return {
+    dataUrl,
+    bubbleCoordinates,
+    reviewData
   };
 }
 
@@ -690,9 +1546,8 @@ export default function AdminStudentReportPanel({
 
   /**
    * 1. CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
-   * - Gắn chết SBD vào từng student.id và lưu bền vững vào `edunexus_permanent_sbd_map`.
-   * - Học sinh mới thêm vào tự động nhận `MAX(sbd) + 1` (VD: đang có 000011 -> cấp 000012).
-   * - Khi xóa bất kỳ học sinh nào ở giữa danh sách, SBD của các học sinh còn lại giữ nguyên 100%.
+   * - Luôn ưu tiên đọc trực tiếp trường `sbd` đã lưu trong CSDL của từng học sinh.
+   * - Học sinh mới thêm vào tự động nhận `MAX(sbd) + 1` và lưu bền vững vào `edunexus_permanent_sbd_map`.
    */
   const sbdDirectoryMap = useMemo(() => {
     const permanentMap: Record<string, string> = {};
@@ -717,7 +1572,6 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        // Khôi phục thêm từ `edunexus_sbd_directory` cũ nếu có
         const savedDirRaw = localStorage.getItem("edunexus_sbd_directory");
         if (savedDirRaw) {
           const parsedDir = JSON.parse(savedDirRaw);
@@ -738,7 +1592,6 @@ export default function AdminStudentReportPanel({
       } catch {}
     }
 
-    // Bước 1: Ghi nhận tất cả học viên đã có sẵn trường `sbd` cố định trong dữ liệu gốc
     const validStudents = [...(registeredStudents || [])].filter(Boolean);
     validStudents.forEach((stu) => {
       const id = String(stu.id || "").trim();
@@ -755,18 +1608,10 @@ export default function AdminStudentReportPanel({
       }
     });
 
-    // Bước 2: Với học viên chưa có SBD, cấp mới bằng MAX(sbd) + 1 (sắp xếp theo tên cho lần khởi tạo đầu tiên)
     const unassignedStudents = validStudents.filter((stu) => {
       const id = String(stu.id || "").trim();
       return id && !permanentMap[id];
     });
-
-    unassignedStudents.sort((a, b) =>
-      String(a.full_name || a.name || "").localeCompare(
-        String(b.full_name || b.name || ""),
-        "vi"
-      )
-    );
 
     unassignedStudents.forEach((stu) => {
       const id = String(stu.id || "").trim();
@@ -774,7 +1619,6 @@ export default function AdminStudentReportPanel({
       permanentMap[id] = formatStudentAutoSBD(maxSbdNumber);
     });
 
-    // Lưu lại bảng ánh xạ SBD vĩnh viễn vào localStorage
     if (typeof window !== "undefined" && Object.keys(permanentMap).length > 0) {
       try {
         localStorage.setItem("edunexus_permanent_sbd_map", JSON.stringify(permanentMap));
@@ -785,7 +1629,13 @@ export default function AdminStudentReportPanel({
     validStudents.forEach((stu, idx) => {
       const id = String(stu.id || "").trim();
       const rawMode = String(stu.learning_mode || stu.study_mode || "offline").toLowerCase();
-      const fixedSbd = permanentMap[id] || formatStudentAutoSBD(maxSbdNumber + idx + 1);
+      const dbSbd = stu.sbd
+        ? String(stu.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6)
+        : "";
+      const fixedSbd =
+        (/^\d{6}$/.test(dbSbd) && dbSbd !== "000000" ? dbSbd : permanentMap[id]) ||
+        formatStudentAutoSBD(maxSbdNumber + idx + 1);
+
       result.set(id, {
         stt: parseInt(fixedSbd, 10) || idx + 1,
         sbd: fixedSbd,
@@ -1147,7 +1997,7 @@ export default function AdminStudentReportPanel({
     [quizAssignmentMap]
   );
 
-  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY VỚI ĐIỂM DANH 3 TRẠNG THÁI & LỊCH HỌC BÙ / BỔ TRỢ
+  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (TỰ ĐỘNG SINH PHIẾU OMR ẢO NẾU BÀI LÀM TRÊN WEB CHƯA CÓ ẢNH QUÉT)
   const computeStudentDailyScoreRecord = useCallback(
     (
       student: any
@@ -1172,7 +2022,9 @@ export default function AdminStudentReportPanel({
         const aStuId = String(att.studentId || att.student_id || att.user_id || "").trim();
         const aStuName = normalizeText(att.studentName || att.student_name || att.full_name || "");
         const aSbd = String(
-          att.omr_raw_data?.detected_sbd ||
+          att.sbd ||
+            att.detected_sbd ||
+            att.omr_raw_data?.detected_sbd ||
             att.answers?.__paper_omr_meta?.detected_sbd ||
             ""
         ).trim();
@@ -1331,23 +2183,8 @@ export default function AdminStudentReportPanel({
       const pracScore =
         rawPracScore !== null && !isNaN(rawPracScore) && rawPracScore > 0 ? rawPracScore : null;
 
-      const paperSourceAtt =
-        (bestDailyTestAttempt &&
-        (bestDailyTestAttempt.submission_type === "paper" ||
-          bestDailyTestAttempt.scanned_image_url ||
-          bestDailyTestAttempt.paper_scan_url ||
-          bestDailyTestAttempt.omr_raw_data ||
-          bestDailyTestAttempt.answers?.__paper_omr_meta)
-          ? bestDailyTestAttempt
-          : null) ||
-        (bestPracticeAttempt &&
-        (bestPracticeAttempt.submission_type === "paper" ||
-          bestPracticeAttempt.scanned_image_url ||
-          bestPracticeAttempt.paper_scan_url ||
-          bestPracticeAttempt.omr_raw_data ||
-          bestPracticeAttempt.answers?.__paper_omr_meta)
-          ? bestPracticeAttempt
-          : null);
+      // Xác định bài thi dùng để đối soát OMR Trang 2 (Ưu tiên bài Test tại lớp -> Đề thực chiến -> BTVN nếu là bài làm trên Web)
+      const primaryReviewAtt = bestDailyTestAttempt || bestPracticeAttempt || bestHwAttempt || null;
 
       let hasPaperOMR = false;
       let scannedPaperImageUrl: string | undefined = undefined;
@@ -1362,41 +2199,48 @@ export default function AdminStudentReportPanel({
       let computedCorrectCount: number | null = null;
       let computedTotalQuestions: number | null = null;
 
-      if (paperSourceAtt) {
+      if (primaryReviewAtt) {
         const meta =
-          paperSourceAtt.answers?.__paper_omr_meta ||
-          paperSourceAtt.user_answers?.__paper_omr_meta ||
+          primaryReviewAtt.answers?.__paper_omr_meta ||
+          primaryReviewAtt.user_answers?.__paper_omr_meta ||
           {};
-        scannedPaperImageUrl =
-          paperSourceAtt.scanned_image_url ||
-          paperSourceAtt.paper_scan_url ||
+        const existingScanUrl =
+          primaryReviewAtt.scanned_image_url ||
+          primaryReviewAtt.paper_scan_url ||
           meta.scanned_image_url ||
-          paperSourceAtt.omr_raw_data?.warped_image_data_url ||
+          primaryReviewAtt.omr_raw_data?.warped_image_data_url ||
           undefined;
 
-        if (scannedPaperImageUrl) {
-          hasPaperOMR = true;
-          bubbleCoordinates =
-            paperSourceAtt.omr_raw_data?.bubble_coordinates ||
-            meta.bubble_coordinates ||
-            [];
-          paperExamTitle =
-            paperSourceAtt.exam_title ||
-            paperSourceAtt.examTitle ||
-            meta.exam_title ||
-            autoSyncedTopicTitle;
-          paperExamCode =
-            paperSourceAtt.omr_raw_data?.detected_exam_code ||
-            meta.detected_exam_code ||
-            "101";
+        paperExamTitle =
+          primaryReviewAtt.exam_title ||
+          primaryReviewAtt.examTitle ||
+          primaryReviewAtt.quizTitle ||
+          meta.exam_title ||
+          overrideTopicTitle ||
+          autoSyncedTopicTitle;
+        paperExamCode =
+          primaryReviewAtt.omr_raw_data?.detected_exam_code ||
+          meta.detected_exam_code ||
+          "101";
 
-          const { rawQuizObj } = resolveAttemptMonthAndWeek(paperSourceAtt);
+        const { rawQuizObj } = resolveAttemptMonthAndWeek(primaryReviewAtt);
+        const fallbackSessionQuizObj =
+          rawQuizObj ||
+          currentSessionLessons[0]?.testItems[0]?.rawObj ||
+          currentSessionLessons[0]?.hwItems[0]?.rawObj ||
+          null;
+
+        if (existingScanUrl) {
+          // Trường hợp 1: Đã có ảnh phiếu OMR quét thật -> giải mã & bổ sung đầy đủ tọa độ `expected_missed`
+          hasPaperOMR = true;
+          scannedPaperImageUrl = existingScanUrl;
           const reviewBuilt = buildFullOMRQuestionsReview(
-            paperSourceAtt,
-            rawQuizObj,
+            primaryReviewAtt,
+            fallbackSessionQuizObj,
             ov.questionStatusOverrides
           );
 
+          bubbleCoordinates = reviewBuilt.enrichedBubbleCoordinates;
           allQuestionsReviewList = reviewBuilt.allRows;
           wrongQuestionsList = reviewBuilt.wrongRows;
           part1ScoreStr = reviewBuilt.part1Summary;
@@ -1404,6 +2248,30 @@ export default function AdminStudentReportPanel({
           part3ScoreStr = reviewBuilt.part3Summary;
           computedCorrectCount = reviewBuilt.correctCount;
           computedTotalQuestions = reviewBuilt.totalQuestions;
+        } else {
+          // Trường hợp 2: Học sinh làm bài trên Web (Online) chưa có ảnh chụp -> Tự động dựng "Phiếu OMR Ảo"
+          const virtualBuilt = generateVirtualOMRSheet(
+            primaryReviewAtt,
+            fallbackSessionQuizObj,
+            sbd,
+            stuName,
+            paperExamTitle,
+            paperExamCode,
+            ov.questionStatusOverrides
+          );
+
+          if (virtualBuilt.dataUrl) {
+            hasPaperOMR = true;
+            scannedPaperImageUrl = virtualBuilt.dataUrl;
+            bubbleCoordinates = virtualBuilt.bubbleCoordinates;
+            allQuestionsReviewList = virtualBuilt.reviewData.allRows;
+            wrongQuestionsList = virtualBuilt.reviewData.wrongRows;
+            part1ScoreStr = virtualBuilt.reviewData.part1Summary;
+            part2ScoreStr = virtualBuilt.reviewData.part2Summary;
+            part3ScoreStr = virtualBuilt.reviewData.part3Summary;
+            computedCorrectCount = virtualBuilt.reviewData.correctCount;
+            computedTotalQuestions = virtualBuilt.reviewData.totalQuestions;
+          }
         }
       }
 
@@ -1639,7 +2507,6 @@ export default function AdminStudentReportPanel({
     });
   }, [registeredStudents, searchStudent, reportViewType, dailyStudentFilterMode]);
 
-  // Mặc định chọn tất cả học sinh khi mới tải danh sách lần đầu
   useEffect(() => {
     if (!hasInitializedSelectionRef.current && registeredStudents.length > 0) {
       hasInitializedSelectionRef.current = true;
@@ -2802,7 +3669,7 @@ export default function AdminStudentReportPanel({
         </div>
       </div>
 
-      {/* 2. THANH CẤU HÌNH NHANH BUỔI HỌC (GỌN GÀNG, HIỆN ĐẠI) */}
+      {/* 2. THANH CẤU HÌNH NHANH BUỔI HỌC */}
       {reportViewType === "daily" && (
         <div className="bg-white rounded-xl border border-slate-200/80 p-3.5 space-y-3 shadow-2xs">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
@@ -3092,7 +3959,6 @@ export default function AdminStudentReportPanel({
           <div className="lg:col-span-2 bg-white rounded-xl p-4 border border-slate-200/80 shadow-2xs space-y-4">
             {reportViewType === "daily" && currentStudentDailyData ? (
               <div className="space-y-3.5">
-                {/* Header thông tin nhanh của học sinh */}
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -3119,7 +3985,7 @@ export default function AdminStudentReportPanel({
                   <div className="flex items-center gap-2">
                     {currentStudentDailyData.hasPaperOMR && (
                       <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> Có Phiếu OMR
+                        <Check className="w-3.5 h-3.5" /> Đã sẵn sàng Phiếu OMR Trang 2
                       </span>
                     )}
                     <button
@@ -3342,7 +4208,6 @@ export default function AdminStudentReportPanel({
                     </div>
                   )}
 
-                  {/* BỘ CHỌN LỊCH BÙ / BỔ TRỢ ĐA CA LIÊN TIẾP (TỰ ĐỘNG MỞ KHI CHỌN "NGHỈ - CHƯA BÙ" HOẶC BẤM NÚT XẾP LỊCH) */}
                   {(currentStudentDailyData.attendanceStatus === "absent_need_makeup" ||
                     showSupportSchedulerPanel ||
                     (currentStudentDailyData.makeupSessions &&
@@ -3458,7 +4323,6 @@ export default function AdminStudentReportPanel({
                         </div>
                       </div>
 
-                      {/* Danh sách các ca đã chọn của học sinh */}
                       {currentStudentDailyData.makeupSessions &&
                         currentStudentDailyData.makeupSessions.length > 0 && (
                           <div className="pt-2 border-t border-slate-100 space-y-1.5">
@@ -3500,7 +4364,6 @@ export default function AdminStudentReportPanel({
                     </div>
                   )}
 
-                  {/* Ý thức làm BTVN */}
                   <div className="pt-1">
                     <span className="text-xs font-bold text-slate-800 uppercase block mb-1.5">
                       Ý thức làm Bài tập về nhà (BTVN tuần trước):
@@ -3572,7 +4435,7 @@ export default function AdminStudentReportPanel({
                   />
                 </div>
 
-                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR */}
+                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR (HIỂN THỊ CHO CẢ BÀI THI GIẤY LẪN PHIẾU OMR ẢO TỪ WEB) */}
                 {currentStudentDailyData.hasPaperOMR &&
                   currentStudentDailyData.scannedPaperImageUrl && (
                     <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5">
@@ -4208,7 +5071,7 @@ export default function AdminStudentReportPanel({
         </div>
       )}
 
-      {/* MODAL XEM PHIẾU THI GỐC OMR */}
+      {/* MODAL XEM PHIẾU THI GỐC / PHIẾU OMR ẢO */}
       {previewPaperItem && (
         <div
           onClick={() => setPreviewPaperItem(null)}
@@ -4267,7 +5130,7 @@ export default function AdminStudentReportPanel({
                 >
                   <img
                     src={previewPaperItem.paperScanUrl}
-                    alt="Phiếu thi gốc"
+                    alt="Phiếu thi OMR"
                     className="w-full h-full object-fill block"
                   />
                   {previewPaperItem.omrRawData?.bubble_coordinates && (
@@ -4277,33 +5140,40 @@ export default function AdminStudentReportPanel({
                       className="absolute inset-0 w-full h-full pointer-events-none"
                     >
                       {previewPaperItem.omrRawData.bubble_coordinates
-                        .filter((b: any) => b.status !== "unfilled")
-                        .map((b: any) => {
-                          const strokeColor =
-                            b.status === "correct"
-                              ? "#10B981"
-                              : b.status === "wrong"
-                              ? "#EF4444"
-                              : b.status === "expected_missed"
-                              ? "#F59E0B"
-                              : "#2563EB";
+                        .filter((b: any) => b && b.status !== "unfilled")
+                        .map((b: any, idx: number) => {
+                          const isSbdOrCode =
+                            b.section === "sbd" || b.section === "exam_code";
+                          const isExpectedMissed = b.status === "expected_missed";
+                          const strokeColor = isSbdOrCode
+                            ? "#2563EB"
+                            : b.status === "correct"
+                            ? "#10B981"
+                            : b.status === "wrong"
+                            ? "#EF4444"
+                            : isExpectedMissed
+                            ? "#F59E0B"
+                            : "#2563EB";
+                          const fillColor = isSbdOrCode
+                            ? "rgba(37, 99, 235, 0.20)"
+                            : b.status === "correct"
+                            ? "rgba(16, 185, 129, 0.22)"
+                            : b.status === "wrong"
+                            ? "rgba(239, 68, 68, 0.24)"
+                            : isExpectedMissed
+                            ? "rgba(245, 158, 11, 0.18)"
+                            : "none";
                           return (
                             <circle
-                              key={b.id}
+                              key={b.id || `preview_b_${idx}`}
                               cx={b.x}
                               cy={b.y}
                               r={(b.r || 9) + 2.5}
-                              fill={
-                                b.status === "correct"
-                                  ? "rgba(16,185,129,0.22)"
-                                  : b.status === "wrong"
-                                  ? "rgba(239,68,68,0.22)"
-                                  : "none"
-                              }
+                              fill={fillColor}
                               stroke={strokeColor}
-                              strokeWidth={2.2}
+                              strokeWidth={2.4}
                               strokeDasharray={
-                                b.status === "expected_missed" ? "4 2" : undefined
+                                isExpectedMissed ? "4 2" : undefined
                               }
                             />
                           );
