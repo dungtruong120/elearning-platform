@@ -2084,21 +2084,36 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        const belongsToCurrentSessionTest = currentSessionLessons.some(
-          (m) => (qId && m.testIds.has(qId)) || (qTitle && m.testTitles.has(qTitle))
-        );
+        // Quét tất cả tên đề kiểm tra trong bài học của tuần hiện tại
+const currentSessionTestTitles = new Set<string>();
+currentSessionLessons.forEach((m) => {
+  m.testTitles.forEach((t) => currentSessionTestTitles.add(t));
+  m.testItems.forEach((item) => {
+    if (item.title) currentSessionTestTitles.add(normalizeText(item.title));
+  });
+});
 
-        if (
-          isTest &&
-          (belongsToCurrentSessionTest || (month === dailyMonth && week === dailyWeek))
-        ) {
-          if (
-            !bestDailyTestAttempt ||
-            sc >= Number(bestDailyTestAttempt.score ?? bestDailyTestAttempt.points ?? 0)
-          ) {
-            bestDailyTestAttempt = att;
-          }
-        }
+const effectiveSessionTopicNorm = normalizeText(overrideTopicTitle || autoSyncedTopicTitle);
+
+// Tự nhận diện nếu đề thi khớp theo ID hoặc khớp theo Tên đề (kể cả làm từ Luyện đề)
+const isMatchedCurrentSessionTest =
+  currentSessionLessons.some((m) => qId && m.testIds.has(qId)) ||
+  (qTitle && currentSessionTestTitles.has(qTitle)) ||
+  (qTitle && effectiveSessionTopicNorm && (qTitle.includes(effectiveSessionTopicNorm) || effectiveSessionTopicNorm.includes(qTitle)));
+
+const isValidDailyTest =
+  isMatchedCurrentSessionTest ||
+  (isTest && month === dailyMonth && week === dailyWeek) ||
+  (att.category === "Đề kiểm tra định kỳ" && month === dailyMonth && week === dailyWeek);
+
+if (isValidDailyTest) {
+  if (
+    !bestDailyTestAttempt ||
+    sc >= Number(bestDailyTestAttempt.score ?? bestDailyTestAttempt.points ?? 0)
+  ) {
+    bestDailyTestAttempt = att;
+  }
+}
 
         if (
           selectedDailyPracticeId !== "none" &&
