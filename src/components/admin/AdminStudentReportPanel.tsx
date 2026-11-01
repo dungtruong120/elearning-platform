@@ -449,7 +449,7 @@ function buildFullOMRQuestionsReview(
 
   // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
- const detectedPartByIndex: number[] = [];
+ const detectedPartByIndex: any[] = [];
   if (rawQuizObj) {
     let rawSections =
       rawQuizObj.sections ||
@@ -495,7 +495,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart as number);
+            detectedPartByIndex.push(inferredSecPart);
           });
         } else if (
           sec &&
@@ -509,7 +509,7 @@ function buildFullOMRQuestionsReview(
               : qType.includes("true") || Array.isArray(sec.statements)
               ? 2
               : 1;
-         detectedPartByIndex.push(p as number);
+          detectedPartByIndex.push(p);
         }
       });
     }
@@ -541,7 +541,7 @@ function buildFullOMRQuestionsReview(
           } else if (directQuestions.length === 22) {
             p = qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3;
           }
-          detectedPartByIndex.push(p as number);
+          detectedPartByIndex.push(p);
         });
       }
     }
@@ -628,11 +628,11 @@ function buildFullOMRQuestionsReview(
 
     let partNum: 1 | 2 | 3 = 1;
     if (gDetail?.part) {
-      const pVal = Number(gDetail.part);
-      partNum = pVal === 2 ? 2 : pVal === 3 ? 3 : 1;
+      const p = Number(gDetail.part);
+      partNum = p === 2 ? 2 : p === 3 ? 3 : 1;
     } else if (detectedPartByIndex[i]) {
-      const pVal = detectedPartByIndex[i];
-      partNum = pVal === 2 ? 2 : pVal === 3 ? 3 : 1;
+      const p = Number(detectedPartByIndex[i]);
+      partNum = p === 2 ? 2 : p === 3 ? 3 : 1;
     } else if (qOrder <= p1Limit) {
       partNum = 1;
     } else if (qOrder <= p1Limit + p2Limit) {
@@ -640,7 +640,6 @@ function buildFullOMRQuestionsReview(
     } else {
       partNum = 3;
     }
-
     let localNum = 1;
     if (partNum === 1) {
       localP1Counter += 1;
