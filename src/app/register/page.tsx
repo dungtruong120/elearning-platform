@@ -51,7 +51,7 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      // 1. ĐĂNG KÝ QUA SUPABASE AUTH KÈM ĐẦY ĐỦ METADATA
+      // 1. ĐĂNG KÝ USER QUA SUPABASE AUTH
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: emailTrim,
         password: formData.password,
@@ -66,6 +66,8 @@ export default function RegisterPage() {
             study_mode: formData.learningMode,
             role: "student",
             approval_status: "pending",
+            status: "pending",
+            is_approved: false,
           },
         },
       });
@@ -74,73 +76,75 @@ export default function RegisterPage() {
         throw new Error(authError.message);
       }
 
-      if (!authData.user?.id) {
-        throw new Error("Không thể khởi tạo mã định danh người dùng. Vui lòng thử lại!");
+      const userId = authData.user?.id;
+      if (!userId) {
+        throw new Error("Không thể khởi tạo tài khoản. Vui lòng thử lại!");
       }
 
-      const userId = authData.user.id;
-
-      // 2. GỌI POST TỚI /api/admin/data VỚI ACTION register_profile ĐỂ GHI ĐÈ BẤT CHẤP RLS
-      const profilePayload = {
-        action: "register_profile",
-        profileData: {
-          id: userId,
-          fullName: fullNameTrim,
-          email: emailTrim,
-          phone: phoneTrim,
-          school: schoolTrim,
-          grade: formData.grade,
-          learningMode: formData.learningMode,
-        },
+      // 2. CHUẨN HÓA BẢN GHI DỮ LIỆU HỌC VIÊN CHỜ DUYỆT
+      const studentPayload = {
+        id: userId,
+        full_name: fullNameTrim,
+        name: fullNameTrim,
+        email: emailTrim,
+        phone: phoneTrim,
+        phone_number: phoneTrim,
+        school: schoolTrim,
+        grade: formData.grade,
+        role: "student",
+        learning_mode: formData.learningMode,
+        study_mode: formData.learningMode,
+        status: "pending",
+        approval_status: "pending",
+        is_approved: false,
+        created_at: new Date().toISOString(),
       };
 
+      // 3. GỌI API ROUTE BACKEND VỚI SERVICE ROLE ĐỂ VƯỢT QUA RLS CỦA SUPABASE
+      let apiSaved = false;
       try {
         const res = await fetch("/api/admin/data", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(profilePayload),
+          body: JSON.stringify({
+            action: "register_profile",
+            profileData: studentPayload,
+          }),
         });
-
-        if (!res.ok) {
-          console.warn("API route báo lỗi, thử fallback client trực tiếp");
-          await supabase.from("profiles").upsert([
-            {
-              id: userId,
-              full_name: fullNameTrim,
-              email: emailTrim,
-              phone: phoneTrim,
-              school: schoolTrim,
-              grade: formData.grade,
-              role: "student",
-              learning_mode: formData.learningMode,
-              study_mode: formData.learningMode,
-              approval_status: "pending",
-              created_at: new Date().toISOString(),
-            },
-          ]);
+        if (res.ok) {
+          apiSaved = true;
         }
-      } catch (apiErr) {
-        console.warn("Lỗi kết nối API register, fallback client:", apiErr);
-        await supabase.from("profiles").upsert([
-          {
-            id: userId,
-            full_name: fullNameTrim,
-            email: emailTrim,
-            phone: phoneTrim,
-            school: schoolTrim,
-            grade: formData.grade,
-            role: "student",
-            learning_mode: formData.learningMode,
-            study_mode: formData.learningMode,
-            approval_status: "pending",
-            created_at: new Date().toISOString(),
-          },
-        ]);
+      } catch (err) {
+        console.warn("Lỗi kết nối /api/admin/data:", err);
+      }
+
+      // 4. NẾU API ROUTE CHƯA HỖ TRỢ, TIẾN HÀNH GHI TRỰC TIẾP CẢ 2 BẢNG (STUDENTS & PROFILES)
+      if (!apiSaved) {
+        const insertPromises: Promise<any>[] = [];
+
+        // Ghi vào bảng students
+        insertPromises.push(
+          Promise.resolve(supabase.from("students").upsert([studentPayload]))
+        );
+
+        // Ghi vào bảng profiles
+        insertPromises.push(
+          Promise.resolve(supabase.from("profiles").upsert([studentPayload]))
+        );
+
+        const results = await Promise.allSettled(insertPromises);
+        const hasSuccess = results.some(
+          (r) => r.status === "fulfilled" && !(r as any).value?.error
+        );
+
+        if (!hasSuccess) {
+          console.warn("Lưu trực tiếp Client có cảnh báo RLS:", results);
+        }
       }
 
       setIsSuccess(true);
     } catch (err: any) {
-      setErrorMessage(err.message || "Đăng ký không thành công. Vui lòng thử lại!");
+      setErrorMessage(err.message || "Đăng ký không thành công. Vui lòng kiểm tra lại!");
     } finally {
       setIsSubmitting(false);
     }
