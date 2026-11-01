@@ -1184,11 +1184,11 @@ export function detectOMRCornerMarkers(
     const rightEdge = Math.hypot(br.x - tr.x, br.y - tr.y);
 
     const widthRatio =
-      Math.min(topEdge, bottomEdge) / Math.max(1, Math.max(topEdge, bottomEdge));
+      Math.min(topEdge, bottEdge) / Math.max(1, Math.max(topEdge, botEdge));
     const heightRatio =
       Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
     const aspectHtoW =
-      (leftEdge + rightEdge) / Math.max(1, topEdge + bottomEdge);
+      (leftEdge + rightEdge) / Math.max(1, topEdge + botEdge);
 
     if (
       widthRatio >= 0.72 &&
@@ -1581,7 +1581,7 @@ export function detectRealtimeCornerBoxes(
     const hRatio =
       Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
     const aspectHtoW =
-      (leftEdge + rightEdge) / Math.max(1, topEdge + bottomEdge);
+      (leftEdge + rightEdge) / Math.max(1, topEdge + botEdge);
 
     // Ràng buộc chặt tỷ lệ khung A4: chiều cao tứ giác phải đạt tối thiểu 64% khung ngắm (chống cắt cụt đầu phiếu như Ảnh 1)
     const isQuadValid =
