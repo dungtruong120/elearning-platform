@@ -23,7 +23,8 @@ import {
   Volume2,
   VolumeX,
   UserCheck,
-  Play
+  Play,
+  ArrowUpDown
 } from "lucide-react";
 import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -104,6 +105,9 @@ interface ScannedSheetItem {
   syncedToCloud?: boolean;
 }
 
+// Hằng số bù trừ độ lệch trục Y cho Phần III (Điền số trả lời ngắn): kéo lên 14px (~3.5mm trên khổ chuẩn 1700px) để ôm khít tâm ô tròn in trên giấy
+const DEFAULT_PART3_Y_OFFSET = -14;
+
 function dataUrlToBlob(dataUrl: string): Blob | null {
   try {
     const parts = dataUrl.split(";base64,");
@@ -161,6 +165,194 @@ function playScanSuccessBeep() {
   } catch {}
 }
 
+/**
+ * TRÍCH XUẤT DANH SÁCH CÂU HỎI PHẲNG TỪ ĐỀ THI GỐC ĐỂ XÁC ĐỊNH ĐÁP ÁN ĐÚNG KHI HỌC SINH LÀM SAI HOẶC BỎ TRỐNG
+ */
+function extractFlatQuestionsFromQuiz(rawQuizObj: any): any[] {
+  const flatQuestions: any[] = [];
+  if (!rawQuizObj) return flatQuestions;
+
+  const sections = rawQuizObj.sections || rawQuizObj.data || [];
+  if (Array.isArray(sections)) {
+    sections.forEach((sec: any) => {
+      if (Array.isArray(sec?.questions)) {
+        flatQuestions.push(...sec.questions);
+      } else if (sec && (sec.question || sec.text || sec.content || sec.type)) {
+        flatQuestions.push(sec);
+      }
+    });
+  }
+  if (flatQuestions.length === 0 && Array.isArray(rawQuizObj.questions)) {
+    flatQuestions.push(...rawQuizObj.questions);
+  }
+  return flatQuestions;
+}
+
+/**
+ * CHUẨN HÓA TỌA ĐỘ PHẦN III (KHÔNG TRÔI LỆCH) & BỔ SUNG ĐẦY ĐỦ VÒNG TRÒN NÉT ĐỨT MÀU VÀNG (`expected_missed`)
+ * CHO MỌI CÂU HỌC SINH LÀM SAI HOẶC BỎ TRỐNG Ở CẢ 3 PHẦN (PHẦN I, PHẦN II, PHẦN III)
+ */
+function enrichAndCalibrateOMRBubbleCoordinates(
+  rawCoords: any[],
+  questionDetails: any[],
+  rawQuizObj: any,
+  part3YOffset: number = DEFAULT_PART3_Y_OFFSET
+): any[] {
+  if (!Array.isArray(rawCoords) || rawCoords.length === 0) return [];
+
+  const flatQuestions = extractFlatQuestionsFromQuiz(rawQuizObj);
+  const p1Details = (questionDetails || []).filter((q: any) => Number(q.part) === 1);
+  const p2Details = (questionDetails || []).filter((q: any) => Number(q.part) === 2);
+  const p3Details = (questionDetails || []).filter((q: any) => Number(q.part) === 3);
+
+  const p1Count = p1Details.length || 12;
+  const p2Count = p2Details.length || 4;
+
+  // Bước 1: Tinh chỉnh tọa độ Y của Phần III để các vòng tròn nhận diện ôm khít vào ô tròn in trên giấy
+  const calibrated = rawCoords.map((b: any) => {
+    if (!b) return b;
+    const isPart3 =
+      b.section === "part3" || String(b.id || "").toLowerCase().includes("part3");
+
+    if (isPart3) {
+      const baseRawY = b.__rawY !== undefined ? Number(b.__rawY) : Number(b.y || 0);
+      return {
+        ...b,
+        __rawY: baseRawY,
+        y: Math.round(baseRawY + part3YOffset)
+      };
+    }
+    return { ...b };
+  });
+
+  // Bước 2: Đảm bảo 100% câu làm sai hoặc bỏ trống đều có ô `expected_missed` (vòng tròn vàng nét đứt) ở đáp án đúng của đề
+  // 2.1. Xử lý Phần I (Trắc nghiệm 4 lựa chọn A, B, C, D)
+  p1Details.forEach((qd: any, idx: number) => {
+    const localNum = Number(qd.localNum || idx + 1);
+    const qOrder = Number(qd.questionOrder || localNum);
+    const qObj = flatQuestions[qOrder - 1];
+    const correctKey = String(
+      qd.correctAnswerDisplay || qObj?.correctAnswer || qObj?.answer || ""
+    )
+      .trim()
+      .toUpperCase();
+
+    if (!["A", "B", "C", "D"].includes(correctKey)) return;
+
+    const isStudentCorrect = qd.status === "correct";
+    if (!isStudentCorrect) {
+      calibrated.forEach((b: any) => {
+        if (
+          b &&
+          b.section === "part1" &&
+          Number(b.questionNumber) === localNum &&
+          String(b.optionKey || "").toUpperCase() === correctKey &&
+          b.status !== "correct"
+        ) {
+          b.status = "expected_missed";
+        }
+      });
+    }
+  });
+
+  // 2.2. Xử lý Phần II (Trắc nghiệm Đúng / Sai a, b, c, d)
+  p2Details.forEach((qd: any, idx: number) => {
+    const localNum = Number(qd.localNum || idx + 1);
+    const qOrder = Number(qd.questionOrder || p1Count + localNum);
+    const qObj = flatQuestions[qOrder - 1];
+    const corDisplay = String(qd.correctAnswerDisplay || "");
+    const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+
+    subKeys.forEach((sk, sIdx) => {
+      let expectedOptionKey: "T" | "F" | null = null;
+
+      // Tìm từ câu hỏi gốc hoặc từ chuỗi đáp án chuẩn (VD: "a)Đ b)S c)Đ d)Đ")
+      if (Array.isArray(qObj?.statements) && qObj.statements[sIdx] !== undefined) {
+        const st = qObj.statements[sIdx];
+        const isTrue = Boolean(st?.isTrue ?? st?.correct ?? st?.answer);
+        expectedOptionKey = isTrue ? "T" : "F";
+      } else if (corDisplay) {
+        const regex = new RegExp(`${sk}\\)\\s*([ĐSđsTFtf])`, "i");
+        const match = corDisplay.match(regex);
+        if (match && match[1]) {
+          const ch = match[1].toUpperCase();
+          expectedOptionKey = ch === "Đ" || ch === "T" ? "T" : "F";
+        }
+      }
+
+      if (!expectedOptionKey) return;
+
+      const subBubbles = calibrated.filter(
+        (b: any) =>
+          b &&
+          b.section === "part2" &&
+          Number(b.questionNumber) === localNum &&
+          b.subKey === sk
+      );
+
+      const alreadyCorrect = subBubbles.some(
+        (b: any) =>
+          String(b.optionKey).toUpperCase() === expectedOptionKey &&
+          b.status === "correct"
+      );
+
+      if (!alreadyCorrect) {
+        subBubbles.forEach((b: any) => {
+          if (
+            String(b.optionKey).toUpperCase() === expectedOptionKey &&
+            b.status !== "correct"
+          ) {
+            b.status = "expected_missed";
+          }
+        });
+      }
+    });
+  });
+
+  // 2.3. Xử lý Phần III (Trả lời ngắn - Tô từng ký tự số / dấu trừ / dấu phẩy theo cột)
+  p3Details.forEach((qd: any, idx: number) => {
+    const localNum = Number(qd.localNum || idx + 1);
+    const qOrder = Number(qd.questionOrder || p1Count + p2Count + localNum);
+    const qObj = flatQuestions[qOrder - 1];
+    const rawCorrectStr = String(
+      qd.correctAnswerDisplay ??
+        qObj?.correctAnswer ??
+        qObj?.shortAnswer ??
+        qObj?.answer ??
+        ""
+    ).trim();
+
+    if (!rawCorrectStr || rawCorrectStr === "--" || qd.status === "correct") return;
+
+    // Chuẩn hóa dấu thập phân sang dấu phẩy theo chuẩn phiếu OMR Bộ GD&ĐT
+    const normalizedChars = rawCorrectStr.replace(/\./g, ",").split("");
+
+    normalizedChars.forEach((charKey, colIdx) => {
+      const colBubbles = calibrated.filter(
+        (b: any) =>
+          b &&
+          b.section === "part3" &&
+          Number(b.questionNumber) === localNum &&
+          Number(b.colIndex ?? b.col ?? 0) === colIdx
+      );
+
+      colBubbles.forEach((b: any) => {
+        const bKey = String(b.optionKey || "").trim();
+        const isMatchKey =
+          bKey === charKey ||
+          (charKey === "," && (bKey === "," || bKey === ".")) ||
+          (charKey === "-" && bKey === "-");
+
+        if (isMatchKey && b.status !== "correct") {
+          b.status = "expected_missed";
+        }
+      });
+    });
+  });
+
+  return calibrated;
+}
+
 export function AdminBulkOMRScannerModal({
   isOpen,
   onClose,
@@ -186,6 +378,9 @@ export function AdminBulkOMRScannerModal({
   const [mobileViewTab, setMobileViewTab] = useState<"camera" | "inspect">("camera");
   const [isCameraPausedForInspect, setIsCameraPausedForInspect] = useState<boolean>(false);
   const [isBottomSheetExpanded, setIsBottomSheetExpanded] = useState<boolean>(false);
+
+  // Độ bù trục Y cho Phần III (cho phép tinh chỉnh trực tiếp nếu máy in lệch lề)
+  const [part3YOffset, setPart3YOffset] = useState<number>(DEFAULT_PART3_Y_OFFSET);
 
   const [realtimeCornersStatus, setRealtimeCornersStatus] = useState<{
     isMatched: boolean;
@@ -300,9 +495,7 @@ export function AdminBulkOMRScannerModal({
 
   /**
    * 2. DANH MỤC HỌC SINH & BẢNG TRA CỨU SBD 6 CHỮ SỐ CỐ ĐỊNH
-   * - Xóa bỏ hoàn toàn bước `sort()` theo tên tiếng Việt, giữ nguyên thứ tự gốc từ props.
-   * - Tuyệt đối không dùng `formatStudentAutoSBD(idx + 1)` để tự gán SBD động.
-   * - Chỉ đọc trực tiếp trường `stu.sbd` thực tế đã lưu của học sinh (chuẩn hóa 6 chữ số).
+   * - Giữ nguyên danh sách gốc từ props, không sort theo tên, không tự sinh SBD bằng index + 1.
    * - `sbdLookupMap` chỉ dùng duy nhất key là chuỗi SBD 6 chữ số đã chuẩn hóa.
    */
   const studentDirectory = useMemo(() => {
@@ -378,7 +571,7 @@ export function AdminBulkOMRScannerModal({
     return map;
   }, [studentDirectory]);
 
-  // 3. HÀM GHI DỮ LIỆU TRỰC TIẾP LÊN SUPABASE (LƯU CỨNG SBD VÀO ATTEMPT & METADATA)
+  // 3. HÀM GHI DỮ LIỆU TRỰC TIẾP LÊN SUPABASE
   const persistPaperAttemptToSupabase = useCallback(
     async (item: ScannedSheetItem, customAttemptId?: string) => {
       const nowIso = new Date().toISOString();
@@ -755,7 +948,6 @@ export function AdminBulkOMRScannerModal({
         const relLeft = guideElRect.left - videoElRect.left + offsetX;
         const relTop = guideElRect.top - videoElRect.top + offsetY;
 
-        // Margin an toàn 5% xung quanh khung ngắm
         const padW = guideElRect.width * 0.05;
         const padH = guideElRect.height * 0.05;
 
@@ -809,7 +1001,6 @@ export function AdminBulkOMRScannerModal({
 
       const graded = gradeOMRSubmission(finalOmr, targetQuizEntry?.rawObj);
 
-      // SO KHỚP SBD TUYỆT ĐỐI THEO CHUỖI 6 CHỮ SỐ CỐ ĐỊNH TRONG `sbdLookupMap`
       const rawDetectedSbd = String(finalOmr.detected_sbd || "").trim();
       const formattedSbd6 =
         rawDetectedSbd && rawDetectedSbd !== "Chưa tô"
@@ -835,6 +1026,14 @@ export function AdminBulkOMRScannerModal({
         .map((q: any) => Number(q.questionOrder));
 
       const displaySbd = formattedSbd6 || rawDetectedSbd || "Chưa tô";
+
+      // Làm giàu & căn chỉnh tọa độ bubble_coordinates (căn chỉnh Y Phần III + thêm vòng tròn vàng nét đứt cho mọi câu sai/bỏ trống)
+      const enrichedBubbles = enrichAndCalibrateOMRBubbleCoordinates(
+        graded.updatedOmrData.bubble_coordinates || [],
+        graded.questionDetails || [],
+        targetQuizEntry?.rawObj,
+        part3YOffset
+      );
 
       const item: ScannedSheetItem = {
         tempId: `scan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -873,7 +1072,8 @@ export function AdminBulkOMRScannerModal({
         omrRawData: {
           ...graded.updatedOmrData,
           sbd: displaySbd,
-          detected_sbd: displaySbd
+          detected_sbd: displaySbd,
+          bubble_coordinates: enrichedBubbles
         },
         normalizedAnswers: graded.normalizedAnswers,
         questionDetails: graded.questionDetails || [],
@@ -883,7 +1083,7 @@ export function AdminBulkOMRScannerModal({
 
       return item;
     },
-    [selectedQuizId, allQuizzesPool, sbdLookupMap]
+    [selectedQuizId, allQuizzesPool, sbdLookupMap, part3YOffset]
   );
 
   const autoSyncSingleItemInBackground = useCallback(
@@ -920,12 +1120,6 @@ export function AdminBulkOMRScannerModal({
     [persistPaperAttemptToSupabase, onSavedBatchAttempts, onSavedSuccess]
   );
 
-  /**
-   * XỬ LÝ HOÀN TẤT QUÉT 1 BÀI:
-   * 1. Phát âm báo Beep + Rung nhẹ ([60]).
-   * 2. Lưu vào `scannedItems` & đồng bộ ngầm lên Supabase.
-   * 3. Tạm dừng Camera (`videoRef.current?.pause()`) và chuyển ngay sang màn hình Soi phiếu (`setMobileViewTab("inspect")`).
-   */
   const handleFinalizeCapturedItem = useCallback(
     (resultItem: ScannedSheetItem) => {
       if (soundEnabled) {
@@ -943,10 +1137,7 @@ export function AdminBulkOMRScannerModal({
       setEditingCorners(resultItem.cornerPoints);
       setCameraStatusText("✓ Đã chấm xong! Đang mở chế độ đối soát...");
 
-      // Tạm dừng camera ngay lập tức và mở giao diện Soi phiếu (Inspection Mode)
       pauseCameraForInspection();
-
-      // Đồng bộ ngầm lên Supabase
       autoSyncSingleItemInBackground(resultItem);
     },
     [soundEnabled, pauseCameraForInspection, autoSyncSingleItemInBackground]
@@ -961,7 +1152,6 @@ export function AdminBulkOMRScannerModal({
       if (!video || video.readyState < 2 || video.paused) return;
 
       const now = Date.now();
-      // Cooldown 1000ms
       if (now - lastAutoCaptureTimeRef.current < 1000) {
         return;
       }
@@ -1092,6 +1282,17 @@ export function AdminBulkOMRScannerModal({
     }
   }, [activeInspectItem?.tempId]);
 
+  // Tính toán danh sách tọa độ OMR hiển thị trên SVG (đã bù độ lệch Y Phần III và gắn đầy đủ vòng tròn vàng nét đứt)
+  const activeInspectCalibratedBubbles = useMemo(() => {
+    if (!activeInspectItem?.omrRawData?.bubble_coordinates) return [];
+    return enrichAndCalibrateOMRBubbleCoordinates(
+      activeInspectItem.omrRawData.bubble_coordinates,
+      activeInspectItem.questionDetails || [],
+      activeInspectItem.rawQuizObj,
+      part3YOffset
+    );
+  }, [activeInspectItem, part3YOffset]);
+
   const handleCornerSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!draggingCornerKey || !manualSvgRef.current || !activeInspectItem || !editingCorners) {
       return;
@@ -1180,7 +1381,6 @@ export function AdminBulkOMRScannerModal({
     }
   };
 
-  // SỬA SBD THỦ CÔNG HOẶC CHỌN HỌC SINH TRỰC TIẾP (CHỈ SO KHỚP THEO SBD 6 CHỮ SỐ)
   const handleManualSbdEdit = (item: ScannedSheetItem, newSbdRaw: string) => {
     const cleanInput = newSbdRaw.replace(/[^0-9]/g, "").slice(0, 6);
     const paddedSbd = cleanInput.length === 6 ? cleanInput : cleanInput.padStart(6, "0");
@@ -1312,6 +1512,13 @@ export function AdminBulkOMRScannerModal({
       .filter((q: any) => q.status === "skipped")
       .map((q: any) => Number(q.questionOrder));
 
+    const enrichedBubbles = enrichAndCalibrateOMRBubbleCoordinates(
+      regraded.updatedOmrData.bubble_coordinates || [],
+      regraded.questionDetails || [],
+      item.rawQuizObj,
+      part3YOffset
+    );
+
     const updatedItem: ScannedSheetItem = {
       ...item,
       score: regraded.score,
@@ -1325,7 +1532,8 @@ export function AdminBulkOMRScannerModal({
       omrRawData: {
         ...regraded.updatedOmrData,
         sbd: item.detectedSbd,
-        detected_sbd: item.detectedSbd
+        detected_sbd: item.detectedSbd,
+        bubble_coordinates: enrichedBubbles
       },
       normalizedAnswers: regraded.normalizedAnswers,
       questionDetails: regraded.questionDetails || []
@@ -1388,16 +1596,19 @@ export function AdminBulkOMRScannerModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[550] bg-slate-950 flex flex-col font-sans text-left select-none overflow-hidden">
-        {/* 1. THANH TOP BAR TỐI GIẢN */}
-        <div className="px-3 sm:px-5 py-2 bg-slate-900 border-b border-slate-800 text-white flex items-center justify-between gap-2 shrink-0 z-30">
+      <div className="fixed inset-0 z-[550] bg-slate-100 flex flex-col font-sans text-left text-slate-800 select-none overflow-hidden">
+        {/* 1. THANH TOP BAR NỀN TRẮNG TƯƠI SÁNG */}
+        <div className="px-3 sm:px-5 py-2.5 bg-white border-b border-slate-200 text-slate-800 flex items-center justify-between gap-2 shrink-0 z-30 shadow-2xs">
           <div className="flex items-center gap-2 min-w-0">
+            <span className="hidden sm:inline-block px-2 py-0.5 rounded bg-blue-600 text-white font-black text-[10px] uppercase tracking-wider">
+              TCT OMR
+            </span>
             <select
               value={selectedQuizId}
               onChange={(e) => setSelectedQuizId(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-white outline-none cursor-pointer max-w-[190px] sm:max-w-[340px] truncate"
+              className="px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-800 outline-none focus:border-blue-600 cursor-pointer max-w-[200px] sm:max-w-[360px] truncate"
             >
-              <option value="auto">Tự nhận diện theo Mã đề (3 số)</option>
+              <option value="auto">⚡ Tự nhận diện theo Mã đề (3 số)</option>
               {allQuizzesPool.map((q) => (
                 <option key={q.id} value={q.id}>
                   [Mã {q.examCode}] {q.title}
@@ -1407,12 +1618,14 @@ export function AdminBulkOMRScannerModal({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <div className="flex lg:hidden bg-slate-800 p-0.5 rounded-lg border border-slate-700">
+            <div className="flex lg:hidden bg-slate-100 p-0.5 rounded-lg border border-slate-200">
               <button
                 type="button"
                 onClick={handleResumeNextScan}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
-                  mobileViewTab === "camera" ? "bg-blue-600 text-white" : "text-slate-300"
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                  mobileViewTab === "camera"
+                    ? "bg-blue-600 text-white shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Camera
@@ -1420,8 +1633,10 @@ export function AdminBulkOMRScannerModal({
               <button
                 type="button"
                 onClick={() => setMobileViewTab("inspect")}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
-                  mobileViewTab === "inspect" ? "bg-blue-600 text-white" : "text-slate-300"
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                  mobileViewTab === "inspect"
+                    ? "bg-blue-600 text-white shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Soi phiếu ({scannedItems.length})
@@ -1433,7 +1648,7 @@ export function AdminBulkOMRScannerModal({
                 type="button"
                 disabled={isSavingAll}
                 onClick={handleSaveAllScannedToSystem}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
               >
                 {isSavingAll ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1447,22 +1662,24 @@ export function AdminBulkOMRScannerModal({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+              className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 transition cursor-pointer"
+              title="Đóng cửa sổ chấm bài"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* 2. KHÔNG GIAN CHÍNH */}
+        {/* 2. KHÔNG GIAN CHÍNH (2 CỘT: TRÁI LÀ KHUNG CAMERA, PHẢI LÀ BÀN SOI PHIẾU NỀN SÁNG) */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 relative overflow-hidden">
-          {/* CỘT CAMERA DỌC CHUẨN A4 — TỐI ƯU CHO IPAD & TABLET */}
+          {/* CỘT TRÁI: CAMERA QUÉT PHIẾU CHUẨN A4 */}
           <div
-            className={`lg:col-span-6 relative flex flex-col min-h-0 bg-black overflow-hidden ${
+            className={`lg:col-span-6 relative flex flex-col min-h-0 bg-slate-100 border-r border-slate-200 overflow-hidden ${
               mobileViewTab === "inspect" ? "hidden lg:flex" : "flex"
             }`}
           >
-            <div className="relative flex-1 w-full min-h-0 flex items-center justify-center overflow-hidden px-3 py-2 sm:px-6 sm:py-4">
+            {/* Vùng Viewport Camera */}
+            <div className="relative flex-1 w-full min-h-0 flex items-center justify-center overflow-hidden bg-slate-900 px-3 py-2 sm:px-6 sm:py-4">
               <video
                 ref={videoRef}
                 autoPlay
@@ -1472,27 +1689,27 @@ export function AdminBulkOMRScannerModal({
               />
 
               {shutterFlash && (
-                <div className="absolute inset-0 bg-white/85 z-40 pointer-events-none" />
+                <div className="absolute inset-0 bg-white/90 z-40 pointer-events-none" />
               )}
 
-              {/* Lớp phủ khi Camera đang tạm dừng để đối soát bài vừa chụp (trên màn hình lớn) */}
+              {/* Lớp phủ nền sáng khi Camera đang tạm dừng để đối soát */}
               {isCameraPausedForInspect && (
-                <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center space-y-4">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center text-emerald-400">
+                <div className="absolute inset-0 z-30 bg-white/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center space-y-4">
+                  <div className="w-12 h-12 rounded-full bg-emerald-50 border-2 border-emerald-500 flex items-center justify-center text-emerald-600 shadow-xs">
                     <CheckCircle2 className="w-6 h-6" />
                   </div>
                   <div className="space-y-1 max-w-sm">
-                    <h4 className="text-sm font-bold text-white">
+                    <h4 className="text-sm font-extrabold text-slate-800">
                       Đã tạm dừng Camera để bạn đối soát bài vừa quét
                     </h4>
-                    <p className="text-xs text-slate-300">
-                      Kiểm tra kết quả ở khung bên phải hoặc bấm nút bên dưới để quét tờ tiếp theo.
+                    <p className="text-xs text-slate-500">
+                      Kiểm tra kết quả ở bàn soi phiếu bên phải hoặc bấm nút bên dưới để quét tờ tiếp theo.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={handleResumeNextScan}
-                    className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-xl flex items-center gap-2 cursor-pointer active:scale-95 transition"
+                    className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-black shadow-lg flex items-center gap-2 cursor-pointer active:scale-95 transition"
                   >
                     <Camera className="w-4 h-4" />
                     <span>📷 Quét tiếp bài tiếp theo</span>
@@ -1503,10 +1720,10 @@ export function AdminBulkOMRScannerModal({
               {/* Thông báo ngắn gọn trên đỉnh khung ngắm */}
               <div className="absolute top-2.5 inset-x-3 flex justify-center z-20 pointer-events-none">
                 <span
-                  className={`px-3.5 py-1 rounded-full text-[11px] font-semibold border backdrop-blur-xs shadow-md ${
+                  className={`px-3.5 py-1 rounded-full text-[11px] font-bold border shadow-md backdrop-blur-xs ${
                     realtimeCornersStatus.isMatched
-                      ? "bg-emerald-950/90 text-emerald-300 border-emerald-500"
-                      : "bg-slate-900/85 text-slate-200 border-slate-700"
+                      ? "bg-emerald-600 text-white border-emerald-400"
+                      : "bg-white/95 text-slate-800 border-slate-200"
                   }`}
                 >
                   {cameraStatusText}
@@ -1516,13 +1733,13 @@ export function AdminBulkOMRScannerModal({
               {/* KHUNG NGẮM DỌC TỶ LỆ CHUẨN A4 */}
               <div
                 ref={guideFrameRef}
-                className="relative z-10 h-full max-h-[68vh] sm:max-h-[72vh] aspect-[1/1.414] max-w-[88vw] rounded-lg shadow-[0_0_0_9999px_rgba(2,6,23,0.52)] pointer-events-none flex flex-col justify-between"
+                className="relative z-10 h-full max-h-[68vh] sm:max-h-[72vh] aspect-[1/1.414] max-w-[88vw] rounded-lg shadow-[0_0_0_9999px_rgba(15,23,42,0.45)] pointer-events-none flex flex-col justify-between"
               >
                 <div
                   className={`absolute inset-0 rounded-lg border-2 transition-colors ${
                     realtimeCornersStatus.isMatched
-                      ? "border-emerald-500"
-                      : "border-amber-400/70 border-dashed"
+                      ? "border-emerald-400"
+                      : "border-amber-400/85 border-dashed"
                   }`}
                 />
 
@@ -1536,7 +1753,7 @@ export function AdminBulkOMRScannerModal({
                       key={c.key}
                       className={`w-10 h-10 sm:w-11 sm:h-11 rounded-md border-2 flex items-center justify-center transition-all ${
                         c.matched
-                          ? "border-emerald-400 bg-emerald-500/30 scale-105"
+                          ? "border-emerald-400 bg-emerald-500/35 scale-105"
                           : "border-amber-400 border-dashed bg-black/25"
                       }`}
                     >
@@ -1557,7 +1774,7 @@ export function AdminBulkOMRScannerModal({
                       key={c.key}
                       className={`w-10 h-10 sm:w-11 sm:h-11 rounded-md border-2 flex items-center justify-center transition-all ${
                         c.matched
-                          ? "border-emerald-400 bg-emerald-500/30 scale-105"
+                          ? "border-emerald-400 bg-emerald-500/35 scale-105"
                           : "border-amber-400 border-dashed bg-black/25"
                       }`}
                     >
@@ -1570,16 +1787,16 @@ export function AdminBulkOMRScannerModal({
               </div>
             </div>
 
-            {/* 3. THANH CÔNG CỤ DƯỚI ĐÁY (ĐÈN FLASH, ÂM BÁO, NÚT CHỤP, ĐỔI CAMERA) */}
-            <div className="bg-slate-950 border-t border-slate-800 px-4 py-2.5 flex items-center justify-between sm:justify-around shrink-0 z-20">
+            {/* 3. THANH CÔNG CỤ CAMERA NỀN TRẮNG SẠCH SẼ */}
+            <div className="bg-white border-t border-slate-200 px-4 py-2.5 flex items-center justify-between sm:justify-around shrink-0 z-20">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleToggleTorch}
                   className={`p-2.5 rounded-full border transition cursor-pointer ${
                     torchOn
-                      ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md"
-                      : "bg-slate-900 text-slate-300 border-slate-800 hover:text-white"
+                      ? "bg-amber-400 text-slate-950 border-amber-500 shadow-xs"
+                      : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"
                   }`}
                   title="Bật / Tắt đèn Flash"
                 >
@@ -1591,8 +1808,8 @@ export function AdminBulkOMRScannerModal({
                   onClick={() => setSoundEnabled((prev) => !prev)}
                   className={`p-2.5 rounded-full border transition cursor-pointer ${
                     soundEnabled
-                      ? "bg-slate-900 text-emerald-400 border-emerald-800/80"
-                      : "bg-slate-900 text-slate-500 border-slate-800"
+                      ? "bg-blue-50 text-blue-700 border-blue-200"
+                      : "bg-slate-100 text-slate-400 border-slate-200"
                   }`}
                   title={soundEnabled ? "Âm báo Beep: Đang BẬT" : "Âm báo Beep: Đang TẮT"}
                 >
@@ -1604,7 +1821,7 @@ export function AdminBulkOMRScannerModal({
                 </button>
               </div>
 
-              {/* Nút chụp tròn lớn trung tâm */}
+              {/* Nút chụp tròn lớn màu xanh TCT nổi bật */}
               <button
                 type="button"
                 onClick={
@@ -1612,7 +1829,7 @@ export function AdminBulkOMRScannerModal({
                     ? handleResumeNextScan
                     : handleManualCameraCapture
                 }
-                className="w-14 h-14 rounded-full bg-white p-1 shadow-lg active:scale-95 transition flex items-center justify-center cursor-pointer"
+                className="w-14 h-14 rounded-full bg-blue-100 p-1 shadow-md active:scale-95 transition flex items-center justify-center cursor-pointer"
                 title={
                   isCameraPausedForInspect ? "Mở lại Camera quét tiếp" : "Chụp & Chấm ngay"
                 }
@@ -1630,10 +1847,10 @@ export function AdminBulkOMRScannerModal({
                 <button
                   type="button"
                   onClick={() => setAutoCaptureEnabled((p) => !p)}
-                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
                     autoCaptureEnabled
-                      ? "bg-emerald-950/60 text-emerald-400 border-emerald-700"
-                      : "bg-slate-900 text-slate-400 border-slate-800"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-slate-100 text-slate-600 border-slate-200"
                   }`}
                 >
                   {autoCaptureEnabled ? "Tự chụp: BẬT" : "Tự chụp: TẮT"}
@@ -1644,7 +1861,7 @@ export function AdminBulkOMRScannerModal({
                   onClick={() =>
                     setFacingMode((m) => (m === "environment" ? "user" : "environment"))
                   }
-                  className="p-2.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800 hover:text-white cursor-pointer"
+                  className="p-2.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 cursor-pointer"
                   title="Đổi Camera Trước / Sau"
                 >
                   <SwitchCamera className="w-4 h-4" />
@@ -1652,14 +1869,14 @@ export function AdminBulkOMRScannerModal({
               </div>
             </div>
 
-            {/* 4. KHAY TRƯỢT ĐÁY DANH SÁCH ĐÃ QUÉT (BOTTOM SHEET) */}
-            <div className="bg-slate-900 border-t border-slate-800 text-white shrink-0 z-30">
+            {/* 4. KHAY TRƯỢT ĐÁY DANH SÁCH ĐÃ QUÉT (LIGHT THEME) */}
+            <div className="bg-white border-t border-slate-200 text-slate-800 shrink-0 z-30">
               <div
                 onClick={() => setIsBottomSheetExpanded((prev) => !prev)}
-                className="px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-800/70 transition"
+                className="px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition"
               >
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-                  <FileCheck2 className="w-4 h-4 text-emerald-400" />
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                  <FileCheck2 className="w-4 h-4 text-emerald-600" />
                   <span>Đã quét trong phiên: {scannedItems.length} bài</span>
                 </div>
 
@@ -1672,16 +1889,16 @@ export function AdminBulkOMRScannerModal({
                         e.stopPropagation();
                         handleSaveAllScannedToSystem();
                       }}
-                      className="px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                      className="px-3 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <Save className="w-3 h-3" />
                       <span>Lưu tất cả</span>
                     </button>
                   )}
                   {isBottomSheetExpanded ? (
-                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                    <ChevronDown className="w-4 h-4 text-slate-500" />
                   ) : (
-                    <ChevronUp className="w-4 h-4 text-slate-400" />
+                    <ChevronUp className="w-4 h-4 text-slate-500" />
                   )}
                 </div>
               </div>
@@ -1692,10 +1909,10 @@ export function AdminBulkOMRScannerModal({
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    className="max-h-[36vh] overflow-y-auto divide-y divide-slate-800 bg-slate-950 custom-scrollbar"
+                    className="max-h-[34vh] overflow-y-auto divide-y divide-slate-100 bg-slate-50 custom-scrollbar"
                   >
                     {scannedItems.length === 0 ? (
-                      <div className="py-6 text-center text-slate-500 text-xs">
+                      <div className="py-6 text-center text-slate-400 text-xs">
                         Chưa có bài nào được quét.
                       </div>
                     ) : (
@@ -1706,30 +1923,30 @@ export function AdminBulkOMRScannerModal({
                             setActiveInspectId(item.tempId);
                             pauseCameraForInspection();
                           }}
-                          className="p-3 flex items-center justify-between gap-2 hover:bg-slate-900 cursor-pointer"
+                          className="p-3 flex items-center justify-between gap-2 hover:bg-white cursor-pointer"
                         >
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
                                 #{scannedItems.length - idx}
                               </span>
-                              <span className="font-mono font-bold text-xs text-blue-400">
+                              <span className="font-mono font-bold text-xs text-blue-700">
                                 SBD: {item.detectedSbd}
                               </span>
                               <span
-                                className={`font-semibold text-xs truncate ${
+                                className={`font-bold text-xs truncate ${
                                   item.isSbdMatchedInList
-                                    ? "text-white"
-                                    : "text-amber-300"
+                                    ? "text-slate-800"
+                                    : "text-amber-700"
                                 }`}
                               >
                                 {item.matchedStudentName}
                               </span>
-                              <span className="text-[11px] text-slate-400">
+                              <span className="text-[11px] text-slate-500">
                                 ({item.correctCount}/{item.totalQuestions} câu)
                               </span>
                               {item.syncedToCloud && (
-                                <span className="text-[10px] text-emerald-400 font-medium">
+                                <span className="text-[10px] text-emerald-600 font-bold">
                                   ✓ Đã lưu Cloud
                                 </span>
                               )}
@@ -1737,7 +1954,7 @@ export function AdminBulkOMRScannerModal({
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="px-2.5 py-0.5 rounded-md bg-slate-800 text-white font-bold text-xs border border-slate-700">
+                            <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-xs border border-blue-200">
                               {item.score.toFixed(2)}đ
                             </span>
                             <button
@@ -1748,7 +1965,7 @@ export function AdminBulkOMRScannerModal({
                                   prev.filter((x) => x.tempId !== item.tempId)
                                 );
                               }}
-                              className="p-1.5 text-slate-500 hover:text-rose-500 cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1762,22 +1979,22 @@ export function AdminBulkOMRScannerModal({
             </div>
           </div>
 
-          {/* CỘT PHẢI: MÀN HÌNH ĐỐI SOÁT BÀI VỪA QUÉT (INSPECTION MODE) + NÚT LỚN "QUÉT TIẾP BÀI TIẾP THEO" */}
+          {/* CỘT PHẢI: MÀN HÌNH SOI PHIẾU NỀN SÁNG (`bg-slate-200/60`) & BẢNG ĐỐI SOÁT TRỰC QUAN */}
           <div
-            className={`lg:col-span-6 bg-slate-900 flex flex-col min-h-0 overflow-hidden ${
+            className={`lg:col-span-6 bg-slate-100 flex flex-col min-h-0 overflow-hidden ${
               mobileViewTab === "camera" ? "hidden lg:flex" : "flex"
             }`}
           >
-            {/* Thanh công cụ nắn 4 góc & phóng to */}
-            <div className="px-3.5 py-2 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300 shrink-0">
-              <div className="flex items-center gap-2">
+            {/* Thanh công cụ nắn 4 góc, căn chỉnh Y Phần III & phóng to */}
+            <div className="px-3.5 py-2 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsManualCornerMode((v) => !v)}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
                     isManualCornerMode
-                      ? "bg-emerald-600 text-white"
-                      : "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
                   }`}
                 >
                   <Crosshair className="w-3.5 h-3.5" />
@@ -1791,7 +2008,7 @@ export function AdminBulkOMRScannerModal({
                     type="button"
                     disabled={isRewarpingManual}
                     onClick={handleApplyManualCornersAndRescan}
-                    className="px-3 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                   >
                     {isRewarpingManual ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1801,6 +2018,34 @@ export function AdminBulkOMRScannerModal({
                     <span>Nắn phẳng & Quét lại</span>
                   </button>
                 )}
+
+                {/* Nút vi chỉnh vị trí Y của Phần III nếu máy in thực tế co giãn lề */}
+                <div
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-[11px]"
+                  title="Tinh chỉnh vị trí dọc (Y) của vòng tròn Phần III"
+                >
+                  <ArrowUpDown className="w-3 h-3 text-blue-600" />
+                  <span className="font-semibold text-slate-600">Y P.III:</span>
+                  <button
+                    type="button"
+                    onClick={() => setPart3YOffset((v) => v - 2)}
+                    className="px-1.5 rounded bg-white border border-slate-200 hover:bg-slate-100 font-bold cursor-pointer"
+                    title="Đẩy vòng tròn Phần III lên trên"
+                  >
+                    ↑
+                  </button>
+                  <span className="font-mono font-bold text-blue-700 w-7 text-center">
+                    {part3YOffset}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPart3YOffset((v) => v + 2)}
+                    className="px-1.5 rounded bg-white border border-slate-200 hover:bg-slate-100 font-bold cursor-pointer"
+                    title="Hạ vòng tròn Phần III xuống dưới"
+                  >
+                    ↓
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -1809,11 +2054,11 @@ export function AdminBulkOMRScannerModal({
                   onClick={() =>
                     setZoomScale((z) => Math.max(0.8, Number((z - 0.2).toFixed(2))))
                   }
-                  className="p-1 rounded bg-slate-800 text-white cursor-pointer"
+                  className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer"
                 >
                   <ZoomOut className="w-3.5 h-3.5" />
                 </button>
-                <span className="font-mono text-[11px]">
+                <span className="font-mono font-bold text-[11px] text-slate-700">
                   {Math.round(zoomScale * 100)}%
                 </span>
                 <button
@@ -1821,7 +2066,7 @@ export function AdminBulkOMRScannerModal({
                   onClick={() =>
                     setZoomScale((z) => Math.min(2.4, Number((z + 0.2).toFixed(2))))
                   }
-                  className="p-1 rounded bg-slate-800 text-white cursor-pointer"
+                  className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
                 </button>
@@ -1830,11 +2075,11 @@ export function AdminBulkOMRScannerModal({
 
             {/* Thanh thông tin SBD, Học sinh, Điểm số & NÚT BẤM LỚN "QUÉT TIẾP BÀI TIẾP THEO" */}
             {activeInspectItem && (
-              <div className="p-3 bg-slate-900 border-b border-slate-800 space-y-2.5 shrink-0">
+              <div className="p-3 bg-white border-b border-slate-200 space-y-2.5 shrink-0 shadow-2xs">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700">
-                      <span className="font-bold text-slate-400">SBD:</span>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 text-slate-800 border border-slate-200">
+                      <span className="font-bold text-slate-500">SBD:</span>
                       <input
                         type="text"
                         maxLength={6}
@@ -1842,7 +2087,7 @@ export function AdminBulkOMRScannerModal({
                         onChange={(e) =>
                           handleManualSbdEdit(activeInspectItem, e.target.value)
                         }
-                        className="w-16 font-mono font-bold text-white bg-slate-950 px-1.5 py-0.5 rounded border border-slate-700 outline-none text-center"
+                        className="w-16 font-mono font-bold text-blue-700 bg-white px-1.5 py-0.5 rounded border border-slate-300 outline-none focus:border-blue-600 text-center"
                       />
                     </div>
 
@@ -1862,8 +2107,8 @@ export function AdminBulkOMRScannerModal({
                       }}
                       className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold outline-none cursor-pointer ${
                         activeInspectItem.isSbdMatchedInList
-                          ? "border-slate-700 bg-slate-800 text-white"
-                          : "border-amber-500 bg-amber-950/70 text-amber-200"
+                          ? "border-slate-200 bg-slate-50 text-slate-800"
+                          : "border-amber-400 bg-amber-50 text-amber-900"
                       }`}
                     >
                       {!activeInspectItem.isSbdMatchedInList && (
@@ -1880,21 +2125,37 @@ export function AdminBulkOMRScannerModal({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-black text-sm shadow-xs">
+                    <span className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-black text-sm shadow-2xs">
                       {activeInspectItem.score.toFixed(2)}đ
                     </span>
-                    <span className="text-xs font-bold text-slate-300">
+                    <span className="text-xs font-bold text-slate-600">
                       (Đúng {activeInspectItem.correctCount}/
                       {activeInspectItem.totalQuestions})
                     </span>
                   </div>
                 </div>
 
-                {/* NÚT BẤM LỚN NỔI BẬT MÀU XANH: QUÉT TIẾP BÀI TIẾP THEO */}
+                {/* Chú thích màu sắc Vòng tròn OMR */}
+                <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold text-slate-600 pt-0.5">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/30 border-2 border-emerald-600 inline-block" />
+                    Xanh lá: Tô đúng
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500/30 border-2 border-rose-600 inline-block" />
+                    Đỏ: Tô sai
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500/20 border-2 border-dashed border-amber-500 inline-block" />
+                    Vàng nét đứt: Đáp án đúng của đề
+                  </span>
+                </div>
+
+                {/* NÚT BẤM LỚN NỔI BẬT MÀU XANH TCT: QUÉT TIẾP BÀI TIẾP THEO */}
                 <button
                   type="button"
                   onClick={handleResumeNextScan}
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-black text-xs sm:text-sm shadow-lg flex items-center justify-center gap-2 transition cursor-pointer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 transition cursor-pointer"
                 >
                   <Camera className="w-4 h-4" />
                   <span>📷 Quét tiếp bài tiếp theo</span>
@@ -1902,18 +2163,19 @@ export function AdminBulkOMRScannerModal({
               </div>
             )}
 
-            <div className="flex-1 overflow-auto p-3 sm:p-4 custom-scrollbar flex flex-col items-center justify-start space-y-3">
+            {/* BÀN SOI PHIẾU NỀN SÁNG NHẸ (`bg-slate-200/60`) LÀM NỔI BẬT TỜ GIẤY A4 TRẮNG */}
+            <div className="flex-1 overflow-auto p-3 sm:p-4 bg-slate-200/60 custom-scrollbar flex flex-col items-center justify-start space-y-3">
               {activeInspectItem ? (
                 <>
                   {isManualCornerMode && editingCorners ? (
                     <div className="w-full space-y-2">
                       <div
                         style={{
-                          width: `${Math.round(380 * zoomScale)}px`,
+                          width: `${Math.round(390 * zoomScale)}px`,
                           maxWidth: "100%",
                           aspectRatio: `${activeInspectItem.originalWidth} / ${activeInspectItem.originalHeight}`
                         }}
-                        className="relative mx-auto rounded-lg overflow-hidden border border-emerald-500 bg-black shadow-xl select-none touch-none"
+                        className="relative mx-auto rounded-xl overflow-hidden border-2 border-blue-600 bg-white shadow-xl select-none touch-none"
                       >
                         <img
                           src={activeInspectItem.originalImageUrl}
@@ -1932,8 +2194,8 @@ export function AdminBulkOMRScannerModal({
                         >
                           <polygon
                             points={`${editingCorners.topLeft.x},${editingCorners.topLeft.y} ${editingCorners.topRight.x},${editingCorners.topRight.y} ${editingCorners.bottomRight.x},${editingCorners.bottomRight.y} ${editingCorners.bottomLeft.x},${editingCorners.bottomLeft.y}`}
-                            fill="rgba(16, 185, 129, 0.12)"
-                            stroke="#10B981"
+                            fill="rgba(37, 99, 235, 0.12)"
+                            stroke="#2563EB"
                             strokeWidth={Math.max(
                               3,
                               Math.round(activeInspectItem.originalWidth * 0.004)
@@ -1974,7 +2236,7 @@ export function AdminBulkOMRScannerModal({
                                   cx={corner.pt.x}
                                   cy={corner.pt.y}
                                   r={pinR}
-                                  fill="#10B981"
+                                  fill="#2563EB"
                                   stroke="#FFFFFF"
                                   strokeWidth={3}
                                 />
@@ -1997,29 +2259,30 @@ export function AdminBulkOMRScannerModal({
                   ) : (
                     <div
                       style={{
-                        width: `${Math.round(380 * zoomScale)}px`,
+                        width: `${Math.round(390 * zoomScale)}px`,
                         maxWidth: "100%",
                         aspectRatio: `${OMR_CANONICAL_WIDTH} / ${OMR_CANONICAL_HEIGHT}`,
                         transition: "width 0.18s ease-out"
                       }}
-                      className="relative rounded-lg overflow-hidden border border-slate-700 bg-white shadow-xl shrink-0"
+                      className="relative rounded-xl overflow-hidden border border-slate-300 bg-white shadow-xl shrink-0"
                     >
                       <img
                         src={activeInspectItem.warpedImageUrl}
                         alt="Phiếu đã chấm"
                         className="w-full h-full object-fill block select-none"
                       />
-                      {activeInspectItem.omrRawData?.bubble_coordinates && (
+                      {activeInspectCalibratedBubbles.length > 0 && (
                         <svg
                           viewBox={`0 0 ${OMR_CANONICAL_WIDTH} ${OMR_CANONICAL_HEIGHT}`}
                           preserveAspectRatio="none"
                           className="absolute inset-0 w-full h-full"
                         >
-                          {activeInspectItem.omrRawData.bubble_coordinates
-                            .filter((b: any) => b.status !== "unfilled")
-                            .map((b: any) => {
+                          {activeInspectCalibratedBubbles
+                            .filter((b: any) => b && b.status !== "unfilled")
+                            .map((b: any, bIdx: number) => {
                               const isSbdOrCode =
                                 b.section === "sbd" || b.section === "exam_code";
+                              const isExpectedMissed = b.status === "expected_missed";
 
                               const strokeColor = isSbdOrCode
                                 ? "#2563EB"
@@ -2027,13 +2290,23 @@ export function AdminBulkOMRScannerModal({
                                 ? "#10B981"
                                 : b.status === "wrong"
                                 ? "#EF4444"
-                                : b.status === "expected_missed"
-                                ? "#3B82F6"
-                                : "#F59E0B";
+                                : isExpectedMissed
+                                ? "#F59E0B"
+                                : "#2563EB";
+
+                              const fillColor = isSbdOrCode
+                                ? "rgba(37, 99, 235, 0.20)"
+                                : b.status === "correct"
+                                ? "rgba(16, 185, 129, 0.22)"
+                                : b.status === "wrong"
+                                ? "rgba(239, 68, 68, 0.22)"
+                                : isExpectedMissed
+                                ? "rgba(245, 158, 11, 0.15)"
+                                : "none";
 
                               return (
                                 <g
-                                  key={b.id}
+                                  key={b.id || `bubble_${bIdx}`}
                                   className="cursor-pointer"
                                   onClick={() => {
                                     if (b.section === "part1" && b.questionNumber) {
@@ -2049,20 +2322,12 @@ export function AdminBulkOMRScannerModal({
                                   <circle
                                     cx={b.x}
                                     cy={b.y}
-                                    r={b.r + 2.5}
-                                    fill={
-                                      isSbdOrCode
-                                        ? "rgba(37, 99, 235, 0.22)"
-                                        : b.status === "correct"
-                                        ? "rgba(16,185,129,0.22)"
-                                        : b.status === "wrong"
-                                        ? "rgba(239,68,68,0.22)"
-                                        : "none"
-                                    }
+                                    r={(b.r || 9) + 2.5}
+                                    fill={fillColor}
                                     stroke={strokeColor}
-                                    strokeWidth={2.2}
+                                    strokeWidth={isExpectedMissed ? 2.5 : 2.2}
                                     strokeDasharray={
-                                      b.status === "expected_missed" ? "4 2" : undefined
+                                      isExpectedMissed ? "4 2" : undefined
                                     }
                                   />
                                 </g>
@@ -2073,24 +2338,25 @@ export function AdminBulkOMRScannerModal({
                     </div>
                   )}
 
-                  <div className="w-full bg-slate-950 rounded-xl border border-slate-800 p-3 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                  {/* BẢNG ĐỐI SOÁT & CHỈNH SỬA NHANH ĐÁP ÁN NỀN SÁNG */}
+                  <div className="w-full bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs space-y-2.5">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-800">
                       <span className="flex items-center gap-1.5">
-                        <Edit3 className="w-3.5 h-3.5 text-slate-400" />
+                        <Edit3 className="w-3.5 h-3.5 text-blue-600" />
                         Đối soát & Chỉnh sửa nhanh đáp án ({activeInspectItem.correctCount}/
                         {activeInspectItem.totalQuestions} câu đúng)
                       </span>
                       <button
                         type="button"
                         onClick={() => setShowQuickAdjustPanel((p) => !p)}
-                        className="text-[11px] text-blue-400 cursor-pointer"
+                        className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
                       >
                         {showQuickAdjustPanel ? "Thu gọn" : "Mở rộng"}
                       </button>
                     </div>
 
                     {showQuickAdjustPanel && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[210px] overflow-y-auto custom-scrollbar pr-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
                         {(activeInspectItem.questionDetails || []).map((qd: any) => {
                           const isRight = qd.status === "correct";
                           const isSkipped = qd.status === "skipped";
@@ -2099,15 +2365,15 @@ export function AdminBulkOMRScannerModal({
                               key={qd.questionOrder}
                               className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 ${
                                 isRight
-                                  ? "bg-emerald-950/30 border-emerald-800/50 text-emerald-200"
+                                  ? "bg-emerald-50/70 border-emerald-200 text-emerald-900"
                                   : isSkipped
-                                  ? "bg-amber-950/40 border-amber-700/50 text-amber-200"
-                                  : "bg-rose-950/30 border-rose-800/50 text-rose-200"
+                                  ? "bg-amber-50/80 border-amber-200 text-amber-900"
+                                  : "bg-rose-50/80 border-rose-200 text-rose-900"
                               }`}
                             >
                               <div>
                                 <span className="font-bold">Câu {qd.questionOrder} </span>
-                                <span className="text-[10px] opacity-75">
+                                <span className="text-[10px] font-semibold opacity-80">
                                   (ĐA: {qd.correctAnswerDisplay})
                                 </span>
                               </div>
@@ -2131,9 +2397,9 @@ export function AdminBulkOMRScannerModal({
                                         className={`w-6 h-6 rounded font-bold text-[10px] border transition cursor-pointer ${
                                           picked
                                             ? isRight
-                                              ? "bg-emerald-600 text-white border-emerald-500"
-                                              : "bg-rose-600 text-white border-rose-500"
-                                            : "bg-slate-900 text-slate-300 border-slate-700"
+                                              ? "bg-emerald-600 text-white border-emerald-600"
+                                              : "bg-rose-600 text-white border-rose-600"
+                                            : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
                                         }`}
                                       >
                                         {optK}
@@ -2144,7 +2410,7 @@ export function AdminBulkOMRScannerModal({
                               )}
 
                               {qd.part === 2 && (
-                                <span className="text-[10px] font-semibold">
+                                <span className="text-[10px] font-bold">
                                   {qd.studentAnswerDisplay}
                                 </span>
                               )}
@@ -2173,7 +2439,7 @@ export function AdminBulkOMRScannerModal({
                                       e.target.value
                                     );
                                   }}
-                                  className="w-16 px-1.5 py-0.5 rounded border border-slate-700 bg-slate-900 text-center font-bold text-xs text-white outline-none"
+                                  className="w-16 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-center font-bold text-xs text-slate-800 outline-none focus:border-blue-600"
                                 />
                               )}
                             </div>
@@ -2184,8 +2450,8 @@ export function AdminBulkOMRScannerModal({
                   </div>
                 </>
               ) : (
-                <div className="my-auto text-center text-slate-500 text-xs p-6">
-                  Kết quả quét và ảnh đối chiếu sẽ tự động mở tại đây ngay sau khi chụp.
+                <div className="my-auto text-center text-slate-500 font-semibold text-xs p-8 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                  Kết quả quét và tờ phiếu trắng đối chiếu sẽ tự động mở tại đây ngay sau khi chụp.
                 </div>
               )}
             </div>
