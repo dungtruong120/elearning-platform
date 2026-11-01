@@ -105,8 +105,8 @@ interface ScannedSheetItem {
   syncedToCloud?: boolean;
 }
 
-// Hằng số bù trừ độ lệch trục Y cho Phần III (Điền số trả lời ngắn)
-const DEFAULT_PART3_Y_OFFSET = -14;
+// Hằng số bù trừ độ lệch trục Y cho Phần III: đặt chuẩn = 0 vì omrEngine đã tự động khóa vào khung viền & vành tròn in
+const DEFAULT_PART3_Y_OFFSET = 0;
 
 function dataUrlToBlob(dataUrl: string): Blob | null {
   try {
@@ -132,6 +132,9 @@ function normalizeSbd6Digits(rawSbd: any): string {
   return digitsOnly.padStart(6, "0").slice(-6);
 }
 
+/**
+ * PHÁT ÂM THANH BEEP NGẮN BẰNG WEB AUDIO API KHI QUÉT THÀNH CÔNG
+ */
 function playScanSuccessBeep() {
   if (typeof window === "undefined") return;
   try {
@@ -143,8 +146,8 @@ function playScanSuccessBeep() {
     const gain = ctx.createGain();
 
     osc.type = "sine";
-    osc.frequency.setValueAtTime(1046.5, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1318.5, ctx.currentTime + 0.08);
+    osc.frequency.setValueAtTime(1046.5, ctx.currentTime); // C6
+    osc.frequency.exponentialRampToValueAtTime(1318.5, ctx.currentTime + 0.08); // E6
 
     gain.gain.setValueAtTime(0.18, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
@@ -162,6 +165,9 @@ function playScanSuccessBeep() {
   } catch {}
 }
 
+/**
+ * TRÍCH XUẤT DANH SÁCH CÂU HỎI PHẲNG TỪ ĐỀ THI GỐC ĐỂ XÁC ĐỊNH ĐÁP ÁN ĐÚNG KHI HỌC SINH LÀM SAI HOẶC BỎ TRỐNG
+ */
 function extractFlatQuestionsFromQuiz(rawQuizObj: any): any[] {
   const flatQuestions: any[] = [];
   if (!rawQuizObj) return flatQuestions;
@@ -182,6 +188,10 @@ function extractFlatQuestionsFromQuiz(rawQuizObj: any): any[] {
   return flatQuestions;
 }
 
+/**
+ * CHUẨN HÓA TỌA ĐỘ PHẦN III (KHÔNG TRÔI LỆCH) & BỔ SUNG ĐẦY ĐỦ VÒNG TRÒN NÉT ĐỨT MÀU VÀNG (`expected_missed`)
+ * CHO MỌI CÂU HỌC SINH LÀM SAI HOẶC BỎ TRỐNG Ở CẢ 3 PHẦN (PHẦN I, PHẦN II, PHẦN III)
+ */
 function enrichAndCalibrateOMRBubbleCoordinates(
   rawCoords: any[],
   questionDetails: any[],
@@ -198,6 +208,7 @@ function enrichAndCalibrateOMRBubbleCoordinates(
   const p1Count = p1Details.length || 12;
   const p2Count = p2Details.length || 4;
 
+  // Bước 1: Tinh chỉnh tọa độ Y của Phần III để các vòng tròn nhận diện ôm khít vào ô tròn in trên giấy
   const calibrated = rawCoords.map((b: any) => {
     if (!b) return b;
     const isPart3 =
@@ -208,12 +219,14 @@ function enrichAndCalibrateOMRBubbleCoordinates(
       return {
         ...b,
         __rawY: baseRawY,
-        y: Math.round(baseRawY + part3YOffset)
+        y: Math.round((baseRawY + part3YOffset) * 10) / 10
       };
     }
     return { ...b };
   });
 
+  // Bước 2: Đảm bảo 100% câu làm sai hoặc bỏ trống đều có ô `expected_missed` (vòng tròn vàng nét đứt) ở đáp án đúng của đề
+  // 2.1. Xử lý Phần I (Trắc nghiệm 4 lựa chọn A, B, C, D)
   p1Details.forEach((qd: any, idx: number) => {
     const localNum = Number(qd.localNum || idx + 1);
     const qOrder = Number(qd.questionOrder || localNum);
@@ -242,6 +255,7 @@ function enrichAndCalibrateOMRBubbleCoordinates(
     }
   });
 
+  // 2.2. Xử lý Phần II (Trắc nghiệm Đúng / Sai a, b, c, d)
   p2Details.forEach((qd: any, idx: number) => {
     const localNum = Number(qd.localNum || idx + 1);
     const qOrder = Number(qd.questionOrder || p1Count + localNum);
@@ -251,6 +265,8 @@ function enrichAndCalibrateOMRBubbleCoordinates(
 
     subKeys.forEach((sk, sIdx) => {
       let expectedOptionKey: "T" | "F" | null = null;
+
+      // Tìm từ câu hỏi gốc hoặc từ chuỗi đáp án chuẩn (VD: "a)Đ b)S c)Đ d)Đ")
       if (Array.isArray(qObj?.statements) && qObj.statements[sIdx] !== undefined) {
         const st = qObj.statements[sIdx];
         const isTrue = Boolean(st?.isTrue ?? st?.correct ?? st?.answer);
@@ -293,6 +309,7 @@ function enrichAndCalibrateOMRBubbleCoordinates(
     });
   });
 
+  // 2.3. Xử lý Phần III (Trả lời ngắn - Tô từng ký tự số / dấu trừ / dấu phẩy theo cột)
   p3Details.forEach((qd: any, idx: number) => {
     const localNum = Number(qd.localNum || idx + 1);
     const qOrder = Number(qd.questionOrder || p1Count + p2Count + localNum);
@@ -307,6 +324,7 @@ function enrichAndCalibrateOMRBubbleCoordinates(
 
     if (!rawCorrectStr || rawCorrectStr === "--" || qd.status === "correct") return;
 
+    // Chuẩn hóa dấu thập phân sang dấu phẩy theo chuẩn phiếu OMR Bộ GD&ĐT
     const normalizedChars = rawCorrectStr.replace(/\./g, ",").split("");
 
     normalizedChars.forEach((charKey, colIdx) => {
@@ -315,7 +333,7 @@ function enrichAndCalibrateOMRBubbleCoordinates(
           b &&
           b.section === "part3" &&
           Number(b.questionNumber) === localNum &&
-          Number(b.colIndex ?? b.col ?? 0) === colIdx
+          Number(b.colIndex ?? b.col ?? b.subKey ?? 0) === colIdx
       );
 
       colBubbles.forEach((b: any) => {
@@ -361,6 +379,7 @@ export function AdminBulkOMRScannerModal({
   const [isCameraPausedForInspect, setIsCameraPausedForInspect] = useState<boolean>(false);
   const [isBottomSheetExpanded, setIsBottomSheetExpanded] = useState<boolean>(false);
 
+  // Độ bù trục Y cho Phần III (cho phép tinh chỉnh trực tiếp nếu máy in lệch lề)
   const [part3YOffset, setPart3YOffset] = useState<number>(DEFAULT_PART3_Y_OFFSET);
 
   const [realtimeCornersStatus, setRealtimeCornersStatus] = useState<{
@@ -405,6 +424,7 @@ export function AdminBulkOMRScannerModal({
   const streamRef = useRef<MediaStream | null>(null);
   const lastAutoCaptureTimeRef = useRef<number>(0);
   const matchedHoldStartTimeRef = useRef<number | null>(null);
+  const prevRealtimeCornersRef = useRef<CustomFourCornersInput | null>(null);
   const manualSvgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -413,6 +433,7 @@ export function AdminBulkOMRScannerModal({
     }
   }, [effectiveInitialQuiz]);
 
+  // 1. TỔNG HỢP DANH MỤC TẤT CẢ ĐỀ THI (BTVN + ĐỀ KT + LUYỆN ĐỀ)
   const allQuizzesPool = useMemo(() => {
     const list: {
       id: string;
@@ -473,6 +494,11 @@ export function AdminBulkOMRScannerModal({
     return list;
   }, [chapters, practiceExams]);
 
+  /**
+   * 2. DANH MỤC HỌC SINH & BẢNG TRA CỨU SBD 6 CHỮ SỐ CỐ ĐỊNH
+   * - Giữ nguyên danh sách gốc từ props, không sort theo tên, không tự sinh SBD bằng index + 1.
+   * - `sbdLookupMap` chỉ dùng duy nhất key là chuỗi SBD 6 chữ số đã chuẩn hóa.
+   */
   const studentDirectory = useMemo(() => {
     const permanentSbdById: Record<string, string> = {};
     if (typeof window !== "undefined") {
@@ -546,6 +572,7 @@ export function AdminBulkOMRScannerModal({
     return map;
   }, [studentDirectory]);
 
+  // 3. HÀM GHI DỮ LIỆU TRỰC TIẾP LÊN SUPABASE
   const persistPaperAttemptToSupabase = useCallback(
     async (item: ScannedSheetItem, customAttemptId?: string) => {
       const nowIso = new Date().toISOString();
@@ -781,6 +808,7 @@ export function AdminBulkOMRScannerModal({
     [effectiveSupabase]
   );
 
+  // 4. QUẢN LÝ CAMERA ĐỘ PHÂN GIẢI CAO & TẠM DỪNG / CHẠY LẠI KHI SOI PHIẾU
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -829,6 +857,7 @@ export function AdminBulkOMRScannerModal({
 
   const handleResumeNextScan = useCallback(async () => {
     matchedHoldStartTimeRef.current = null;
+    prevRealtimeCornersRef.current = null;
     lastAutoCaptureTimeRef.current = Date.now();
     setIsManualCornerMode(false);
     setIsCameraPausedForInspect(false);
@@ -873,6 +902,10 @@ export function AdminBulkOMRScannerModal({
     return () => stopCamera();
   }, [isOpen, startCamera, stopCamera]);
 
+  /**
+   * 5. CẮT KHUNG NGẮM A4 CHUẨN XÁC TRÊN MỌI MÀN HÌNH IPAD (4:3) & ĐIỆN THOẠI (20:9)
+   * - Margin an toàn 5% (0.05) xung quanh khung ngắm để không cắt lẹm 4 góc vuông đen
+   */
   const extractA4GuideFrameCanvas = useCallback(
     (video: HTMLVideoElement, targetWidth: number = 1200): HTMLCanvasElement | null => {
       const vW = video.videoWidth;
@@ -954,17 +987,20 @@ export function AdminBulkOMRScannerModal({
         customCorners
       );
 
+      let matchedNewQuiz = false;
       if (selectedQuizId === "auto" && preliminaryOmr.detected_exam_code !== "Chưa tô") {
         const byCode = allQuizzesPool.find(
           (q) => q.examCode === preliminaryOmr.detected_exam_code
         );
-        if (byCode) {
+        if (byCode && byCode.id !== targetQuizEntry?.id) {
           targetQuizEntry = byCode;
+          matchedNewQuiz = true;
         }
       }
 
+      // Chỉ quét lại nếu chế độ Auto đổi sang đề thi khác có số lượng câu hỏi khác đề mặc định
       const finalOmr =
-        targetQuizEntry && selectedQuizId === "auto"
+        targetQuizEntry && selectedQuizId === "auto" && matchedNewQuiz
           ? scanOMRSheetFromCanvas(canvas, targetQuizEntry.rawObj, 1, customCorners)
           : preliminaryOmr;
 
@@ -996,6 +1032,7 @@ export function AdminBulkOMRScannerModal({
 
       const displaySbd = formattedSbd6 || rawDetectedSbd || "Chưa tô";
 
+      // Làm giàu & căn chỉnh tọa độ bubble_coordinates (căn chỉnh Y Phần III + thêm vòng tròn vàng nét đứt cho mọi câu sai/bỏ trống)
       const enrichedBubbles = enrichAndCalibrateOMRBubbleCoordinates(
         graded.updatedOmrData.bubble_coordinates || [],
         graded.questionDetails || [],
@@ -1111,6 +1148,7 @@ export function AdminBulkOMRScannerModal({
     [soundEnabled, pauseCameraForInspection, autoSyncSingleItemInBackground]
   );
 
+  // 6. VÒNG LẶP QUÉT REALTIME NHẠY BÉN CÓ KHÓA CHỐNG RUNG 4 GÓC (CORNER STABILITY CHECK)
   useEffect(() => {
     if (!isOpen || mobileViewTab !== "camera" || isCameraPausedForInspect) return;
 
@@ -1140,12 +1178,43 @@ export function AdminBulkOMRScannerModal({
       if (!autoCaptureEnabled) return;
 
       if (rtResult.isMatched && rtResult.detectedCorners) {
+        const curC = rtResult.detectedCorners;
+        const prevC = prevRealtimeCornersRef.current;
+        prevRealtimeCornersRef.current = curC;
+
+        // Kiểm tra độ đứng yên của 4 góc giữa 2 frame liên tiếp (< 6.5px trên khung 440px) để ảnh không bị nhòe do rung tay
+        let isSteady = true;
+        if (prevC) {
+          const maxCornerMove = Math.max(
+            Math.hypot(curC.topLeft.x - prevC.topLeft.x, curC.topLeft.y - prevC.topLeft.y),
+            Math.hypot(curC.topRight.x - prevC.topRight.x, curC.topRight.y - prevC.topRight.y),
+            Math.hypot(
+              curC.bottomRight.x - prevC.bottomRight.x,
+              curC.bottomRight.y - prevC.bottomRight.y
+            ),
+            Math.hypot(
+              curC.bottomLeft.x - prevC.bottomLeft.x,
+              curC.bottomLeft.y - prevC.bottomLeft.y
+            )
+          );
+          if (maxCornerMove > 6.5) {
+            isSteady = false;
+          }
+        }
+
+        if (!isSteady) {
+          matchedHoldStartTimeRef.current = now;
+          setCameraStatusText("Đã khớp 4 góc — Giữ yên máy để chụp nét...");
+          return;
+        }
+
         if (!matchedHoldStartTimeRef.current) {
           matchedHoldStartTimeRef.current = now;
           setCameraStatusText("Đã khớp 4 góc — Đang chụp tự động...");
         } else if (now - matchedHoldStartTimeRef.current >= 180) {
           lastAutoCaptureTimeRef.current = now;
           matchedHoldStartTimeRef.current = null;
+          prevRealtimeCornersRef.current = null;
 
           setShutterFlash(true);
           setTimeout(() => setShutterFlash(false), 180);
@@ -1187,6 +1256,7 @@ export function AdminBulkOMRScannerModal({
         }
       } else {
         matchedHoldStartTimeRef.current = null;
+        prevRealtimeCornersRef.current = null;
         const matchedCount =
           (rtResult.cornerStatus.topLeft ? 1 : 0) +
           (rtResult.cornerStatus.topRight ? 1 : 0) +
@@ -1249,6 +1319,7 @@ export function AdminBulkOMRScannerModal({
     }
   }, [activeInspectItem?.tempId]);
 
+  // Tính toán danh sách tọa độ OMR hiển thị trên SVG (đã bù độ lệch Y Phần III và gắn đầy đủ vòng tròn vàng nét đứt)
   const activeInspectCalibratedBubbles = useMemo(() => {
     if (!activeInspectItem?.omrRawData?.bubble_coordinates) return [];
     return enrichAndCalibrateOMRBubbleCoordinates(
@@ -1325,7 +1396,7 @@ export function AdminBulkOMRScannerModal({
           const updatedItem: ScannedSheetItem = {
             ...rescanned,
             tempId: activeInspectItem.tempId,
-            cornerPoints: editingCorners,
+            cornerPoints: rescanned.cornerPoints || editingCorners,
             warpMatrixApplied: true,
             geometryWarning: undefined
           };
@@ -1470,7 +1541,20 @@ export function AdminBulkOMRScannerModal({
         }
       });
     } else if (part === 3) {
-      nextOmr.part3_answers[localQuestionNum] = String(newVal || "").trim();
+      const cleanStr = String(newVal || "").trim();
+      nextOmr.part3_answers[localQuestionNum] = cleanStr;
+      const chars = cleanStr.replace(/\./g, ",").split("");
+      nextOmr.bubble_coordinates.forEach((b: any) => {
+        if (b.section === "part3" && b.questionNumber === localQuestionNum) {
+          const colIdx = Number(b.subKey ?? b.colIndex ?? 0);
+          const targetChar = chars[colIdx];
+          b.isSelected =
+            targetChar !== undefined &&
+            (b.optionKey === targetChar ||
+              (targetChar === "," && (b.optionKey === "," || b.optionKey === ".")));
+          b.status = b.isSelected ? "detected" : "unfilled";
+        }
+      });
     }
 
     const regraded = gradeOMRSubmission(nextOmr, item.rawQuizObj);
@@ -1509,6 +1593,7 @@ export function AdminBulkOMRScannerModal({
     autoSyncSingleItemInBackground(updatedItem);
   };
 
+  // LƯU TẤT CẢ ĐIỂM LÊN SUPABASE & ĐÓNG MODAL
   const handleSaveAllScannedToSystem = async () => {
     if (scannedItems.length === 0 || isSavingAll) return;
     setIsSavingAll(true);
@@ -1635,7 +1720,7 @@ export function AdminBulkOMRScannerModal({
           </div>
         </div>
 
-        {/* 2. KHÔNG GIAN CHÍNH (2 CỘT: TRÁI CAMERA, PHẢI SOI PHIẾU NỀN SÁNG) */}
+        {/* 2. KHÔNG GIAN CHÍNH (2 CỘT: TRÁI LÀ KHUNG CAMERA, PHẢI LÀ BÀN SOI PHIẾU NỀN SÁNG) */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 relative overflow-hidden">
           {/* CỘT TRÁI: CAMERA QUÉT PHIẾU CHUẨN A4 */}
           <div
@@ -1643,6 +1728,7 @@ export function AdminBulkOMRScannerModal({
               mobileViewTab === "inspect" ? "hidden lg:flex" : "flex"
             }`}
           >
+            {/* Vùng Viewport Camera */}
             <div className="relative flex-1 w-full min-h-0 flex items-center justify-center overflow-hidden bg-slate-900 px-3 py-2 sm:px-6 sm:py-4">
               <video
                 ref={videoRef}
@@ -1656,6 +1742,7 @@ export function AdminBulkOMRScannerModal({
                 <div className="absolute inset-0 bg-white/90 z-40 pointer-events-none" />
               )}
 
+              {/* Lớp phủ nền sáng khi Camera đang tạm dừng để đối soát */}
               {isCameraPausedForInspect && (
                 <div className="absolute inset-0 z-30 bg-white/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center space-y-4">
                   <div className="w-12 h-12 rounded-full bg-emerald-50 border-2 border-emerald-500 flex items-center justify-center text-emerald-600 shadow-xs">
@@ -1680,6 +1767,7 @@ export function AdminBulkOMRScannerModal({
                 </div>
               )}
 
+              {/* Thông báo ngắn gọn trên đỉnh khung ngắm */}
               <div className="absolute top-2.5 inset-x-3 flex justify-center z-20 pointer-events-none">
                 <span
                   className={`px-3.5 py-1 rounded-full text-[11px] font-bold border shadow-md backdrop-blur-xs ${
@@ -1692,6 +1780,7 @@ export function AdminBulkOMRScannerModal({
                 </span>
               </div>
 
+              {/* KHUNG NGẮM DỌC TỶ LỆ CHUẨN A4 */}
               <div
                 ref={guideFrameRef}
                 className="relative z-10 h-full max-h-[68vh] sm:max-h-[72vh] aspect-[1/1.414] max-w-[88vw] rounded-lg shadow-[0_0_0_9999px_rgba(15,23,42,0.45)] pointer-events-none flex flex-col justify-between"
@@ -1704,6 +1793,7 @@ export function AdminBulkOMRScannerModal({
                   }`}
                 />
 
+                {/* 2 Ô góc trên */}
                 <div className="flex justify-between p-1.5">
                   {[
                     { key: "TL", matched: realtimeCornersStatus.topLeft },
@@ -1724,6 +1814,7 @@ export function AdminBulkOMRScannerModal({
                   ))}
                 </div>
 
+                {/* 2 Ô góc dưới */}
                 <div className="flex justify-between p-1.5">
                   {[
                     { key: "BL", matched: realtimeCornersStatus.bottomLeft },
@@ -1746,7 +1837,7 @@ export function AdminBulkOMRScannerModal({
               </div>
             </div>
 
-            {/* 3. THANH CÔNG CỤ CAMERA NỀN TRẮNG */}
+            {/* 3. THANH CÔNG CỤ CAMERA NỀN TRẮNG SẠCH SẼ */}
             <div className="bg-white border-t border-slate-200 px-4 py-2.5 flex items-center justify-between sm:justify-around shrink-0 z-20">
               <div className="flex items-center gap-2">
                 <button
@@ -1780,6 +1871,7 @@ export function AdminBulkOMRScannerModal({
                 </button>
               </div>
 
+              {/* Nút chụp tròn lớn màu xanh TCT nổi bật */}
               <button
                 type="button"
                 onClick={
@@ -1827,7 +1919,7 @@ export function AdminBulkOMRScannerModal({
               </div>
             </div>
 
-            {/* 4. KHAY TRƯỢT ĐÁY (LIGHT THEME) */}
+            {/* 4. KHAY TRƯỢT ĐÁY DANH SÁCH ĐÃ QUÉT (LIGHT THEME) */}
             <div className="bg-white border-t border-slate-200 text-slate-800 shrink-0 z-30">
               <div
                 onClick={() => setIsBottomSheetExpanded((prev) => !prev)}
@@ -1937,12 +2029,13 @@ export function AdminBulkOMRScannerModal({
             </div>
           </div>
 
-          {/* CỘT PHẢI: MÀN HÌNH SOI PHIẾU NỀN SÁNG (`bg-slate-200/60`) & VÒNG TRÒN ĐÚNG/SAI/VÀNG NÉT ĐỨT */}
+          {/* CỘT PHẢI: MÀN HÌNH SOI PHIẾU NỀN SÁNG (`bg-slate-200/60`) & BẢNG ĐỐI SOÁT TRỰC QUAN */}
           <div
             className={`lg:col-span-6 bg-slate-100 flex flex-col min-h-0 overflow-hidden ${
               mobileViewTab === "camera" ? "hidden lg:flex" : "flex"
             }`}
           >
+            {/* Thanh công cụ nắn 4 góc, căn chỉnh Y Phần III & phóng to */}
             <div className="px-3.5 py-2 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-700 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -1976,7 +2069,7 @@ export function AdminBulkOMRScannerModal({
                   </button>
                 )}
 
-                {/* Thanh vi chỉnh Y Phần III */}
+                {/* Nút vi chỉnh vị trí Y của Phần III nếu máy in thực tế co giãn lề */}
                 <div
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-[11px]"
                   title="Tinh chỉnh vị trí dọc (Y) của vòng tròn Phần III"
@@ -1987,6 +2080,7 @@ export function AdminBulkOMRScannerModal({
                     type="button"
                     onClick={() => setPart3YOffset((v) => v - 2)}
                     className="px-1.5 rounded bg-white border border-slate-200 hover:bg-slate-100 font-bold cursor-pointer"
+                    title="Đẩy vòng tròn Phần III lên trên"
                   >
                     ↑
                   </button>
@@ -1997,6 +2091,7 @@ export function AdminBulkOMRScannerModal({
                     type="button"
                     onClick={() => setPart3YOffset((v) => v + 2)}
                     className="px-1.5 rounded bg-white border border-slate-200 hover:bg-slate-100 font-bold cursor-pointer"
+                    title="Hạ vòng tròn Phần III xuống dưới"
                   >
                     ↓
                   </button>
@@ -2028,6 +2123,7 @@ export function AdminBulkOMRScannerModal({
               </div>
             </div>
 
+            {/* Thanh thông tin SBD, Học sinh, Điểm số & NÚT BẤM LỚN "QUÉT TIẾP BÀI TIẾP THEO" */}
             {activeInspectItem && (
               <div className="p-3 bg-white border-b border-slate-200 space-y-2.5 shrink-0 shadow-2xs">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -2089,6 +2185,7 @@ export function AdminBulkOMRScannerModal({
                   </div>
                 </div>
 
+                {/* Chú thích màu sắc Vòng tròn OMR */}
                 <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold text-slate-600 pt-0.5">
                   <span className="inline-flex items-center gap-1">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/30 border-2 border-emerald-600 inline-block" />
@@ -2104,6 +2201,7 @@ export function AdminBulkOMRScannerModal({
                   </span>
                 </div>
 
+                {/* NÚT BẤM LỚN NỔI BẬT MÀU XANH TCT: QUÉT TIẾP BÀI TIẾP THEO */}
                 <button
                   type="button"
                   onClick={handleResumeNextScan}
@@ -2115,7 +2213,7 @@ export function AdminBulkOMRScannerModal({
               </div>
             )}
 
-            {/* BÀN SOI PHIẾU NỀN SÁNG NHẸ (`bg-slate-200/60`) */}
+            {/* BÀN SOI PHIẾU NỀN SÁNG NHẸ (`bg-slate-200/60`) LÀM NỔI BẬT TỜ GIẤY A4 TRẮNG */}
             <div className="flex-1 overflow-auto p-3 sm:p-4 bg-slate-200/60 custom-scrollbar flex flex-col items-center justify-start space-y-3">
               {activeInspectItem ? (
                 <>
@@ -2268,6 +2366,18 @@ export function AdminBulkOMRScannerModal({
                                         b.questionNumber,
                                         b.optionKey
                                       );
+                                    } else if (
+                                      b.section === "part2" &&
+                                      b.questionNumber &&
+                                      b.subKey
+                                    ) {
+                                      handleQuickAdjustAnswer(
+                                        activeInspectItem,
+                                        2,
+                                        b.questionNumber,
+                                        b.optionKey === "T",
+                                        b.subKey
+                                      );
                                     }
                                   }}
                                 >
@@ -2290,6 +2400,7 @@ export function AdminBulkOMRScannerModal({
                     </div>
                   )}
 
+                  {/* BẢNG ĐỐI SOÁT & CHỈNH SỬA NHANH ĐÁP ÁN NỀN SÁNG */}
                   <div className="w-full bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs space-y-2.5">
                     <div className="flex items-center justify-between text-xs font-bold text-slate-800">
                       <span className="flex items-center gap-1.5">
@@ -2361,9 +2472,52 @@ export function AdminBulkOMRScannerModal({
                               )}
 
                               {qd.part === 2 && (
-                                <span className="text-[10px] font-bold">
-                                  {qd.studentAnswerDisplay}
-                                </span>
+                                <div className="flex flex-wrap items-center gap-1 justify-end">
+                                  {(["a", "b", "c", "d"] as const).map((sk) => {
+                                    const p1Count = (
+                                      activeInspectItem.questionDetails || []
+                                    ).filter((x: any) => x.part === 1).length;
+                                    const localP2Num = Math.max(
+                                      1,
+                                      qd.questionOrder - p1Count
+                                    );
+                                    const curSubVal =
+                                      activeInspectItem.omrRawData?.part2_answers?.[
+                                        localP2Num
+                                      ]?.[sk];
+                                    return (
+                                      <button
+                                        key={sk}
+                                        type="button"
+                                        onClick={() => {
+                                          const nextVal =
+                                            curSubVal === true
+                                              ? false
+                                              : curSubVal === false
+                                              ? null
+                                              : true;
+                                          handleQuickAdjustAnswer(
+                                            activeInspectItem,
+                                            2,
+                                            localP2Num,
+                                            nextVal === null ? curSubVal : nextVal,
+                                            sk
+                                          );
+                                        }}
+                                        title={`Bấm để đổi ý ${sk}) Đúng / Sai / Trống`}
+                                        className={`px-1.5 py-0.5 rounded font-bold text-[10px] border transition cursor-pointer ${
+                                          curSubVal === true
+                                            ? "bg-blue-600 text-white border-blue-600"
+                                            : curSubVal === false
+                                            ? "bg-amber-600 text-white border-amber-600"
+                                            : "bg-white text-slate-600 border-slate-300 hover:bg-slate-100"
+                                        }`}
+                                      >
+                                        {sk}){curSubVal === true ? "Đ" : curSubVal === false ? "S" : "_"}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               )}
 
                               {qd.part === 3 && (
