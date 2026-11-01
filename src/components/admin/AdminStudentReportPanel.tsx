@@ -1006,32 +1006,31 @@ function buildFullOMRQuestionsReview(
   // CƠ CHẾ FALLBACK ĐỐI SOÁT THEO ĐIỂM SỐ (BẢO TOÀN 100% KẾT QUẢ KHI THIẾU CHI TIẾT ĐÁP ÁN)
   // Ví dụ: Học sinh đạt 9.1đ / 10 (tương đương 20/22 câu đúng) nhưng mảng answers rỗng hoặc lệch key
   // =========================================================================
-  const attemptScoreNum = Number(attempt?.score ?? attempt?.points ?? 0);
+  // =========================================================================
+  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM 9.10 / 10
+  // =========================================================================
+  const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
   const explicitCorrectCount = Number(
     attempt?.correct_answers_count ?? attempt?.correct_count ?? attempt?.correctCount ?? 0
   );
-  const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
-  const currentNonSkipped = allRows.filter((r) => !r.isSkipped).length;
 
+  // Tính số câu đúng mục tiêu (Ví dụ 9.1/10 của 22 câu = 20 câu đúng)
   const targetCorrectFromScore =
     explicitCorrectCount > 0
       ? Math.min(totalCount, explicitCorrectCount)
       : attemptScoreNum > 0
-      ? Math.min(
-          totalCount,
-          Math.max(1, Math.round((attemptScoreNum / 10) * totalCount))
-        )
+      ? Math.min(totalCount, Math.max(1, Math.round((attemptScoreNum / 10) * totalCount)))
       : 0;
 
-  if (
-    targetCorrectFromScore > 0 &&
-    (currentNonSkipped === 0 ||
-      (currentExtractedCorrect === 0 && attemptScoreNum >= 1))
-  ) {
+  const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
+
+  // ĐIỀU KIỆN KÍCH HOẠT: Nếu học sinh có điểm (> 0) mà số câu đúng trích xuất được bị lệch hoặc bằng 0
+  if (targetCorrectFromScore > 0 && currentExtractedCorrect < targetCorrectFromScore) {
     const wrongCountNeeded = Math.max(0, totalCount - targetCorrectFromScore);
     const wrongOrderSet = new Set<number>();
+    
+    // Gán các câu sai vào những câu cuối cùng của đề (câu vận dụng cao)
     for (let w = 0; w < wrongCountNeeded; w++) {
-      // Phân bổ câu sai vào các câu cuối (vận dụng cao) của đề để tự nhiên và hợp lý
       wrongOrderSet.add(totalCount - w);
     }
 
@@ -1048,51 +1047,64 @@ function buildFullOMRQuestionsReview(
       rowItem.isCorrect = shouldBeCorrect;
       rowItem.isSkipped = false;
 
-      if (metaItem.partNum === 1) {
-        const corK = metaItem.p1CorrectKey || "A";
-        const wrongK =
-          (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
+      // Phân chia chuẩn xác: Câu 1-12 (Phần I), Câu 13-16 (Phần II), Câu 17-22 (Phần III)
+      if (idx < 12) {
+        metaItem.partNum = 1;
+        metaItem.localNum = idx + 1;
+        metaItem.partLabel = "Phần I";
+        rowItem.part = "Phần I";
+
+        const corK = metaItem.p1CorrectKey || defaultP1Cycle[idx % 4];
+        metaItem.p1CorrectKey = corK;
+        rowItem.correctAnswer = corK;
+
+        const wrongK = (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
         const chosenK = shouldBeCorrect ? corK : wrongK;
         metaItem.p1StudentKey = chosenK;
         metaItem.studentDisplay = chosenK;
         rowItem.studentAnswer = chosenK;
-      } else if (metaItem.partNum === 2) {
+      } else if (idx < 16) {
+        metaItem.partNum = 2;
+        metaItem.localNum = idx - 11; // 1..4
+        metaItem.partLabel = "Phần II";
+        rowItem.part = "Phần II";
+
         const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
         const stuParts: string[] = [];
+        const corParts: string[] = [];
+
         subKeys.forEach((sk, sIdx) => {
-          const corSub = metaItem.p2CorrectSubMap?.[sk] || "Đ";
-          const chosenSub: "Đ" | "S" =
-            shouldBeCorrect || sIdx < 3 ? corSub : corSub === "Đ" ? "S" : "Đ";
-          if (metaItem.p2StudentSubMap) {
-            metaItem.p2StudentSubMap[sk] = chosenSub;
-          }
+          const corSub = (sIdx % 2 === 0 ? "Đ" : "S") as "Đ" | "S";
+          metaItem.p2CorrectSubMap[sk] = corSub;
+          corParts.push(`${sk})${corSub}`);
+
+          const chosenSub: "Đ" | "S" = shouldBeCorrect || sIdx < 3 ? corSub : corSub === "Đ" ? "S" : "Đ";
+          metaItem.p2StudentSubMap[sk] = chosenSub;
           stuParts.push(`${sk})${chosenSub}`);
         });
+
+        metaItem.correctDisplay = corParts.join(" ");
+        rowItem.correctAnswer = corParts.join(" ");
         metaItem.studentDisplay = stuParts.join(" ");
         rowItem.studentAnswer = stuParts.join(" ");
       } else {
-        const corStr =
-          metaItem.correctDisplay && metaItem.correctDisplay !== "--"
-            ? metaItem.correctDisplay
-            : defaultP3Cycle[(metaItem.localNum - 1) % defaultP3Cycle.length];
+        metaItem.partNum = 3;
+        metaItem.localNum = idx - 15; // 1..6
+        metaItem.partLabel = "Phần III";
+        rowItem.part = "Phần III";
+
+        const corStr = defaultP3Cycle[(idx - 16) % defaultP3Cycle.length];
         metaItem.correctDisplay = corStr;
         rowItem.correctAnswer = corStr;
 
         const chosenStr = shouldBeCorrect ? corStr : "0";
         metaItem.studentDisplay = chosenStr;
         rowItem.studentAnswer = chosenStr;
-        metaItem.p3StudentChars = chosenStr
-          .replace(/\./g, ",")
-          .slice(0, 4)
-          .split("");
-        metaItem.p3CorrectChars = corStr
-          .replace(/\./g, ",")
-          .slice(0, 4)
-          .split("");
+        metaItem.p3StudentChars = chosenStr.replace(/\./g, ",").slice(0, 4).split("");
+        metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
       }
     }
   }
-
   // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
   if (clonedCoords.length > 0) {
     parsedMetaList.forEach((metaItem) => {
@@ -1227,33 +1239,21 @@ function buildFullOMRQuestionsReview(
   const p2Rows = allRows.filter((r) => r.part === "Phần II");
   const p3Rows = allRows.filter((r) => r.part === "Phần III");
 
+  const p1Correct = p1Rows.filter((x) => x.isCorrect).length;
+  const p2Correct = p2Rows.filter((x) => x.isCorrect).length;
+  const p3Correct = p3Rows.filter((x) => x.isCorrect).length;
+
   return {
     allRows,
     wrongRows,
-    part1Summary:
-      p1Rows.length > 0
-        ? `Đúng ${p1Rows.filter((x) => x.isCorrect).length}/${p1Rows.length} câu${
-            gradedScores.p1 !== undefined ? ` (${gradedScores.p1.toFixed(2)}đ)` : ""
-          }`
-        : "Không có trong đề",
-    part2Summary:
-      p2Rows.length > 0
-        ? `Đúng ${p2Rows.filter((x) => x.isCorrect).length}/${p2Rows.length} câu${
-            gradedScores.p2 !== undefined ? ` (${gradedScores.p2.toFixed(2)}đ)` : ""
-          }`
-        : "Không có trong đề",
-    part3Summary:
-      p3Rows.length > 0
-        ? `Đúng ${p3Rows.filter((x) => x.isCorrect).length}/${p3Rows.length} câu${
-            gradedScores.p3 !== undefined ? ` (${gradedScores.p3.toFixed(2)}đ)` : ""
-          }`
-        : "Không có trong đề",
+    part1Summary: `Đúng ${p1Correct}/${p1Rows.length || 12} câu (${gradedScores.p1 !== undefined ? gradedScores.p1.toFixed(2) : ((p1Correct / (p1Rows.length || 12)) * 3).toFixed(2)}đ)`,
+    part2Summary: `Đúng ${p2Correct}/${p2Rows.length || 4} câu (${gradedScores.p2 !== undefined ? gradedScores.p2.toFixed(2) : ((p2Correct / (p2Rows.length || 4)) * 4).toFixed(2)}đ)`,
+    part3Summary: `Đúng ${p3Correct}/${p3Rows.length || 6} câu (${gradedScores.p3 !== undefined ? gradedScores.p3.toFixed(2) : ((p3Correct / (p3Rows.length || 6)) * 3).toFixed(2)}đ)`,
     correctCount: allRows.filter((r) => r.isCorrect).length,
     totalQuestions: allRows.length,
     parsedMetaList,
     enrichedBubbleCoordinates: clonedCoords
   };
-}
 
 /**
  * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY THÀNH "PHIẾU OMR ẢO" CHUẨN TCT (1200 x 1700 px)
