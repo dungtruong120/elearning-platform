@@ -1179,7 +1179,7 @@ export function detectOMRCornerMarkers(
 
   if (tl && tr && br && bl) {
     const topEdge = Math.hypot(tr.x - tl.x, tr.y - tl.y);
-    const bottomEdge = Math.hypot(br.x - bl.x, br.y - bl.y);
+    const botEdge = Math.hypot(br.x - bl.x, br.y - bl.y);
     const leftEdge = Math.hypot(bl.x - tl.x, bl.y - tl.y);
     const rightEdge = Math.hypot(br.x - tr.x, br.y - tr.y);
 
