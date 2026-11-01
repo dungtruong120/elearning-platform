@@ -449,7 +449,7 @@ function buildFullOMRQuestionsReview(
 
   // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
-  const detectedPartByIndex: (1 | 2 | 3)[] = [];
+  const detectedPartByIndex: Array<1 | 2 | 3> = [];
 
   if (rawQuizObj) {
     let rawSections =
