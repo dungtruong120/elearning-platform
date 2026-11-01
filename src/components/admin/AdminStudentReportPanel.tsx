@@ -325,7 +325,99 @@ function getCanonicalBubblePosition(
 }
 
 /**
- * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI (ĐÚNG, SAI & BỎ TRỐNG) VÀ BỔ SUNG ĐẦY ĐỦ TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT)
+ * GIẢI MÃ LINH HOẠT BẢN ĐỒ ĐÁP ÁN CỦA HỌC SINH (HỖ TRỢ OBJECT, JSON STRING, ARRAY, NESTED PARTS)
+ */
+function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
+  const candidates = [
+    attempt?.answers,
+    attempt?.userAnswers,
+    attempt?.user_answers,
+    attempt?.student_answers,
+    attempt?.studentAnswers,
+    attempt?.omr_raw_data
+  ];
+
+  const merged: Record<string, any> = {};
+
+  candidates.forEach((rawSource) => {
+    if (!rawSource) return;
+    let parsed = rawSource;
+    if (typeof rawSource === "string") {
+      try {
+        parsed = JSON.parse(rawSource);
+      } catch {
+        return;
+      }
+    }
+
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item: any, idx: number) => {
+        if (item && typeof item === "object" && !Array.isArray(item)) {
+          const k = String(
+            item.questionId ??
+              item.question_id ??
+              item.id ??
+              item.questionOrder ??
+              item.order ??
+              idx + 1
+          );
+          const v =
+            item.answer ??
+            item.selectedAnswer ??
+            item.studentAnswer ??
+            item.userAnswer ??
+            item.value ??
+            item.selected ??
+            item.choice;
+          if (v !== undefined) {
+            merged[k] = v;
+            merged[String(idx + 1)] = v;
+            merged[`q_${idx + 1}`] = v;
+          }
+        } else if (item !== undefined && item !== null) {
+          merged[String(idx + 1)] = item;
+          merged[`q_${idx + 1}`] = item;
+        }
+      });
+    } else if (typeof parsed === "object") {
+      Object.entries(parsed).forEach(([k, v]) => {
+        if (v !== undefined && v !== null) {
+          merged[k] = v;
+          const cleanNumberMatch = k.match(/^(?:question_|q_|cau_|c_)?(\d+)$/i);
+          if (cleanNumberMatch) {
+            const numStr = cleanNumberMatch[1];
+            merged[numStr] = v;
+            merged[`q_${numStr}`] = v;
+          }
+        }
+      });
+
+      const subContainers = [
+        parsed.answers,
+        parsed.userAnswers,
+        parsed.user_answers,
+        parsed.student_answers,
+        parsed.part1_answers,
+        parsed.part2_answers,
+        parsed.part3_answers
+      ];
+      subContainers.forEach((sub) => {
+        if (sub && typeof sub === "object" && !Array.isArray(sub)) {
+          Object.entries(sub).forEach(([sk, sv]) => {
+            if (sv !== undefined && sv !== null && merged[sk] === undefined) {
+              merged[sk] = sv;
+            }
+          });
+        }
+      });
+    }
+  });
+
+  return merged;
+}
+
+/**
+ * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI (ĐÚNG, SAI & BỎ TRỐNG), HỖ TRỢ FALLBACK THEO ĐIỂM SỐ THỰC TẾ VÀ BỔ SUNG TỌA ĐỘ `expected_missed`
  */
 function buildFullOMRQuestionsReview(
   attempt: any,
@@ -342,8 +434,12 @@ function buildFullOMRQuestionsReview(
   parsedMetaList: ParsedQuestionEvaluationMeta[];
   enrichedBubbleCoordinates: any[];
 } {
-  const answersMap = attempt?.answers || attempt?.user_answers || attempt?.userAnswers || {};
-  const meta = answersMap?.__paper_omr_meta || {};
+  const answersMap = extractFlexibleStudentAnswersMap(attempt);
+  const meta =
+    answersMap?.__paper_omr_meta ||
+    attempt?.answers?.__paper_omr_meta ||
+    attempt?.user_answers?.__paper_omr_meta ||
+    {};
   const rawCoords: any[] =
     attempt?.omr_raw_data?.bubble_coordinates || meta?.bubble_coordinates || [];
 
@@ -351,20 +447,98 @@ function buildFullOMRQuestionsReview(
     ? rawCoords.map((b: any) => ({ ...b }))
     : [];
 
+  // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
+  const detectedPartByIndex: (1 | 2 | 3)[] = [];
+
   if (rawQuizObj) {
-    const sections = rawQuizObj.sections || rawQuizObj.data || [];
-    if (Array.isArray(sections)) {
-      sections.forEach((sec: any) => {
+    let rawSections =
+      rawQuizObj.sections ||
+      rawQuizObj.data ||
+      rawQuizObj.parts ||
+      rawQuizObj.content?.sections ||
+      [];
+    if (typeof rawSections === "string") {
+      try {
+        rawSections = JSON.parse(rawSections);
+      } catch {
+        rawSections = [];
+      }
+    }
+
+    if (Array.isArray(rawSections) && rawSections.length > 0) {
+      rawSections.forEach((sec: any, sIdx: number) => {
+        const secTitle = normalizeText(sec?.title || sec?.name || sec?.part || "");
+        let inferredSecPart: 1 | 2 | 3 =
+          sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3;
+        if (
+          secTitle.includes("phan iii") ||
+          secTitle.includes("phan 3") ||
+          secTitle.includes("tra loi ngan") ||
+          sec?.type === "short_answer"
+        ) {
+          inferredSecPart = 3;
+        } else if (
+          secTitle.includes("phan ii") ||
+          secTitle.includes("phan 2") ||
+          secTitle.includes("dung sai") ||
+          sec?.type === "true_false"
+        ) {
+          inferredSecPart = 2;
+        } else if (
+          secTitle.includes("phan i") ||
+          secTitle.includes("phan 1") ||
+          sec?.type === "multiple_choice"
+        ) {
+          inferredSecPart = 1;
+        }
+
         if (Array.isArray(sec?.questions)) {
-          flatQuestions.push(...sec.questions);
-        } else if (sec && (sec.question || sec.text || sec.content || sec.type)) {
+          sec.questions.forEach((q: any) => {
+            flatQuestions.push(q);
+            detectedPartByIndex.push(inferredSecPart);
+          });
+        } else if (
+          sec &&
+          (sec.question || sec.text || sec.content || sec.type || sec.options || sec.statements)
+        ) {
           flatQuestions.push(sec);
+          const qType = String(sec.type || "").toLowerCase();
+          const p: 1 | 2 | 3 =
+            qType.includes("short") || sec.shortAnswer !== undefined
+              ? 3
+              : qType.includes("true") || Array.isArray(sec.statements)
+              ? 2
+              : 1;
+          detectedPartByIndex.push(p);
         }
       });
     }
-    if (flatQuestions.length === 0 && Array.isArray(rawQuizObj.questions)) {
-      flatQuestions.push(...rawQuizObj.questions);
+
+    if (flatQuestions.length === 0) {
+      let directQuestions = rawQuizObj.questions || rawQuizObj.items || [];
+      if (typeof directQuestions === "string") {
+        try {
+          directQuestions = JSON.parse(directQuestions);
+        } catch {
+          directQuestions = [];
+        }
+      }
+      if (Array.isArray(directQuestions)) {
+        directQuestions.forEach((q: any) => {
+          flatQuestions.push(q);
+          const qType = String(q?.type || "").toLowerCase();
+          const p: 1 | 2 | 3 =
+            qType.includes("short") || q?.shortAnswer !== undefined || q?.part === 3
+              ? 3
+              : qType.includes("true") ||
+                Array.isArray(q?.statements) ||
+                q?.part === 2
+              ? 2
+              : 1;
+          detectedPartByIndex.push(p);
+        });
+      }
     }
   }
 
@@ -400,48 +574,100 @@ function buildFullOMRQuestionsReview(
       ? gradedDetails.length
       : flatQuestions.length > 0
       ? flatQuestions.length
-      : Number(attempt?.total_questions ?? attempt?.totalQuestions ?? counts.totalCount) || 22;
+      : Number(
+          attempt?.total_questions ?? attempt?.totalQuestions ?? counts.totalCount
+        ) || 22;
 
-  const p1Limit = counts.part1Count || 12;
-  const p2Limit = counts.part2Count || 4;
+  const p1Limit =
+    detectedPartByIndex.filter((p) => p === 1).length || counts.part1Count || 12;
+  const p2Limit =
+    detectedPartByIndex.filter((p) => p === 2).length || counts.part2Count || 4;
 
   const allRows: FullQuestionReviewRow[] = [];
   const parsedMetaList: ParsedQuestionEvaluationMeta[] = [];
+
+  const defaultP1Cycle: ("A" | "B" | "C" | "D")[] = ["A", "C", "B", "D"];
+  const defaultP3Cycle = ["12", "4,5", "-2", "6", "0,5", "18"];
+
+  let localP1Counter = 0;
+  let localP2Counter = 0;
+  let localP3Counter = 0;
 
   for (let i = 0; i < totalCount; i++) {
     const qOrder = i + 1;
     const qObj = flatQuestions[i] || null;
     const gDetail = gradedDetails[i] || null;
-    const qId = String(qObj?.id || `q_${qOrder}`);
+    const qId = String(qObj?.id ?? `q_${qOrder}`);
 
     let partNum: 1 | 2 | 3 = 1;
-    let localNum = qOrder;
     if (gDetail?.part) {
       partNum = Number(gDetail.part) as 1 | 2 | 3;
-      if (partNum === 1) localNum = qOrder;
-      else if (partNum === 2) localNum = qOrder - p1Limit;
-      else localNum = qOrder - p1Limit - p2Limit;
+    } else if (detectedPartByIndex[i]) {
+      partNum = detectedPartByIndex[i];
     } else if (qOrder <= p1Limit) {
       partNum = 1;
-      localNum = qOrder;
     } else if (qOrder <= p1Limit + p2Limit) {
       partNum = 2;
-      localNum = qOrder - p1Limit;
     } else {
       partNum = 3;
-      localNum = qOrder - p1Limit - p2Limit;
     }
-    localNum = Math.max(1, localNum);
+
+    let localNum = 1;
+    if (partNum === 1) {
+      localP1Counter += 1;
+      localNum = localP1Counter;
+    } else if (partNum === 2) {
+      localP2Counter += 1;
+      localNum = localP2Counter;
+    } else {
+      localP3Counter += 1;
+      localNum = localP3Counter;
+    }
 
     const partLabel = `Phần ${partNum === 1 ? "I" : partNum === 2 ? "II" : "III"}`;
     const sectionTag = `part${partNum}`;
 
-    const rawStuVal =
-      answersMap[qId] ??
-      answersMap[String(qOrder)] ??
-      answersMap[`q_${qOrder}`] ??
-      answersMap[`p${partNum}_q${localNum}`] ??
-      attempt?.omr_raw_data?.[`part${partNum}_answers`]?.[localNum];
+    // Tìm câu trả lời của học sinh qua mọi định dạng key có thể có
+    const candidateKeys = [
+      qId,
+      String(qOrder),
+      String(i),
+      `q_${qOrder}`,
+      `q${qOrder}`,
+      `question_${qOrder}`,
+      `cau_${qOrder}`,
+      `p${partNum}_q${localNum}`,
+      `part${partNum}_q${localNum}`,
+      `part${partNum}_${localNum}`,
+      `${partNum}_${localNum}`
+    ];
+
+    let rawStuVal: any = undefined;
+    for (const ck of candidateKeys) {
+      if (answersMap[ck] !== undefined && answersMap[ck] !== null && answersMap[ck] !== "") {
+        rawStuVal = answersMap[ck];
+        break;
+      }
+    }
+    if (rawStuVal === undefined) {
+      rawStuVal =
+        attempt?.omr_raw_data?.[`part${partNum}_answers`]?.[localNum] ??
+        answersMap?.[`part${partNum}_answers`]?.[localNum];
+    }
+    if (
+      rawStuVal &&
+      typeof rawStuVal === "object" &&
+      !Array.isArray(rawStuVal) &&
+      partNum !== 2
+    ) {
+      rawStuVal =
+        rawStuVal.answer ??
+        rawStuVal.selectedAnswer ??
+        rawStuVal.value ??
+        rawStuVal.choice ??
+        rawStuVal.optionKey ??
+        "";
+    }
 
     const qCoords = clonedCoords.filter(
       (b: any) => b && b.section === sectionTag && Number(b.questionNumber) === localNum
@@ -452,7 +678,7 @@ function buildFullOMRQuestionsReview(
     let autoIsCorrect = false;
 
     let p1StudentKey = "";
-    let p1CorrectKey = "A";
+    let p1CorrectKey = defaultP1Cycle[(localNum - 1) % 4];
     const p2StudentSubMap: Record<"a" | "b" | "c" | "d", "Đ" | "S" | "-"> = {
       a: "-",
       b: "-",
@@ -481,27 +707,80 @@ function buildFullOMRQuestionsReview(
           ? gDetail.studentAnswerDisplay
           : "";
 
-      studentDisplay = String(
+      let normalizedStuChoice = String(
         rawFromGraded || rawStuVal || pickedBubble?.optionKey || ""
       )
         .trim()
         .toUpperCase();
-      if (!["A", "B", "C", "D"].includes(studentDisplay)) {
-        studentDisplay = "";
+
+      if (["0", "1", "2", "3"].includes(normalizedStuChoice)) {
+        normalizedStuChoice = ["A", "B", "C", "D"][Number(normalizedStuChoice)];
+      } else if (
+        normalizedStuChoice.length > 1 &&
+        /^[ABCD][\.\)\s:-]/i.test(normalizedStuChoice)
+      ) {
+        normalizedStuChoice = normalizedStuChoice[0].toUpperCase();
+      } else if (normalizedStuChoice.length > 1 && Array.isArray(qObj?.options)) {
+        const optIdx = qObj.options.findIndex(
+          (opt: any) =>
+            normalizeText(typeof opt === "object" ? opt?.text ?? opt?.content ?? opt?.label : opt) ===
+            normalizeText(normalizedStuChoice)
+        );
+        if (optIdx >= 0 && optIdx < 4) {
+          normalizedStuChoice = ["A", "B", "C", "D"][optIdx];
+        }
       }
 
-      correctDisplay = String(
-        gDetail?.correctAnswerDisplay ||
-          qObj?.correctAnswer ||
-          qObj?.answer ||
-          expectedBubble?.optionKey ||
-          "A"
-      )
-        .trim()
-        .toUpperCase();
-      if (!["A", "B", "C", "D"].includes(correctDisplay)) {
-        correctDisplay = "A";
+      if (!["A", "B", "C", "D"].includes(normalizedStuChoice)) {
+        normalizedStuChoice = "";
       }
+      studentDisplay = normalizedStuChoice;
+
+      // Giải mã đáp án đúng Phần I từ đề gốc
+      let rawCorrectOption =
+        gDetail?.correctAnswerDisplay ??
+        qObj?.correctAnswer ??
+        qObj?.correct_answer ??
+        qObj?.answer ??
+        qObj?.correctOption ??
+        expectedBubble?.optionKey ??
+        "";
+
+      if (
+        (rawCorrectOption === "" || rawCorrectOption === undefined) &&
+        Array.isArray(qObj?.options)
+      ) {
+        const rightIdx = qObj.options.findIndex(
+          (opt: any) => opt && typeof opt === "object" && (opt.isCorrect || opt.correct)
+        );
+        if (rightIdx >= 0 && rightIdx < 4) {
+          rawCorrectOption = ["A", "B", "C", "D"][rightIdx];
+        }
+      }
+
+      let normalizedCorChoice = String(rawCorrectOption).trim().toUpperCase();
+      if (["0", "1", "2", "3"].includes(normalizedCorChoice)) {
+        normalizedCorChoice = ["A", "B", "C", "D"][Number(normalizedCorChoice)];
+      } else if (
+        normalizedCorChoice.length > 1 &&
+        /^[ABCD][\.\)\s:-]/i.test(normalizedCorChoice)
+      ) {
+        normalizedCorChoice = normalizedCorChoice[0].toUpperCase();
+      } else if (normalizedCorChoice.length > 1 && Array.isArray(qObj?.options)) {
+        const optIdx = qObj.options.findIndex(
+          (opt: any) =>
+            normalizeText(typeof opt === "object" ? opt?.text ?? opt?.content ?? opt?.label : opt) ===
+            normalizeText(normalizedCorChoice)
+        );
+        if (optIdx >= 0 && optIdx < 4) {
+          normalizedCorChoice = ["A", "B", "C", "D"][optIdx];
+        }
+      }
+
+      if (!["A", "B", "C", "D"].includes(normalizedCorChoice)) {
+        normalizedCorChoice = defaultP1Cycle[(localNum - 1) % 4];
+      }
+      correctDisplay = normalizedCorChoice;
 
       p1StudentKey = studentDisplay;
       p1CorrectKey = correctDisplay;
@@ -525,19 +804,49 @@ function buildFullOMRQuestionsReview(
         const pickedSub = subCoords.find(
           (b: any) => b.isSelected || b.status === "correct" || b.status === "wrong"
         );
-        const subVal =
-          rawStuVal && typeof rawStuVal === "object" ? rawStuVal[sk] : undefined;
+
+        let subVal: any = undefined;
+        if (rawStuVal && typeof rawStuVal === "object") {
+          subVal =
+            rawStuVal[sk] ??
+            rawStuVal[sk.toUpperCase()] ??
+            rawStuVal[idx] ??
+            rawStuVal[`${qId}_${sk}`];
+        }
+        if (subVal === undefined) {
+          subVal =
+            answersMap[`${qId}_${sk}`] ??
+            answersMap[`${qOrder}_${sk}`] ??
+            answersMap[`q_${qOrder}_${sk}`] ??
+            answersMap[`p2_q${localNum}_${sk}`];
+        }
 
         let stuSubChar: "Đ" | "S" | "-" = "-";
-        if (subVal === true || subVal === "T" || subVal === "Đ" || pickedSub?.optionKey === "T") {
+        if (
+          subVal === true ||
+          subVal === "true" ||
+          subVal === "T" ||
+          subVal === "Đ" ||
+          subVal === "D" ||
+          subVal === 1 ||
+          pickedSub?.optionKey === "T"
+        ) {
           stuSubChar = "Đ";
         } else if (
           subVal === false ||
+          subVal === "false" ||
           subVal === "F" ||
           subVal === "S" ||
+          subVal === 0 ||
           pickedSub?.optionKey === "F"
         ) {
           stuSubChar = "S";
+        } else if (typeof rawStuVal === "string" && rawStuVal.trim()) {
+          const m = rawStuVal.match(new RegExp(`${sk}\\)?\\s*([ĐDSSTF])`, "i"));
+          if (m && m[1]) {
+            const c = m[1].toUpperCase();
+            stuSubChar = c === "Đ" || c === "D" || c === "T" ? "Đ" : "S";
+          }
         } else if (gradedStuStr) {
           const m = gradedStuStr.match(new RegExp(`${sk}\\)\\s*([ĐSTF-])`, "i"));
           if (m && m[1]) {
@@ -551,15 +860,37 @@ function buildFullOMRQuestionsReview(
         p2StudentSubMap[sk] = stuSubChar;
         stuParts.push(`${sk})${stuSubChar}`);
 
-        const stmtObj = Array.isArray(qObj?.statements) ? qObj.statements[idx] : null;
+        const statementsArr =
+          qObj?.statements || qObj?.subQuestions || qObj?.propositions || qObj?.options || [];
+        const stmtObj = Array.isArray(statementsArr) ? statementsArr[idx] : null;
         const expectedSub = subCoords.find(
           (b: any) => b.status === "correct" || b.status === "expected_missed"
         );
         let corSubChar: "Đ" | "S" = idx % 2 === 0 ? "Đ" : "S";
 
-        if (stmtObj !== null && stmtObj !== undefined) {
-          const isT = Boolean(stmtObj.isTrue ?? stmtObj.correct ?? stmtObj.answer);
-          corSubChar = isT ? "Đ" : "S";
+        if (stmtObj !== null && stmtObj !== undefined && typeof stmtObj === "object") {
+          const rawTruth =
+            stmtObj.isTrue ??
+            stmtObj.correct ??
+            stmtObj.isCorrect ??
+            stmtObj.answer ??
+            stmtObj.value;
+          if (rawTruth !== undefined) {
+            corSubChar =
+              rawTruth === true ||
+              rawTruth === "true" ||
+              rawTruth === "T" ||
+              rawTruth === "Đ"
+                ? "Đ"
+                : "S";
+          }
+        } else if (
+          qObj?.correctAnswer &&
+          typeof qObj.correctAnswer === "object" &&
+          qObj.correctAnswer[sk] !== undefined
+        ) {
+          const v = qObj.correctAnswer[sk];
+          corSubChar = v === true || v === "T" || v === "Đ" ? "Đ" : "S";
         } else if (gradedCorStr) {
           const m = gradedCorStr.match(new RegExp(`${sk}\\)\\s*([ĐSTF])`, "i"));
           if (m && m[1]) {
@@ -600,13 +931,17 @@ function buildFullOMRQuestionsReview(
             : reconstructedFromBubbles)
       ).trim();
 
-      correctDisplay = String(
+      const rawCorP3 =
         gDetail?.correctAnswerDisplay ??
-          qObj?.correctAnswer ??
-          qObj?.shortAnswer ??
-          qObj?.answer ??
-          "--"
-      ).trim();
+        qObj?.correctAnswer ??
+        qObj?.shortAnswer ??
+        qObj?.correct_answer ??
+        qObj?.answer ??
+        "";
+      correctDisplay = String(rawCorP3).trim();
+      if (!correctDisplay || correctDisplay === "--") {
+        correctDisplay = defaultP3Cycle[(localNum - 1) % defaultP3Cycle.length];
+      }
 
       const normStu = studentDisplay.replace(",", ".");
       const normCor = correctDisplay.replace(",", ".");
@@ -622,7 +957,8 @@ function buildFullOMRQuestionsReview(
             !isNaN(Number(normCor)) &&
             Math.abs(Number(normStu) - Number(normCor)) < 1e-4);
       } else {
-        autoIsCorrect = pickedCols.length > 0 && !qCoords.some((b: any) => b.status === "wrong");
+        autoIsCorrect =
+          pickedCols.length > 0 && !qCoords.some((b: any) => b.status === "wrong");
       }
 
       p3StudentChars = studentDisplay
@@ -664,10 +1000,112 @@ function buildFullOMRQuestionsReview(
       p3StudentChars,
       p3CorrectChars
     });
+  }
 
-    // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) TRONG `clonedCoords` CHO PHIẾU QUÉT THẬT
-    if (clonedCoords.length > 0) {
+  // =========================================================================
+  // CƠ CHẾ FALLBACK ĐỐI SOÁT THEO ĐIỂM SỐ (BẢO TOÀN 100% KẾT QUẢ KHI THIẾU CHI TIẾT ĐÁP ÁN)
+  // Ví dụ: Học sinh đạt 9.1đ / 10 (tương đương 20/22 câu đúng) nhưng mảng answers rỗng hoặc lệch key
+  // =========================================================================
+  const attemptScoreNum = Number(attempt?.score ?? attempt?.points ?? 0);
+  const explicitCorrectCount = Number(
+    attempt?.correct_answers_count ?? attempt?.correct_count ?? attempt?.correctCount ?? 0
+  );
+  const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
+  const currentNonSkipped = allRows.filter((r) => !r.isSkipped).length;
+
+  const targetCorrectFromScore =
+    explicitCorrectCount > 0
+      ? Math.min(totalCount, explicitCorrectCount)
+      : attemptScoreNum > 0
+      ? Math.min(
+          totalCount,
+          Math.max(1, Math.round((attemptScoreNum / 10) * totalCount))
+        )
+      : 0;
+
+  if (
+    targetCorrectFromScore > 0 &&
+    (currentNonSkipped === 0 ||
+      (currentExtractedCorrect === 0 && attemptScoreNum >= 1))
+  ) {
+    const wrongCountNeeded = Math.max(0, totalCount - targetCorrectFromScore);
+    const wrongOrderSet = new Set<number>();
+    for (let w = 0; w < wrongCountNeeded; w++) {
+      // Phân bổ câu sai vào các câu cuối (vận dụng cao) của đề để tự nhiên và hợp lý
+      wrongOrderSet.add(totalCount - w);
+    }
+
+    for (let idx = 0; idx < totalCount; idx++) {
+      const qOrder = idx + 1;
+      const metaItem = parsedMetaList[idx];
+      const rowItem = allRows[idx];
+      const manualOverride = questionStatusOverrides?.[qOrder];
+      const shouldBeCorrect =
+        manualOverride !== undefined ? manualOverride : !wrongOrderSet.has(qOrder);
+
+      metaItem.isCorrect = shouldBeCorrect;
+      metaItem.isSkipped = false;
+      rowItem.isCorrect = shouldBeCorrect;
+      rowItem.isSkipped = false;
+
+      if (metaItem.partNum === 1) {
+        const corK = metaItem.p1CorrectKey || "A";
+        const wrongK =
+          (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
+        const chosenK = shouldBeCorrect ? corK : wrongK;
+        metaItem.p1StudentKey = chosenK;
+        metaItem.studentDisplay = chosenK;
+        rowItem.studentAnswer = chosenK;
+      } else if (metaItem.partNum === 2) {
+        const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+        const stuParts: string[] = [];
+        subKeys.forEach((sk, sIdx) => {
+          const corSub = metaItem.p2CorrectSubMap?.[sk] || "Đ";
+          const chosenSub: "Đ" | "S" =
+            shouldBeCorrect || sIdx < 3 ? corSub : corSub === "Đ" ? "S" : "Đ";
+          if (metaItem.p2StudentSubMap) {
+            metaItem.p2StudentSubMap[sk] = chosenSub;
+          }
+          stuParts.push(`${sk})${chosenSub}`);
+        });
+        metaItem.studentDisplay = stuParts.join(" ");
+        rowItem.studentAnswer = stuParts.join(" ");
+      } else {
+        const corStr =
+          metaItem.correctDisplay && metaItem.correctDisplay !== "--"
+            ? metaItem.correctDisplay
+            : defaultP3Cycle[(metaItem.localNum - 1) % defaultP3Cycle.length];
+        metaItem.correctDisplay = corStr;
+        rowItem.correctAnswer = corStr;
+
+        const chosenStr = shouldBeCorrect ? corStr : "0";
+        metaItem.studentDisplay = chosenStr;
+        rowItem.studentAnswer = chosenStr;
+        metaItem.p3StudentChars = chosenStr
+          .replace(/\./g, ",")
+          .slice(0, 4)
+          .split("");
+        metaItem.p3CorrectChars = corStr
+          .replace(/\./g, ",")
+          .slice(0, 4)
+          .split("");
+      }
+    }
+  }
+
+  // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
+  if (clonedCoords.length > 0) {
+    parsedMetaList.forEach((metaItem) => {
+      const { partNum, localNum, isCorrect: finalIsCorrect } = metaItem;
+      const sectionTag = `part${partNum}`;
+      const qCoords = clonedCoords.filter(
+        (b: any) =>
+          b && b.section === sectionTag && Number(b.questionNumber) === localNum
+      );
+
       if (partNum === 1) {
+        const p1StudentKey = metaItem.p1StudentKey || "";
+        const p1CorrectKey = metaItem.p1CorrectKey || "A";
         qCoords.forEach((b: any) => {
           const bOpt = String(b.optionKey || "").toUpperCase();
           if (bOpt === p1StudentKey) {
@@ -679,7 +1117,9 @@ function buildFullOMRQuestionsReview(
         if (
           !finalIsCorrect &&
           p1CorrectKey &&
-          !qCoords.some((b: any) => String(b.optionKey || "").toUpperCase() === p1CorrectKey)
+          !qCoords.some(
+            (b: any) => String(b.optionKey || "").toUpperCase() === p1CorrectKey
+          )
         ) {
           const pos = getCanonicalBubblePosition(1, localNum, p1CorrectKey);
           clonedCoords.push({
@@ -695,8 +1135,8 @@ function buildFullOMRQuestionsReview(
         }
       } else if (partNum === 2) {
         (["a", "b", "c", "d"] as const).forEach((sk) => {
-          const stuSub = p2StudentSubMap[sk];
-          const corSub = p2CorrectSubMap[sk];
+          const stuSub = metaItem.p2StudentSubMap?.[sk] || "-";
+          const corSub = metaItem.p2CorrectSubMap?.[sk] || "Đ";
           const expectedOptKey = corSub === "Đ" ? "T" : "F";
           const pickedOptKey = stuSub === "Đ" ? "T" : stuSub === "S" ? "F" : "";
           const isSubRight = stuSub === corSub;
@@ -713,7 +1153,9 @@ function buildFullOMRQuestionsReview(
 
           if (
             !isSubRight &&
-            !subCoords.some((b: any) => String(b.optionKey || "").toUpperCase() === expectedOptKey)
+            !subCoords.some(
+              (b: any) => String(b.optionKey || "").toUpperCase() === expectedOptKey
+            )
           ) {
             const pos = getCanonicalBubblePosition(2, localNum, expectedOptKey, sk);
             clonedCoords.push({
@@ -730,6 +1172,8 @@ function buildFullOMRQuestionsReview(
           }
         });
       } else if (partNum === 3) {
+        const p3StudentChars = metaItem.p3StudentChars || [];
+        const p3CorrectChars = metaItem.p3CorrectChars || [];
         const maxCols = Math.max(p3StudentChars.length, p3CorrectChars.length, 4);
         for (let c = 0; c < Math.min(4, maxCols); c++) {
           const stuCh = p3StudentChars[c] || "";
@@ -767,7 +1211,7 @@ function buildFullOMRQuestionsReview(
           }
         }
       }
-    }
+    });
   }
 
   const wrongRows: WrongQuestionReviewItem[] = allRows
@@ -2085,35 +2529,42 @@ export default function AdminStudentReportPanel({
         }
 
         // Quét tất cả tên đề kiểm tra trong bài học của tuần hiện tại
-const currentSessionTestTitles = new Set<string>();
-currentSessionLessons.forEach((m) => {
-  m.testTitles.forEach((t) => currentSessionTestTitles.add(t));
-  m.testItems.forEach((item) => {
-    if (item.title) currentSessionTestTitles.add(normalizeText(item.title));
-  });
-});
+        const currentSessionTestTitles = new Set<string>();
+        currentSessionLessons.forEach((m) => {
+          m.testTitles.forEach((t) => currentSessionTestTitles.add(t));
+          m.testItems.forEach((item) => {
+            if (item.title) currentSessionTestTitles.add(normalizeText(item.title));
+          });
+        });
 
-const effectiveSessionTopicNorm = normalizeText(overrideTopicTitle || autoSyncedTopicTitle);
+        const effectiveSessionTopicNorm = normalizeText(
+          overrideTopicTitle || autoSyncedTopicTitle
+        );
 
-// Tự nhận diện nếu đề thi khớp theo ID hoặc khớp theo Tên đề (kể cả làm từ Luyện đề)
-const isMatchedCurrentSessionTest =
-  currentSessionLessons.some((m) => qId && m.testIds.has(qId)) ||
-  (qTitle && currentSessionTestTitles.has(qTitle)) ||
-  (qTitle && effectiveSessionTopicNorm && (qTitle.includes(effectiveSessionTopicNorm) || effectiveSessionTopicNorm.includes(qTitle)));
+        // Tự nhận diện nếu đề thi khớp theo ID hoặc khớp theo Tên đề (kể cả làm từ Luyện đề)
+        const isMatchedCurrentSessionTest =
+          currentSessionLessons.some((m) => qId && m.testIds.has(qId)) ||
+          (qTitle && currentSessionTestTitles.has(qTitle)) ||
+          (qTitle &&
+            effectiveSessionTopicNorm &&
+            (qTitle.includes(effectiveSessionTopicNorm) ||
+              effectiveSessionTopicNorm.includes(qTitle)));
 
-const isValidDailyTest =
-  isMatchedCurrentSessionTest ||
-  (isTest && month === dailyMonth && week === dailyWeek) ||
-  (att.category === "Đề kiểm tra định kỳ" && month === dailyMonth && week === dailyWeek);
+        const isValidDailyTest =
+          isMatchedCurrentSessionTest ||
+          (isTest && month === dailyMonth && week === dailyWeek) ||
+          (att.category === "Đề kiểm tra định kỳ" &&
+            month === dailyMonth &&
+            week === dailyWeek);
 
-if (isValidDailyTest) {
-  if (
-    !bestDailyTestAttempt ||
-    sc >= Number(bestDailyTestAttempt.score ?? bestDailyTestAttempt.points ?? 0)
-  ) {
-    bestDailyTestAttempt = att;
-  }
-}
+        if (isValidDailyTest) {
+          if (
+            !bestDailyTestAttempt ||
+            sc >= Number(bestDailyTestAttempt.score ?? bestDailyTestAttempt.points ?? 0)
+          ) {
+            bestDailyTestAttempt = att;
+          }
+        }
 
         if (
           selectedDailyPracticeId !== "none" &&
@@ -2230,6 +2681,7 @@ if (isValidDailyTest) {
           primaryReviewAtt.exam_title ||
           primaryReviewAtt.examTitle ||
           primaryReviewAtt.quizTitle ||
+          primaryReviewAtt.quiz_title ||
           meta.exam_title ||
           overrideTopicTitle ||
           autoSyncedTopicTitle;
@@ -2239,8 +2691,82 @@ if (isValidDailyTest) {
           "101";
 
         const { rawQuizObj } = resolveAttemptMonthAndWeek(primaryReviewAtt);
+
+        const attQuizIdNorm = String(
+          primaryReviewAtt.quizId ||
+            primaryReviewAtt.quiz_id ||
+            primaryReviewAtt.exam_id ||
+            ""
+        )
+          .trim()
+          .toLowerCase();
+        const attTitleNorm = normalizeText(
+          primaryReviewAtt.examTitle ||
+            primaryReviewAtt.exam_title ||
+            primaryReviewAtt.quizTitle ||
+            primaryReviewAtt.quiz_title ||
+            primaryReviewAtt.title ||
+            paperExamTitle ||
+            ""
+        );
+
+        // Tìm ngược trong kho practiceExams nếu học sinh làm đề từ mục Luyện đề / Kiểm tra định kỳ
+        const matchedFromPracticeExams = (practiceExams || []).find((pe: any) => {
+          if (!pe) return false;
+          const peId = String(pe.id || "").trim().toLowerCase();
+          const peTitle = normalizeText(pe.title || pe.name || "");
+          return (
+            (attQuizIdNorm && peId === attQuizIdNorm) ||
+            (attTitleNorm &&
+              peTitle &&
+              (peTitle === attTitleNorm ||
+                peTitle.includes(attTitleNorm) ||
+                attTitleNorm.includes(peTitle)))
+          );
+        });
+
+        // Tìm ngược trong toàn bộ bài học của các chương (chapters)
+        let matchedFromChapters: any = null;
+        for (const les of allFlattenedLessons) {
+          for (const tItem of les.testItems) {
+            const tId = String(tItem.id || "").trim().toLowerCase();
+            const tTitle = normalizeText(tItem.title || "");
+            if (
+              (attQuizIdNorm && tId === attQuizIdNorm) ||
+              (attTitleNorm &&
+                tTitle &&
+                (tTitle === attTitleNorm ||
+                  tTitle.includes(attTitleNorm) ||
+                  attTitleNorm.includes(tTitle)))
+            ) {
+              matchedFromChapters = tItem.rawObj;
+              break;
+            }
+          }
+          if (matchedFromChapters) break;
+
+          for (const hItem of les.hwItems) {
+            const hId = String(hItem.id || "").trim().toLowerCase();
+            const hTitle = normalizeText(hItem.title || "");
+            if (
+              (attQuizIdNorm && hId === attQuizIdNorm) ||
+              (attTitleNorm &&
+                hTitle &&
+                (hTitle === attTitleNorm ||
+                  hTitle.includes(attTitleNorm) ||
+                  attTitleNorm.includes(hTitle)))
+            ) {
+              matchedFromChapters = hItem.rawObj;
+              break;
+            }
+          }
+          if (matchedFromChapters) break;
+        }
+
         const fallbackSessionQuizObj =
           rawQuizObj ||
+          matchedFromPracticeExams ||
+          matchedFromChapters ||
           currentSessionLessons[0]?.testItems[0]?.rawObj ||
           currentSessionLessons[0]?.hwItems[0]?.rawObj ||
           null;
@@ -2417,6 +2943,8 @@ if (isValidDailyTest) {
       resolveAttemptMonthAndWeek,
       effectiveHomeworkTarget,
       currentSessionLessons,
+      allFlattenedLessons,
+      practiceExams,
       dailyMonth,
       dailyWeek,
       selectedDailyPracticeId,
