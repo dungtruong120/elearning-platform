@@ -1184,7 +1184,7 @@ export function detectOMRCornerMarkers(
     const rightEdge = Math.hypot(br.x - tr.x, br.y - tr.y);
 
     const widthRatio =
-      Math.min(topEdge, bottEdge) / Math.max(1, Math.max(topEdge, botEdge));
+      Math.min(topEdge, botEdge) / Math.max(1, Math.max(topEdge, botEdge));
     const heightRatio =
       Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
     const aspectHtoW =
