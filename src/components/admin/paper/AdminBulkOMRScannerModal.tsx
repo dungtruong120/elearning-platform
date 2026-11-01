@@ -18,7 +18,11 @@ import {
   Flashlight,
   ChevronUp,
   ChevronDown,
-  FileCheck2
+  FileCheck2,
+  AlertTriangle,
+  Volume2,
+  VolumeX,
+  UserCheck
 } from "lucide-react";
 import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -26,7 +30,6 @@ import {
   gradeOMRSubmission,
   detectRealtimeCornerBoxes,
   deriveExamCode3Digits,
-  formatStudentAutoSBD,
   CustomFourCornersInput,
   OMR_CANONICAL_WIDTH,
   OMR_CANONICAL_HEIGHT
@@ -71,6 +74,7 @@ interface ScannedSheetItem {
   warpMatrixApplied: boolean;
   detectedSbd: string;
   detectedExamCode: string;
+  isSbdMatchedInList: boolean;
   matchedStudentId: string;
   matchedStudentName: string;
   matchedSchool: string;
@@ -115,6 +119,46 @@ function dataUrlToBlob(dataUrl: string): Blob | null {
   }
 }
 
+function normalizeSbd6Digits(rawSbd: any): string {
+  if (rawSbd === null || rawSbd === undefined) return "";
+  const digitsOnly = String(rawSbd).replace(/\D/g, "");
+  if (!digitsOnly) return "";
+  return digitsOnly.padStart(6, "0").slice(-6);
+}
+
+/**
+ * PHÁT ÂM THANH BEEP NHẸ BẰNG WEB AUDIO API KHI QUÉT THÀNH CÔNG
+ */
+function playScanSuccessBeep() {
+  if (typeof window === "undefined") return;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1046.5, ctx.currentTime); // C6
+    osc.frequency.exponentialRampToValueAtTime(1318.5, ctx.currentTime + 0.08); // E6
+
+    gain.gain.setValueAtTime(0.16, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+    setTimeout(() => {
+      try {
+        ctx.close();
+      } catch {}
+    }, 200);
+  } catch {}
+}
+
 export function AdminBulkOMRScannerModal({
   isOpen,
   onClose,
@@ -134,17 +178,14 @@ export function AdminBulkOMRScannerModal({
 
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [torchOn, setTorchOn] = useState<boolean>(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [autoCaptureEnabled, setAutoCaptureEnabled] = useState<boolean>(true);
   const [shutterFlash, setShutterFlash] = useState<boolean>(false);
   const [mobileViewTab, setMobileViewTab] = useState<"camera" | "inspect">("camera");
   const [isBottomSheetExpanded, setIsBottomSheetExpanded] = useState<boolean>(false);
 
-  const [quickScanBanner, setQuickScanBanner] = useState<{
-    sbd: string;
-    studentName: string;
-    score: number;
-    warningText?: string;
-  } | null>(null);
+  // THẺ XEM NHANH KẾT QUẢ TRỰC TIẾP TRÊN MÀN HÌNH CAMERA (GIỮ 4 GIÂY HOẶC ĐẾN KHI QUÉT BÀI TIẾP THEO)
+  const [liveScannedCardId, setLiveScannedCardId] = useState<string | null>(null);
 
   const [realtimeCornersStatus, setRealtimeCornersStatus] = useState<{
     isMatched: boolean;
@@ -189,7 +230,7 @@ export function AdminBulkOMRScannerModal({
   const lastAutoCaptureTimeRef = useRef<number>(0);
   const matchedHoldStartTimeRef = useRef<number | null>(null);
   const manualSvgRef = useRef<SVGSVGElement | null>(null);
-  const bannerTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const liveCardTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (effectiveInitialQuiz?.id) {
@@ -197,27 +238,33 @@ export function AdminBulkOMRScannerModal({
     }
   }, [effectiveInitialQuiz]);
 
-  const triggerQuickScanBanner = useCallback((item: ScannedSheetItem) => {
-    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+  const triggerLiveBottomCardFeedback = useCallback(
+    (item: ScannedSheetItem) => {
+      if (liveCardTimerRef.current) {
+        clearTimeout(liveCardTimerRef.current);
+      }
+      setLiveScannedCardId(item.tempId);
 
-    const warnStr = item.geometryWarning
-      ? "Lệch góc chụp — Chạm để chỉnh 4 góc"
-      : item.skippedQuestionsList.length > 0
-      ? `Trống câu ${item.skippedQuestionsList.slice(0, 5).join(", ")}`
-      : item.flaggedQuestions.length > 0
-      ? `Lem chì câu ${item.flaggedQuestions.join(", ")}`
-      : undefined;
+      if (soundEnabled) {
+        playScanSuccessBeep();
+      }
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try {
+          navigator.vibrate([55, 30, 55]);
+        } catch {}
+      }
 
-    setQuickScanBanner({
-      sbd: item.detectedSbd,
-      studentName: item.matchedStudentName,
-      score: item.score,
-      warningText: warnStr
-    });
+      liveCardTimerRef.current = setTimeout(() => {
+        setLiveScannedCardId((prevId) => (prevId === item.tempId ? null : prevId));
+      }, 4000);
+    },
+    [soundEnabled]
+  );
 
-    bannerTimerRef.current = setTimeout(() => {
-      setQuickScanBanner(null);
-    }, 1800);
+  useEffect(() => {
+    return () => {
+      if (liveCardTimerRef.current) clearTimeout(liveCardTimerRef.current);
+    };
   }, []);
 
   // 1. TỔNG HỢP DANH MỤC TẤT CẢ ĐỀ THI (BTVN + ĐỀ KT + LUYỆN ĐỀ)
@@ -281,8 +328,42 @@ export function AdminBulkOMRScannerModal({
     return list;
   }, [chapters, practiceExams]);
 
-  // 2. BẢNG TRA CỨU HỌC SINH THEO SBD (000001 -> 0000NN)
+  /**
+   * 2. DANH MỤC HỌC SINH & BẢNG TRA CỨU SBD CỐ ĐỊNH 6 CHỮ SỐ
+   * - TUYỆT ĐỐI KHÔNG SORT THEO CHỮ CÁI VÀ KHÔNG DÙNG INDEX + 1 ĐỂ TRÁNH ĐẢO LỘN SBD.
+   * - Giữ nguyên danh sách học sinh từ props truyền vào + đọc SBD cố định đã gắn cho từng học sinh.
+   * - `sbdLookupMap` CHỈ dùng key duy nhất là SBD 6 chữ số (VD: "000002").
+   */
   const studentDirectory = useMemo(() => {
+    const permanentSbdById: Record<string, string> = {};
+    if (typeof window !== "undefined") {
+      try {
+        const rawPerm = localStorage.getItem("edunexus_permanent_sbd_map");
+        if (rawPerm) {
+          const parsedPerm = JSON.parse(rawPerm);
+          if (parsedPerm && typeof parsedPerm === "object") {
+            Object.entries(parsedPerm).forEach(([k, v]) => {
+              const norm = normalizeSbd6Digits(v);
+              if (norm) permanentSbdById[String(k).trim()] = norm;
+            });
+          }
+        }
+        const rawDir = localStorage.getItem("edunexus_sbd_directory");
+        if (rawDir) {
+          const parsedDir = JSON.parse(rawDir);
+          if (Array.isArray(parsedDir)) {
+            parsedDir.forEach((entry: any) => {
+              const idKey = String(entry?.id || entry?.studentId || "").trim();
+              const norm = normalizeSbd6Digits(entry?.sbd);
+              if (idKey && norm && !permanentSbdById[idKey]) {
+                permanentSbdById[idKey] = norm;
+              }
+            });
+          }
+        }
+      } catch {}
+    }
+
     const sourceArr =
       Array.isArray(studentsList) && studentsList.length > 0
         ? studentsList
@@ -291,31 +372,34 @@ export function AdminBulkOMRScannerModal({
         : [];
 
     const pool = [...sourceArr].filter(Boolean);
-    pool.sort((a, b) =>
-      String(a.full_name || a.studentName || a.name || "").localeCompare(
-        String(b.full_name || b.studentName || b.name || ""),
-        "vi"
-      )
-    );
-    return pool.map((stu, idx) => ({
-      id: String(stu.id || stu.studentId || `stu_${idx + 1}`),
-      full_name: String(stu.full_name || stu.studentName || stu.name || "Học sinh"),
-      school: String(stu.school || "THPT"),
-      stt: stu.stt || idx + 1,
-      sbd: stu.sbd ? String(stu.sbd).padStart(6, "0").slice(-6) : formatStudentAutoSBD(idx + 1)
-    }));
+
+    return pool.map((stu, idx) => {
+      const id = String(stu.id || stu.studentId || `stu_${idx + 1}`).trim();
+      const explicitSbd = normalizeSbd6Digits(stu.sbd);
+      const savedPermanentSbd = permanentSbdById[id] || "";
+      const finalSbd = explicitSbd || savedPermanentSbd || "";
+
+      return {
+        id,
+        full_name: String(stu.full_name || stu.studentName || stu.name || "Học sinh").trim(),
+        school: String(stu.school || "THPT").trim(),
+        sbd: finalSbd
+      };
+    });
   }, [studentsList, registeredStudents]);
 
   const sbdLookupMap = useMemo(() => {
     const map = new Map<string, (typeof studentDirectory)[0]>();
     studentDirectory.forEach((s) => {
-      map.set(s.sbd, s);
-      map.set(String(s.stt), s);
+      const clean6 = normalizeSbd6Digits(s.sbd);
+      if (clean6 && clean6.length === 6) {
+        map.set(clean6, s);
+      }
     });
     return map;
   }, [studentDirectory]);
 
-  // 3. HÀM GHI DỮ LIỆU TRỰC TIẾP LÊN SUPABASE (ĐỒNG BỘ TỨC THÌ IPAD -> LAPTOP)
+  // 3. HÀM GHI DỮ LIỆU TRỰC TIẾP LÊN SUPABASE
   const persistPaperAttemptToSupabase = useCallback(
     async (item: ScannedSheetItem, customAttemptId?: string) => {
       const nowIso = new Date().toISOString();
@@ -324,7 +408,6 @@ export function AdminBulkOMRScannerModal({
 
       let uploadedImageUrl: string | null = item.warpedImageUrl || null;
 
-      // Bước 1: Nếu ảnh đang ở dạng Base64, tải lên Supabase Storage 'exam-media' để lấy Public URL nhẹ nhàng
       if (
         effectiveSupabase &&
         uploadedImageUrl &&
@@ -333,11 +416,13 @@ export function AdminBulkOMRScannerModal({
         try {
           const blob = dataUrlToBlob(uploadedImageUrl);
           if (blob) {
-            const safeExam = String(item.matchedQuizId || "exam").replace(/[^a-zA-Z0-9_-]/g, "_");
-            const safeStu = String(item.detectedSbd || item.matchedStudentId || "stu").replace(
+            const safeExam = String(item.matchedQuizId || "exam").replace(
               /[^a-zA-Z0-9_-]/g,
               "_"
             );
+            const safeStu = String(
+              item.detectedSbd || item.matchedStudentId || "stu"
+            ).replace(/[^a-zA-Z0-9_-]/g, "_");
             const filePath = `paper_scans/${safeExam}/${safeStu}_${Date.now()}.jpg`;
             const { error: upErr } = await effectiveSupabase.storage
               .from("exam-media")
@@ -359,7 +444,6 @@ export function AdminBulkOMRScannerModal({
         } catch {}
       }
 
-      // Bước 2: Gói dữ liệu answers kèm metadata OMR để không bao giờ bị mất thông tin SBD/Mã đề/Ảnh quét
       const enrichedAnswersPayload = {
         ...(item.normalizedAnswers || {}),
         __paper_omr_meta: {
@@ -377,7 +461,6 @@ export function AdminBulkOMRScannerModal({
         }
       };
 
-      // Bước 3: Upsert vào bảng `exam_attempts` trong Supabase theo đúng cấu trúc yêu cầu
       if (effectiveSupabase) {
         const primaryPayload: Record<string, any> = {
           exam_id: item.matchedQuizId,
@@ -398,7 +481,6 @@ export function AdminBulkOMRScannerModal({
             .upsert(primaryPayload, { onConflict: "exam_id, student_id" });
 
           if (upsertErr1) {
-            // Fallback 2: Nếu bảng dùng quiz_id hoặc id làm khóa chính
             const secondaryPayload: Record<string, any> = {
               id: attemptId,
               quiz_id: item.matchedQuizId,
@@ -420,7 +502,6 @@ export function AdminBulkOMRScannerModal({
               .upsert(secondaryPayload);
 
             if (upsertErr2) {
-              // Fallback 3: Schema tối thiểu luôn tồn tại trong mọi phiên bản bảng exam_attempts
               await effectiveSupabase.from("exam_attempts").upsert({
                 id: attemptId,
                 quiz_id: item.matchedQuizId,
@@ -437,7 +518,6 @@ export function AdminBulkOMRScannerModal({
           console.warn("Cảnh báo ghi exam_attempts:", dbErr);
         }
 
-        // Đồng bộ song song sang bảng `quiz_results` nếu hệ thống có sử dụng
         try {
           await effectiveSupabase.from("quiz_results").upsert({
             id: attemptId,
@@ -454,7 +534,6 @@ export function AdminBulkOMRScannerModal({
           });
         } catch {}
 
-        // Phát tín hiệu Realtime để Laptop đang mở tự động cập nhật ngay lập tức
         try {
           await effectiveSupabase.channel("admin-realtime-global-sync").send({
             type: "broadcast",
@@ -464,7 +543,6 @@ export function AdminBulkOMRScannerModal({
         } catch {}
       }
 
-      // Bước 4: Gọi API Server Route để đảm bảo lưu bằng Service Role Key (vượt qua RLS nếu có)
       try {
         await fetch("/api/student/scan-paper", {
           method: "POST",
@@ -487,7 +565,6 @@ export function AdminBulkOMRScannerModal({
         });
       } catch {}
 
-      // Trả về bản ghi chuẩn hóa cho state giao diện
       return {
         id: attemptId,
         quiz_id: item.matchedQuizId,
@@ -536,7 +613,7 @@ export function AdminBulkOMRScannerModal({
     [effectiveSupabase]
   );
 
-  // 4. QUẢN LÝ CAMERA DỌC ĐỘ PHÂN GIẢI CAO & ĐÈN FLASH
+  // 4. QUẢN LÝ CAMERA ĐỘ PHÂN GIẢI CAO & ĐÈN FLASH TRÊN IPAD / ĐIỆN THOẠI
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -596,6 +673,10 @@ export function AdminBulkOMRScannerModal({
     return () => stopCamera();
   }, [isOpen, startCamera, stopCamera]);
 
+  /**
+   * 5. CẮT KHUNG NGẮM A4 CHUẨN XÁC TRÊN MỌI MÀN HÌNH IPAD (4:3) & ĐIỆN THOẠI (20:9)
+   * - Bổ sung biên an toàn 5% (0.05) xung quanh khung ngắm để không bao giờ cắt lẹm 4 góc vuông đen
+   */
   const extractA4GuideFrameCanvas = useCallback(
     (video: HTMLVideoElement, targetWidth: number = 1200): HTMLCanvasElement | null => {
       const vW = video.videoWidth;
@@ -640,8 +721,9 @@ export function AdminBulkOMRScannerModal({
         const relLeft = guideElRect.left - videoElRect.left + offsetX;
         const relTop = guideElRect.top - videoElRect.top + offsetY;
 
-        const padW = guideElRect.width * 0.03;
-        const padH = guideElRect.height * 0.03;
+        // Biên an toàn 5% xung quanh khung ngắm để không cắt lẹm 4 góc định vị màu đen kể cả khi đặt hơi nghiêng
+        const padW = guideElRect.width * 0.05;
+        const padH = guideElRect.height * 0.05;
 
         const sx = Math.max(0, ((relLeft - padW) / renderW) * vW);
         const sy = Math.max(0, ((relTop - padH) / renderH) * vH);
@@ -693,23 +775,29 @@ export function AdminBulkOMRScannerModal({
 
       const graded = gradeOMRSubmission(finalOmr, targetQuizEntry?.rawObj);
 
-      const cleanSbd = String(finalOmr.detected_sbd || "").trim();
-      const parsedStt = parseInt(cleanSbd.replace(/\D/g, ""), 10);
-      const matchedStu =
-        sbdLookupMap.get(cleanSbd) ||
-        (!isNaN(parsedStt) ? sbdLookupMap.get(String(parsedStt)) : undefined) ||
-        null;
+      // SO KHỚP SBD TUYỆT ĐỐI THEO MÃ 6 CHỮ SỐ CỐ ĐỊNH
+      const rawDetectedSbd = String(finalOmr.detected_sbd || "").trim();
+      const formattedSbd6 =
+        rawDetectedSbd && rawDetectedSbd !== "Chưa tô"
+          ? normalizeSbd6Digits(rawDetectedSbd)
+          : "";
+      const matchedStu = formattedSbd6 ? sbdLookupMap.get(formattedSbd6) || null : null;
 
       const fallbackCorners: CustomFourCornersInput = finalOmr.corner_points || {
         topLeft: { x: Math.round(canvas.width * 0.04), y: Math.round(canvas.height * 0.03) },
         topRight: { x: Math.round(canvas.width * 0.96), y: Math.round(canvas.height * 0.03) },
-        bottomRight: { x: Math.round(canvas.width * 0.96), y: Math.round(canvas.height * 0.97) },
+        bottomRight: {
+          x: Math.round(canvas.width * 0.96),
+          y: Math.round(canvas.height * 0.97)
+        },
         bottomLeft: { x: Math.round(canvas.width * 0.04), y: Math.round(canvas.height * 0.97) }
       };
 
       const skippedList = (graded.questionDetails || [])
         .filter((q: any) => q.status === "skipped")
         .map((q: any) => Number(q.questionOrder));
+
+      const displaySbd = formattedSbd6 || rawDetectedSbd || "Chưa tô";
 
       const item: ScannedSheetItem = {
         tempId: `scan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -719,12 +807,13 @@ export function AdminBulkOMRScannerModal({
         originalHeight: canvas.height,
         cornerPoints: fallbackCorners,
         warpMatrixApplied: Boolean(finalOmr.warp_matrix_applied),
-        detectedSbd: cleanSbd || "Chưa tô",
+        detectedSbd: displaySbd,
         detectedExamCode: finalOmr.detected_exam_code || targetQuizEntry?.examCode || "101",
-        matchedStudentId: matchedStu?.id || `sbd_${cleanSbd || Date.now()}`,
-        matchedStudentName:
-          matchedStu?.full_name ||
-          (cleanSbd && cleanSbd !== "Chưa tô" ? `Học sinh (SBD: ${cleanSbd})` : "Chưa rõ SBD"),
+        isSbdMatchedInList: Boolean(matchedStu),
+        matchedStudentId: matchedStu?.id || `unmatched_sbd_${displaySbd}_${Date.now()}`,
+        matchedStudentName: matchedStu
+          ? matchedStu.full_name
+          : `Chưa khớp danh sách (SBD: ${displaySbd})`,
         matchedSchool: matchedStu?.school || "THPT",
         matchedQuizId: targetQuizEntry?.id || "quiz-paper",
         matchedQuizTitle: targetQuizEntry?.title || "Đề thi trên giấy",
@@ -756,7 +845,6 @@ export function AdminBulkOMRScannerModal({
     [selectedQuizId, allQuizzesPool, sbdLookupMap]
   );
 
-  // Tự động đồng bộ ngầm lên Supabase ngay khi quét xong 1 bài hợp lệ
   const autoSyncSingleItemInBackground = useCallback(
     async (item: ScannedSheetItem) => {
       try {
@@ -791,7 +879,7 @@ export function AdminBulkOMRScannerModal({
     [persistPaperAttemptToSupabase, onSavedBatchAttempts, onSavedSuccess]
   );
 
-  // VÒNG LẶP QUÉT REALTIME 4 KHUNG NGẮM GÓC DỌC A4 & TỰ ĐỘNG BẮT ẢNH
+  // 6. VÒNG LẶP QUÉT REALTIME NHẠY BÉN (HOLD 180MS & COOLDOWN 1200MS)
   useEffect(() => {
     if (!isOpen || mobileViewTab !== "camera") return;
 
@@ -800,11 +888,12 @@ export function AdminBulkOMRScannerModal({
       if (!video || video.readyState < 2) return;
 
       const now = Date.now();
-      if (now - lastAutoCaptureTimeRef.current < 2400) {
+      // Cooldown 1200ms giữa 2 lần chụp tự động để lật tờ tiếp theo là ăn ngay
+      if (now - lastAutoCaptureTimeRef.current < 1200) {
         return;
       }
 
-      const checkCanvas = extractA4GuideFrameCanvas(video, 420);
+      const checkCanvas = extractA4GuideFrameCanvas(video, 440);
       if (!checkCanvas) return;
 
       const rtResult = detectRealtimeCornerBoxes(checkCanvas);
@@ -823,18 +912,13 @@ export function AdminBulkOMRScannerModal({
       if (rtResult.isMatched && rtResult.detectedCorners) {
         if (!matchedHoldStartTimeRef.current) {
           matchedHoldStartTimeRef.current = now;
-          setCameraStatusText("Đã khớp 4 góc — Giữ yên 0.4s...");
-        } else if (now - matchedHoldStartTimeRef.current >= 380) {
+          setCameraStatusText("Đã khớp 4 góc — Đang chụp tự động...");
+        } else if (now - matchedHoldStartTimeRef.current >= 180) {
           lastAutoCaptureTimeRef.current = now;
           matchedHoldStartTimeRef.current = null;
 
           setShutterFlash(true);
-          setTimeout(() => setShutterFlash(false), 220);
-          if (typeof navigator !== "undefined" && navigator.vibrate) {
-            try {
-              navigator.vibrate([60]);
-            } catch {}
-          }
+          setTimeout(() => setShutterFlash(false), 180);
 
           const fullA4Canvas = extractA4GuideFrameCanvas(video, 1200);
           if (fullA4Canvas) {
@@ -871,8 +955,8 @@ export function AdminBulkOMRScannerModal({
               setActiveInspectId(resultItem.tempId);
               setIsManualCornerMode(false);
               setEditingCorners(resultItem.cornerPoints);
-              triggerQuickScanBanner(resultItem);
-              setCameraStatusText("✓ Đã chấm & đồng bộ đám mây!");
+              triggerLiveBottomCardFeedback(resultItem);
+              setCameraStatusText("✓ Đã nhận bài! Mời đưa phiếu tiếp theo vào...");
               autoSyncSingleItemInBackground(resultItem);
             }
           }
@@ -890,7 +974,7 @@ export function AdminBulkOMRScannerModal({
             : "Căn 4 mốc vuông đen vào 4 góc khung ngắm"
         );
       }
-    }, 140);
+    }, 110);
 
     return () => clearInterval(interval);
   }, [
@@ -899,7 +983,7 @@ export function AdminBulkOMRScannerModal({
     autoCaptureEnabled,
     extractA4GuideFrameCanvas,
     processSingleCanvas,
-    triggerQuickScanBanner,
+    triggerLiveBottomCardFeedback,
     autoSyncSingleItemInBackground
   ]);
 
@@ -908,7 +992,7 @@ export function AdminBulkOMRScannerModal({
     if (!video) return;
 
     setShutterFlash(true);
-    setTimeout(() => setShutterFlash(false), 200);
+    setTimeout(() => setShutterFlash(false), 180);
 
     const fullA4Canvas = extractA4GuideFrameCanvas(video, 1200);
     if (!fullA4Canvas) return;
@@ -923,11 +1007,9 @@ export function AdminBulkOMRScannerModal({
       setActiveInspectId(resultItem.tempId);
       setIsManualCornerMode(!resultItem.warpMatrixApplied);
       setEditingCorners(resultItem.cornerPoints);
-      triggerQuickScanBanner(resultItem);
+      triggerLiveBottomCardFeedback(resultItem);
       autoSyncSingleItemInBackground(resultItem);
-      if (!resultItem.warpMatrixApplied) {
-        setMobileViewTab("inspect");
-      }
+      // Giữ nguyên màn hình Camera luôn mở để giáo viên xem Live Bottom Card và quét liên tục
     }
   };
 
@@ -942,6 +1024,11 @@ export function AdminBulkOMRScannerModal({
 
   const activeInspectItem =
     scannedItems.find((i) => i.tempId === activeInspectId) || scannedItems[0] || null;
+
+  const liveCardItem = useMemo(() => {
+    if (!liveScannedCardId) return null;
+    return scannedItems.find((i) => i.tempId === liveScannedCardId) || null;
+  }, [liveScannedCardId, scannedItems]);
 
   useEffect(() => {
     if (activeInspectItem) {
@@ -961,11 +1048,17 @@ export function AdminBulkOMRScannerModal({
 
     const newX = Math.max(
       0,
-      Math.min(activeInspectItem.originalWidth, Math.round(relX * activeInspectItem.originalWidth))
+      Math.min(
+        activeInspectItem.originalWidth,
+        Math.round(relX * activeInspectItem.originalWidth)
+      )
     );
     const newY = Math.max(
       0,
-      Math.min(activeInspectItem.originalHeight, Math.round(relY * activeInspectItem.originalHeight))
+      Math.min(
+        activeInspectItem.originalHeight,
+        Math.round(relY * activeInspectItem.originalHeight)
+      )
     );
 
     setEditingCorners((prev) =>
@@ -991,8 +1084,10 @@ export function AdminBulkOMRScannerModal({
       });
 
       const canvas = document.createElement("canvas");
-      canvas.width = activeInspectItem.originalWidth || img.naturalWidth || OMR_CANONICAL_WIDTH;
-      canvas.height = activeInspectItem.originalHeight || img.naturalHeight || OMR_CANONICAL_HEIGHT;
+      canvas.width =
+        activeInspectItem.originalWidth || img.naturalWidth || OMR_CANONICAL_WIDTH;
+      canvas.height =
+        activeInspectItem.originalHeight || img.naturalHeight || OMR_CANONICAL_HEIGHT;
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -1029,13 +1124,16 @@ export function AdminBulkOMRScannerModal({
     }
   };
 
+  // GÁN HỌC SINH HOẶC SỬA SBD THỦ CÔNG (CHỈ SO KHỚP THEO SBD 6 CHỮ SỐ)
   const handleManualSbdEdit = (item: ScannedSheetItem, newSbdRaw: string) => {
-    const cleanSbd = newSbdRaw.replace(/[^0-9]/g, "").slice(0, 6);
-    const parsedStt = parseInt(cleanSbd, 10);
+    const cleanInput = newSbdRaw.replace(/[^0-9]/g, "").slice(0, 6);
+    const paddedSbd = cleanInput.length > 0 ? cleanInput.padStart(6, "0") : "";
     const matchedStu =
-      sbdLookupMap.get(cleanSbd) ||
-      (!isNaN(parsedStt) ? sbdLookupMap.get(String(parsedStt)) : undefined) ||
+      (cleanInput.length === 6 ? sbdLookupMap.get(cleanInput) : undefined) ||
+      (paddedSbd ? sbdLookupMap.get(paddedSbd) : undefined) ||
       null;
+
+    const effectiveSbd = matchedStu ? matchedStu.sbd : cleanInput;
 
     const updatedCoords = (item.omrRawData?.bubble_coordinates || []).map((b: any) => {
       if (b.section !== "sbd") return b;
@@ -1043,7 +1141,7 @@ export function AdminBulkOMRScannerModal({
       if (!colMatch) return b;
       const colIdx = Number(colMatch[1]);
       const digitStr = colMatch[2];
-      const isNowSelected = cleanSbd[colIdx] === digitStr;
+      const isNowSelected = effectiveSbd[colIdx] === digitStr;
       return {
         ...b,
         isSelected: isNowSelected,
@@ -1053,23 +1151,46 @@ export function AdminBulkOMRScannerModal({
 
     const nextItem: ScannedSheetItem = {
       ...item,
-      detectedSbd: cleanSbd,
-      matchedStudentId: matchedStu?.id || item.matchedStudentId,
-      matchedStudentName:
-        matchedStu?.full_name ||
-        (cleanSbd ? `Học sinh (SBD: ${cleanSbd})` : item.matchedStudentName),
+      detectedSbd: effectiveSbd || "Chưa tô",
+      isSbdMatchedInList: Boolean(matchedStu),
+      matchedStudentId:
+        matchedStu?.id || `unmatched_sbd_${effectiveSbd || Date.now()}`,
+      matchedStudentName: matchedStu
+        ? matchedStu.full_name
+        : `Chưa khớp danh sách (SBD: ${effectiveSbd || "Chưa tô"})`,
       matchedSchool: matchedStu?.school || item.matchedSchool,
       omrRawData: {
         ...item.omrRawData,
-        detected_sbd: cleanSbd,
+        detected_sbd: effectiveSbd,
         bubble_coordinates: updatedCoords
       }
     };
 
     handleUpdateScannedItem(item.tempId, nextItem);
-    if (cleanSbd.length === 6) {
+    if (matchedStu || effectiveSbd.length === 6) {
       autoSyncSingleItemInBackground(nextItem);
     }
+  };
+
+  const handleAssignStudentDirectly = (item: ScannedSheetItem, studentId: string) => {
+    const stu = studentDirectory.find((s) => s.id === studentId);
+    if (!stu) return;
+
+    const nextItem: ScannedSheetItem = {
+      ...item,
+      detectedSbd: stu.sbd || item.detectedSbd,
+      isSbdMatchedInList: true,
+      matchedStudentId: stu.id,
+      matchedStudentName: stu.full_name,
+      matchedSchool: stu.school || "THPT",
+      omrRawData: {
+        ...item.omrRawData,
+        detected_sbd: stu.sbd || item.detectedSbd
+      }
+    };
+
+    handleUpdateScannedItem(item.tempId, nextItem);
+    autoSyncSingleItemInBackground(nextItem);
   };
 
   const handleQuickAdjustAnswer = (
@@ -1208,7 +1329,7 @@ export function AdminBulkOMRScannerModal({
             <select
               value={selectedQuizId}
               onChange={(e) => setSelectedQuizId(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-white outline-none cursor-pointer max-w-[200px] sm:max-w-[340px] truncate"
+              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs font-semibold text-white outline-none cursor-pointer max-w-[190px] sm:max-w-[340px] truncate"
             >
               <option value="auto">Tự nhận diện theo Mã đề (3 số)</option>
               {allQuizzesPool.map((q) => (
@@ -1253,7 +1374,7 @@ export function AdminBulkOMRScannerModal({
                 ) : (
                   <Save className="w-3.5 h-3.5" />
                 )}
-                <span>Lưu tất cả điểm ({scannedItems.length})</span>
+                <span>Lưu tất cả ({scannedItems.length})</span>
               </button>
             )}
 
@@ -1269,13 +1390,13 @@ export function AdminBulkOMRScannerModal({
 
         {/* 2. KHÔNG GIAN CHÍNH */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 relative overflow-hidden">
-          {/* CỘT CAMERA DỌC CHUẨN A4 */}
+          {/* CỘT CAMERA DỌC CHUẨN A4 — TỐI ƯU RESPONSIVE CHO IPAD & TABLET */}
           <div
             className={`lg:col-span-6 relative flex flex-col min-h-0 bg-black overflow-hidden ${
               mobileViewTab === "inspect" ? "hidden lg:flex" : "flex"
             }`}
           >
-            <div className="relative flex-1 w-full min-h-0 flex items-center justify-center overflow-hidden p-3 sm:p-5">
+            <div className="relative flex-1 w-full min-h-0 flex items-center justify-center overflow-hidden px-3 py-2 sm:px-6 sm:py-4">
               <video
                 ref={videoRef}
                 autoPlay
@@ -1288,60 +1409,29 @@ export function AdminBulkOMRScannerModal({
                 <div className="absolute inset-0 bg-white/85 z-40 pointer-events-none" />
               )}
 
-              {/* Toast thông báo gọn nhẹ khi quét xong */}
-              <AnimatePresence>
-                {quickScanBanner && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -12 }}
-                    onClick={() => {
-                      setIsBottomSheetExpanded(true);
-                      setMobileViewTab("inspect");
-                    }}
-                    className="absolute top-11 inset-x-4 sm:inset-x-8 z-30 px-3.5 py-2.5 rounded-xl bg-slate-900/95 border border-emerald-500 text-white shadow-xl flex items-center justify-between gap-2 cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
-                        <span>SBD {quickScanBanner.sbd} — {quickScanBanner.studentName}</span>
-                      </div>
-                      {quickScanBanner.warningText && (
-                        <p className="text-[11px] text-amber-300 mt-0.5 truncate">
-                          {quickScanBanner.warningText}
-                        </p>
-                      )}
-                    </div>
-                    <div className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs shrink-0">
-                      {quickScanBanner.score.toFixed(2)}đ
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
               {/* Thông báo ngắn gọn trên đỉnh khung ngắm */}
               <div className="absolute top-2.5 inset-x-3 flex justify-center z-20 pointer-events-none">
                 <span
-                  className={`px-3 py-1 rounded-full text-[11px] font-medium border backdrop-blur-xs ${
+                  className={`px-3.5 py-1 rounded-full text-[11px] font-semibold border backdrop-blur-xs shadow-md ${
                     realtimeCornersStatus.isMatched
                       ? "bg-emerald-950/90 text-emerald-300 border-emerald-500"
-                      : "bg-slate-900/80 text-slate-200 border-slate-700"
+                      : "bg-slate-900/85 text-slate-200 border-slate-700"
                   }`}
                 >
                   {cameraStatusText}
                 </span>
               </div>
 
-              {/* KHUNG NGẮM DỌC TỶ LỆ CHUẨN A4 MỎNG GỌN */}
+              {/* KHUNG NGẮM DỌC TỶ LỆ CHUẨN A4 CĂN GIỮA CÂN ĐỐI TRÊN IPAD & ĐIỆN THOẠI */}
               <div
                 ref={guideFrameRef}
-                className="relative z-10 h-full max-h-full aspect-[1/1.414] max-w-full rounded-lg shadow-[0_0_0_9999px_rgba(2,6,23,0.5)] pointer-events-none flex flex-col justify-between"
+                className="relative z-10 h-full max-h-[68vh] sm:max-h-[72vh] aspect-[1/1.414] max-w-[88vw] rounded-lg shadow-[0_0_0_9999px_rgba(2,6,23,0.52)] pointer-events-none flex flex-col justify-between"
               >
                 <div
-                  className={`absolute inset-0 rounded-lg border transition-colors ${
+                  className={`absolute inset-0 rounded-lg border-2 transition-colors ${
                     realtimeCornersStatus.isMatched
                       ? "border-emerald-500"
-                      : "border-amber-400/60 border-dashed"
+                      : "border-amber-400/70 border-dashed"
                   }`}
                 />
 
@@ -1353,13 +1443,13 @@ export function AdminBulkOMRScannerModal({
                   ].map((c) => (
                     <div
                       key={c.key}
-                      className={`w-10 h-10 rounded-md border-2 flex items-center justify-center transition-all ${
+                      className={`w-10 h-10 sm:w-11 sm:h-11 rounded-md border-2 flex items-center justify-center transition-all ${
                         c.matched
-                          ? "border-emerald-500 bg-emerald-500/25"
-                          : "border-amber-400 border-dashed bg-black/20"
+                          ? "border-emerald-400 bg-emerald-500/30 scale-105"
+                          : "border-amber-400 border-dashed bg-black/25"
                       }`}
                     >
-                      <span className="text-[10px] font-semibold text-white/90">
+                      <span className="text-[10px] font-bold text-white">
                         {c.matched ? "✓" : c.key}
                       </span>
                     </div>
@@ -1374,37 +1464,178 @@ export function AdminBulkOMRScannerModal({
                   ].map((c) => (
                     <div
                       key={c.key}
-                      className={`w-10 h-10 rounded-md border-2 flex items-center justify-center transition-all ${
+                      className={`w-10 h-10 sm:w-11 sm:h-11 rounded-md border-2 flex items-center justify-center transition-all ${
                         c.matched
-                          ? "border-emerald-500 bg-emerald-500/25"
-                          : "border-amber-400 border-dashed bg-black/20"
+                          ? "border-emerald-400 bg-emerald-500/30 scale-105"
+                          : "border-amber-400 border-dashed bg-black/25"
                       }`}
                     >
-                      <span className="text-[10px] font-semibold text-white/90">
+                      <span className="text-[10px] font-bold text-white">
                         {c.matched ? "✓" : c.key}
                       </span>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* THẺ XEM NHANH KẾT QUẢ (LIVE BOTTOM CARD) NỔI TRỰC TIẾP TRÊN CAMERA */}
+              <AnimatePresence>
+                {liveCardItem && (
+                  <motion.div
+                    key={liveCardItem.tempId}
+                    initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 20, scale: 0.96 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute bottom-3 inset-x-3 sm:inset-x-6 z-30 rounded-2xl bg-slate-900/95 border-2 border-emerald-500/90 p-3 sm:p-3.5 text-white shadow-2xl backdrop-blur-md"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono font-bold text-xs">
+                            SBD: {liveCardItem.detectedSbd}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-200 font-mono font-bold text-[11px]">
+                            Mã đề: {liveCardItem.detectedExamCode}
+                          </span>
+                          {liveCardItem.syncedToCloud && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-950/90 border border-emerald-700 text-emerald-300 text-[10px] font-bold">
+                              ✓ Đã lưu Cloud
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {liveCardItem.isSbdMatchedInList ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                          )}
+                          <h4
+                            className={`text-sm sm:text-base font-extrabold truncate ${
+                              liveCardItem.isSbdMatchedInList
+                                ? "text-white"
+                                : "text-amber-300"
+                            }`}
+                          >
+                            {liveCardItem.matchedStudentName}
+                          </h4>
+                        </div>
+
+                        {/* Nếu SBD chưa khớp danh sách -> Hiển thị nút chọn tay nhanh ngay trên thẻ Camera */}
+                        {!liveCardItem.isSbdMatchedInList && (
+                          <div className="pt-1 flex items-center gap-1.5">
+                            <UserCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleAssignStudentDirectly(
+                                    liveCardItem,
+                                    e.target.value
+                                  );
+                                }
+                              }}
+                              className="w-full max-w-[260px] px-2 py-1 rounded-lg bg-slate-800 border border-amber-500/80 text-xs font-bold text-amber-200 outline-none cursor-pointer"
+                            >
+                              <option value="">
+                                -- Chọn nhanh học sinh cho bài này --
+                              </option>
+                              {studentDirectory.map((stu) => (
+                                <option key={stu.id} value={stu.id}>
+                                  [{stu.sbd || "Chưa SBD"}] {stu.full_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Khối Điểm số lớn, rõ ràng */}
+                      <div className="text-right shrink-0">
+                        <div className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-black text-lg sm:text-xl leading-none shadow-md">
+                          {liveCardItem.score.toFixed(2)}đ
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Thống kê Đúng / Sai / Bỏ trống & Nút mở chỉnh sửa nhanh */}
+                    <div className="mt-2.5 pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 sm:gap-3 font-bold">
+                        <span className="text-emerald-400">
+                          ✓ Đúng: {liveCardItem.correctCount}/
+                          {liveCardItem.totalQuestions}
+                        </span>
+                        <span className="text-rose-400">
+                          ✗ Sai: {liveCardItem.wrongCount}
+                        </span>
+                        <span className="text-amber-300">
+                          ○ Trống: {liveCardItem.skippedCount}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveInspectId(liveCardItem.tempId);
+                            setMobileViewTab("inspect");
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Chỉnh sửa bài này</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLiveScannedCardId(null)}
+                          className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                          title="Đóng thẻ xem nhanh"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* 3. THANH CÔNG CỤ DƯỚI ĐÁY TINH GIẢN */}
-            <div className="bg-slate-950 border-t border-slate-800 px-4 py-2.5 flex items-center justify-around shrink-0 z-20">
-              <button
-                type="button"
-                onClick={handleToggleTorch}
-                className={`p-2.5 rounded-full border transition cursor-pointer ${
-                  torchOn
-                    ? "bg-amber-400 text-slate-950 border-amber-300"
-                    : "bg-slate-900 text-slate-400 border-slate-800 hover:text-white"
-                }`}
-                title="Đèn Flash"
-              >
-                <Flashlight className="w-4 h-4" />
-              </button>
+            {/* 3. THANH CÔNG CỤ DƯỚI ĐÁY (ĐÈN FLASH, ÂM BÁO, NÚT CHỤP, ĐỔI CAMERA) */}
+            <div className="bg-slate-950 border-t border-slate-800 px-4 py-2.5 flex items-center justify-between sm:justify-around shrink-0 z-20">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleToggleTorch}
+                  className={`p-2.5 rounded-full border transition cursor-pointer ${
+                    torchOn
+                      ? "bg-amber-400 text-slate-950 border-amber-300 shadow-md"
+                      : "bg-slate-900 text-slate-300 border-slate-800 hover:text-white"
+                  }`}
+                  title="Bật / Tắt đèn Flash"
+                >
+                  <Flashlight className="w-4 h-4" />
+                </button>
 
-              {/* Nút chụp tròn màu xanh TCT */}
+                <button
+                  type="button"
+                  onClick={() => setSoundEnabled((prev) => !prev)}
+                  className={`p-2.5 rounded-full border transition cursor-pointer ${
+                    soundEnabled
+                      ? "bg-slate-900 text-emerald-400 border-emerald-800/80"
+                      : "bg-slate-900 text-slate-500 border-slate-800"
+                  }`}
+                  title={soundEnabled ? "Âm báo Beep: Đang BẬT" : "Âm báo Beep: Đang TẮT"}
+                >
+                  {soundEnabled ? (
+                    <Volume2 className="w-4 h-4" />
+                  ) : (
+                    <VolumeX className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+
+              {/* Nút chụp tròn lớn trung tâm */}
               <button
                 type="button"
                 onClick={handleManualCameraCapture}
@@ -1434,15 +1665,15 @@ export function AdminBulkOMRScannerModal({
                   onClick={() =>
                     setFacingMode((m) => (m === "environment" ? "user" : "environment"))
                   }
-                  className="p-2.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800 hover:text-white cursor-pointer"
-                  title="Đổi Camera"
+                  className="p-2.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800 hover:text-white cursor-pointer"
+                  title="Đổi Camera Trước / Sau"
                 >
                   <SwitchCamera className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* 4. KHAY TRƯỢT ĐÁY (BOTTOM SHEET) */}
+            {/* 4. KHAY TRƯỢT ĐÁY DANH SÁCH ĐÃ QUÉT (BOTTOM SHEET) */}
             <div className="bg-slate-900 border-t border-slate-800 text-white shrink-0 z-30">
               <div
                 onClick={() => setIsBottomSheetExpanded((prev) => !prev)}
@@ -1450,7 +1681,7 @@ export function AdminBulkOMRScannerModal({
               >
                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
                   <FileCheck2 className="w-4 h-4 text-emerald-400" />
-                  <span>Đã quét: {scannedItems.length} bài</span>
+                  <span>Đã quét trong phiên: {scannedItems.length} bài</span>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1482,7 +1713,7 @@ export function AdminBulkOMRScannerModal({
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    className="max-h-[40vh] overflow-y-auto divide-y divide-slate-800 bg-slate-950 custom-scrollbar"
+                    className="max-h-[36vh] overflow-y-auto divide-y divide-slate-800 bg-slate-950 custom-scrollbar"
                   >
                     {scannedItems.length === 0 ? (
                       <div className="py-6 text-center text-slate-500 text-xs">
@@ -1501,13 +1732,22 @@ export function AdminBulkOMRScannerModal({
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                                #{idx + 1}
+                                #{scannedItems.length - idx}
                               </span>
                               <span className="font-mono font-bold text-xs text-blue-400">
                                 SBD: {item.detectedSbd}
                               </span>
-                              <span className="font-semibold text-xs text-white truncate">
+                              <span
+                                className={`font-semibold text-xs truncate ${
+                                  item.isSbdMatchedInList
+                                    ? "text-white"
+                                    : "text-amber-300"
+                                }`}
+                              >
                                 {item.matchedStudentName}
+                              </span>
+                              <span className="text-[11px] text-slate-400">
+                                ({item.correctCount}/{item.totalQuestions} câu)
                               </span>
                               {item.syncedToCloud && (
                                 <span className="text-[10px] text-emerald-400 font-medium">
@@ -1561,7 +1801,9 @@ export function AdminBulkOMRScannerModal({
                   }`}
                 >
                   <Crosshair className="w-3.5 h-3.5" />
-                  <span>{isManualCornerMode ? "Đang chỉnh 4 góc" : "Kéo chỉnh 4 góc"}</span>
+                  <span>
+                    {isManualCornerMode ? "Đang chỉnh 4 góc" : "Kéo chỉnh 4 góc"}
+                  </span>
                 </button>
 
                 {isManualCornerMode && (
@@ -1584,15 +1826,21 @@ export function AdminBulkOMRScannerModal({
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setZoomScale((z) => Math.max(0.8, Number((z - 0.2).toFixed(2))))}
+                  onClick={() =>
+                    setZoomScale((z) => Math.max(0.8, Number((z - 0.2).toFixed(2))))
+                  }
                   className="p-1 rounded bg-slate-800 text-white cursor-pointer"
                 >
                   <ZoomOut className="w-3.5 h-3.5" />
                 </button>
-                <span className="font-mono text-[11px]">{Math.round(zoomScale * 100)}%</span>
+                <span className="font-mono text-[11px]">
+                  {Math.round(zoomScale * 100)}%
+                </span>
                 <button
                   type="button"
-                  onClick={() => setZoomScale((z) => Math.min(2.4, Number((z + 0.2).toFixed(2))))}
+                  onClick={() =>
+                    setZoomScale((z) => Math.min(2.4, Number((z + 0.2).toFixed(2))))
+                  }
                   className="p-1 rounded bg-slate-800 text-white cursor-pointer"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
@@ -1609,27 +1857,41 @@ export function AdminBulkOMRScannerModal({
                       type="text"
                       maxLength={6}
                       value={activeInspectItem.detectedSbd}
-                      onChange={(e) => handleManualSbdEdit(activeInspectItem, e.target.value)}
-                      className="w-15 font-mono font-bold text-white bg-slate-950 px-1 rounded border border-slate-700 outline-none text-center"
+                      onChange={(e) =>
+                        handleManualSbdEdit(activeInspectItem, e.target.value)
+                      }
+                      className="w-16 font-mono font-bold text-white bg-slate-950 px-1 rounded border border-slate-700 outline-none text-center"
                     />
                   </div>
 
                   <select
-                    value={activeInspectItem.matchedStudentId}
+                    value={
+                      activeInspectItem.isSbdMatchedInList
+                        ? activeInspectItem.matchedStudentId
+                        : ""
+                    }
                     onChange={(e) => {
-                      const stu = studentDirectory.find((s) => s.id === e.target.value);
-                      if (stu) {
-                        handleManualSbdEdit(activeInspectItem, stu.sbd);
+                      if (e.target.value) {
+                        handleAssignStudentDirectly(
+                          activeInspectItem,
+                          e.target.value
+                        );
                       }
                     }}
-                    className="px-2 py-1 rounded-md border border-slate-700 bg-slate-800 text-xs font-semibold text-white outline-none"
+                    className={`px-2 py-1 rounded-md border text-xs font-semibold outline-none cursor-pointer ${
+                      activeInspectItem.isSbdMatchedInList
+                        ? "border-slate-700 bg-slate-800 text-white"
+                        : "border-amber-500 bg-amber-950/60 text-amber-200"
+                    }`}
                   >
-                    <option value={activeInspectItem.matchedStudentId}>
-                      {activeInspectItem.matchedStudentName}
-                    </option>
+                    {!activeInspectItem.isSbdMatchedInList && (
+                      <option value="">
+                        ⚠️ {activeInspectItem.matchedStudentName} (Bấm chọn HS)
+                      </option>
+                    )}
                     {studentDirectory.map((s) => (
                       <option key={s.id} value={s.id}>
-                        [{s.sbd}] {s.full_name}
+                        [{s.sbd || "Chưa SBD"}] {s.full_name}
                       </option>
                     ))}
                   </select>
@@ -1637,14 +1899,15 @@ export function AdminBulkOMRScannerModal({
 
                 <div className="flex items-center gap-2">
                   <span className="px-2.5 py-1 rounded-md bg-emerald-600 text-white font-bold text-xs">
-                    {activeInspectItem.score.toFixed(2)}đ
+                    {activeInspectItem.score.toFixed(2)}đ ({activeInspectItem.correctCount}/
+                    {activeInspectItem.totalQuestions})
                   </span>
                   <button
                     type="button"
                     onClick={() => setMobileViewTab("camera")}
                     className="lg:hidden px-3 py-1 rounded-md bg-blue-600 text-white text-xs font-semibold cursor-pointer"
                   >
-                    Quét tiếp
+                    Quay lại Camera
                   </button>
                 </div>
               </div>
@@ -1682,7 +1945,10 @@ export function AdminBulkOMRScannerModal({
                             points={`${editingCorners.topLeft.x},${editingCorners.topLeft.y} ${editingCorners.topRight.x},${editingCorners.topRight.y} ${editingCorners.bottomRight.x},${editingCorners.bottomRight.y} ${editingCorners.bottomLeft.x},${editingCorners.bottomLeft.y}`}
                             fill="rgba(16, 185, 129, 0.12)"
                             stroke="#10B981"
-                            strokeWidth={Math.max(3, Math.round(activeInspectItem.originalWidth * 0.004))}
+                            strokeWidth={Math.max(
+                              3,
+                              Math.round(activeInspectItem.originalWidth * 0.004)
+                            )}
                             strokeDasharray="10 6"
                           />
 
@@ -1690,8 +1956,16 @@ export function AdminBulkOMRScannerModal({
                             [
                               { key: "topLeft", label: "TL", pt: editingCorners.topLeft },
                               { key: "topRight", label: "TR", pt: editingCorners.topRight },
-                              { key: "bottomRight", label: "BR", pt: editingCorners.bottomRight },
-                              { key: "bottomLeft", label: "BL", pt: editingCorners.bottomLeft }
+                              {
+                                key: "bottomRight",
+                                label: "BR",
+                                pt: editingCorners.bottomRight
+                              },
+                              {
+                                key: "bottomLeft",
+                                label: "BL",
+                                pt: editingCorners.bottomLeft
+                              }
                             ] as const
                           ).map((corner) => {
                             const pinR = Math.max(
@@ -1895,12 +2169,12 @@ export function AdminBulkOMRScannerModal({
                                   }
                                   placeholder="Trống"
                                   onChange={(e) => {
-                                    const p1Count = (activeInspectItem.questionDetails || []).filter(
-                                      (x: any) => x.part === 1
-                                    ).length;
-                                    const p2Count = (activeInspectItem.questionDetails || []).filter(
-                                      (x: any) => x.part === 2
-                                    ).length;
+                                    const p1Count = (
+                                      activeInspectItem.questionDetails || []
+                                    ).filter((x: any) => x.part === 1).length;
+                                    const p2Count = (
+                                      activeInspectItem.questionDetails || []
+                                    ).filter((x: any) => x.part === 2).length;
                                     const localNum = qd.questionOrder - p1Count - p2Count;
                                     handleQuickAdjustAnswer(
                                       activeInspectItem,
