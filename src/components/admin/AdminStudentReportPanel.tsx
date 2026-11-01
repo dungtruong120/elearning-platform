@@ -449,7 +449,7 @@ function buildFullOMRQuestionsReview(
 
   // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
- const detectedPartByIndex: Array<1 | 2 | 3> = [];
+ const detectedPartByIndex: number[] = [];
   if (rawQuizObj) {
     let rawSections =
       rawQuizObj.sections ||
@@ -495,7 +495,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart as 1 | 2 | 3);
+            detectedPartByIndex.push(inferredSecPart as number);
           });
         } else if (
           sec &&
@@ -509,7 +509,7 @@ function buildFullOMRQuestionsReview(
               : qType.includes("true") || Array.isArray(sec.statements)
               ? 2
               : 1;
-          detectedPartByIndex.push(p);
+         detectedPartByIndex.push(p as number);
         }
       });
     }
@@ -541,7 +541,7 @@ function buildFullOMRQuestionsReview(
           } else if (directQuestions.length === 22) {
             p = qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3;
           }
-          detectedPartByIndex.push(p);
+          detectedPartByIndex.push(p as number);
         });
       }
     }
@@ -627,12 +627,12 @@ function buildFullOMRQuestionsReview(
     const qId = String(qObj?.id ?? `q_${qOrder}`);
 
     let partNum: 1 | 2 | 3 = 1;
-if (gDetail?.part) {
-  partNum = (Number(gDetail.part) === 2 ? 2 : Number(gDetail.part) === 3 ? 3 : 1) as 1 | 2 | 3;
-} else if (detectedPartByIndex[i]) {
-  partNum = (detectedPartByIndex[i] === 2 ? 2 : detectedPartByIndex[i] === 3 ? 3 : 1) as 1 | 2 | 3;
-} else if (detectedPartByIndex[i]) {
-      partNum = detectedPartByIndex[i];
+    if (gDetail?.part) {
+      const pVal = Number(gDetail.part);
+      partNum = pVal === 2 ? 2 : pVal === 3 ? 3 : 1;
+    } else if (detectedPartByIndex[i]) {
+      const pVal = detectedPartByIndex[i];
+      partNum = pVal === 2 ? 2 : pVal === 3 ? 3 : 1;
     } else if (qOrder <= p1Limit) {
       partNum = 1;
     } else if (qOrder <= p1Limit + p2Limit) {
