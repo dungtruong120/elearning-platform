@@ -1048,34 +1048,43 @@ function buildFullOMRQuestionsReview(
       rowItem.isSkipped = false;
 
       // Phân chia chuẩn xác: Câu 1-12 (Phần I), Câu 13-16 (Phần II), Câu 17-22 (Phần III)
-    if (idx < 12) {
+   if (idx < 12) {
         metaItem.partNum = 1;
         metaItem.localNum = idx + 1;
         metaItem.partLabel = "Phần I";
         rowItem.part = "Phần I";
 
-        const corK: "A" | "B" | "C" | "D" = (metaItem.p1CorrectKey as "A" | "B" | "C" | "D") || defaultP1Cycle[idx % 4];
+        const corK: "A" | "B" | "C" | "D" =
+          (metaItem.p1CorrectKey as "A" | "B" | "C" | "D") || defaultP1Cycle[idx % 4];
         metaItem.p1CorrectKey = corK;
         rowItem.correctAnswer = corK;
 
-        const wrongK: "A" | "B" | "C" | "D" = (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
+        const wrongK: "A" | "B" | "C" | "D" =
+          (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
         const chosenK: "A" | "B" | "C" | "D" = shouldBeCorrect ? corK : wrongK;
         metaItem.p1StudentKey = chosenK;
         metaItem.studentDisplay = chosenK;
         rowItem.studentAnswer = chosenK;
-      }
+      } else if (idx < 16) {
+        metaItem.partNum = 2;
+        metaItem.localNum = idx - 11;
+        metaItem.partLabel = "Phần II";
+        rowItem.part = "Phần II";
 
         const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
         const stuParts: string[] = [];
         const corParts: string[] = [];
 
         subKeys.forEach((sk, sIdx) => {
-          const corSub = (sIdx % 2 === 0 ? "Đ" : "S") as "Đ" | "S";
-          metaItem.p2CorrectSubMap[sk] = corSub;
+          const corSub: "Đ" | "S" =
+            metaItem.p2CorrectSubMap?.[sk] || (sIdx % 2 === 0 ? "Đ" : "S");
           corParts.push(`${sk})${corSub}`);
 
-          const chosenSub: "Đ" | "S" = shouldBeCorrect || sIdx < 3 ? corSub : corSub === "Đ" ? "S" : "Đ";
-          metaItem.p2StudentSubMap[sk] = chosenSub;
+          const chosenSub: "Đ" | "S" =
+            shouldBeCorrect || sIdx < 3 ? corSub : corSub === "Đ" ? "S" : "Đ";
+          if (metaItem.p2StudentSubMap) {
+            metaItem.p2StudentSubMap[sk] = chosenSub;
+          }
           stuParts.push(`${sk})${chosenSub}`);
         });
 
@@ -1083,6 +1092,22 @@ function buildFullOMRQuestionsReview(
         rowItem.correctAnswer = corParts.join(" ");
         metaItem.studentDisplay = stuParts.join(" ");
         rowItem.studentAnswer = stuParts.join(" ");
+      } else {
+        metaItem.partNum = 3;
+        metaItem.localNum = idx - 15;
+        metaItem.partLabel = "Phần III";
+        rowItem.part = "Phần III";
+
+        const corStr = defaultP3Cycle[(idx - 16) % defaultP3Cycle.length];
+        metaItem.correctDisplay = corStr;
+        rowItem.correctAnswer = corStr;
+
+        const chosenStr = shouldBeCorrect ? corStr : "0";
+        metaItem.studentDisplay = chosenStr;
+        rowItem.studentAnswer = chosenStr;
+        metaItem.p3StudentChars = chosenStr.replace(/\./g, ",").slice(0, 4).split("");
+        metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
+      }
       } else {
         metaItem.partNum = 3;
         metaItem.localNum = idx - 15; // 1..6
