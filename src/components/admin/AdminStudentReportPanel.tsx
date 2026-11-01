@@ -1049,11 +1049,27 @@ function buildFullOMRQuestionsReview(
   const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
 
   // ĐIỀU KIỆN KÍCH HOẠT: Nếu học sinh có điểm (> 0) mà số câu đúng trích xuất được bị bằng 0 hoặc bị hụt do lệch key
+ // =========================================================================
+  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM THỰC TẾ
+  // =========================================================================
+  const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
+  const explicitCorrectCount = Number(
+    attempt?.correct_answers_count ?? attempt?.correct_count ?? attempt?.correctCount ?? 0
+  );
+
+  const targetCorrectFromScore =
+    explicitCorrectCount > 0
+      ? Math.min(totalCount, explicitCorrectCount)
+      : attemptScoreNum > 0
+      ? Math.min(totalCount, Math.max(1, Math.round((attemptScoreNum / 10) * totalCount)))
+      : 0;
+
+  const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
+
   if (targetCorrectFromScore > 0 && currentExtractedCorrect < targetCorrectFromScore) {
     const wrongCountNeeded = Math.max(0, totalCount - targetCorrectFromScore);
     const wrongOrderSet = new Set<number>();
 
-    // Gán các câu sai vào những câu cuối cùng của đề (câu vận dụng cao)
     for (let w = 0; w < wrongCountNeeded; w++) {
       wrongOrderSet.add(totalCount - w);
     }
@@ -1071,7 +1087,6 @@ function buildFullOMRQuestionsReview(
       rowItem.isCorrect = shouldBeCorrect;
       rowItem.isSkipped = false;
 
-      // Phân chia chuẩn xác: Câu 1-12 (Phần I), Câu 13-16 (Phần II), Câu 17-22 (Phần III)
       if (idx < 12) {
         metaItem.partNum = 1;
         metaItem.localNum = idx + 1;
@@ -1139,9 +1154,8 @@ function buildFullOMRQuestionsReview(
         metaItem.p3StudentChars = chosenStr.replace(/\./g, ",").slice(0, 4).split("");
         metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
       }
-    }
-  }
-
+    } // Đóng vòng for (let idx = 0; ...)
+  } // Đóng khối if (targetCorrectFromScore > 0 ...)
  // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
   if (clonedCoords.length > 0) {
     parsedMetaList.forEach((metaItem) => {
