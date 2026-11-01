@@ -1048,26 +1048,22 @@ function buildFullOMRQuestionsReview(
       rowItem.isSkipped = false;
 
       // Phân chia chuẩn xác: Câu 1-12 (Phần I), Câu 13-16 (Phần II), Câu 17-22 (Phần III)
-      if (idx < 12) {
+    if (idx < 12) {
         metaItem.partNum = 1;
         metaItem.localNum = idx + 1;
         metaItem.partLabel = "Phần I";
         rowItem.part = "Phần I";
 
-        const corK = metaItem.p1CorrectKey || defaultP1Cycle[idx % 4];
+        const corK: "A" | "B" | "C" | "D" = (metaItem.p1CorrectKey as "A" | "B" | "C" | "D") || defaultP1Cycle[idx % 4];
         metaItem.p1CorrectKey = corK;
         rowItem.correctAnswer = corK;
 
-        const wrongK = (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
-        const chosenK = shouldBeCorrect ? corK : wrongK;
+        const wrongK: "A" | "B" | "C" | "D" = (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
+        const chosenK: "A" | "B" | "C" | "D" = shouldBeCorrect ? corK : wrongK;
         metaItem.p1StudentKey = chosenK;
         metaItem.studentDisplay = chosenK;
         rowItem.studentAnswer = chosenK;
-      } else if (idx < 16) {
-        metaItem.partNum = 2;
-        metaItem.localNum = idx - 11; // 1..4
-        metaItem.partLabel = "Phần II";
-        rowItem.part = "Phần II";
+      }
 
         const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
         const stuParts: string[] = [];
