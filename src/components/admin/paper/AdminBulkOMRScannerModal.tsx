@@ -105,8 +105,8 @@ interface ScannedSheetItem {
   syncedToCloud?: boolean;
 }
 
-// Hằng số bù trừ độ lệch trục Y cho Phần III (Điền số trả lời ngắn): kéo lên 14px (~3.5mm trên khổ chuẩn 1700px) để ôm khít tâm ô tròn in trên giấy
-const DEFAULT_PART3_Y_OFFSET = -14;
+// Hằng số bù trừ độ lệch trục Y cho Phần III: đặt chuẩn = 0 vì omrEngine đã tự động khóa vào khung viền & vành tròn in
+const DEFAULT_PART3_Y_OFFSET = 0;
 
 function dataUrlToBlob(dataUrl: string): Blob | null {
   try {
@@ -219,7 +219,7 @@ function enrichAndCalibrateOMRBubbleCoordinates(
       return {
         ...b,
         __rawY: baseRawY,
-        y: Math.round(baseRawY + part3YOffset)
+        y: Math.round((baseRawY + part3YOffset) * 10) / 10
       };
     }
     return { ...b };
@@ -333,7 +333,7 @@ function enrichAndCalibrateOMRBubbleCoordinates(
           b &&
           b.section === "part3" &&
           Number(b.questionNumber) === localNum &&
-          Number(b.colIndex ?? b.col ?? 0) === colIdx
+          Number(b.colIndex ?? b.col ?? b.subKey ?? 0) === colIdx
       );
 
       colBubbles.forEach((b: any) => {
@@ -424,6 +424,7 @@ export function AdminBulkOMRScannerModal({
   const streamRef = useRef<MediaStream | null>(null);
   const lastAutoCaptureTimeRef = useRef<number>(0);
   const matchedHoldStartTimeRef = useRef<number | null>(null);
+  const prevRealtimeCornersRef = useRef<CustomFourCornersInput | null>(null);
   const manualSvgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -856,6 +857,7 @@ export function AdminBulkOMRScannerModal({
 
   const handleResumeNextScan = useCallback(async () => {
     matchedHoldStartTimeRef.current = null;
+    prevRealtimeCornersRef.current = null;
     lastAutoCaptureTimeRef.current = Date.now();
     setIsManualCornerMode(false);
     setIsCameraPausedForInspect(false);
@@ -985,17 +987,20 @@ export function AdminBulkOMRScannerModal({
         customCorners
       );
 
+      let matchedNewQuiz = false;
       if (selectedQuizId === "auto" && preliminaryOmr.detected_exam_code !== "Chưa tô") {
         const byCode = allQuizzesPool.find(
           (q) => q.examCode === preliminaryOmr.detected_exam_code
         );
-        if (byCode) {
+        if (byCode && byCode.id !== targetQuizEntry?.id) {
           targetQuizEntry = byCode;
+          matchedNewQuiz = true;
         }
       }
 
+      // Chỉ quét lại nếu chế độ Auto đổi sang đề thi khác có số lượng câu hỏi khác đề mặc định
       const finalOmr =
-        targetQuizEntry && selectedQuizId === "auto"
+        targetQuizEntry && selectedQuizId === "auto" && matchedNewQuiz
           ? scanOMRSheetFromCanvas(canvas, targetQuizEntry.rawObj, 1, customCorners)
           : preliminaryOmr;
 
@@ -1143,7 +1148,7 @@ export function AdminBulkOMRScannerModal({
     [soundEnabled, pauseCameraForInspection, autoSyncSingleItemInBackground]
   );
 
-  // 6. VÒNG LẶP QUÉT REALTIME NHẠY BÉN (HOLD 180MS & COOLDOWN 1000MS)
+  // 6. VÒNG LẶP QUÉT REALTIME NHẠY BÉN CÓ KHÓA CHỐNG RUNG 4 GÓC (CORNER STABILITY CHECK)
   useEffect(() => {
     if (!isOpen || mobileViewTab !== "camera" || isCameraPausedForInspect) return;
 
@@ -1173,12 +1178,43 @@ export function AdminBulkOMRScannerModal({
       if (!autoCaptureEnabled) return;
 
       if (rtResult.isMatched && rtResult.detectedCorners) {
+        const curC = rtResult.detectedCorners;
+        const prevC = prevRealtimeCornersRef.current;
+        prevRealtimeCornersRef.current = curC;
+
+        // Kiểm tra độ đứng yên của 4 góc giữa 2 frame liên tiếp (< 6.5px trên khung 440px) để ảnh không bị nhòe do rung tay
+        let isSteady = true;
+        if (prevC) {
+          const maxCornerMove = Math.max(
+            Math.hypot(curC.topLeft.x - prevC.topLeft.x, curC.topLeft.y - prevC.topLeft.y),
+            Math.hypot(curC.topRight.x - prevC.topRight.x, curC.topRight.y - prevC.topRight.y),
+            Math.hypot(
+              curC.bottomRight.x - prevC.bottomRight.x,
+              curC.bottomRight.y - prevC.bottomRight.y
+            ),
+            Math.hypot(
+              curC.bottomLeft.x - prevC.bottomLeft.x,
+              curC.bottomLeft.y - prevC.bottomLeft.y
+            )
+          );
+          if (maxCornerMove > 6.5) {
+            isSteady = false;
+          }
+        }
+
+        if (!isSteady) {
+          matchedHoldStartTimeRef.current = now;
+          setCameraStatusText("Đã khớp 4 góc — Giữ yên máy để chụp nét...");
+          return;
+        }
+
         if (!matchedHoldStartTimeRef.current) {
           matchedHoldStartTimeRef.current = now;
           setCameraStatusText("Đã khớp 4 góc — Đang chụp tự động...");
         } else if (now - matchedHoldStartTimeRef.current >= 180) {
           lastAutoCaptureTimeRef.current = now;
           matchedHoldStartTimeRef.current = null;
+          prevRealtimeCornersRef.current = null;
 
           setShutterFlash(true);
           setTimeout(() => setShutterFlash(false), 180);
@@ -1220,6 +1256,7 @@ export function AdminBulkOMRScannerModal({
         }
       } else {
         matchedHoldStartTimeRef.current = null;
+        prevRealtimeCornersRef.current = null;
         const matchedCount =
           (rtResult.cornerStatus.topLeft ? 1 : 0) +
           (rtResult.cornerStatus.topRight ? 1 : 0) +
@@ -1359,7 +1396,7 @@ export function AdminBulkOMRScannerModal({
           const updatedItem: ScannedSheetItem = {
             ...rescanned,
             tempId: activeInspectItem.tempId,
-            cornerPoints: editingCorners,
+            cornerPoints: rescanned.cornerPoints || editingCorners,
             warpMatrixApplied: true,
             geometryWarning: undefined
           };
@@ -1504,7 +1541,20 @@ export function AdminBulkOMRScannerModal({
         }
       });
     } else if (part === 3) {
-      nextOmr.part3_answers[localQuestionNum] = String(newVal || "").trim();
+      const cleanStr = String(newVal || "").trim();
+      nextOmr.part3_answers[localQuestionNum] = cleanStr;
+      const chars = cleanStr.replace(/\./g, ",").split("");
+      nextOmr.bubble_coordinates.forEach((b: any) => {
+        if (b.section === "part3" && b.questionNumber === localQuestionNum) {
+          const colIdx = Number(b.subKey ?? b.colIndex ?? 0);
+          const targetChar = chars[colIdx];
+          b.isSelected =
+            targetChar !== undefined &&
+            (b.optionKey === targetChar ||
+              (targetChar === "," && (b.optionKey === "," || b.optionKey === ".")));
+          b.status = b.isSelected ? "detected" : "unfilled";
+        }
+      });
     }
 
     const regraded = gradeOMRSubmission(nextOmr, item.rawQuizObj);
@@ -2316,6 +2366,18 @@ export function AdminBulkOMRScannerModal({
                                         b.questionNumber,
                                         b.optionKey
                                       );
+                                    } else if (
+                                      b.section === "part2" &&
+                                      b.questionNumber &&
+                                      b.subKey
+                                    ) {
+                                      handleQuickAdjustAnswer(
+                                        activeInspectItem,
+                                        2,
+                                        b.questionNumber,
+                                        b.optionKey === "T",
+                                        b.subKey
+                                      );
                                     }
                                   }}
                                 >
@@ -2410,9 +2472,52 @@ export function AdminBulkOMRScannerModal({
                               )}
 
                               {qd.part === 2 && (
-                                <span className="text-[10px] font-bold">
-                                  {qd.studentAnswerDisplay}
-                                </span>
+                                <div className="flex flex-wrap items-center gap-1 justify-end">
+                                  {(["a", "b", "c", "d"] as const).map((sk) => {
+                                    const p1Count = (
+                                      activeInspectItem.questionDetails || []
+                                    ).filter((x: any) => x.part === 1).length;
+                                    const localP2Num = Math.max(
+                                      1,
+                                      qd.questionOrder - p1Count
+                                    );
+                                    const curSubVal =
+                                      activeInspectItem.omrRawData?.part2_answers?.[
+                                        localP2Num
+                                      ]?.[sk];
+                                    return (
+                                      <button
+                                        key={sk}
+                                        type="button"
+                                        onClick={() => {
+                                          const nextVal =
+                                            curSubVal === true
+                                              ? false
+                                              : curSubVal === false
+                                              ? null
+                                              : true;
+                                          handleQuickAdjustAnswer(
+                                            activeInspectItem,
+                                            2,
+                                            localP2Num,
+                                            nextVal === null ? curSubVal : nextVal,
+                                            sk
+                                          );
+                                        }}
+                                        title={`Bấm để đổi ý ${sk}) Đúng / Sai / Trống`}
+                                        className={`px-1.5 py-0.5 rounded font-bold text-[10px] border transition cursor-pointer ${
+                                          curSubVal === true
+                                            ? "bg-blue-600 text-white border-blue-600"
+                                            : curSubVal === false
+                                            ? "bg-amber-600 text-white border-amber-600"
+                                            : "bg-white text-slate-600 border-slate-300 hover:bg-slate-100"
+                                        }`}
+                                      >
+                                        {sk}){curSubVal === true ? "Đ" : curSubVal === false ? "S" : "_"}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               )}
 
                               {qd.part === 3 && (
