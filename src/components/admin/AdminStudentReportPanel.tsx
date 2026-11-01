@@ -1256,25 +1256,6 @@ const p1Rows = allRows.filter((r) => r.part === "Phần I");
   };
 }
 
-/**
- * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY THÀNH "PHIẾU OMR ẢO" CHUẨN TCT (1200 x 1700 px)
- * - Vẽ phôi phiếu trắc nghiệm chuẩn TCT.
- * - Tô vết chì mô phỏng (`rgba(45, 45, 45, 0.85)`) vào SBD, Mã đề và các phương án học sinh đã chọn.
- * - Sinh mảng `bubbleCoordinates` đầy đủ: `correct` (Xanh lá), `wrong` (Đỏ), `expected_missed` (Vàng nét đứt) và `sbd`/`exam_code` (Xanh dương).
- */
-export function generateVirtualOMRSheet(
-  attempt: any,
-  rawQuizObj: any,
-  sbd: string,
-  studentName: string,
-  examTitle?: string,
-  examCode: string = "101",
-  questionStatusOverrides?: Record<number, boolean>
-): {
-  dataUrl: string;
-  bubbleCoordinates: any[];
-  reviewData: ReturnType<typeof buildFullOMRQuestionsReview>;
-} {
 export function generateVirtualOMRSheet(
   attempt: any,
   rawQuizObj: any,
@@ -1294,6 +1275,7 @@ export function generateVirtualOMRSheet(
     questionStatusOverrides
   );
 
+  const cleanSbd = String(sbd || "000001")
   const cleanSbd = String(sbd || "000001")
     .replace(/\D/g, "")
     .padStart(6, "0")
