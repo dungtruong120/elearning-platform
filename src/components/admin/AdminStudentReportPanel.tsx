@@ -449,7 +449,7 @@ function buildFullOMRQuestionsReview(
 
   // Trích xuất phẳng danh sách câu hỏi kèm phân loại Phần 1, 2, 3 từ cấu trúc đề gốc
   const flatQuestions: any[] = [];
-  const detectedPartByIndex: number[] = [];
+ const detectedPartByIndex: (1 | 2 | 3)[] = [];
 
   if (rawQuizObj) {
     let rawSections =
@@ -469,7 +469,7 @@ function buildFullOMRQuestionsReview(
     if (Array.isArray(rawSections) && rawSections.length > 0) {
       rawSections.forEach((sec: any, sIdx: number) => {
         const secTitle = normalizeText(sec?.title || sec?.name || sec?.part || "");
-        let inferredSecPart: number = sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3;
+        let inferredSecPart: 1 | 2 | 3 = (sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3) as 1 | 2 | 3;
         if (
           secTitle.includes("phan iii") ||
           secTitle.includes("phan 3") ||
@@ -495,7 +495,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart as any);
+            detectedPartByIndex.push(inferredSecPart);
           });
         } else if (
           sec &&
@@ -503,13 +503,13 @@ function buildFullOMRQuestionsReview(
         ) {
           flatQuestions.push(sec);
           const qType = String(sec.type || "").toLowerCase();
-          const p: number =
+          const p: 1 | 2 | 3 =
             qType.includes("short") || sec.shortAnswer !== undefined
               ? 3
               : qType.includes("true") || Array.isArray(sec.statements)
               ? 2
               : 1;
-          detectedPartByIndex.push(p as any);
+          detectedPartByIndex.push(p);
         }
       });
     }
@@ -527,7 +527,7 @@ function buildFullOMRQuestionsReview(
         directQuestions.forEach((q: any, qIdx: number) => {
           flatQuestions.push(q);
           const qType = String(q?.type || "").toLowerCase();
-          let p: number = 1;
+          let p: 1 | 2 | 3 = 1;
           if (qType.includes("short") || q?.shortAnswer !== undefined || q?.part === 3) {
             p = 3;
           } else if (
@@ -539,13 +539,12 @@ function buildFullOMRQuestionsReview(
           } else if (q?.part === 1 || qType.includes("multiple")) {
             p = 1;
           } else if (directQuestions.length === 22) {
-            p = qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3;
+            p = (qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3) as 1 | 2 | 3;
           }
-          detectedPartByIndex.push(p as any);
+          detectedPartByIndex.push(p);
         });
       }
     }
-  }
 
   // Nếu toàn bộ detectedPartByIndex bị dồn hết vào Phần 1 trong một đề chuẩn 22 câu -> tự động phân bổ 12 - 4 - 6
   if (
