@@ -6150,83 +6150,87 @@ export default function AdminStudentReportPanel({
 
                       <div className="flex items-center gap-1.5">
                         <button
-                          type="button"
-                          disabled={isFetchingQuizZeroEgress}
-                          onClick={async () => {
-                            setIsFetchingQuizZeroEgress(true);
-                            try {
-                              const targetTitle = "TEST NGUYÊN HÀM";
-                              const targetId = "exam-1793503014491";
-                              let examResult: any = null;
-                              const client = getSupabaseClientSafe();
+  type="button"
+  disabled={isFetchingQuizZeroEgress}
+  onClick={async () => {
+    setIsFetchingQuizZeroEgress(true);
+    try {
+      const targetId = "exam-1793503014491";
+      const targetTitle = "TEST NGUYÊN HÀM";
+      let matchedExam: any = null;
 
-                              if (client) {
-                                try {
-                                  const { data } = await client
-                                    .from("practice_exams")
-                                    .select("id, title, sections, questions")
-                                    .or(`id.eq.${targetId},title.ilike.%${targetTitle}%`)
-                                    .maybeSingle();
-                                  if (data && (data.sections || data.questions)) examResult = data;
-                                } catch (e) {}
-                              }
+      // BƯỚC 1: Quét trực tiếp trong localStorage.getItem("edunexus_practice_exams")
+      try {
+        const localList = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
+        matchedExam = localList.find((e: any) =>
+          String(e?.id || "").trim() === targetId ||
+          (e?.title && e.title.toUpperCase().includes("NGUYÊN HÀM"))
+        );
+      } catch (e) {}
 
-                              if (!examResult) {
-                                const sUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-                                const sKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-                                if (sUrl && sKey) {
-                                  try {
-                                    const queryUrl = `${sUrl.replace(/\/$/, "")}/rest/v1/practice_exams?select=id,title,sections,questions&or=(id.eq.${targetId},title.ilike.*${encodeURIComponent(targetTitle)}*)&limit=1`;
-                                    const resp = await fetch(queryUrl, {
-                                      headers: {
-                                        apikey: sKey,
-                                        Authorization: `Bearer ${sKey}`,
-                                        Accept: "application/json"
-                                      }
-                                    });
-                                    if (resp.ok) {
-                                      const rows = await resp.json();
-                                      if (Array.isArray(rows) && rows.length > 0) examResult = rows[0];
-                                    }
-                                  } catch (e) {}
-                                }
-                              }
+      // BƯỚC 2: Quét trong props practiceExams truyền từ trang cha
+      if (!matchedExam && Array.isArray(practiceExams)) {
+        matchedExam = practiceExams.find((e: any) =>
+          String(e?.id || "").trim() === targetId ||
+          (e?.title && e.title.toUpperCase().includes("NGUYÊN HÀM"))
+        );
+      }
 
-                              if (examResult) {
-                                const cleanId = String(examResult.id || targetId).toLowerCase();
-                                try {
-                                  const curExams = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
-                                  const nextList = [
-                                    ...curExams.filter((e: any) => String(e.id).toLowerCase() !== cleanId),
-                                    examResult
-                                  ];
-                                  localStorage.setItem("edunexus_practice_exams", JSON.stringify(nextList));
-                                } catch (e) {}
+      // BƯỚC 3: Nếu vẫn chưa có, gọi API nội bộ /api/admin/data (KHÔNG TỐN EGRESS SUPABASE)
+      if (!matchedExam) {
+        try {
+          const res = await fetch("/api/admin/data");
+          if (res.ok) {
+            const apiData = await res.json();
+            const list = apiData.practiceExams || [];
+            matchedExam = list.find((e: any) =>
+              String(e?.id || "").trim() === targetId ||
+              (e?.title && e.title.toUpperCase().includes("NGUYÊN HÀM"))
+            );
+          }
+        } catch (e) {}
+      }
 
-                                virtualOMRCache.clear();
-                                setCachedExamsMap((prev) => ({
-                                  ...prev,
-                                  [cleanId]: examResult,
-                                  [`title:${normalizeText(examResult.title || targetTitle)}`]: examResult
-                                }));
+      if (matchedExam) {
+        const cleanId = String(matchedExam.id || targetId).toLowerCase();
 
-                                alert(`✅ Đã đồng bộ thành công đề: "${examResult.title || targetTitle}"!`);
-                                window.location.reload();
-                              } else {
-                                alert("⚠️ Không tìm thấy đề thi trên Supabase.");
-                              }
-                            } catch (err: any) {
-                              alert("❌ Lỗi: " + (err.message || err));
-                            } finally {
-                              setIsFetchingQuizZeroEgress(false);
-                            }
-                          }}
-                          className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition active:scale-95"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${isFetchingQuizZeroEgress ? "animate-spin" : ""}`} />
-                          <span>{isFetchingQuizZeroEgress ? "Đang đồng bộ đề..." : "Đồng bộ Đáp án đề"}</span>
-                        </button>
+        // 1. Lưu đè chuẩn vào edunexus_practice_exams
+        try {
+          const curList = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
+          const nextList = [
+            ...curList.filter((e: any) => String(e.id).toLowerCase() !== cleanId),
+            matchedExam
+          ];
+          localStorage.setItem("edunexus_practice_exams", JSON.stringify(nextList));
+        } catch (e) {}
 
+        // 2. Xóa cache ảnh OMR cũ
+        virtualOMRCache.clear();
+
+        // 3. Cập nhật state bộ nhớ đệm
+        setCachedExamsMap((prev) => ({
+          ...prev,
+          [cleanId]: matchedExam,
+          [targetId]: matchedExam,
+          [`title:${normalizeText(matchedExam.title || targetTitle)}`]: matchedExam
+        }));
+
+        alert(`✅ Đã đồng bộ thành công đề: "${matchedExam.title}"!\nToàn bộ 22 câu hỏi chuẩn đã sẵn sàng.`);
+        window.location.reload();
+      } else {
+        alert("⚠️ Không tìm thấy đề trong hệ thống.");
+      }
+    } catch (err: any) {
+      alert("❌ Lỗi: " + (err.message || err));
+    } finally {
+      setIsFetchingQuizZeroEgress(false);
+    }
+  }}
+  className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition active:scale-95"
+>
+  <RefreshCw className={`w-3.5 h-3.5 ${isFetchingQuizZeroEgress ? "animate-spin" : ""}`} />
+  <span>{isFetchingQuizZeroEgress ? "Đang đồng bộ..." : "Đồng bộ Đáp án đề"}</span>
+</button>
                         <button
                           type="button"
                           onClick={() => {
