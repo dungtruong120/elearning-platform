@@ -12,6 +12,8 @@ export interface FullQuestionReviewRow {
   correctAnswer: string;
   isCorrect: boolean;
   isSkipped?: boolean;
+  isOmrFormatError?: boolean;
+  resultStatusText?: string;
 }
 
 export type ExtendedAttendanceStatus =
@@ -83,9 +85,14 @@ export const STANDARD_SUPPORT_SHIFTS = [
   },
 ];
 
+export const TCT_BRANDING_FOOTER_TEXT =
+  "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • Hotline: 0972 26 16 16 • Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội";
+
 export type ExtendedStudentDailyReportData = StudentDailyScoreData & {
   homeworkQuizTitle?: string;
   allQuestionsReviewList?: FullQuestionReviewRow[];
+  allRows?: FullQuestionReviewRow[];
+  questionReviews?: FullQuestionReviewRow[];
   attendanceStatus?: ExtendedAttendanceStatus;
   attendanceNote?: string;
   makeupSessions?: MakeupSessionItem[];
@@ -320,7 +327,7 @@ function renderTCTBrandHeaderHTML(): string {
 }
 
 /**
- * DỰNG THANH CHÂN TRANG (FOOTER) CHUẨN THƯƠNG HIỆU TRUNG TÂM TCT (KHÔNG DÙNG QR ZALO)
+ * DỰNG THANH CHÂN TRANG (FOOTER) CHUẨN THƯƠNG HIỆU TRUNG TÂM TCT (ĐỒNG BỘ TRÊN CẢ 2 TRANG)
  */
 function renderTCTBrandFooterHTML(
   pageNumberLabel: string,
@@ -330,7 +337,7 @@ function renderTCTBrandFooterHTML(
     <div class="tct-brand-footer">
       <div class="tct-footer-bar">
         <div class="tct-footer-brand-text">
-          TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) &bull; Hotline: 0972 26 16 16 &bull; Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội
+          ${escapeHtml(TCT_BRANDING_FOOTER_TEXT)}
         </div>
         <div class="tct-footer-meta">
           <span class="tct-footer-stu-tag">${escapeHtml(studentQuickTag)}</span>
@@ -342,17 +349,134 @@ function renderTCTBrandFooterHTML(
 }
 
 /**
- * DỰNG LỚP PHỦ VECTOR SVG KHOANH XANH LÁ (ĐÚNG) / ĐỎ (SAI) / VÀNG HỔ PHÁCH NÉT ĐỨT (ĐÁP ÁN ĐÚNG KHI LÀM SAI HOẶC BỎ TRỐNG) / XANH DƯƠNG (SBD & MÃ ĐỀ)
+ * TRÍCH XUẤT DANH SÁCH ĐỐI CHIẾU 22 CÂU TỪ DỮ LIỆU HỌC SINH TRUYỀN VÀO
  */
-function renderOMROverlaySVG(student: StudentDailyScoreData): string {
-  const coords = student.bubbleCoordinates;
-  if (!Array.isArray(coords) || coords.length === 0) return "";
+function extractStudentReviewRows(
+  student: ExtendedStudentDailyReportData
+): FullQuestionReviewRow[] {
+  const candidates = [
+    student.allQuestionsReviewList,
+    student.allRows,
+    student.questionReviews,
+  ];
+  for (const list of candidates) {
+    if (Array.isArray(list) && list.length > 0) {
+      return list;
+    }
+  }
+  return [];
+}
+
+/**
+ * KIỂM TRA CÂU TRẢ LỜI PHẦN III CÓ BỊ LỖI QUY CÁCH OMR (> 4 KÝ TỰ) HAY KHÔNG
+ */
+function detectPart3OmrFormatError(row: FullQuestionReviewRow): {
+  isFormatError: boolean;
+  rawCleanAnswer: string;
+  formattedWarningDisplay: string;
+  normalizedCorrectDisplay: string;
+} {
+  const rawStu = String(row.studentAnswer || "").trim();
+  const rawCor = String(row.correctAnswer || "--").trim();
+
+  if (
+    !rawStu ||
+    rawStu === "Trống" ||
+    rawStu === "Bỏ trống" ||
+    rawStu === "Chưa tô" ||
+    rawStu === "Bỏ trống / Chưa tô"
+  ) {
+    return {
+      isFormatError: false,
+      rawCleanAnswer: "",
+      formattedWarningDisplay: "Trống",
+      normalizedCorrectDisplay: rawCor || "--",
+    };
+  }
+
+  const explicitMarkerMatch = rawStu.match(
+    /^([^\(\s]+)\s*\(Sai\s*form\s*OMR\s*>\s*4\s*ô\)/i
+  );
+  const strippedAns = explicitMarkerMatch
+    ? explicitMarkerMatch[1].trim()
+    : rawStu;
+
+  const isError =
+    Boolean(row.isOmrFormatError) ||
+    Boolean(explicitMarkerMatch) ||
+    /sai\s*form\s*omr|sai\s*quy\s*cách\s*omr/i.test(rawStu) ||
+    strippedAns.length > 4;
+
+  if (!isError) {
+    return {
+      isFormatError: false,
+      rawCleanAnswer: strippedAns,
+      formattedWarningDisplay: strippedAns,
+      normalizedCorrectDisplay: rawCor || "--",
+    };
+  }
+
+  const warningText = `${strippedAns} (Sai form OMR > 4 ô)`;
+  const normalizedCor =
+    rawCor.length > 4 && rawCor.startsWith("-") ? rawCor.slice(1) : rawCor || "--";
+
+  return {
+    isFormatError: true,
+    rawCleanAnswer: strippedAns,
+    formattedWarningDisplay: warningText,
+    normalizedCorrectDisplay: normalizedCor,
+  };
+}
+
+/**
+ * DỰNG LỚP PHỦ VECTOR SVG TRÊN PHIẾU OMR TRANG 2:
+ * - Khoanh Xanh lá (Đúng) / Đỏ (Sai) / Vàng hổ phách nét đứt (Đáp án chuẩn khi làm sai hoặc bỏ trống) / Xanh dương (SBD & Mã đề).
+ * - Với câu Phần III bị lỗi sai quy cách (> 4 ký tự như -1300): Không tô ô chì tròn của học sinh, vẽ viền cảnh báo đỏ + gạch chéo đỏ mờ quanh 4 ô viết tay của câu đó.
+ */
+function renderOMROverlaySVG(
+  student: ExtendedStudentDailyReportData,
+  reviewRows: FullQuestionReviewRow[] = []
+): string {
+  const coords = Array.isArray(student.bubbleCoordinates)
+    ? student.bubbleCoordinates
+    : [];
 
   const W = student.canonicalWidth || OMR_CANONICAL_WIDTH;
   const H = student.canonicalHeight || OMR_CANONICAL_HEIGHT;
 
-  const activeBubbles = coords.filter((b) => b && b.status !== "unfilled");
-  if (activeBubbles.length === 0) return "";
+  // Xác định các câu Phần III (localNum 1..6) bị lỗi sai quy cách OMR (> 4 ô)
+  const formatErrorP3LocalNums = new Set<number>();
+  reviewRows.forEach((row) => {
+    const isPart3 =
+      row.part === "Phần III" ||
+      (row.questionNumber >= 17 && row.questionNumber <= 22);
+    if (!isPart3) return;
+    const { isFormatError } = detectPart3OmrFormatError(row);
+    if (isFormatError) {
+      const localNum =
+        row.questionNumber >= 17 ? row.questionNumber - 16 : row.questionNumber;
+      if (localNum >= 1 && localNum <= 6) {
+        formatErrorP3LocalNums.add(localNum);
+      }
+    }
+  });
+
+  // Lọc bỏ các bong bóng tô chì của học sinh ở câu Phần III bị lỗi > 4 ô (chỉ giữ lại expected_missed)
+  const activeBubbles = coords.filter((b) => {
+    if (!b || b.status === "unfilled") return false;
+    if (
+      b.section === "part3" &&
+      formatErrorP3LocalNums.has(Number(b.questionNumber)) &&
+      b.status !== "expected_missed"
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  if (activeBubbles.length === 0 && formatErrorP3LocalNums.size === 0) {
+    return "";
+  }
 
   const circlesHtml = activeBubbles
     .map((b) => {
@@ -387,15 +511,37 @@ function renderOMROverlaySVG(student: StudentDailyScoreData): string {
     })
     .join("");
 
+  // Vẽ viền cảnh báo đỏ + gạch chéo đỏ mờ quanh 4 ô viết tay của câu Phần III bị sai quy cách (> 4 ký tự)
+  const p3FormatErrorOverlaysHtml = Array.from(formatErrorP3LocalNums)
+    .map((localQ) => {
+      const boxX = 88 + (localQ - 1) * 174;
+      const leftEdge = boxX + 32 - 16;
+      const rightEdge = boxX + 32 + 3 * 36 + 16;
+      const topEdge = 1118;
+      const bottomEdge = 1154;
+      const rectW = rightEdge - leftEdge;
+      const rectH = bottomEdge - topEdge;
+
+      return `
+        <g class="omr-p3-format-error-box">
+          <rect x="${leftEdge}" y="${topEdge}" width="${rectW}" height="${rectH}" rx="4" fill="rgba(239, 68, 68, 0.14)" stroke="#DC2626" stroke-width="2.4" stroke-dasharray="4 2" />
+          <line x1="${leftEdge + 2}" y1="${topEdge + 2}" x2="${rightEdge - 2}" y2="${bottomEdge - 2}" stroke="rgba(220, 38, 38, 0.72)" stroke-width="2.2" />
+          <line x1="${rightEdge - 2}" y1="${topEdge + 2}" x2="${leftEdge + 2}" y2="${bottomEdge - 2}" stroke="rgba(220, 38, 38, 0.72)" stroke-width="2.2" />
+        </g>
+      `;
+    })
+    .join("");
+
   return `
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" shape-rendering="geometricPrecision" class="omr-overlay-svg">
       ${circlesHtml}
+      ${p3FormatErrorOverlaysHtml}
     </svg>
   `;
 }
 
 /**
- * GIẢI MÃ CHUỖI MỆNH ĐỀ PHẦN II ("a)Đ b)S c)Đ d)S") THÀNH BẢN ĐỒ { a, b, c, d }
+ * GIẢI MÃ CHUỖI MỆNH ĐỀ PHẦN II ("a)Đ b)S c)Đ d)S" HOẶC "ĐSĐS" / "TFTF") THÀNH BẢN ĐỒ { a, b, c, d }
  */
 function parsePart2SubMap(
   rawStr: string
@@ -407,8 +553,30 @@ function parsePart2SubMap(
     d: "-",
   };
   if (!rawStr) return res;
+  const trimmed = String(rawStr).trim();
+  if (
+    !trimmed ||
+    trimmed === "Trống" ||
+    trimmed === "Bỏ trống" ||
+    trimmed === "Chưa tô" ||
+    trimmed === "Bỏ trống / Chưa tô"
+  ) {
+    return res;
+  }
+
+  // Hỗ trợ chuỗi 4 ký tự liền nhau như "ĐSĐS", "TFTF", "DSDS"
+  const compact = trimmed.replace(/\s+/g, "").toUpperCase();
+  if (/^[ĐDSTF-]{4}$/i.test(compact)) {
+    (["a", "b", "c", "d"] as const).forEach((k, idx) => {
+      const ch = compact[idx];
+      if (ch === "Đ" || ch === "D" || ch === "T") res[k] = "Đ";
+      else if (ch === "S" || ch === "F") res[k] = "S";
+    });
+    return res;
+  }
+
   (["a", "b", "c", "d"] as const).forEach((k) => {
-    const m = rawStr.match(new RegExp(`${k}\\)?\\s*([ĐDSSTF-])`, "i"));
+    const m = trimmed.match(new RegExp(`${k}\\)?[\\s:-]*([ĐDSSTF-])`, "i"));
     if (m && m[1]) {
       const ch = m[1].toUpperCase();
       if (ch === "Đ" || ch === "D" || ch === "T") res[k] = "Đ";
@@ -419,9 +587,25 @@ function parsePart2SubMap(
 }
 
 /**
+ * FORMAT CHUỖI ĐÁP ÁN ĐỀ PHẦN II RÕ RÀNG TỪNG Ý ("a)Đ b)S c)Đ d)S")
+ */
+function formatPart2CorrectAnswerText(rawCorrectStr: string): string {
+  const corMap = parsePart2SubMap(rawCorrectStr);
+  const hasAnyValid = (["a", "b", "c", "d"] as const).some(
+    (k) => corMap[k] === "Đ" || corMap[k] === "S"
+  );
+  if (!hasAnyValid) {
+    return rawCorrectStr || "--";
+  }
+  return (["a", "b", "c", "d"] as const)
+    .map((k) => `${k})${corMap[k]}`)
+    .join(" ");
+}
+
+/**
  * RENDER 4 BADGE RIÊNG BIỆT CHO CÂU HỎI ĐÚNG/SAI (PHẦN II):
- * - Ý nào đúng: in nền xanh lá chữ trắng `[a) Đ]`
- * - Ý nào sai: in nền đỏ chữ trắng `[d) Đ ➔ S]` (hoặc `[d) Trống ➔ S]`)
+ * - Nếu học sinh bỏ trống cả 4 ý: Hiển thị "Trống"
+ * - Nếu có làm bài: Hiển thị rõ từng ý a)Đ b)S c)Đ d)S (ý đúng nền xanh lá, ý sai nền đỏ)
  */
 function renderPart2SubBadgesHTML(
   studentAnswerStr: string,
@@ -430,17 +614,24 @@ function renderPart2SubBadgesHTML(
   const stuMap = parsePart2SubMap(studentAnswerStr);
   const corMap = parsePart2SubMap(correctAnswerStr);
 
+  const isAllBlank = (["a", "b", "c", "d"] as const).every(
+    (k) => stuMap[k] === "-"
+  );
+  if (isAllBlank) {
+    return `<span class="p3-blank-badge">Trống</span>`;
+  }
+
   const badges = (["a", "b", "c", "d"] as const)
     .map((k) => {
       const sVal = stuMap[k];
-      const cVal = corMap[k] === "-" ? (k === "a" || k === "c" ? "Đ" : "S") : corMap[k];
-      const isSubRight = sVal !== "-" && sVal === cVal;
+      const cVal = corMap[k];
+      const isSubRight = sVal !== "-" && cVal !== "-" && sVal === cVal;
 
       if (isSubRight) {
-        return `<span class="p2-sub-badge p2-sub-badge-ok">[${k}) ${sVal}]</span>`;
+        return `<span class="p2-sub-badge p2-sub-badge-ok">${k})${sVal}</span>`;
       }
       const sLabel = sVal === "-" ? "_" : sVal;
-      return `<span class="p2-sub-badge p2-sub-badge-err">[${k}) ${sLabel} &#10140; ${cVal}]</span>`;
+      return `<span class="p2-sub-badge p2-sub-badge-err">${k})${sLabel}</span>`;
     })
     .join(" ");
 
@@ -549,7 +740,7 @@ function renderClassSummaryCoverPageHTML(
 }
 
 /**
- * DỰNG TRANG 1: PHIẾU BÁO CÁO KẾT QUẢ BUỔI HỌC CỦA TỪNG HỌC SINH
+ * DỰNG TRANG 1: PHIẾU BÁO CÁO KẾT QUẢ BUỔI HỌC CỦA TỪNG HỌC SINH (BẢO TOÀN 100% CẤU TRÚC)
  */
 function renderSingleStudentDailyReportPageHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -846,7 +1037,7 @@ function renderSingleStudentDailyReportPageHTML(
 }
 
 /**
- * KHỐI LỊCH TUẦN 7 NGÀY THU GỌN Ở ĐÁY TRANG 2 (DÙNG CHO KỊCH BẢN A: CÓ BÀI THI OMR)
+ * KHỐI LỊCH TUẦN 7 NGÀY THU GỌN Ở ĐÁY TRANG 2 (DÙNG CHO KỊCH BẢN 1: CÓ BÀI THI OMR)
  */
 function renderBottomMakeupScheduleSectionHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -998,10 +1189,12 @@ function renderBottomMakeupScheduleSectionHTML(
 }
 
 /**
- * KỊCH BẢN B (SMART ADAPTIVE LAYOUT - hasValidTestReview === false):
+ * KỊCH BẢN 2 (SMART ADAPTIVE LAYOUT - hasValidTestReview === false):
  * - ẨN HOÀN TOÀN KHUNG PHIẾU OMR & BẢNG 22 CÂU HỎI.
- * - PHÓNG TO BẢNG LỊCH HỌC BÙ & BỔ TRỢ TĂNG CƯỜNG TCT CHIẾM TOÀN BỘ NỬA TRÊN TRANG 2.
- * - NỬA DƯỚI TRANG 2: 2 KHỐI NỘI DUNG THỰC CHIẾN ("KẾ HOẠCH HỌC TẬP & MỤC TIÊU RÈN LUYỆN TRỌNG TÂM TUẦN TỚI" + "QUY ĐỊNH HỌC BÙ & HỖ TRỢ HỌC SINH TẠI TCT").
+ * - PHÓNG TO BẢNG LỊCH HỌC BÙ & BỔ TRỢ TUẦN LÊN VỊ TRÍ TRUNG TÂM TRANG 2 (Rõ nét các cột Thứ, Ca học, Lớp, Giáo viên phụ trách, highlight Cam/Xanh).
+ * - NỬA DƯỚI TRANG 2:
+ *   1. Khung "MỤC TIÊU & KẾ HOẠCH HỌC TẬP TRỌNG TÂM TUẦN TỚI".
+ *   2. Khung "QUY ĐỊNH HỌC BÙ & HỖ TRỢ HỌC SINH TẠI TRUNG TÂM TCT".
  */
 function renderScenarioBExpandedScheduleAndActionPlanHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -1103,10 +1296,12 @@ function renderScenarioBExpandedScheduleAndActionPlanHTML(
                       🕒 ${escapeHtml(sess.timeSlot || sess.badgeText)}
                     </div>
                     <div class="exp-sess-shift-name">
-                      ${escapeHtml(sess.shiftLabel)}
+                      Lớp: ${escapeHtml(sess.shiftLabel)} (${escapeHtml(
+                  student.grade || "Toán 12"
+                )})
                     </div>
                     <div class="exp-sess-topic">
-                      📘 Bài: ${escapeHtml(
+                      👨‍🏫 GV/TG: Đội ngũ Chuyên môn TCT &bull; 📘 ${escapeHtml(
                         sess.note || effectiveTopic
                       )}
                     </div>
@@ -1119,7 +1314,7 @@ function renderScenarioBExpandedScheduleAndActionPlanHTML(
           <div class="exp-empty-slot">
             <div class="exp-empty-circle">—</div>
             <div class="exp-empty-text">Chưa xếp ca hẹn riêng</div>
-            <div class="exp-empty-sub">Mở các ca chuẩn 1 &rarr; 7</div>
+            <div class="exp-empty-sub">Lớp bổ trợ TCT (Ca 1 &rarr; 7)</div>
           </div>
         `;
 
@@ -1161,9 +1356,11 @@ function renderScenarioBExpandedScheduleAndActionPlanHTML(
             <div class="expanded-schedule-sub">
               Tuần áp dụng: <strong>${escapeHtml(
                 weekRangeLabel
-              )}</strong> &bull; Chuyên đề cần nắm vững: <strong>${escapeHtml(
-    effectiveTopic
-  )}</strong>
+              )}</strong> &bull; Lớp: <strong>${escapeHtml(
+    student.grade || "Lớp 12"
+  )} (${escapeHtml(
+    student.learningMode
+  )})</strong> &bull; Phụ trách: <strong>Ban Chuyên môn Toán TCT</strong>
             </div>
           </div>
           <div class="expanded-schedule-legends">
@@ -1180,7 +1377,7 @@ function renderScenarioBExpandedScheduleAndActionPlanHTML(
 
         <div class="expanded-std-shifts-panel">
           <div class="expanded-std-shifts-title">
-            🕒 Khung giờ 7 Ca học bù &amp; Bổ trợ cố định hàng tuần tại Trung tâm Toán Tâm Chí Tài:
+            🕒 Khung giờ 7 Ca học bù &amp; Lớp bổ trợ cố định hàng tuần (Thứ / Ca học / Lớp / Giáo viên phụ trách):
           </div>
           <div class="expanded-std-shifts-row">
             ${stdShiftsGridHtml}
@@ -1188,12 +1385,12 @@ function renderScenarioBExpandedScheduleAndActionPlanHTML(
         </div>
       </div>
 
-      <!-- NỬA DƯỚI TRANG 2: 2 KHỐI HỘP NỘI DUNG THỰC CHIẾN ĐẦY ĐẶN, CHUYÊN NGHIỆP -->
+      <!-- NỬA DƯỚI TRANG 2: 2 KHỐI NỘI DUNG SƯ PHẠM TIÊU CHUẨN -->
       <div class="scenario-b-bottom-two-boxes">
-        <!-- KHỐI 1: KẾ HOẠCH HỌC TẬP & MỤC TIÊU RÈN LUYỆN TRỌNG TÂM TUẦN TỚI -->
+        <!-- KHỐI 1: MỤC TIÊU & KẾ HOẠCH HỌC TẬP TRỌNG TÂM TUẦN TỚI -->
         <div class="action-plan-box">
           <div class="action-plan-header">
-            1. KẾ HOẠCH HỌC TẬP &amp; MỤC TIÊU RÈN LUYỆN TRỌNG TÂM TUẦN TỚI
+            1. MỤC TIÊU &amp; KẾ HOẠCH HỌC TẬP TRỌNG TÂM TUẦN TỚI
           </div>
           <div class="action-plan-body">
             <div class="plan-bullet-item">
@@ -1223,10 +1420,10 @@ function renderScenarioBExpandedScheduleAndActionPlanHTML(
           </div>
         </div>
 
-        <!-- KHỐI 2: QUY ĐỊNH HỌC BÙ & HỖ TRỢ HỌC SINH TẠI TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) -->
+        <!-- KHỐI 2: QUY ĐỊNH HỌC BÙ & HỖ TRỢ HỌC SINH TẠI TRUNG TÂM TCT -->
         <div class="action-plan-box regulation-box-accent">
           <div class="action-plan-header">
-            2. QUY ĐỊNH HỌC BÙ &amp; HỖ TRỢ HỌC SINH TẠI TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT)
+            2. QUY ĐỊNH HỌC BÙ &amp; HỖ TRỢ HỌC SINH TẠI TRUNG TÂM TCT
           </div>
           <div class="action-plan-body">
             <div class="plan-bullet-item">
@@ -1256,8 +1453,8 @@ function renderScenarioBExpandedScheduleAndActionPlanHTML(
 
 /**
  * DỰNG TRANG 2 THEO CƠ CHẾ "SMART ADAPTIVE LAYOUT":
- * - Kịch bản A (hasValidTestReview === true): Phiếu OMR + Bảng đối chiếu 22 câu (Badge Phần II & Phần III) + Lịch tuần thu gọn.
- * - Kịch bản B (hasValidTestReview === false): Ẩn OMR & bảng câu hỏi, phóng to Bảng Lịch Học Bù & Bổ Trợ + 2 Khối Kế hoạch & Quy định TCT.
+ * - Kịch bản 1 (hasValidTestReview === true): Phiếu OMR + Bảng đối chiếu 22 câu (Phần I ABCD, Phần II 4 ý a/b/c/d, Phần III bắt lỗi > 4 ô) + Lịch tuần thu gọn.
+ * - Kịch bản 2 (hasValidTestReview === false): Ẩn hoàn toàn OMR & bảng câu hỏi, phóng to Bảng Lịch Học Bù & Bổ Trợ + 2 Khối Mục tiêu & Quy định TCT.
  */
 function renderStudentSecondPageHTML(
   config: DailyReportConfig & { homeworkTopicLabel?: string },
@@ -1280,7 +1477,7 @@ function renderStudentSecondPageHTML(
   );
 
   // ============================================================================
-  // KỊCH BẢN B: HỌC SINH CHƯA KIỂM TRA HOẶC NGHỈ HỌC (hasValidTestReview === false)
+  // KỊCH BẢN 2: HỌC SINH CHƯA KIỂM TRA HOẶC NGHỈ HỌC (hasValidTestReview === false)
   // ============================================================================
   if (!hasValidTestReview) {
     return `
@@ -1315,13 +1512,9 @@ function renderStudentSecondPageHTML(
   }
 
   // ============================================================================
-  // KỊCH BẢN A: HỌC SINH CÓ BÀI THI (hasValidTestReview === true)
+  // KỊCH BẢN 1: HỌC SINH CÓ BÀI THI (hasValidTestReview === true)
   // ============================================================================
-  const fullQuestions: FullQuestionReviewRow[] = Array.isArray(
-    student.allQuestionsReviewList
-  )
-    ? student.allQuestionsReviewList
-    : [];
+  const fullQuestions: FullQuestionReviewRow[] = extractStudentReviewRows(student);
 
   const wrongList: WrongQuestionReviewItem[] = Array.isArray(
     student.wrongQuestionsList
@@ -1335,11 +1528,12 @@ function renderStudentSecondPageHTML(
       : wrongList.map((w) => ({
           questionNumber: w.questionNumber,
           part: w.part,
-          studentAnswer: w.studentAnswer || "Bỏ trống / Chưa tô",
+          studentAnswer: w.studentAnswer || "Trống",
           correctAnswer: w.correctAnswer || "--",
           isCorrect: false,
           isSkipped:
             !w.studentAnswer ||
+            w.studentAnswer === "Trống" ||
             w.studentAnswer === "Bỏ trống" ||
             w.studentAnswer === "Chưa tô" ||
             w.studentAnswer === "Bỏ trống / Chưa tô",
@@ -1372,50 +1566,79 @@ function renderStudentSecondPageHTML(
       : displayRows
           .slice(0, 22)
           .map((row) => {
-            const isRight = row.isCorrect;
+            const qNum = Number(row.questionNumber || 1);
+            const inferredPart =
+              row.part ||
+              (qNum <= 12 ? "Phần I" : qNum <= 16 ? "Phần II" : "Phần III");
+            const isPart2 = inferredPart === "Phần II" || (qNum >= 13 && qNum <= 16);
+            const isPart3 = inferredPart === "Phần III" || qNum >= 17;
+
             const rawStuAns = String(row.studentAnswer || "").trim();
             const isBlank =
               Boolean(row.isSkipped) ||
               !rawStuAns ||
+              rawStuAns === "Trống" ||
               rawStuAns === "Bỏ trống" ||
               rawStuAns === "Chưa tô" ||
               rawStuAns === "Bỏ trống / Chưa tô";
 
-            const isPart2 = row.part === "Phần II";
-            const isPart3 = row.part === "Phần III";
-
+            let isOmrError = Boolean(row.isOmrFormatError);
             let studentAnswerCellInnerHtml = "";
             let correctAnswerCellInnerHtml = escapeHtml(row.correctAnswer || "--");
+            let resultCellText = "";
 
             if (isPart2) {
-              // Phần II: Render 4 badge riêng biệt [a) Đ] (Xanh) hoặc [d) Đ -> S] (Đỏ)
+              // Phần II (Câu 13 - 16): Hiển thị rõ từng ý a, b, c, d (ví dụ: a)Đ b)S c)Đ d)S)
               studentAnswerCellInnerHtml = renderPart2SubBadgesHTML(
                 rawStuAns,
                 row.correctAnswer || ""
               );
+              correctAnswerCellInnerHtml = escapeHtml(
+                formatPart2CorrectAnswerText(row.correctAnswer || "")
+              );
             } else if (isPart3) {
-              // Phần III: Câu bỏ trống in badge xám nhạt "Chưa điền / Bỏ trống"
+              // Phần III (Câu 17 - 22): Kiểm tra bỏ trống / hợp lệ (<= 4 ký tự) / vượt quá 4 ký tự (> 4 ô)
+              const p3Meta = detectPart3OmrFormatError(row);
+              isOmrError = p3Meta.isFormatError;
+              correctAnswerCellInnerHtml = escapeHtml(p3Meta.normalizedCorrectDisplay);
+
               if (isBlank) {
-                studentAnswerCellInnerHtml = `<span class="p3-blank-badge">Chưa điền / Bỏ trống</span>`;
+                studentAnswerCellInnerHtml = `<span class="p3-blank-badge">Trống</span>`;
+              } else if (isOmrError) {
+                studentAnswerCellInnerHtml = `<span class="p3-omr-error-badge">${escapeHtml(
+                  p3Meta.formattedWarningDisplay
+                )}</span>`;
               } else {
                 studentAnswerCellInnerHtml = `<span class="p3-num-val">${escapeHtml(
-                  rawStuAns
+                  p3Meta.rawCleanAnswer
                 )}</span>`;
               }
             } else {
-              // Phần I: Trắc nghiệm A, B, C, D
+              // Phần I (Câu 1 - 12): Đáp án A, B, C, D
               studentAnswerCellInnerHtml = isBlank
-                ? `<span class="p3-blank-badge">Chưa tô</span>`
+                ? `<span class="p3-blank-badge">Trống</span>`
                 : `<strong>${escapeHtml(rawStuAns)}</strong>`;
+            }
+
+            const isRight = isOmrError || isBlank ? false : Boolean(row.isCorrect);
+
+            if (isOmrError) {
+              resultCellText = row.resultStatusText || "✕ Sai quy cách OMR";
+            } else if (isRight) {
+              resultCellText = "✓ Đúng";
+            } else if (isBlank) {
+              resultCellText = "— Trống";
+            } else {
+              resultCellText = "✕ Sai";
             }
 
             return `
               <tr class="${isRight ? "row-correct" : "row-wrong"}">
                 <td style="text-align:center; font-weight:bold; color:${
                   isRight ? "#0F172A" : "#DC2626"
-                };">Câu ${row.questionNumber}</td>
+                };">Câu ${qNum}</td>
                 <td style="text-align:center; font-weight:bold; color:#334155;">${escapeHtml(
-                  row.part
+                  inferredPart
                 )}</td>
                 <td style="text-align:center; font-weight:bold; color:${
                   isRight ? "#047857" : "#DC2626"
@@ -1426,9 +1649,15 @@ function renderStudentSecondPageHTML(
                   ${correctAnswerCellInnerHtml}
                 </td>
                 <td style="text-align:center; font-weight:bold; color:${
-                  isRight ? "#047857" : isBlank ? "#64748B" : "#DC2626"
+                  isRight
+                    ? "#047857"
+                    : isOmrError
+                    ? "#B91C1C"
+                    : isBlank
+                    ? "#64748B"
+                    : "#DC2626"
                 };">
-                  ${isRight ? "✓ Đúng" : isBlank ? "— Trống" : "✗ Sai"}
+                  ${escapeHtml(resultCellText)}
                 </td>
               </tr>
             `;
@@ -1460,7 +1689,7 @@ function renderStudentSecondPageHTML(
               <img src="${student.scannedPaperImageUrl}" alt="Phiếu OMR của ${escapeHtml(
     student.studentName
   )}" class="omr-sheet-img" />
-              ${renderOMROverlaySVG(student)}
+              ${renderOMROverlaySVG(student, displayRows)}
             </div>
           </div>
 
@@ -1488,8 +1717,8 @@ function renderStudentSecondPageHTML(
                   <th style="width:42px; text-align:center;">Câu</th>
                   <th style="width:46px; text-align:center;">Phần</th>
                   <th style="text-align:center;">Bài làm của con</th>
-                  <th style="width:88px; text-align:center;">Đáp án đề</th>
-                  <th style="width:52px; text-align:center;">Kết quả</th>
+                  <th style="width:92px; text-align:center;">Đáp án đề</th>
+                  <th style="width:74px; text-align:center;">Kết quả</th>
                 </tr>
               </thead>
               <tbody>
@@ -1506,7 +1735,7 @@ function renderStudentSecondPageHTML(
                 </div>
                 <div class="legend-item">
                   <span class="legend-dot dot-red"></span>
-                  <span><strong>Đỏ:</strong> Tô sai</span>
+                  <span><strong>Đỏ:</strong> Tô sai / Lỗi quy cách</span>
                 </div>
                 <div class="legend-item">
                   <span class="legend-dot dot-amber"></span>
@@ -1950,7 +2179,7 @@ export function generateClassDailyReportHTML(
         }
 
         /* ==============================================================
-           TRANG 2 — KỊCH BẢN A: ĐỐI SOÁT OMR (145mm) + LỊCH TUẦN (57mm)
+           TRANG 2 — KỊCH BẢN 1: ĐỐI SOÁT OMR (145mm) + LỊCH TUẦN (57mm)
            ============================================================== */
         .omr-appendix-two-cols {
           display: grid;
@@ -2043,7 +2272,7 @@ export function generateClassDailyReportHTML(
         .omr-wrong-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 9.2px;
+          font-size: 9.1px;
           margin-bottom: 3px;
         }
         .omr-wrong-table th,
@@ -2054,11 +2283,11 @@ export function generateClassDailyReportHTML(
         }
         .omr-wrong-table th {
           background: #F1F5F9;
-          font-size: 8.8px;
+          font-size: 8.7px;
           text-transform: uppercase;
           color: #0F172A;
         }
-        /* BADGE PHẦN II (ĐÚNG/SAI) & PHẦN III (TRẢ LỜI NGẮN) */
+        /* BADGE PHẦN II (ĐÚNG/SAI) & PHẦN III (TRẢ LỜI NGẮN / SAI FORM OMR) */
         .p2-badges-wrap {
           display: flex;
           flex-wrap: nowrap;
@@ -2068,7 +2297,7 @@ export function generateClassDailyReportHTML(
         }
         .p2-sub-badge {
           display: inline-block;
-          padding: 0.5px 3px;
+          padding: 0.5px 3.5px;
           border-radius: 2.5px;
           font-size: 8.1px;
           font-weight: bold;
@@ -2088,9 +2317,20 @@ export function generateClassDailyReportHTML(
           border: 1px solid #CBD5E1;
           padding: 0.5px 5px;
           border-radius: 3px;
-          font-size: 8.3px;
+          font-size: 8.2px;
           font-weight: bold;
           font-style: italic;
+        }
+        .p3-omr-error-badge {
+          display: inline-block;
+          background: #FEE2E2;
+          color: #991B1B;
+          border: 1px solid #DC2626;
+          padding: 0.5px 4px;
+          border-radius: 3px;
+          font-size: 8px;
+          font-weight: bold;
+          white-space: nowrap;
         }
         .p3-num-val {
           font-weight: bold;
@@ -2147,7 +2387,7 @@ export function generateClassDailyReportHTML(
         }
 
         /* ==============================================================
-           KHUNG LỊCH TUẦN 7 NGÀY THU GỌN Ở ĐÁY TRANG 2 (KỊCH BẢN A)
+           KHUNG LỊCH TUẦN 7 NGÀY THU GỌN Ở ĐÁY TRANG 2 (KỊCH BẢN 1)
            ============================================================== */
         .bottom-weekly-schedule-container {
           border: 2px solid #1E40AF;
@@ -2369,7 +2609,7 @@ export function generateClassDailyReportHTML(
         }
 
         /* ==============================================================
-           TRANG 2 — KỊCH BẢN B: LỊCH HỌC BÙ PHÓNG TO (NỬA TRÊN) + 2 KHỐI NỘI DUNG (NỬA DƯỚI)
+           TRANG 2 — KỊCH BẢN 2: LỊCH HỌC BÙ PHÓNG TO (NỬA TRÊN) + 2 KHỐI NỘI DUNG (NỬA DƯỚI)
            ============================================================== */
         .scenario-b-wrapper {
           display: flex;
@@ -2619,7 +2859,7 @@ export function generateClassDailyReportHTML(
           margin-top: 1px;
         }
 
-        /* 2 KHỐI HỘP NỘI DUNG Ở NỬA DƯỚI TRANG 2 (KỊCH BẢN B) */
+        /* 2 KHỐI HỘP NỘI DUNG Ở NỬA DƯỚI TRANG 2 (KỊCH BẢN 2) */
         .scenario-b-bottom-two-boxes {
           display: flex;
           flex-direction: column;
