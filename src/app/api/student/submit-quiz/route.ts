@@ -57,6 +57,7 @@ export async function POST(req: Request) {
     const executionResults: Record<string, any> = {};
 
     // 1. GHI VÀO EXAM_ATTEMPTS: Đảm bảo lưu đúng student_name, full_name, quiz_title
+    // 1. GHI VÀO EXAM_ATTEMPTS: Đảm bảo lưu đúng student_name, full_name, quiz_title và CỘT ANSWERS
     try {
       const fullSnakeRecord: any = {
         id: uniqueId,
@@ -72,6 +73,8 @@ export async function POST(req: Request) {
         points: finalScore,
         type: isHomework ? "homework" : "practice",
         is_homework: Boolean(isHomework),
+        // BỔ SUNG TRƯỜNG NÀY ĐỂ LƯU CHI TIẾT ĐÁP ÁN TỪNG CÂU VÀO SUPABASE:
+        answers: answers || {}, 
         created_at: nowIso
       };
 
@@ -83,13 +86,14 @@ export async function POST(req: Request) {
         executionResults["exam_attempts"] = "success";
         savedSuccessfully = true;
       } else {
-        // Fallback tối giản nếu schema thiếu một số trường phụ
+        // Fallback tối giản nếu schema thiếu một số trường phụ (nhưng VẪN GIỮ LẠI ANSWERS)
         const minimalRecord = {
           id: uniqueId,
           quiz_id: String(quizId),
           student_id: finalStudentId,
           score: finalScore,
           type: isHomework ? "homework" : "practice",
+          answers: answers || {}, // Giữ lại answers ở bản fallback tối giản
           created_at: nowIso
         };
         const { error: fallbackErr } = await supabaseServer
@@ -103,6 +107,9 @@ export async function POST(req: Request) {
           executionResults["exam_attempts"] = fallbackErr.message;
         }
       }
+    } catch (e: any) {
+      executionResults["exam_attempts"] = e.message;
+    }
     } catch (e: any) {
       executionResults["exam_attempts"] = e.message;
     }
