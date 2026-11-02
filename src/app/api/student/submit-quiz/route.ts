@@ -137,6 +137,8 @@ export async function POST(req: Request) {
       executionResults["quiz_results"] = e.message;
     }
 
+   // ... các đoạn code bên trên ...
+
     return NextResponse.json({
       success: savedSuccessfully,
       results: executionResults,
@@ -158,7 +160,8 @@ export async function POST(req: Request) {
         created_at: nowIso
       }
     });
-  } catch (error: any) {
+
+  } catch (error: any) { // <--- Khối catch này phải đi liền mạch với try phía trên
     console.error("Lỗi API submit-quiz:", error);
     return NextResponse.json(
       { error: error.message || "Lỗi xử lý server nội bộ" },
