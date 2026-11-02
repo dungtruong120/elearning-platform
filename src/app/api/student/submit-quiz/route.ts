@@ -56,7 +56,6 @@ export async function POST(req: Request) {
     let savedSuccessfully = false;
     const executionResults: Record<string, any> = {};
 
-    // 1. GHI VÀO EXAM_ATTEMPTS: Đảm bảo lưu đúng student_name, full_name, quiz_title
     // 1. GHI VÀO EXAM_ATTEMPTS: Đảm bảo lưu đúng student_name, full_name, quiz_title và CỘT ANSWERS
     try {
       const fullSnakeRecord: any = {
@@ -73,8 +72,7 @@ export async function POST(req: Request) {
         points: finalScore,
         type: isHomework ? "homework" : "practice",
         is_homework: Boolean(isHomework),
-        // BỔ SUNG TRƯỜNG NÀY ĐỂ LƯU CHI TIẾT ĐÁP ÁN TỪNG CÂU VÀO SUPABASE:
-        answers: answers || {}, 
+        answers: answers || {},
         created_at: nowIso
       };
 
@@ -86,14 +84,13 @@ export async function POST(req: Request) {
         executionResults["exam_attempts"] = "success";
         savedSuccessfully = true;
       } else {
-        // Fallback tối giản nếu schema thiếu một số trường phụ (nhưng VẪN GIỮ LẠI ANSWERS)
         const minimalRecord = {
           id: uniqueId,
           quiz_id: String(quizId),
           student_id: finalStudentId,
           score: finalScore,
           type: isHomework ? "homework" : "practice",
-          answers: answers || {}, // Giữ lại answers ở bản fallback tối giản
+          answers: answers || {},
           created_at: nowIso
         };
         const { error: fallbackErr } = await supabaseServer
@@ -110,11 +107,8 @@ export async function POST(req: Request) {
     } catch (e: any) {
       executionResults["exam_attempts"] = e.message;
     }
-    } catch (e: any) {
-      executionResults["exam_attempts"] = e.message;
-    }
 
-    // 2. GHI VÀO QUIZ_RESULTS: Đảm bảo không ghi các cột không tồn tại
+    // 2. GHI VÀO QUIZ_RESULTS
     try {
       const quizResultRecord = {
         id: uniqueId,
@@ -136,8 +130,6 @@ export async function POST(req: Request) {
     } catch (e: any) {
       executionResults["quiz_results"] = e.message;
     }
-
-   // ... các đoạn code bên trên ...
 
     return NextResponse.json({
       success: savedSuccessfully,
@@ -161,7 +153,7 @@ export async function POST(req: Request) {
       }
     });
 
-  } catch (error: any) { // <--- Khối catch này phải đi liền mạch với try phía trên
+  } catch (error: any) {
     console.error("Lỗi API submit-quiz:", error);
     return NextResponse.json(
       { error: error.message || "Lỗi xử lý server nội bộ" },
