@@ -448,7 +448,7 @@ function buildFullOMRQuestionsReview(
     : [];
 
   const flatQuestions: any[] = [];
-  const detectedPartByIndex: (1 | 2 | 3)[] = [];
+  const detectedPartByIndex: any[] = [];
 
   if (rawQuizObj) {
     let rawSections =
@@ -494,7 +494,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart);
+           detectedPartByIndex.push(inferredSecPart as any);
           });
         } else if (
           sec &&
@@ -508,7 +508,7 @@ function buildFullOMRQuestionsReview(
               : qType.includes("true") || Array.isArray(sec.statements)
               ? 2
               : 1;
-          detectedPartByIndex.push(p);
+          detectedPartByIndex.push(p as any);
         }
       });
     }
@@ -540,7 +540,7 @@ function buildFullOMRQuestionsReview(
           } else if (directQuestions.length === 22) {
             p = (qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3) as 1 | 2 | 3;
           }
-          detectedPartByIndex.push(p);
+          detectedPartByIndex.push(p as any);
         });
       }
     }
