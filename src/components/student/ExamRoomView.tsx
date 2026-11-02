@@ -959,31 +959,30 @@ export function ExamRoomView({
 
     const rawAnswers = userAnswersRef.current;
 
-    const normalizedAnswers: Record<string, any> = { ...rawAnswers };
+    // 1. CHUẨN HÓA ANSWERS: Đảm bảo lưu song song cả ID câu và số thứ tự 1..N
+    const cleanAnswersPayload: Record<string, any> = {};
     questions.forEach((q, idx) => {
-      const gOrder = idx + 1;
+      const qNum = idx + 1;
       const val =
         rawAnswers[q.id] ??
-        rawAnswers[`q-${gOrder}`] ??
-        rawAnswers[`q_${gOrder}`] ??
-        rawAnswers[String(gOrder)] ??
-        undefined;
+        rawAnswers[String(qNum)] ??
+        rawAnswers[`q-${qNum}`] ??
+        rawAnswers[`q_${qNum}`];
 
-      if (val !== undefined) {
-        normalizedAnswers[q.id] = val;
-        normalizedAnswers[`q-${gOrder}`] = val;
-        normalizedAnswers[`q_${gOrder}`] = val;
-        normalizedAnswers[String(gOrder)] = val;
+      if (val !== undefined && val !== null) {
+        cleanAnswersPayload[q.id] = val;
+        cleanAnswersPayload[String(qNum)] = val;
+        cleanAnswersPayload[`q-${qNum}`] = val;
       }
     });
 
     let totalPoints = 0;
     let fullCorrectCount = 0;
 
-    questions.forEach(q => {
+    questions.forEach((q) => {
       const isTF = isQuestionTrueFalse(q);
       const isShort = isQuestionShortAnswer(q);
-      const stuAns = normalizedAnswers[q.id];
+      const stuAns = cleanAnswersPayload[q.id];
 
       if (isShort) {
         const userVal = normalizeShortAnswer(stuAns || "");
@@ -1025,7 +1024,7 @@ export function ExamRoomView({
     setScore(calculatedScore);
     setCorrectCount(fullCorrectCount);
 
-    // Chạy tiến trình hiệu ứng Scanner 1.8 giây
+    // Chạy thanh tiến trình Scanner 1.8 giây
     const stepTimer1 = setTimeout(() => {
       setGradingProgress(48);
       setGradingStepText("Đang chấm điểm câu đúng/sai và trả lời ngắn...");
@@ -1045,12 +1044,13 @@ export function ExamRoomView({
 
     const durationText = Math.floor(timeSpentSeconds / 60) + " phút " + (timeSpentSeconds % 60) + " giây";
     const nowIso = new Date().toISOString();
-
     const studentId = String(profile?.id || (profile as any)?.username || "student");
     const studentName = String(profile?.full_name || (profile as any)?.username || "Học sinh");
+    const attemptId = "att-" + Date.now();
 
+    // 2. OBJECT ĐẦY ĐỦ LƯU VÀO LOCALSTORAGE (Đảm bảo cache máy có đủ key)
     const clientRecord: any = {
-      id: "att-" + Date.now(),
+      id: attemptId,
       quiz_id: String(quizId),
       quizId: String(quizId),
       exam_id: String(quizId),
@@ -1064,28 +1064,49 @@ export function ExamRoomView({
       student_name: studentName,
       studentName: studentName,
       full_name: studentName,
-      user_name: studentName,
       school: profile?.school || "THPT",
       score: calculatedScore,
       points: calculatedScore,
       total_questions: questions.length,
-      totalQuestions: questions.length,
       correct_count: fullCorrectCount,
-      correctCount: fullCorrectCount,
       time_spent: durationText,
-      timeSpent: durationText,
       duration_seconds: timeSpentSeconds,
       is_homework: Boolean(isHomework),
-      isHomework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
-      answers: normalizedAnswers,
-      userAnswers: normalizedAnswers,
-      user_answers: normalizedAnswers,
+      submission_type: "web",
+      answers: cleanAnswersPayload,
       created_at: nowIso,
-      createdAt: nowIso
+      updated_at: nowIso
     };
 
-    // Lưu localStorage ngay lập tức
+    // 3. OBJECT ĐÚNG CHUẨN SCHEMA CỦA BẢNG exam_attempts TRÊN SUPABASE
+    // (Chỉ gửi đúng các cột tồn tại trong database để tránh bị lỗi từ chối lưu)
+    const supabasePayload: any = {
+      id: attemptId,
+      quiz_id: String(quizId),
+      exam_id: String(quizId),
+      quiz_title: String(quizTitle),
+      exam_title: String(quizTitle),
+      student_id: studentId,
+      student_name: studentName,
+      full_name: studentName,
+      school: profile?.school || "THPT",
+      score: calculatedScore,
+      points: calculatedScore,
+      total_questions: questions.length,
+      correct_count: fullCorrectCount,
+      correct_answers_count: fullCorrectCount,
+      time_spent: durationText,
+      duration_seconds: timeSpentSeconds,
+      is_homework: Boolean(isHomework),
+      type: isHomework ? "homework" : "practice",
+      submission_type: "web",
+      answers: cleanAnswersPayload,
+      created_at: nowIso,
+      updated_at: nowIso
+    };
+
+    // Lưu vào localStorage ngay lập tức
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
@@ -1103,7 +1124,7 @@ export function ExamRoomView({
       } catch (e) {}
     }
 
-    // Đồng bộ lên Server + Supabase + Tải bảng xếp hạng toàn khóa song song với hiệu ứng 1.8s
+    // Đồng bộ đồng thời lên API máy chủ và Supabase
     const syncTasks = (async () => {
       try {
         await fetch("/api/student/submit-quiz", {
@@ -1114,12 +1135,17 @@ export function ExamRoomView({
       } catch {}
 
       try {
-        await Promise.allSettled([
-          supabase.from("exam_attempts").insert([clientRecord]),
-          supabase.from("attempts").insert([clientRecord]),
-          supabase.from("quiz_attempts").insert([clientRecord])
-        ]);
-      } catch {}
+        const { error: dbErr } = await supabase
+          .from("exam_attempts")
+          .insert([supabasePayload]);
+        if (dbErr) {
+          console.error("Lỗi lưu Supabase exam_attempts:", dbErr);
+        } else {
+          console.log("✅ Đã lưu đầy đủ answers vào bảng exam_attempts!");
+        }
+      } catch (errDb) {
+        console.error("Lỗi kết nối Supabase:", errDb);
+      }
 
       try {
         const channel = supabase.channel("admin-realtime-global-sync");
@@ -1137,6 +1163,15 @@ export function ExamRoomView({
       syncTasks,
       new Promise((resolve) => setTimeout(resolve, 1800))
     ]);
+
+    clearTimeout(stepTimer1);
+    clearTimeout(stepTimer2);
+    setGradingProgress(100);
+
+    setIsGrading(false);
+    setIsSubmitting(false);
+    setIsSubmitted(true);
+    setShowResultModal(true);
 
     clearTimeout(stepTimer1);
     clearTimeout(stepTimer2);
