@@ -494,7 +494,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-           detectedPartByIndex.push(inferredSecPart as any);
+            detectedPartByIndex.push(inferredSecPart);
           });
         } else if (
           sec &&
@@ -508,7 +508,7 @@ function buildFullOMRQuestionsReview(
               : qType.includes("true") || Array.isArray(sec.statements)
               ? 2
               : 1;
-          detectedPartByIndex.push(p as any);
+          detectedPartByIndex.push(p);
         }
       });
     }
@@ -540,7 +540,7 @@ function buildFullOMRQuestionsReview(
           } else if (directQuestions.length === 22) {
             p = (qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3) as 1 | 2 | 3;
           }
-          detectedPartByIndex.push(p as any);
+          detectedPartByIndex.push(p);
         });
       }
     }
@@ -957,24 +957,23 @@ function buildFullOMRQuestionsReview(
       ).trim();
 
       const rawCorP3 =
-     gDetail?.correctAnswerDisplay ??
-     qObj?.correctAnswer ??
-     qObj?.shortAnswer ??
-     qObj?.correct_answer ??
-     qObj?.answer ??
-     "";
-   correctDisplay = String(rawCorP3).trim();
+        gDetail?.correctAnswerDisplay ??
+        qObj?.correctAnswer ??
+        qObj?.shortAnswer ??
+        qObj?.correct_answer ??
+        qObj?.answer ??
+        "";
+      correctDisplay = String(rawCorP3).trim();
 
-   // Nếu correctDisplay bị nhầm sang định dạng Đúng/Sai (chứa Đ, S, ngoặc đơn), dùng ngay default cycle
-   if (
-     !correctDisplay ||
-     correctDisplay === "--" ||
-     correctDisplay.includes(")") ||
-     correctDisplay.includes("Đ") ||
-     correctDisplay.includes("S")
-   ) {
-     correctDisplay = defaultP3Cycle[(localNum - 1) % defaultP3Cycle.length];
-   }
+      if (
+        !correctDisplay ||
+        correctDisplay === "--" ||
+        correctDisplay.includes(")") ||
+        correctDisplay.includes("Đ") ||
+        correctDisplay.includes("S")
+      ) {
+        correctDisplay = defaultP3Cycle[(localNum - 1) % defaultP3Cycle.length];
+      }
 
       const normStu = studentDisplay.replace(",", ".");
       const normCor = correctDisplay.replace(",", ".");
@@ -1035,9 +1034,7 @@ function buildFullOMRQuestionsReview(
     });
   }
 
-  // =========================================================================
-  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ: ÉP BUỘC KHỚP VỚI ĐIỂM THỰC TẾ
-  // =========================================================================
+  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ
   const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
   const explicitCorrectCount = Number(
     attempt?.correct_answers_count ?? attempt?.correct_count ?? attempt?.correctCount ?? 0
@@ -1121,13 +1118,12 @@ function buildFullOMRQuestionsReview(
         rowItem.correctAnswer = corParts.join(" ");
         metaItem.studentDisplay = stuParts.join(" ");
         rowItem.studentAnswer = stuParts.join(" ");
-     } else {
+      } else {
         metaItem.partNum = 3;
         metaItem.localNum = idx - 15;
         metaItem.partLabel = "Phần III";
         rowItem.part = "Phần III";
 
-        // 1. Nếu đáp án của đề bị lẫn chuỗi Đúng/Sai (chứa ký tự Đ hoặc S hoặc dấu đóng ngoặc), lập tức fallback về giá trị số mặc định
         const isCorStrCorrupted =
           metaItem.correctDisplay &&
           (metaItem.correctDisplay.includes("Đ") ||
@@ -1144,7 +1140,6 @@ function buildFullOMRQuestionsReview(
         metaItem.correctDisplay = corStr;
         rowItem.correctAnswer = corStr;
 
-        // 2. Lấy đáp án thực tế học sinh đã điền (nếu có). Tuyệt đối không gán cứng "0"
         let currentStuAnswer =
           rowItem.studentAnswer &&
           rowItem.studentAnswer !== "Bỏ trống / Chưa tô" &&
@@ -1159,14 +1154,15 @@ function buildFullOMRQuestionsReview(
         metaItem.isSkipped = !chosenStr;
         rowItem.isSkipped = !chosenStr;
 
-        // 3. Tách ký tự để tô chấm chì lên phôi OMR Canvas
         metaItem.p3StudentChars = chosenStr
           ? chosenStr.replace(/\./g, ",").slice(0, 4).split("")
           : [];
         metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
       }
+    }
+  }
 
-  // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
+  // BỔ SUNG TỌA ĐỘ BUBBLE
   if (clonedCoords.length > 0) {
     parsedMetaList.forEach((metaItem) => {
       const { partNum, localNum, isCorrect: finalIsCorrect } = metaItem;
