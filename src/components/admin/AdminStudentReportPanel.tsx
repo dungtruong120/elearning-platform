@@ -110,6 +110,9 @@ export const AVAILABLE_MAKEUP_SHIFTS = [
   }
 ];
 
+export const TCT_BRANDING_FOOTER_TEXT =
+  "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • Hotline: 0972 26 16 16 • Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội";
+
 interface Props {
   registeredStudents: any[];
   allAttempts: any[];
@@ -154,12 +157,15 @@ interface ParsedQuestionEvaluationMeta {
   partLabel: string;
   studentDisplay: string;
   correctDisplay: string;
+  resultStatusText?: string;
   isCorrect: boolean;
   isSkipped: boolean;
+  isOmrFormatError?: boolean;
   p1StudentKey?: "A" | "B" | "C" | "D" | "";
-  p1CorrectKey?: "A" | "B" | "C" | "D";
+  p1CorrectKey?: "A" | "B" | "C" | "D" | "";
   p2StudentSubMap?: Record<"a" | "b" | "c" | "d", "Đ" | "S" | "-">;
   p2CorrectSubMap?: Record<"a" | "b" | "c" | "d", "Đ" | "S">;
+  p2SubCorrectFlags?: Record<"a" | "b" | "c" | "d", boolean>;
   p3StudentChars?: string[];
   p3CorrectChars?: string[];
 }
@@ -251,12 +257,12 @@ function parseEvaluationBullets(rawEval: string): { title: string; body: string 
     if (colonIdx > 0 && colonIdx < 45) {
       return {
         title: cleaned.slice(0, colonIdx).trim(),
-        body: cleaned.slice(colonIdx + 1).trim(),
+        body: cleaned.slice(colonIdx + 1).trim()
       };
     }
     return {
       title: "",
-      body: cleaned,
+      body: cleaned
     };
   });
 }
@@ -325,21 +331,53 @@ function getCanonicalBubblePosition(
 }
 
 /**
- * GIẢI MÃ LINH HOẠT BẢN ĐỒ ĐÁP ÁN CỦA HỌC SINH (HỖ TRỢ OBJECT, JSON STRING, ARRAY, NESTED PARTS)
+ * 1. ĐỒNG BỘ DỮ LIỆU BÀI LÀM CỦA HỌC SINH (`extractFlexibleStudentAnswersMap`)
+ * - Trích xuất dữ liệu trả lời từ: attempt.answers ?? attempt.userAnswers ?? attempt.user_answers ?? attempt.student_answers ?? attempt.detail
+ * - Cơ chế Fallback thông minh: Nếu dữ liệu trong attempt bị rỗng (do database chỉ lưu điểm tóm tắt),
+ *   tự động đọc từ localStorage.getItem("edunexus_attempts"): tìm theo attempt.id hoặc cặp (student_id + quiz_id)
+ *   để lấy đầy đủ object answers gốc mà học sinh đã nộp từ ExamRoomView.tsx.
+ * - Chuẩn hóa key truy xuất: Trả về Map/Record hỗ trợ mọi loại key: ID câu hỏi (q.id), số thứ tự câu ("1", "19"),
+ *   hoặc tiền tố ("q-1", "q_1", "cau_1").
  */
 function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
-  const candidates = [
-    attempt?.answers,
-    attempt?.userAnswers,
-    attempt?.user_answers,
-    attempt?.student_answers,
-    attempt?.studentAnswers,
-    attempt?.omr_raw_data
-  ];
-
   const merged: Record<string, any> = {};
 
-  candidates.forEach((rawSource) => {
+  const registerStandardizedKeys = (rawKey: string, val: any) => {
+    if (val === undefined || val === null) return;
+    const keyTrimmed = String(rawKey).trim();
+    if (!keyTrimmed) return;
+
+    merged[keyTrimmed] = val;
+
+    // Chuẩn hóa tiền tố câu hỏi: "1", "q-1", "q_1", "cau_1", "question_1", "c_1"
+    const numMatch = keyTrimmed.match(/^(?:question[-_]?|q[-_]?|cau[-_]?|c[-_]?)?(\d+)$/i);
+    if (numMatch) {
+      const numStr = String(parseInt(numMatch[1], 10));
+      merged[numStr] = val;
+      merged[`q-${numStr}`] = val;
+      merged[`q_${numStr}`] = val;
+      merged[`q${numStr}`] = val;
+      merged[`cau_${numStr}`] = val;
+      merged[`cau-${numStr}`] = val;
+      merged[`question_${numStr}`] = val;
+      merged[`c_${numStr}`] = val;
+    }
+
+    // Hỗ trợ key ý con Phần II: ví dụ "q-13_a", "13_a", "q_13_a", "cau_13_a"
+    const subMatch = keyTrimmed.match(
+      /^(?:question[-_]?|q[-_]?|cau[-_]?|c[-_]?)?(\d+)[-_.:]([abcd])$/i
+    );
+    if (subMatch) {
+      const numStr = String(parseInt(subMatch[1], 10));
+      const subKey = subMatch[2].toLowerCase();
+      merged[`${numStr}_${subKey}`] = val;
+      merged[`q-${numStr}_${subKey}`] = val;
+      merged[`q_${numStr}_${subKey}`] = val;
+      merged[`cau_${numStr}_${subKey}`] = val;
+    }
+  };
+
+  const ingestSource = (rawSource: any) => {
     if (!rawSource) return;
     let parsed = rawSource;
     if (typeof rawSource === "string") {
@@ -352,6 +390,7 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
 
     if (Array.isArray(parsed)) {
       parsed.forEach((item: any, idx: number) => {
+        const orderKey = String(idx + 1);
         if (item && typeof item === "object" && !Array.isArray(item)) {
           const k = String(
             item.questionId ??
@@ -359,7 +398,7 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
               item.id ??
               item.questionOrder ??
               item.order ??
-              idx + 1
+              orderKey
           );
           const v =
             item.answer ??
@@ -368,27 +407,21 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
             item.userAnswer ??
             item.value ??
             item.selected ??
-            item.choice;
+            item.choice ??
+            item.statements ??
+            item.subAnswers;
           if (v !== undefined) {
-            merged[k] = v;
-            merged[String(idx + 1)] = v;
-            merged[`q_${idx + 1}`] = v;
+            registerStandardizedKeys(k, v);
+            registerStandardizedKeys(orderKey, v);
           }
         } else if (item !== undefined && item !== null) {
-          merged[String(idx + 1)] = item;
-          merged[`q_${idx + 1}`] = item;
+          registerStandardizedKeys(orderKey, item);
         }
       });
     } else if (typeof parsed === "object") {
       Object.entries(parsed).forEach(([k, v]) => {
         if (v !== undefined && v !== null) {
-          merged[k] = v;
-          const cleanNumberMatch = k.match(/^(?:question_|q_|cau_|c_)?(\d+)$/i);
-          if (cleanNumberMatch) {
-            const numStr = cleanNumberMatch[1];
-            merged[numStr] = v;
-            merged[`q_${numStr}`] = v;
-          }
+          registerStandardizedKeys(k, v);
         }
       });
 
@@ -397,6 +430,9 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
         parsed.userAnswers,
         parsed.user_answers,
         parsed.student_answers,
+        parsed.studentAnswers,
+        parsed.detail,
+        parsed.details,
         parsed.part1_answers,
         parsed.part2_answers,
         parsed.part3_answers
@@ -405,23 +441,382 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
         if (sub && typeof sub === "object" && !Array.isArray(sub)) {
           Object.entries(sub).forEach(([sk, sv]) => {
             if (sv !== undefined && sv !== null && merged[sk] === undefined) {
-              merged[sk] = sv;
+              registerStandardizedKeys(sk, sv);
             }
           });
+        } else if (Array.isArray(sub)) {
+          ingestSource(sub);
         }
       });
     }
-  });
+  };
+
+  const primaryAnswerSource =
+    attempt?.answers ??
+    attempt?.userAnswers ??
+    attempt?.user_answers ??
+    attempt?.student_answers ??
+    attempt?.detail;
+
+  const directCandidates = [
+    primaryAnswerSource,
+    attempt?.answers,
+    attempt?.userAnswers,
+    attempt?.user_answers,
+    attempt?.student_answers,
+    attempt?.detail,
+    attempt?.studentAnswers,
+    attempt?.omr_raw_data
+  ];
+
+  directCandidates.forEach((src) => ingestSource(src));
+
+  // Kiểm tra xem đã có câu trả lời thực chất chưa (bỏ qua các metadata nội bộ như __paper_omr_meta)
+  const hasMeaningfulAnswers = Object.keys(merged).some(
+    (k) =>
+      !k.startsWith("__") &&
+      ![
+        "part1_answers",
+        "part2_answers",
+        "part3_answers",
+        "bubble_coordinates",
+        "detected_sbd",
+        "detected_exam_code",
+        "warped_image_data_url",
+        "canonical_width",
+        "canonical_height"
+      ].includes(k)
+  );
+
+  // Cơ chế Fallback thông minh từ localStorage.getItem("edunexus_attempts")
+  if (!hasMeaningfulAnswers && typeof window !== "undefined" && attempt) {
+    try {
+      const rawLocalAttempts = localStorage.getItem("edunexus_attempts");
+      if (rawLocalAttempts) {
+        const localAttemptsList = JSON.parse(rawLocalAttempts);
+        if (Array.isArray(localAttemptsList)) {
+          const targetAttemptId = String(attempt?.id || "").trim();
+          const targetStudentId = String(
+            attempt?.studentId || attempt?.student_id || attempt?.user_id || ""
+          ).trim();
+          const targetStudentName = normalizeText(
+            attempt?.studentName || attempt?.student_name || attempt?.full_name || ""
+          );
+          const targetQuizId = String(
+            attempt?.quizId || attempt?.quiz_id || attempt?.exam_id || ""
+          )
+            .trim()
+            .toLowerCase();
+          const targetQuizTitle = normalizeText(
+            attempt?.examTitle ||
+              attempt?.exam_title ||
+              attempt?.quizTitle ||
+              attempt?.quiz_title ||
+              attempt?.title ||
+              ""
+          );
+
+          let matchedLocalAttempt = localAttemptsList.find(
+            (la: any) => targetAttemptId && String(la?.id || "").trim() === targetAttemptId
+          );
+
+          if (!matchedLocalAttempt) {
+            matchedLocalAttempt = localAttemptsList.find((la: any) => {
+              if (!la) return false;
+              const laStuId = String(
+                la.studentId || la.student_id || la.user_id || ""
+              ).trim();
+              const laStuName = normalizeText(
+                la.studentName || la.student_name || la.full_name || ""
+              );
+              const laQuizId = String(
+                la.quizId || la.quiz_id || la.exam_id || ""
+              )
+                .trim()
+                .toLowerCase();
+              const laQuizTitle = normalizeText(
+                la.examTitle ||
+                  la.exam_title ||
+                  la.quizTitle ||
+                  la.quiz_title ||
+                  la.title ||
+                  ""
+              );
+
+              const studentMatches =
+                (targetStudentId && laStuId === targetStudentId) ||
+                (targetStudentName && laStuName === targetStudentName);
+              const quizMatches =
+                (targetQuizId && laQuizId === targetQuizId) ||
+                (targetQuizTitle && laQuizTitle && laQuizTitle === targetQuizTitle);
+
+              return studentMatches && quizMatches;
+            });
+          }
+
+          if (matchedLocalAttempt) {
+            const fallbackSources = [
+              matchedLocalAttempt.answers ??
+                matchedLocalAttempt.userAnswers ??
+                matchedLocalAttempt.user_answers ??
+                matchedLocalAttempt.student_answers ??
+                matchedLocalAttempt.detail,
+              matchedLocalAttempt.answers,
+              matchedLocalAttempt.userAnswers,
+              matchedLocalAttempt.user_answers,
+              matchedLocalAttempt.student_answers,
+              matchedLocalAttempt.detail,
+              matchedLocalAttempt.omr_raw_data
+            ];
+            fallbackSources.forEach((src) => ingestSource(src));
+          }
+        }
+      }
+    } catch {
+      // Bỏ qua lỗi đọc localStorage nếu không khả dụng
+    }
+  }
 
   return merged;
 }
 
 /**
- * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI (ĐÚNG, SAI & BỎ TRỐNG), HỖ TRỢ FALLBACK THEO ĐIỂM SỐ THỰC TẾ VÀ BỔ SUNG TỌA ĐỘ `expected_missed`
+ * 2. HÀM ĐỒNG BỘ ĐỀ THI GỐC TỪ PROPS HOẶC LOCALSTORAGE (`edunexus_practice_exams` / `edunexus_course_data`)
+ * VÀ BÓC TÁCH ĐÚNG CẤU TRÚC SECTIONS (Phần I: multiple_choice, Phần II: true_false, Phần III: short_answer)
+ */
+function resolveCompleteQuizObject(attempt: any, rawQuizObj: any): any {
+  const hasValidQuestionsOrSections = (obj: any): boolean => {
+    if (!obj || typeof obj !== "object") return false;
+    const rawSec =
+      obj.sections || obj.data || obj.parts || obj.content?.sections || obj.questions || obj.items;
+    if (Array.isArray(rawSec) && rawSec.length > 0) return true;
+    if (typeof rawSec === "string" && rawSec.trim().length > 2) return true;
+    return false;
+  };
+
+  if (hasValidQuestionsOrSections(rawQuizObj)) {
+    return rawQuizObj;
+  }
+
+  if (typeof window === "undefined") {
+    return rawQuizObj;
+  }
+
+  const targetQuizId = String(
+    attempt?.quizId ||
+      attempt?.quiz_id ||
+      attempt?.exam_id ||
+      rawQuizObj?.id ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const targetQuizTitle = normalizeText(
+    attempt?.examTitle ||
+      attempt?.exam_title ||
+      attempt?.quizTitle ||
+      attempt?.quiz_title ||
+      attempt?.title ||
+      rawQuizObj?.title ||
+      ""
+  );
+
+  const matchQuizEntry = (candidate: any): boolean => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const cId = String(candidate.id || candidate.quiz_id || candidate.exam_id || "")
+      .trim()
+      .toLowerCase();
+    const cTitle = normalizeText(candidate.title || candidate.name || candidate.exam_title || "");
+    if (targetQuizId && cId && cId === targetQuizId) return true;
+    if (
+      targetQuizTitle &&
+      cTitle &&
+      (cTitle === targetQuizTitle ||
+        cTitle.includes(targetQuizTitle) ||
+        targetQuizTitle.includes(cTitle))
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  // 1. Tìm trong localStorage.getItem("edunexus_practice_exams")
+  try {
+    const rawPracticeExams = localStorage.getItem("edunexus_practice_exams");
+    if (rawPracticeExams) {
+      const parsedExams = JSON.parse(rawPracticeExams);
+      const examsList = Array.isArray(parsedExams)
+        ? parsedExams
+        : Array.isArray(parsedExams?.exams)
+        ? parsedExams.exams
+        : [];
+      const foundExam = examsList.find(
+        (ex: any) => matchQuizEntry(ex) && hasValidQuestionsOrSections(ex)
+      );
+      if (foundExam) return foundExam;
+    }
+  } catch {}
+
+  // 2. Tìm trong localStorage.getItem("edunexus_course_data")
+  try {
+    const rawCourseData = localStorage.getItem("edunexus_course_data");
+    if (rawCourseData) {
+      const parsedCourse = JSON.parse(rawCourseData);
+      const chaptersList = Array.isArray(parsedCourse)
+        ? parsedCourse
+        : Array.isArray(parsedCourse?.chapters)
+        ? parsedCourse.chapters
+        : [];
+
+      for (const chap of chaptersList) {
+        for (const les of chap?.lessons || []) {
+          for (const tq of les?.test_quizzes || []) {
+            if (matchQuizEntry(tq) && hasValidQuestionsOrSections(tq)) {
+              return tq;
+            }
+          }
+          for (const hw of les?.homework_files || []) {
+            if (matchQuizEntry(hw) && hasValidQuestionsOrSections(hw)) {
+              return hw;
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return rawQuizObj;
+}
+
+/**
+ * Chuẩn hóa ký tự Đúng/Sai từ mọi định dạng (boolean, T/F, Đ/S, D/S, 1/0)
+ */
+function normalizeTrueFalseSubChar(val: any): "Đ" | "S" | "-" {
+  if (val === true || val === 1) return "Đ";
+  if (val === false || val === 0) return "S";
+  if (val === undefined || val === null) return "-";
+  const str = String(val).trim().toUpperCase();
+  if (!str || str === "-") return "-";
+  if (str === "TRUE" || str === "T" || str === "Đ" || str === "D" || str === "1" || str === "ĐÚNG") {
+    return "Đ";
+  }
+  if (str === "FALSE" || str === "F" || str === "S" || str === "0" || str === "SAI") {
+    return "S";
+  }
+  return "-";
+}
+
+/**
+ * Bóc tách đáp án chuẩn 4 ý a, b, c, d của Phần II từ câu hỏi đề thi
+ */
+function extractPart2CorrectSubMap(
+  qObj: any,
+  gDetail: any,
+  qCoords: any[]
+): Record<"a" | "b" | "c" | "d", "Đ" | "S"> {
+  const result: Record<"a" | "b" | "c" | "d", "Đ" | "S"> = {
+    a: "Đ",
+    b: "S",
+    c: "Đ",
+    d: "S"
+  };
+  const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+
+  // Trường hợp 1: correctAnswer là chuỗi compact 4 ký tự như "ĐSĐS", "TFTF", "DSDS"
+  const rawCorAnswer =
+    qObj?.correctAnswer ?? qObj?.correct_answer ?? qObj?.answer ?? gDetail?.correctAnswerDisplay;
+
+  if (typeof rawCorAnswer === "string") {
+    const cleanedCompact = rawCorAnswer.replace(/\s+/g, "").toUpperCase();
+    if (/^[ĐDSTF]{4}$/i.test(cleanedCompact)) {
+      subKeys.forEach((sk, idx) => {
+        const ch = cleanedCompact[idx];
+        result[sk] = ch === "Đ" || ch === "D" || ch === "T" ? "Đ" : "S";
+      });
+      return result;
+    }
+  }
+
+  // Trường hợp 2: Duyệt từng ý a, b, c, d từ statements / subQuestions / correctAnswer object / chuỗi định dạng "a)Đ b)S..."
+  const statementsArr =
+    qObj?.statements || qObj?.subQuestions || qObj?.propositions || qObj?.options || [];
+  const gradedCorStr = String(
+    gDetail?.correctAnswerDisplay || (typeof rawCorAnswer === "string" ? rawCorAnswer : "") || ""
+  );
+
+  subKeys.forEach((sk, idx) => {
+    const stmtObj = Array.isArray(statementsArr) ? statementsArr[idx] : null;
+    const subCoords = qCoords.filter((b: any) => b.subKey === sk);
+    const expectedSub = subCoords.find(
+      (b: any) => b.status === "correct" || b.status === "expected_missed"
+    );
+
+    if (stmtObj !== null && stmtObj !== undefined && typeof stmtObj === "object") {
+      const rawTruth =
+        stmtObj.isTrue ??
+        stmtObj.correct ??
+        stmtObj.isCorrect ??
+        stmtObj.answer ??
+        stmtObj.correctAnswer ??
+        stmtObj.value;
+      const parsed = normalizeTrueFalseSubChar(rawTruth);
+      if (parsed === "Đ" || parsed === "S") {
+        result[sk] = parsed;
+        return;
+      }
+    }
+
+    if (
+      rawCorAnswer &&
+      typeof rawCorAnswer === "object" &&
+      !Array.isArray(rawCorAnswer) &&
+      (rawCorAnswer[sk] !== undefined || rawCorAnswer[sk.toUpperCase()] !== undefined)
+    ) {
+      const parsed = normalizeTrueFalseSubChar(
+        rawCorAnswer[sk] ?? rawCorAnswer[sk.toUpperCase()]
+      );
+      if (parsed === "Đ" || parsed === "S") {
+        result[sk] = parsed;
+        return;
+      }
+    }
+
+    if (Array.isArray(rawCorAnswer) && rawCorAnswer[idx] !== undefined) {
+      const parsed = normalizeTrueFalseSubChar(rawCorAnswer[idx]);
+      if (parsed === "Đ" || parsed === "S") {
+        result[sk] = parsed;
+        return;
+      }
+    }
+
+    if (gradedCorStr) {
+      const m = gradedCorStr.match(new RegExp(`${sk}\\)?[\\s:-]*([ĐDSTF])`, "i"));
+      if (m && m[1]) {
+        const c = m[1].toUpperCase();
+        result[sk] = c === "Đ" || c === "D" || c === "T" ? "Đ" : "S";
+        return;
+      }
+    }
+
+    if (expectedSub) {
+      result[sk] =
+        String(expectedSub.optionKey).toUpperCase() === "T" ||
+        String(expectedSub.optionKey).toUpperCase() === "Đ"
+          ? "Đ"
+          : "S";
+    }
+  });
+
+  return result;
+}
+
+/**
+ * GIẢI MÃ TOÀN BỘ DANH SÁCH 22 CÂU HỎI CHUẨN TỪ SECTIONS (KHÔNG DÙNG DỮ LIỆU GIẢ / KHÔNG ÉP ĐIỂM)
  */
 function buildFullOMRQuestionsReview(
   attempt: any,
-  rawQuizObj: any,
+  rawQuizObjInput: any,
   questionStatusOverrides?: Record<number, boolean>
 ): {
   allRows: FullQuestionReviewRow[];
@@ -434,13 +829,9 @@ function buildFullOMRQuestionsReview(
   parsedMetaList: ParsedQuestionEvaluationMeta[];
   enrichedBubbleCoordinates: any[];
 } {
-  // === ĐẶT CHÍNH XÁC TẠI ĐÂY (SAU DẤU { MỞ THÂN HÀM) ===
-  console.log("=== [SOI BÀI TEST THẬT] ===", { attempt, rawQuizObj });
-  if (typeof window !== "undefined") {
-    (window as any).__DEBUG_ATTEMPT__ = attempt;
-    (window as any).__DEBUG_QUIZ__ = rawQuizObj;
-  }
+  const rawQuizObj = resolveCompleteQuizObject(attempt, rawQuizObjInput);
   const answersMap = extractFlexibleStudentAnswersMap(attempt);
+
   const meta =
     answersMap?.__paper_omr_meta ||
     attempt?.answers?.__paper_omr_meta ||
@@ -453,15 +844,17 @@ function buildFullOMRQuestionsReview(
     ? rawCoords.map((b: any) => ({ ...b }))
     : [];
 
-  const flatQuestions: any[] = [];
-  const detectedPartByIndex: any[] = [];
+  // Duyệt cấu trúc Sections chuẩn: Phần I (multiple_choice), Phần II (true_false), Phần III (short_answer)
+  const part1Questions: any[] = [];
+  const part2Questions: any[] = [];
+  const part3Questions: any[] = [];
 
   if (rawQuizObj) {
     let rawSections =
-      rawQuizObj.sections ||
-      rawQuizObj.data ||
-      rawQuizObj.parts ||
-      rawQuizObj.content?.sections ||
+      rawQuizObj.sections ??
+      rawQuizObj.data ??
+      rawQuizObj.parts ??
+      rawQuizObj.content?.sections ??
       [];
     if (typeof rawSections === "string") {
       try {
@@ -471,55 +864,86 @@ function buildFullOMRQuestionsReview(
       }
     }
 
+    if (
+      rawSections &&
+      typeof rawSections === "object" &&
+      !Array.isArray(rawSections) &&
+      Array.isArray(rawSections.sections)
+    ) {
+      rawSections = rawSections.sections;
+    }
+
     if (Array.isArray(rawSections) && rawSections.length > 0) {
       rawSections.forEach((sec: any, sIdx: number) => {
-        const secTitle = normalizeText(sec?.title || sec?.name || sec?.part || "");
-        let inferredSecPart: number = sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3;
+        if (!sec) return;
+        const secType = String(sec.type || sec.sectionType || "").toLowerCase();
+        const secTitle = normalizeText(sec.title || sec.name || sec.part || "");
+
+        let targetPart: 1 | 2 | 3 = sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3;
         if (
-          secTitle.includes("phan iii") ||
-          secTitle.includes("phan 3") ||
-          secTitle.includes("tra loi ngan") ||
-          sec?.type === "short_answer"
+          secType === "multiple_choice" ||
+          secTitle.includes("phan i ") ||
+          secTitle.endsWith("phan i") ||
+          secTitle.includes("phan 1") ||
+          secTitle.includes("nhieu phuong an")
         ) {
-          inferredSecPart = 3;
+          targetPart = 1;
         } else if (
+          secType === "true_false" ||
           secTitle.includes("phan ii") ||
           secTitle.includes("phan 2") ||
-          secTitle.includes("dung sai") ||
-          sec?.type === "true_false"
+          secTitle.includes("dung sai")
         ) {
-          inferredSecPart = 2;
+          targetPart = 2;
         } else if (
-          secTitle.includes("phan i") ||
-          secTitle.includes("phan 1") ||
-          sec?.type === "multiple_choice"
+          secType === "short_answer" ||
+          secTitle.includes("phan iii") ||
+          secTitle.includes("phan 3") ||
+          secTitle.includes("tra loi ngan")
         ) {
-          inferredSecPart = 1;
+          targetPart = 3;
         }
 
-        if (Array.isArray(sec?.questions)) {
-          sec.questions.forEach((q: any) => {
-            flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart as any);
+        const secQuestions =
+          sec.questions ?? sec.items ?? sec.data ?? (Array.isArray(sec) ? sec : null);
+
+        if (Array.isArray(secQuestions)) {
+          secQuestions.forEach((q: any) => {
+            if (!q) return;
+            if (targetPart === 1) part1Questions.push(q);
+            else if (targetPart === 2) part2Questions.push(q);
+            else part3Questions.push(q);
           });
         } else if (
-          sec &&
-          (sec.question || sec.text || sec.content || sec.type || sec.options || sec.statements)
+          sec.question !== undefined ||
+          sec.text !== undefined ||
+          sec.content !== undefined ||
+          sec.correctAnswer !== undefined ||
+          sec.options !== undefined ||
+          sec.statements !== undefined
         ) {
-          flatQuestions.push(sec);
           const qType = String(sec.type || "").toLowerCase();
-          const p: number =
-            qType.includes("short") || sec.shortAnswer !== undefined
-              ? 3
-              : qType.includes("true") || Array.isArray(sec.statements)
-              ? 2
-              : 1;
-          detectedPartByIndex.push(p as any);
+          if (qType.includes("short") || sec.shortAnswer !== undefined || sec.part === 3) {
+            part3Questions.push(sec);
+          } else if (
+            qType.includes("true") ||
+            Array.isArray(sec.statements) ||
+            sec.part === 2
+          ) {
+            part2Questions.push(sec);
+          } else {
+            part1Questions.push(sec);
+          }
         }
       });
     }
 
-    if (flatQuestions.length === 0) {
+    // Fallback nếu đề lưu ở questions / items phẳng
+    if (
+      part1Questions.length === 0 &&
+      part2Questions.length === 0 &&
+      part3Questions.length === 0
+    ) {
       let directQuestions = rawQuizObj.questions || rawQuizObj.items || [];
       if (typeof directQuestions === "string") {
         try {
@@ -530,40 +954,58 @@ function buildFullOMRQuestionsReview(
       }
       if (Array.isArray(directQuestions)) {
         directQuestions.forEach((q: any, qIdx: number) => {
-          flatQuestions.push(q);
-          const qType = String(q?.type || "").toLowerCase();
-          let p: number = 1;
-          if (qType.includes("short") || q?.shortAnswer !== undefined || q?.part === 3) {
-            p = 3;
+          if (!q) return;
+          const qType = String(q.type || "").toLowerCase();
+          if (qType.includes("short") || q.shortAnswer !== undefined || q.part === 3) {
+            part3Questions.push(q);
           } else if (
             qType.includes("true") ||
-            Array.isArray(q?.statements) ||
-            q?.part === 2
+            Array.isArray(q.statements) ||
+            q.part === 2
           ) {
-            p = 2;
-          } else if (q?.part === 1 || qType.includes("multiple")) {
-            p = 1;
+            part2Questions.push(q);
+          } else if (q.part === 1 || qType.includes("multiple")) {
+            part1Questions.push(q);
           } else if (directQuestions.length === 22) {
-            p = qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3;
+            if (qIdx < 12) part1Questions.push(q);
+            else if (qIdx < 16) part2Questions.push(q);
+            else part3Questions.push(q);
+          } else {
+            part1Questions.push(q);
           }
-          detectedPartByIndex.push(p as any);
         });
       }
     }
   }
 
+  const orderedEntries: { qObj: any; partNum: 1 | 2 | 3; localNum: number }[] = [];
+
   if (
-    detectedPartByIndex.length === 22 &&
-    detectedPartByIndex.every((p) => p === 1)
+    part1Questions.length > 0 ||
+    part2Questions.length > 0 ||
+    part3Questions.length > 0
   ) {
-    for (let idx = 0; idx < 22; idx++) {
-      detectedPartByIndex[idx] = idx < 12 ? 1 : idx < 16 ? 2 : 3;
+    part1Questions.forEach((q, idx) =>
+      orderedEntries.push({ qObj: q, partNum: 1, localNum: idx + 1 })
+    );
+    part2Questions.forEach((q, idx) =>
+      orderedEntries.push({ qObj: q, partNum: 2, localNum: idx + 1 })
+    );
+    part3Questions.forEach((q, idx) =>
+      orderedEntries.push({ qObj: q, partNum: 3, localNum: idx + 1 })
+    );
+  } else {
+    // Khung cấu trúc 22 câu chuẩn (12 câu Phần I, 4 câu Phần II, 6 câu Phần III)
+    for (let i = 0; i < 22; i++) {
+      if (i < 12) {
+        orderedEntries.push({ qObj: null, partNum: 1, localNum: i + 1 });
+      } else if (i < 16) {
+        orderedEntries.push({ qObj: null, partNum: 2, localNum: i - 11 });
+      } else {
+        orderedEntries.push({ qObj: null, partNum: 3, localNum: i - 15 });
+      }
     }
   }
-
-  const counts = rawQuizObj
-    ? extractExamQuestionCounts(rawQuizObj)
-    : { part1Count: 12, part2Count: 4, part3Count: 6, totalCount: 22 };
 
   let gradedDetails: any[] = [];
   let gradedScores: { p1?: number; p2?: number; p3?: number } = {};
@@ -588,86 +1030,34 @@ function buildFullOMRQuestionsReview(
     } catch {}
   }
 
-  const totalCount =
-    gradedDetails.length > 0
-      ? gradedDetails.length
-      : flatQuestions.length > 0
-      ? flatQuestions.length
-      : Number(
-          attempt?.total_questions ?? attempt?.totalQuestions ?? counts.totalCount
-        ) || 22;
-
-  const p1CountDetected = detectedPartByIndex.filter((p) => p === 1).length;
-  const p2CountDetected = detectedPartByIndex.filter((p) => p === 2).length;
-
-  const p1Limit =
-    p1CountDetected > 0 && p1CountDetected < totalCount
-      ? p1CountDetected
-      : counts.part1Count > 0 && counts.part1Count < totalCount
-      ? counts.part1Count
-      : 12;
-
-  const p2Limit =
-    p2CountDetected > 0
-      ? p2CountDetected
-      : counts.part2Count > 0
-      ? counts.part2Count
-      : 4;
-
+  const totalCount = orderedEntries.length || 22;
   const allRows: FullQuestionReviewRow[] = [];
   const parsedMetaList: ParsedQuestionEvaluationMeta[] = [];
 
-  const defaultP1Cycle: ("A" | "B" | "C" | "D")[] = ["A", "C", "B", "D"];
-  const defaultP3Cycle = ["12", "4,5", "-2", "6", "0,5", "18"];
-
-  let localP1Counter = 0;
-  let localP2Counter = 0;
-  let localP3Counter = 0;
-
   for (let i = 0; i < totalCount; i++) {
     const qOrder = i + 1;
-    const qObj = flatQuestions[i] || null;
+    const entry = orderedEntries[i];
+    const qObj = entry?.qObj || null;
+    const partNum: 1 | 2 | 3 = entry?.partNum || (qOrder <= 12 ? 1 : qOrder <= 16 ? 2 : 3);
+    const localNum: number =
+      entry?.localNum || (partNum === 1 ? qOrder : partNum === 2 ? qOrder - 12 : qOrder - 16);
     const gDetail = gradedDetails[i] || null;
-    const qId = String(qObj?.id ?? `q_${qOrder}`);
-
-    let partNum: 1 | 2 | 3 = 1;
-    if (gDetail?.part) {
-      const p = Number(gDetail.part);
-      partNum = p === 2 ? 2 : p === 3 ? 3 : 1;
-    } else if (detectedPartByIndex[i]) {
-      const p = Number(detectedPartByIndex[i]);
-      partNum = p === 2 ? 2 : p === 3 ? 3 : 1;
-    } else if (qOrder <= p1Limit) {
-      partNum = 1;
-    } else if (qOrder <= p1Limit + p2Limit) {
-      partNum = 2;
-    } else {
-      partNum = 3;
-    }
-
-    let localNum = 1;
-    if (partNum === 1) {
-      localP1Counter += 1;
-      localNum = localP1Counter;
-    } else if (partNum === 2) {
-      localP2Counter += 1;
-      localNum = localP2Counter;
-    } else {
-      localP3Counter += 1;
-      localNum = localP3Counter;
-    }
+    const rawQId = qObj?.id !== undefined && qObj?.id !== null ? String(qObj.id).trim() : "";
 
     const partLabel = `Phần ${partNum === 1 ? "I" : partNum === 2 ? "II" : "III"}`;
     const sectionTag = `part${partNum}`;
 
+    // Hỗ trợ đầy đủ các định dạng key câu hỏi: q.id, "1", "19", "q-1", "q_1", "cau_1", ...
     const candidateKeys = [
-      qId,
+      ...(rawQId ? [rawQId, `q-${rawQId}`, `q_${rawQId}`, `cau_${rawQId}`] : []),
       String(qOrder),
-      String(i),
+      `q-${qOrder}`,
       `q_${qOrder}`,
       `q${qOrder}`,
-      `question_${qOrder}`,
       `cau_${qOrder}`,
+      `cau-${qOrder}`,
+      `question_${qOrder}`,
+      `c_${qOrder}`,
       `p${partNum}_q${localNum}`,
       `part${partNum}_q${localNum}`,
       `part${partNum}_${localNum}`,
@@ -695,6 +1085,8 @@ function buildFullOMRQuestionsReview(
       rawStuVal =
         rawStuVal.answer ??
         rawStuVal.selectedAnswer ??
+        rawStuVal.studentAnswer ??
+        rawStuVal.userAnswer ??
         rawStuVal.value ??
         rawStuVal.choice ??
         rawStuVal.optionKey ??
@@ -707,21 +1099,30 @@ function buildFullOMRQuestionsReview(
 
     let studentDisplay = "";
     let correctDisplay = "";
+    let resultStatusText: string | undefined = undefined;
     let autoIsCorrect = false;
+    let isSkipped = false;
+    let isOmrFormatError = false;
 
     let p1StudentKey: "A" | "B" | "C" | "D" | "" = "";
-    let p1CorrectKey: "A" | "B" | "C" | "D" = defaultP1Cycle[(localNum - 1) % 4];
+    let p1CorrectKey: "A" | "B" | "C" | "D" | "" = "";
     const p2StudentSubMap: Record<"a" | "b" | "c" | "d", "Đ" | "S" | "-"> = {
       a: "-",
       b: "-",
       c: "-",
       d: "-"
     };
-    const p2CorrectSubMap: Record<"a" | "b" | "c" | "d", "Đ" | "S"> = {
+    let p2CorrectSubMap: Record<"a" | "b" | "c" | "d", "Đ" | "S"> = {
       a: "Đ",
       b: "S",
       c: "Đ",
       d: "S"
+    };
+    const p2SubCorrectFlags: Record<"a" | "b" | "c" | "d", boolean> = {
+      a: false,
+      b: false,
+      c: false,
+      d: false
     };
     let p3StudentChars: string[] = [];
     let p3CorrectChars: string[] = [];
@@ -735,12 +1136,16 @@ function buildFullOMRQuestionsReview(
       );
 
       const rawFromGraded =
-        gDetail && gDetail.studentAnswerDisplay !== "Bỏ trống"
+        gDetail &&
+        gDetail.studentAnswerDisplay !== "Bỏ trống" &&
+        gDetail.studentAnswerDisplay !== "Trống"
           ? gDetail.studentAnswerDisplay
           : "";
 
       let normalizedStuChoice = String(
-        rawFromGraded || rawStuVal || pickedBubble?.optionKey || ""
+        rawStuVal !== undefined && rawStuVal !== null && String(rawStuVal).trim() !== ""
+          ? rawStuVal
+          : rawFromGraded || pickedBubble?.optionKey || ""
       )
         .trim()
         .toUpperCase();
@@ -767,13 +1172,14 @@ function buildFullOMRQuestionsReview(
         normalizedStuChoice = "";
       }
       studentDisplay = normalizedStuChoice;
+      isSkipped = !studentDisplay;
 
       let rawCorrectOption =
-        gDetail?.correctAnswerDisplay ??
         qObj?.correctAnswer ??
         qObj?.correct_answer ??
         qObj?.answer ??
         qObj?.correctOption ??
+        gDetail?.correctAnswerDisplay ??
         expectedBubble?.optionKey ??
         "";
 
@@ -809,26 +1215,30 @@ function buildFullOMRQuestionsReview(
       }
 
       if (!["A", "B", "C", "D"].includes(normalizedCorChoice)) {
-        normalizedCorChoice = defaultP1Cycle[(localNum - 1) % 4];
+        normalizedCorChoice = "";
       }
       correctDisplay = normalizedCorChoice;
 
       p1StudentKey = (studentDisplay || "") as "A" | "B" | "C" | "D" | "";
-      p1CorrectKey = (correctDisplay || "A") as "A" | "B" | "C" | "D";
+      p1CorrectKey = (correctDisplay || "") as "A" | "B" | "C" | "D" | "";
 
-      if (gDetail) {
-        autoIsCorrect = gDetail.status === "correct";
-      } else {
-        autoIsCorrect = Boolean(studentDisplay) && studentDisplay === correctDisplay;
-      }
+      autoIsCorrect =
+        Boolean(studentDisplay) &&
+        Boolean(correctDisplay) &&
+        studentDisplay === correctDisplay;
     } else if (partNum === 2) {
+      // 4. XỬ LÝ CHI TIẾT PHẦN II (ĐÚNG / SAI 4 Ý a, b, c, d)
       const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
+      p2CorrectSubMap = extractPart2CorrectSubMap(qObj, gDetail, qCoords);
+
       const stuParts: string[] = [];
       const corParts: string[] = [];
       let allSubRight = true;
 
       const gradedStuStr = String(gDetail?.studentAnswerDisplay || "");
-      const gradedCorStr = String(gDetail?.correctAnswerDisplay || "");
+      const compactStuStr =
+        typeof rawStuVal === "string" ? rawStuVal.replace(/\s+/g, "").toUpperCase() : "";
+      const isCompact4Chars = /^[ĐDSTF-]{4}$/i.test(compactStuStr);
 
       subKeys.forEach((sk, idx) => {
         const subCoords = qCoords.filter((b: any) => b.subKey === sk);
@@ -837,194 +1247,191 @@ function buildFullOMRQuestionsReview(
         );
 
         let subVal: any = undefined;
-        if (rawStuVal && typeof rawStuVal === "object") {
+        if (rawStuVal && typeof rawStuVal === "object" && !Array.isArray(rawStuVal)) {
           subVal =
             rawStuVal[sk] ??
             rawStuVal[sk.toUpperCase()] ??
             rawStuVal[idx] ??
-            rawStuVal[`${qId}_${sk}`];
+            rawStuVal[`${rawQId}_${sk}`] ??
+            rawStuVal[`${qOrder}_${sk}`] ??
+            rawStuVal.statements?.[sk] ??
+            rawStuVal.statements?.[idx] ??
+            rawStuVal.answers?.[sk] ??
+            rawStuVal.answers?.[idx];
+        } else if (Array.isArray(rawStuVal)) {
+          const itemAtIdx = rawStuVal[idx];
+          subVal =
+            itemAtIdx && typeof itemAtIdx === "object"
+              ? itemAtIdx.answer ??
+                itemAtIdx.selected ??
+                itemAtIdx.value ??
+                itemAtIdx.isTrue ??
+                itemAtIdx.choice
+              : itemAtIdx;
         }
+
         if (subVal === undefined) {
           subVal =
-            answersMap[`${qId}_${sk}`] ??
+            (rawQId ? answersMap[`${rawQId}_${sk}`] : undefined) ??
+            (rawQId ? answersMap[`${rawQId}-${sk}`] : undefined) ??
             answersMap[`${qOrder}_${sk}`] ??
+            answersMap[`q-${qOrder}_${sk}`] ??
             answersMap[`q_${qOrder}_${sk}`] ??
+            answersMap[`cau_${qOrder}_${sk}`] ??
             answersMap[`p2_q${localNum}_${sk}`];
         }
 
-        let stuSubChar: "Đ" | "S" | "-" = "-";
-        if (
-          subVal === true ||
-          subVal === "true" ||
-          subVal === "T" ||
-          subVal === "Đ" ||
-          subVal === "D" ||
-          subVal === 1 ||
-          pickedSub?.optionKey === "T"
-        ) {
-          stuSubChar = "Đ";
-        } else if (
-          subVal === false ||
-          subVal === "false" ||
-          subVal === "F" ||
-          subVal === "S" ||
-          subVal === 0 ||
-          pickedSub?.optionKey === "F"
-        ) {
-          stuSubChar = "S";
-        } else if (typeof rawStuVal === "string" && rawStuVal.trim()) {
-          const m = rawStuVal.match(new RegExp(`${sk}\\)?\\s*([ĐDSSTF])`, "i"));
+        let stuSubChar: "Đ" | "S" | "-" = normalizeTrueFalseSubChar(subVal);
+
+        if (stuSubChar === "-" && isCompact4Chars) {
+          stuSubChar = normalizeTrueFalseSubChar(compactStuStr[idx]);
+        }
+
+        if (stuSubChar === "-" && typeof rawStuVal === "string" && rawStuVal.trim()) {
+          const m = rawStuVal.match(new RegExp(`${sk}\\)?[\\s:-]*([ĐDSTF])`, "i"));
           if (m && m[1]) {
-            const c = m[1].toUpperCase();
-            stuSubChar = c === "Đ" || c === "D" || c === "T" ? "Đ" : "S";
-          }
-        } else if (gradedStuStr) {
-          const m = gradedStuStr.match(new RegExp(`${sk}\\)\\s*([ĐSTF-])`, "i"));
-          if (m && m[1]) {
-            const c = m[1].toUpperCase();
-            if (c === "Đ" || c === "T") stuSubChar = "Đ";
-            else if (c === "S" || c === "F") stuSubChar = "S";
+            stuSubChar = normalizeTrueFalseSubChar(m[1]);
           }
         }
 
-        if (stuSubChar === "-") allSubRight = false;
+        if (stuSubChar === "-" && pickedSub) {
+          stuSubChar = normalizeTrueFalseSubChar(pickedSub.optionKey);
+        }
+
+        if (stuSubChar === "-" && gradedStuStr) {
+          const m = gradedStuStr.match(new RegExp(`${sk}\\)?[\\s:-]*([ĐDSTF-])`, "i"));
+          if (m && m[1]) {
+            stuSubChar = normalizeTrueFalseSubChar(m[1]);
+          }
+        }
+
+        const corSubChar: "Đ" | "S" = p2CorrectSubMap[sk];
+        const isThisSubCorrect = stuSubChar !== "-" && stuSubChar === corSubChar;
+
         p2StudentSubMap[sk] = stuSubChar;
-        stuParts.push(`${sk})${stuSubChar}`);
+        p2SubCorrectFlags[sk] = isThisSubCorrect;
 
-        const statementsArr =
-          qObj?.statements || qObj?.subQuestions || qObj?.propositions || qObj?.options || [];
-        const stmtObj = Array.isArray(statementsArr) ? statementsArr[idx] : null;
-        const expectedSub = subCoords.find(
-          (b: any) => b.status === "correct" || b.status === "expected_missed"
-        );
-        let corSubChar: "Đ" | "S" = idx % 2 === 0 ? "Đ" : "S";
-
-        if (stmtObj !== null && stmtObj !== undefined && typeof stmtObj === "object") {
-          const rawTruth =
-            stmtObj.isTrue ??
-            stmtObj.correct ??
-            stmtObj.isCorrect ??
-            stmtObj.answer ??
-            stmtObj.value;
-          if (rawTruth !== undefined) {
-            corSubChar =
-              rawTruth === true ||
-              rawTruth === "true" ||
-              rawTruth === "T" ||
-              rawTruth === "Đ"
-                ? "Đ"
-                : "S";
-          }
-        } else if (
-          qObj?.correctAnswer &&
-          typeof qObj.correctAnswer === "object" &&
-          qObj.correctAnswer[sk] !== undefined
-        ) {
-          const v = qObj.correctAnswer[sk];
-          corSubChar = v === true || v === "T" || v === "Đ" ? "Đ" : "S";
-        } else if (gradedCorStr) {
-          const m = gradedCorStr.match(new RegExp(`${sk}\\)\\s*([ĐSTF])`, "i"));
-          if (m && m[1]) {
-            const c = m[1].toUpperCase();
-            corSubChar = c === "Đ" || c === "T" ? "Đ" : "S";
-          }
-        } else if (expectedSub) {
-          corSubChar = expectedSub.optionKey === "T" ? "Đ" : "S";
-        }
-
-        p2CorrectSubMap[sk] = corSubChar;
-        corParts.push(`${sk})${corSubChar}`);
-
-        if (stuSubChar !== corSubChar) {
+        if (!isThisSubCorrect) {
           allSubRight = false;
         }
+
+        stuParts.push(`${sk})${stuSubChar}`);
+        corParts.push(`${sk})${corSubChar}`);
       });
 
-      const isAllBlank = stuParts.every((p) => p.endsWith("-"));
-      studentDisplay = isAllBlank ? "" : stuParts.join(" ");
-      correctDisplay = corParts.join(" ");
-      autoIsCorrect = gDetail ? gDetail.status === "correct" : !isAllBlank && allSubRight;
+      const isAllBlank = subKeys.every((sk) => p2StudentSubMap[sk] === "-");
+      isSkipped = isAllBlank;
+      studentDisplay = isAllBlank ? "Trống" : stuParts.join("  ");
+      correctDisplay = corParts.join("  ");
+      autoIsCorrect = !isAllBlank && allSubRight;
     } else {
+      // 3. XỬ LÝ CHUẨN SƯ PHẠM CHO PHẦN III & BẮT LỖI FORM OMR (> 4 KÝ TỰ)
       const pickedCols = qCoords
         .filter((b: any) => b.isSelected || b.status === "correct" || b.status === "wrong")
         .sort((a: any, b: any) => Number(a.colIndex || 0) - Number(b.colIndex || 0));
 
       const reconstructedFromBubbles = pickedCols.map((b: any) => b.optionKey).join("");
       const rawFromGraded =
-        gDetail && gDetail.studentAnswerDisplay !== "Bỏ trống"
+        gDetail &&
+        gDetail.studentAnswerDisplay !== "Bỏ trống" &&
+        gDetail.studentAnswerDisplay !== "Trống"
           ? gDetail.studentAnswerDisplay
           : "";
 
-      studentDisplay = String(
-        rawFromGraded ||
-          (rawStuVal !== undefined && rawStuVal !== null && String(rawStuVal).trim() !== ""
-            ? rawStuVal
-            : reconstructedFromBubbles)
+      let rawStudentStr = String(
+        rawStuVal !== undefined && rawStuVal !== null && String(rawStuVal).trim() !== ""
+          ? rawStuVal
+          : rawFromGraded || reconstructedFromBubbles || ""
       ).trim();
 
       if (
-        studentDisplay.includes(")") ||
-        studentDisplay.includes("Đ") ||
-        studentDisplay.includes("S")
+        rawStudentStr.includes(")") ||
+        rawStudentStr.includes("Đ") ||
+        rawStudentStr.includes("S")
       ) {
-        studentDisplay = "";
+        rawStudentStr = "";
       }
 
       const rawCorP3 =
-        gDetail?.correctAnswerDisplay ??
         qObj?.correctAnswer ??
         qObj?.shortAnswer ??
         qObj?.correct_answer ??
         qObj?.answer ??
+        gDetail?.correctAnswerDisplay ??
         "";
-      correctDisplay = String(rawCorP3).trim();
 
+      let rawCorrectStr = String(rawCorP3).trim();
       if (
-        !correctDisplay ||
-        correctDisplay === "--" ||
-        correctDisplay.includes(")") ||
-        correctDisplay.includes("Đ") ||
-        correctDisplay.includes("S")
+        rawCorrectStr === "--" ||
+        rawCorrectStr.includes(")") ||
+        rawCorrectStr.includes("Đ") ||
+        rawCorrectStr.includes("S")
       ) {
-        correctDisplay = defaultP3Cycle[(localNum - 1) % defaultP3Cycle.length];
+        rawCorrectStr = "";
       }
 
-      const normStu = studentDisplay.replace(",", ".");
-      const normCor = correctDisplay.replace(",", ".");
-
-      if (gDetail) {
-        autoIsCorrect = gDetail.status === "correct";
-      } else if (!studentDisplay) {
+      if (!rawStudentStr) {
+        isSkipped = true;
+        studentDisplay = "Trống";
+        correctDisplay = rawCorrectStr || "--";
         autoIsCorrect = false;
-      } else if (correctDisplay !== "--" && normCor !== "") {
-        autoIsCorrect =
-          normStu === normCor ||
-          (!isNaN(Number(normStu)) &&
-            !isNaN(Number(normCor)) &&
-            Math.abs(Number(normStu) - Number(normCor)) < 1e-4);
+        p3StudentChars = [];
+      } else if (rawStudentStr.length > 4) {
+        // Bắt lỗi Học sinh điền vượt quá 4 ô trên phiếu OMR (VD: -1300 gồm 5 ký tự)
+        isSkipped = false;
+        isOmrFormatError = true;
+        studentDisplay = `${rawStudentStr} (Sai form OMR > 4 ô)`;
+        // Nếu đề gốc lưu nhầm "-1300" (5 ký tự) thì chuẩn hóa hiển thị cột Đáp án chuẩn là "1300"
+        if (rawCorrectStr.length > 4 && rawCorrectStr.startsWith("-")) {
+          correctDisplay = rawCorrectStr.slice(1);
+        } else {
+          correctDisplay = rawCorrectStr || rawStudentStr.replace(/^-/, "");
+        }
+        resultStatusText = "✕ Sai quy cách OMR";
+        autoIsCorrect = false;
+        // Để trống các ô tròn tô chì trên Canvas OMR khi vượt quá 4 ký tự
+        p3StudentChars = [];
       } else {
-        autoIsCorrect =
-          pickedCols.length > 0 && !qCoords.some((b: any) => b.status === "wrong");
+        isSkipped = false;
+        studentDisplay = rawStudentStr;
+        correctDisplay = rawCorrectStr || "--";
+
+        const normStu = rawStudentStr.replace(/\s+/g, "").replace(/,/g, ".");
+        const normCor = rawCorrectStr.replace(/\s+/g, "").replace(/,/g, ".");
+
+        if (normCor !== "" && normCor !== "--") {
+          autoIsCorrect =
+            normStu === normCor ||
+            (!isNaN(Number(normStu)) &&
+              !isNaN(Number(normCor)) &&
+              Math.abs(Number(normStu) - Number(normCor)) < 1e-4);
+        } else if (gDetail) {
+          autoIsCorrect = gDetail.status === "correct";
+        } else {
+          autoIsCorrect = false;
+        }
+
+        p3StudentChars = rawStudentStr.replace(/\./g, ",").slice(0, 4).split("");
       }
 
-      p3StudentChars = studentDisplay
-        ? studentDisplay.replace(/\./g, ",").slice(0, 4).split("")
-        : [];
       p3CorrectChars =
         correctDisplay && correctDisplay !== "--"
           ? correctDisplay.replace(/\./g, ",").slice(0, 4).split("")
           : [];
     }
 
-    const isSkipped = !studentDisplay;
     const manualOverride = questionStatusOverrides?.[qOrder];
     const finalIsCorrect =
-      manualOverride !== undefined ? manualOverride : isSkipped ? false : autoIsCorrect;
+      manualOverride !== undefined
+        ? manualOverride
+        : isSkipped || isOmrFormatError
+        ? false
+        : autoIsCorrect;
 
     allRows.push({
       questionNumber: qOrder,
       part: partLabel,
-      studentAnswer: isSkipped ? "Bỏ trống / Chưa tô" : studentDisplay,
+      studentAnswer: isSkipped ? "Trống" : studentDisplay,
       correctAnswer: correctDisplay || "--",
       isCorrect: finalIsCorrect,
       isSkipped
@@ -1035,151 +1442,20 @@ function buildFullOMRQuestionsReview(
       partNum,
       localNum,
       partLabel,
-      studentDisplay,
-      correctDisplay,
+      studentDisplay: isSkipped ? "Trống" : studentDisplay,
+      correctDisplay: correctDisplay || "--",
+      resultStatusText,
       isCorrect: finalIsCorrect,
       isSkipped,
+      isOmrFormatError,
       p1StudentKey,
       p1CorrectKey,
       p2StudentSubMap,
       p2CorrectSubMap,
+      p2SubCorrectFlags,
       p3StudentChars,
       p3CorrectChars
     });
-  }
-
-  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ KHI CÓ ĐIỂM SỐ THỰC TẾ
-  const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
-  const explicitCorrectCount = Number(
-    attempt?.correct_answers_count ?? attempt?.correct_count ?? attempt?.correctCount ?? 0
-  );
-
-  const targetCorrectFromScore =
-    explicitCorrectCount > 0
-      ? Math.min(totalCount, explicitCorrectCount)
-      : attemptScoreNum > 0
-      ? Math.min(totalCount, Math.max(1, Math.round((attemptScoreNum / 10) * totalCount)))
-      : 0;
-
-  const currentExtractedCorrect = allRows.filter((r) => r.isCorrect).length;
-
-  if (targetCorrectFromScore > 0 && currentExtractedCorrect < targetCorrectFromScore) {
-    const wrongCountNeeded = Math.max(0, totalCount - targetCorrectFromScore);
-    const wrongOrderSet = new Set<number>();
-
-    for (let w = 0; w < wrongCountNeeded; w++) {
-      wrongOrderSet.add(totalCount - w);
-    }
-
-    for (let idx = 0; idx < totalCount; idx++) {
-      const qOrder = idx + 1;
-      const metaItem = parsedMetaList[idx];
-      const rowItem = allRows[idx];
-      const manualOverride = questionStatusOverrides?.[qOrder];
-      const shouldBeCorrect =
-        manualOverride !== undefined ? manualOverride : !wrongOrderSet.has(qOrder);
-
-      metaItem.isCorrect = shouldBeCorrect;
-      rowItem.isCorrect = shouldBeCorrect;
-
-      if (idx < 12) {
-        metaItem.partNum = 1;
-        metaItem.localNum = idx + 1;
-        metaItem.partLabel = "Phần I";
-        rowItem.part = "Phần I";
-
-        const corK: "A" | "B" | "C" | "D" =
-          (metaItem.p1CorrectKey as "A" | "B" | "C" | "D") || defaultP1Cycle[idx % 4];
-        metaItem.p1CorrectKey = corK;
-        metaItem.correctDisplay = corK;
-        rowItem.correctAnswer = corK;
-
-        const wrongK: "A" | "B" | "C" | "D" =
-          (["A", "B", "C", "D"].find((k) => k !== corK) as "A" | "B" | "C" | "D") || "B";
-        const chosenK: "A" | "B" | "C" | "D" = shouldBeCorrect ? corK : wrongK;
-        metaItem.p1StudentKey = chosenK;
-        metaItem.studentDisplay = chosenK;
-        rowItem.studentAnswer = chosenK;
-        metaItem.isSkipped = false;
-        rowItem.isSkipped = false;
-      } else if (idx < 16) {
-        metaItem.partNum = 2;
-        metaItem.localNum = idx - 11;
-        metaItem.partLabel = "Phần II";
-        rowItem.part = "Phần II";
-
-        const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
-        const stuParts: string[] = [];
-        const corParts: string[] = [];
-
-        subKeys.forEach((sk, sIdx) => {
-          const corSub: "Đ" | "S" =
-            metaItem.p2CorrectSubMap?.[sk] || (sIdx % 2 === 0 ? "Đ" : "S");
-          if (metaItem.p2CorrectSubMap) {
-            metaItem.p2CorrectSubMap[sk] = corSub;
-          }
-          corParts.push(`${sk})${corSub}`);
-
-          const chosenSub: "Đ" | "S" =
-            shouldBeCorrect || sIdx < 3 ? corSub : corSub === "Đ" ? "S" : "Đ";
-          if (metaItem.p2StudentSubMap) {
-            metaItem.p2StudentSubMap[sk] = chosenSub;
-          }
-          stuParts.push(`${sk})${chosenSub}`);
-        });
-
-        metaItem.correctDisplay = corParts.join(" ");
-        rowItem.correctAnswer = corParts.join(" ");
-        metaItem.studentDisplay = stuParts.join(" ");
-        rowItem.studentAnswer = stuParts.join(" ");
-        metaItem.isSkipped = false;
-        rowItem.isSkipped = false;
-      } else {
-        metaItem.partNum = 3;
-        metaItem.localNum = idx - 15;
-        metaItem.partLabel = "Phần III";
-        rowItem.part = "Phần III";
-
-        const isCorStrCorrupted =
-          metaItem.correctDisplay &&
-          (metaItem.correctDisplay.includes("Đ") ||
-            metaItem.correctDisplay.includes("S") ||
-            metaItem.correctDisplay.includes(")"));
-
-        const corStr =
-          metaItem.correctDisplay &&
-          metaItem.correctDisplay !== "--" &&
-          !isCorStrCorrupted
-            ? metaItem.correctDisplay
-            : defaultP3Cycle[(idx - 16) % defaultP3Cycle.length];
-
-        metaItem.correctDisplay = corStr;
-        rowItem.correctAnswer = corStr;
-
-        const existingCleanStuAnswer =
-          rowItem.studentAnswer &&
-          rowItem.studentAnswer !== "Bỏ trống / Chưa tô" &&
-          rowItem.studentAnswer !== "Bỏ trống" &&
-          !rowItem.studentAnswer.includes(")") &&
-          !rowItem.studentAnswer.includes("Đ") &&
-          !rowItem.studentAnswer.includes("S")
-            ? rowItem.studentAnswer
-            : "";
-
-        // TUYỆT ĐỐI KHÔNG GÁN CỨNG SỐ "0" KHI HỌC SINH BỎ TRỐNG HOẶC LÀM SAI
-        const chosenStr = shouldBeCorrect ? corStr : existingCleanStuAnswer;
-
-        metaItem.studentDisplay = chosenStr;
-        rowItem.studentAnswer = chosenStr ? chosenStr : "Bỏ trống / Chưa tô";
-        metaItem.isSkipped = !chosenStr;
-        rowItem.isSkipped = !chosenStr;
-
-        metaItem.p3StudentChars = chosenStr
-          ? chosenStr.replace(/\./g, ",").slice(0, 4).split("")
-          : [];
-        metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
-      }
-    }
   }
 
   // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
@@ -1194,12 +1470,12 @@ function buildFullOMRQuestionsReview(
 
       if (partNum === 1) {
         const p1StudentKey = metaItem.p1StudentKey || "";
-        const p1CorrectKey = metaItem.p1CorrectKey || "A";
+        const p1CorrectKey = metaItem.p1CorrectKey || "";
         qCoords.forEach((b: any) => {
           const bOpt = String(b.optionKey || "").toUpperCase();
-          if (bOpt === p1StudentKey) {
+          if (p1StudentKey && bOpt === p1StudentKey) {
             b.status = finalIsCorrect ? "correct" : "wrong";
-          } else if (!finalIsCorrect && bOpt === p1CorrectKey) {
+          } else if (!finalIsCorrect && p1CorrectKey && bOpt === p1CorrectKey) {
             b.status = "expected_missed";
           }
         });
@@ -1233,7 +1509,7 @@ function buildFullOMRQuestionsReview(
           const subCoords = qCoords.filter((b: any) => b.subKey === sk);
           subCoords.forEach((b: any) => {
             const bOpt = String(b.optionKey || "").toUpperCase();
-            if (bOpt === pickedOptKey) {
+            if (pickedOptKey && bOpt === pickedOptKey) {
               b.status = isSubRight ? "correct" : "wrong";
             } else if (!isSubRight && bOpt === expectedOptKey) {
               b.status = "expected_missed";
@@ -1261,7 +1537,9 @@ function buildFullOMRQuestionsReview(
           }
         });
       } else if (partNum === 3) {
-        const p3StudentChars = metaItem.p3StudentChars || [];
+        const p3StudentChars = metaItem.isOmrFormatError
+          ? []
+          : metaItem.p3StudentChars || [];
         const p3CorrectChars = metaItem.p3CorrectChars || [];
         const maxCols = Math.max(p3StudentChars.length, p3CorrectChars.length, 4);
         for (let c = 0; c < Math.min(4, maxCols); c++) {
@@ -1386,7 +1664,13 @@ export function generateVirtualOMRSheet(
     code: cleanCode,
     stu: studentName,
     title: titleText,
-    rows: reviewData.allRows.map((r) => [r.questionNumber, r.studentAnswer, r.correctAnswer, r.isCorrect])
+    rows: reviewData.parsedMetaList.map((m) => [
+      m.questionOrder,
+      m.studentDisplay,
+      m.correctDisplay,
+      m.isCorrect,
+      m.isOmrFormatError
+    ])
   });
 
   const cached = virtualOMRCache.get(cacheSignature);
@@ -1451,10 +1735,10 @@ export function generateVirtualOMRSheet(
   reviewData.parsedMetaList.forEach((qMeta) => {
     if (qMeta.partNum === 1) {
       const stuKey = qMeta.p1StudentKey || "";
-      const corKey = qMeta.p1CorrectKey || "A";
+      const corKey = qMeta.p1CorrectKey || "";
       ["A", "B", "C", "D"].forEach((optKey) => {
         const pos = getCanonicalBubblePosition(1, qMeta.localNum, optKey);
-        if (optKey === stuKey) {
+        if (stuKey && optKey === stuKey) {
           bubbleCoordinates.push({
             id: `p1_q${qMeta.localNum}_${optKey}`,
             section: "part1",
@@ -1466,7 +1750,7 @@ export function generateVirtualOMRSheet(
             isSelected: true,
             status: qMeta.isCorrect ? "correct" : "wrong"
           });
-        } else if (!qMeta.isCorrect && optKey === corKey) {
+        } else if (!qMeta.isCorrect && corKey && optKey === corKey) {
           bubbleCoordinates.push({
             id: `p1_q${qMeta.localNum}_${optKey}`,
             section: "part1",
@@ -1491,7 +1775,7 @@ export function generateVirtualOMRSheet(
 
         (["T", "F"] as const).forEach((optK) => {
           const pos = getCanonicalBubblePosition(2, qMeta.localNum, optK, sk);
-          if (optK === pickedOptKey) {
+          if (pickedOptKey && optK === pickedOptKey) {
             bubbleCoordinates.push({
               id: `p2_q${qMeta.localNum}_${sk}_${optK}`,
               section: "part2",
@@ -1521,7 +1805,8 @@ export function generateVirtualOMRSheet(
         });
       });
     } else if (qMeta.partNum === 3) {
-      const stuChars = qMeta.p3StudentChars || [];
+      // Nếu lỗi sai quy cách form OMR (> 4 ký tự), để trống các ô tròn tô chì
+      const stuChars = qMeta.isOmrFormatError ? [] : qMeta.p3StudentChars || [];
       const corChars = qMeta.p3CorrectChars || [];
       for (let c = 0; c < 4; c++) {
         const stuCh = stuChars[c] || "";
@@ -1877,17 +2162,49 @@ export function generateVirtualOMRSheet(
     ctx.fillText(`Câu ${q}`, boxX + 85, 1110);
 
     const qMeta = p3Metas.find((m) => m.localNum === q);
-    const stuChars = qMeta?.p3StudentChars || [];
+    const isFormatError = Boolean(qMeta?.isOmrFormatError);
+    const stuChars = isFormatError ? [] : qMeta?.p3StudentChars || [];
 
-    // 4 ô viết tay đáp số ở đỉnh mỗi cột câu (Nếu học sinh bỏ trống thì để trống ô viết tay)
+    // 4 ô viết tay đáp số ở đỉnh mỗi cột câu
     for (let c = 0; c < 4; c++) {
       const cx = boxX + 32 + c * 36;
-      drawRoundedRect(ctx, cx - 15, 1120, 30, 32, 3, "#FFFFFF", "#475569", 1.2);
+      drawRoundedRect(
+        ctx,
+        cx - 15,
+        1120,
+        30,
+        32,
+        3,
+        isFormatError ? "#FEF2F2" : "#FFFFFF",
+        isFormatError ? "#DC2626" : "#475569",
+        isFormatError ? 1.8 : 1.2
+      );
       if (stuChars[c]) {
         ctx.fillStyle = "#003399";
         ctx.font = "bold 17px " + FONT_SERIF;
         ctx.fillText(stuChars[c], cx, 1143);
       }
+    }
+
+    // Cảnh báo gạch chéo đỏ phía trên ô viết tay khi học sinh điền vượt quá 4 ký tự (> 4 ô)
+    if (isFormatError) {
+      const leftBoxEdge = boxX + 32 - 15;
+      const rightBoxEdge = boxX + 32 + 3 * 36 + 15;
+      ctx.save();
+      ctx.strokeStyle = "#DC2626";
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(leftBoxEdge, 1118);
+      ctx.lineTo(rightBoxEdge, 1154);
+      ctx.moveTo(rightBoxEdge, 1118);
+      ctx.lineTo(leftBoxEdge, 1154);
+      ctx.stroke();
+
+      ctx.fillStyle = "#DC2626";
+      ctx.font = "bold 10.5px " + FONT_SERIF;
+      ctx.textAlign = "center";
+      ctx.fillText("SAI QUY CÁCH (>4 Ô)", boxX + 85, 1168);
+      ctx.restore();
     }
 
     // Các hàng tô dấu (-), dấu (,) và các chữ số 0..9
@@ -1900,7 +2217,9 @@ export function generateVirtualOMRSheet(
         if (sym === "," && (c === 0 || c === 3)) continue;
 
         const cx = boxX + 32 + c * 36;
-        const isPicked = stuChars[c] === sym || (sym === "," && stuChars[c] === ".");
+        const isPicked =
+          !isFormatError &&
+          (stuChars[c] === sym || (sym === "," && stuChars[c] === "."));
 
         ctx.beginPath();
         ctx.arc(cx, cy, 9.5, 0, Math.PI * 2);
@@ -1922,15 +2241,11 @@ export function generateVirtualOMRSheet(
     });
   }
 
-  // CHÂN TRANG TRÊN PHIẾU OMR
+  // 6. BRANDING FOOTER CHUẨN HÓA TRÊN PHIẾU OMR
   ctx.textAlign = "center";
   ctx.fillStyle = "#334155";
   ctx.font = "bold 13.5px " + FONT_SERIF;
-  ctx.fillText(
-    "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT)  •  Hotline: 0972 26 16 16  •  Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội",
-    W / 2,
-    1642
-  );
+  ctx.fillText(TCT_BRANDING_FOOTER_TEXT, W / 2, 1642);
 
   const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
   virtualOMRCache.set(cacheSignature, { dataUrl, bubbleCoordinates });
@@ -1978,7 +2293,7 @@ export default function AdminStudentReportPanel({
     useState<string>("auto_prev");
   const [selectedDailyPracticeId, setSelectedDailyPracticeId] = useState<string>("none");
   const [dailyStudentFilterMode, setDailyStudentFilterMode] = useState<
-    "all" | "offline" | "online"
+    "all" | "offline" | "online" | "completed" | "not_completed"
   >("all");
   const [includeCoverSummaryPage, setIncludeCoverSummaryPage] = useState<boolean>(true);
 
@@ -2022,7 +2337,7 @@ export default function AdminStudentReportPanel({
     page2: string | null;
   }>({
     page1: null,
-    page2: null,
+    page2: null
   });
 
   const [showPracticePickerModal, setShowPracticePickerModal] = useState<boolean>(false);
@@ -2536,6 +2851,7 @@ export default function AdminStudentReportPanel({
       student: any
     ): StudentDailyScoreData & {
       allQuestionsReviewList?: FullQuestionReviewRow[];
+      parsedQuestionMetaList?: ParsedQuestionEvaluationMeta[];
       homeworkQuizTitle?: string;
       attendanceStatus?: ExtendedAttendanceStatus;
       attendanceNote?: string;
@@ -2762,6 +3078,7 @@ export default function AdminStudentReportPanel({
       let bubbleCoordinates: any[] = [];
       let wrongQuestionsList: WrongQuestionReviewItem[] = [];
       let allQuestionsReviewList: FullQuestionReviewRow[] = [];
+      let parsedQuestionMetaList: ParsedQuestionEvaluationMeta[] = [];
       let part1ScoreStr: string | undefined = undefined;
       let part2ScoreStr: string | undefined = undefined;
       let part3ScoreStr: string | undefined = undefined;
@@ -2850,12 +3167,14 @@ export default function AdminStudentReportPanel({
           if (matchedFromChapters) break;
         }
 
-        const fallbackSessionQuizObj =
+        const fallbackSessionQuizObj = resolveCompleteQuizObject(
+          primaryReviewAtt,
           rawQuizObj ||
-          matchedFromPracticeExams ||
-          matchedFromChapters ||
-          currentSessionLessons[0]?.testItems[0]?.rawObj ||
-          null;
+            matchedFromPracticeExams ||
+            matchedFromChapters ||
+            currentSessionLessons[0]?.testItems[0]?.rawObj ||
+            null
+        );
 
         const attemptForReview =
           testScore !== null
@@ -2877,6 +3196,7 @@ export default function AdminStudentReportPanel({
           scannedPaperImageUrl = virtualBuilt.dataUrl;
           bubbleCoordinates = virtualBuilt.bubbleCoordinates;
           allQuestionsReviewList = virtualBuilt.reviewData.allRows;
+          parsedQuestionMetaList = virtualBuilt.reviewData.parsedMetaList;
           wrongQuestionsList = virtualBuilt.reviewData.wrongRows;
           part1ScoreStr = virtualBuilt.reviewData.part1Summary;
           part2ScoreStr = virtualBuilt.reviewData.part2Summary;
@@ -2888,6 +3208,7 @@ export default function AdminStudentReportPanel({
           scannedPaperImageUrl = existingScanUrl;
           bubbleCoordinates = virtualBuilt.reviewData.enrichedBubbleCoordinates;
           allQuestionsReviewList = virtualBuilt.reviewData.allRows;
+          parsedQuestionMetaList = virtualBuilt.reviewData.parsedMetaList;
           wrongQuestionsList = virtualBuilt.reviewData.wrongRows;
           part1ScoreStr = virtualBuilt.reviewData.part1Summary;
           part2ScoreStr = virtualBuilt.reviewData.part2Summary;
@@ -3018,7 +3339,8 @@ export default function AdminStudentReportPanel({
         canonicalHeight: OMR_CANONICAL_HEIGHT,
         bubbleCoordinates: hasValidTestReview ? bubbleCoordinates : [],
         wrongQuestionsList: hasValidTestReview ? wrongQuestionsList : [],
-        allQuestionsReviewList: hasValidTestReview ? allQuestionsReviewList : []
+        allQuestionsReviewList: hasValidTestReview ? allQuestionsReviewList : [],
+        parsedQuestionMetaList: hasValidTestReview ? parsedQuestionMetaList : []
       };
     },
     [
@@ -3130,10 +3452,29 @@ export default function AdminStudentReportPanel({
         const isOnline = rawMode.includes("on");
         if (dailyStudentFilterMode === "online" && !isOnline) return false;
         if (dailyStudentFilterMode === "offline" && isOnline) return false;
+
+        if (
+          dailyStudentFilterMode === "completed" ||
+          dailyStudentFilterMode === "not_completed"
+        ) {
+          const rec = computeStudentDailyScoreRecord(s);
+          const hasDoneWork =
+            rec.dailyTestScore !== null ||
+            rec.homeworkScore !== null ||
+            rec.practiceScore !== null;
+          if (dailyStudentFilterMode === "completed" && !hasDoneWork) return false;
+          if (dailyStudentFilterMode === "not_completed" && hasDoneWork) return false;
+        }
       }
       return true;
     });
-  }, [registeredStudents, searchStudent, reportViewType, dailyStudentFilterMode]);
+  }, [
+    registeredStudents,
+    searchStudent,
+    reportViewType,
+    dailyStudentFilterMode,
+    computeStudentDailyScoreRecord
+  ]);
 
   useEffect(() => {
     if (!hasInitializedSelectionRef.current && registeredStudents.length > 0) {
@@ -3191,13 +3532,12 @@ export default function AdminStudentReportPanel({
     return computeStudentDailyScoreRecord(currentStudent);
   }, [currentStudent, computeStudentDailyScoreRecord]);
 
-  const hasValidTestReview = useMemo(() => {
-    return Boolean(
-      currentStudentDailyData &&
-        currentStudentDailyData.dailyTestScore !== null &&
-        currentStudentDailyData.hasPaperOMR
-    );
-  }, [currentStudentDailyData]);
+  // 5. KIỂM TRA ĐIỀU KIỆN BỐ CỤC THÍCH ỨNG THÔNG MINH TRANG 2 (SMART ADAPTIVE LAYOUT)
+  const hasValidTestReview = Boolean(
+    currentStudentDailyData &&
+      currentStudentDailyData.dailyTestScore !== null &&
+      currentStudentDailyData.hasPaperOMR
+  );
 
   const handleExportClassDailyPDF = (onlyCurrentStudent: boolean = false) => {
     const targetStudents = onlyCurrentStudent
@@ -3298,7 +3638,7 @@ export default function AdminStudentReportPanel({
       `II. NHẬN XÉT CỦA GIÁO VIÊN:\n` +
       `"${d.teacherComment}"\n` +
       makeupLines +
-      `\n📞 TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • Hotline: 0972 26 16 16 • Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội`;
+      `\n📞 ${TCT_BRANDING_FOOTER_TEXT}`;
 
     if (typeof navigator !== "undefined") {
       navigator.clipboard.writeText(msg);
@@ -3389,7 +3729,7 @@ export default function AdminStudentReportPanel({
             submissionType: isPaper ? "paper" : "web",
             paperScanUrl:
               a.paper_scan_url || a.omr_raw_data?.warped_image_data_url || null,
-            omrRawData: a.omr_raw_data || null,
+            omrRawData: a.omr_raw_data || null
           };
         }
       );
@@ -3657,7 +3997,7 @@ export default function AdminStudentReportPanel({
         submissionType: isPaper ? "paper" : "web",
         paperScanUrl:
           attOrExam.paper_scan_url || attOrExam.omr_raw_data?.warped_image_data_url || null,
-        omrRawData: attOrExam.omr_raw_data || null,
+        omrRawData: attOrExam.omr_raw_data || null
       };
       setSelectedPracticeExams((prev) => [...prev, newItem]);
     }
@@ -3674,7 +4014,7 @@ export default function AdminStudentReportPanel({
       category: "Luyện đề",
       completedDate: dateStr,
       score: "8.5",
-      submissionType: "paper",
+      submissionType: "paper"
     };
     setSelectedPracticeExams((prev) => [...prev, newItem]);
   };
@@ -3840,7 +4180,7 @@ export default function AdminStudentReportPanel({
           bg: "#F8FAFC",
           border: "#CBD5E1",
           labelColor: "#475569",
-          valColor: "#0F172A",
+          valColor: "#0F172A"
         },
         {
           label: "ĐIỂM TB BTVN",
@@ -3848,7 +4188,7 @@ export default function AdminStudentReportPanel({
           bg: "#ECFDF5",
           border: "#059669",
           labelColor: "#047857",
-          valColor: "#065F46",
+          valColor: "#065F46"
         },
         {
           label: "ĐIỂM TB KIỂM TRA",
@@ -3856,7 +4196,7 @@ export default function AdminStudentReportPanel({
           bg: "#EFF6FF",
           border: "#1D4ED8",
           labelColor: "#1D4ED8",
-          valColor: "#1E3A8A",
+          valColor: "#1E3A8A"
         },
         {
           label: "ĐIỂM TB LUYỆN ĐỀ",
@@ -3867,8 +4207,8 @@ export default function AdminStudentReportPanel({
           bg: "#FFF7ED",
           border: "#EA580C",
           labelColor: "#C2410C",
-          valColor: "#9A3412",
-        },
+          valColor: "#9A3412"
+        }
       ];
 
       summaryCards.forEach((c, idx) => {
@@ -4016,6 +4356,16 @@ export default function AdminStudentReportPanel({
         curBulletY += bItem.blockHeight + 10;
       });
     }
+
+    // 6. BRANDING FOOTER CHUẨN HÓA TRÊN ẢNH PNG BÁO CÁO
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#334155";
+    ctx.font = "bold 12px " + FONT_SERIF;
+    ctx.fillText(
+      TCT_BRANDING_FOOTER_TEXT,
+      logicalWidth / 2,
+      logicalHeight - outerPad - 14
+    );
 
     return canvas.toDataURL("image/png");
   };
@@ -4174,7 +4524,7 @@ export default function AdminStudentReportPanel({
       "II. NHẬN XÉT CỦA GIÁO VIÊN:\n" +
       currentReport.evaluation +
       "\n\n" +
-      "📞 TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • Hotline: 0972 26 16 16 • Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội.";
+      `📞 ${TCT_BRANDING_FOOTER_TEXT}`;
 
     if (typeof navigator !== "undefined") {
       navigator.clipboard.writeText(msg);
@@ -4433,11 +4783,13 @@ export default function AdminStudentReportPanel({
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="font-semibold text-slate-500">Phân hệ:</span>
+              <span className="font-semibold text-slate-500">Bộ lọc học sinh:</span>
               {[
                 { key: "all", label: `Tất cả (${registeredStudents.length})` },
                 { key: "offline", label: "Offline" },
-                { key: "online", label: "Online" }
+                { key: "online", label: "Online" },
+                { key: "completed", label: "Đã làm bài" },
+                { key: "not_completed", label: "Chưa làm bài" }
               ].map((t) => (
                 <button
                   key={t.key}
@@ -5076,13 +5428,14 @@ export default function AdminStudentReportPanel({
                   />
                 </div>
 
-                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR (CHỈ HIỂN THỊ KHI hasValidTestReview === true) */}
+                {/* 5. BỐ CỤC THÍCH ỨNG THÔNG MINH TRANG 2 (SMART ADAPTIVE LAYOUT) */}
                 {hasValidTestReview && currentStudentDailyData.scannedPaperImageUrl ? (
-                  <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5">
+                  /* NHÁNH A: KHI CÓ BÀI TEST (hasValidTestReview === true) -> Hiển thị Phiếu Canvas OMR bên trái + Bảng đối chiếu 22 câu bên phải + Bảng Lịch học bù/bổ trợ thu nhỏ phía dưới */
+                  <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
                       <div>
                         <span className="text-[10px] font-bold uppercase text-emerald-400 block">
-                          ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR (TRANG 2) — BẤM VÀO CÂU ĐỂ ĐỔI ĐÚNG/SAI
+                          ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR & BẢNG ĐỐI CHIẾU 22 CÂU (TRANG 2)
                         </span>
                         <h4 className="text-xs font-bold text-white mt-0.5">
                           {currentStudentDailyData.paperExamTitle} (Mã đề:{" "}
@@ -5118,70 +5471,345 @@ export default function AdminStudentReportPanel({
                         }}
                         className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                       >
-                        <Eye className="w-3.5 h-3.5" /> Xem phiếu OMR
+                        <Eye className="w-3.5 h-3.5" /> Phóng to phiếu OMR
                       </button>
                     </div>
 
-                    {currentStudentDailyData.allQuestionsReviewList &&
-                      currentStudentDailyData.allQuestionsReviewList.length > 0 && (
-                        <div className="max-h-52 overflow-y-auto custom-scrollbar pr-1 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                          {currentStudentDailyData.allQuestionsReviewList.map((qRow) => (
-                            <div
-                              key={qRow.questionNumber}
-                              onClick={() =>
-                                handleToggleOMRQuestionCorrectness(
-                                  currentStudentDailyData.studentId,
-                                  qRow.questionNumber,
-                                  qRow.isCorrect
-                                )
+                    {/* Grid 2 cột: Phiếu Canvas OMR bên trái + Bảng đối chiếu 22 câu bên phải */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                      {/* Cột trái: Phiếu Canvas OMR trực quan */}
+                      <div className="md:col-span-5 bg-slate-950/60 p-2 rounded-xl border border-slate-800 flex flex-col items-center">
+                        <div
+                          onClick={() => {
+                            setPaperZoom(1);
+                            setPreviewPaperItem({
+                              id: "daily-omr",
+                              title: currentStudentDailyData.paperExamTitle || "Bài thi OMR",
+                              category: "Kiểm tra",
+                              completedDate: customDateStr,
+                              score: currentStudentDailyData.dailyTestScore ?? 0,
+                              submissionType: "paper",
+                              paperScanUrl: currentStudentDailyData.scannedPaperImageUrl,
+                              omrRawData: {
+                                canonical_width: OMR_CANONICAL_WIDTH,
+                                canonical_height: OMR_CANONICAL_HEIGHT,
+                                bubble_coordinates: currentStudentDailyData.bubbleCoordinates
                               }
-                              className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 cursor-pointer transition ${
-                                qRow.isCorrect
-                                  ? "bg-emerald-950/40 border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/50"
-                                  : "bg-rose-950/50 border-rose-600/80 text-rose-200 hover:bg-rose-900/60"
-                              }`}
+                            });
+                          }}
+                          style={{
+                            aspectRatio: `${OMR_CANONICAL_WIDTH} / ${OMR_CANONICAL_HEIGHT}`
+                          }}
+                          className="relative w-full max-w-[280px] rounded-lg overflow-hidden border border-slate-700 bg-white cursor-pointer"
+                          title="Bấm để phóng to Phiếu OMR"
+                        >
+                          <img
+                            src={currentStudentDailyData.scannedPaperImageUrl}
+                            alt="Phiếu OMR"
+                            className="w-full h-full object-fill block"
+                          />
+                          {currentStudentDailyData.bubbleCoordinates && (
+                            <svg
+                              viewBox={`0 0 ${OMR_CANONICAL_WIDTH} ${OMR_CANONICAL_HEIGHT}`}
+                              preserveAspectRatio="none"
+                              className="absolute inset-0 w-full h-full pointer-events-none"
                             >
-                              <div className="min-w-0 truncate">
-                                <span className="font-bold">
-                                  Câu {qRow.questionNumber} ({qRow.part}):
-                                </span>{" "}
-                                <span>{qRow.studentAnswer}</span>{" "}
-                                <span className="opacity-75">(ĐA: {qRow.correctAnswer})</span>
-                              </div>
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 flex items-center gap-1 ${
-                                  qRow.isCorrect
-                                    ? "bg-emerald-600 text-white"
-                                    : "bg-rose-600 text-white"
-                                }`}
-                              >
-                                {qRow.isCorrect ? (
-                                  <>
-                                    <CheckCircle2 className="w-3 h-3" /> Đúng
-                                  </>
-                                ) : (
-                                  <>
-                                    <XCircle className="w-3 h-3" /> Sai
-                                  </>
-                                )}
-                              </span>
-                            </div>
-                          ))}
+                              {currentStudentDailyData.bubbleCoordinates
+                                .filter((b: any) => b && b.status !== "unfilled")
+                                .map((b: any, idx: number) => {
+                                  const isSbdOrCode =
+                                    b.section === "sbd" || b.section === "exam_code";
+                                  const isExpectedMissed = b.status === "expected_missed";
+                                  const strokeColor = isSbdOrCode
+                                    ? "#2563EB"
+                                    : b.status === "correct"
+                                    ? "#10B981"
+                                    : b.status === "wrong"
+                                    ? "#EF4444"
+                                    : isExpectedMissed
+                                    ? "#F59E0B"
+                                    : "#2563EB";
+                                  const fillColor = isSbdOrCode
+                                    ? "rgba(37, 99, 235, 0.20)"
+                                    : b.status === "correct"
+                                    ? "rgba(16, 185, 129, 0.22)"
+                                    : b.status === "wrong"
+                                    ? "rgba(239, 68, 68, 0.24)"
+                                    : isExpectedMissed
+                                    ? "rgba(245, 158, 11, 0.18)"
+                                    : "none";
+                                  return (
+                                    <circle
+                                      key={b.id || `inline_b_${idx}`}
+                                      cx={b.x}
+                                      cy={b.y}
+                                      r={(b.r || 9) + 2.5}
+                                      fill={fillColor}
+                                      stroke={strokeColor}
+                                      strokeWidth={2.4}
+                                      strokeDasharray={
+                                        isExpectedMissed ? "4 2" : undefined
+                                      }
+                                    />
+                                  );
+                                })}
+                            </svg>
+                          )}
                         </div>
-                      )}
+                        <span className="text-[10px] text-slate-400 mt-1.5">
+                          Bấm vào ảnh để phóng to xem chi tiết từng ô tô chì
+                        </span>
+                      </div>
+
+                      {/* Cột phải: Bảng đối chiếu chi tiết 22 câu */}
+                      <div className="md:col-span-7 border border-slate-800 rounded-xl overflow-hidden bg-slate-950/50">
+                        <div className="max-h-[380px] overflow-y-auto custom-scrollbar">
+                          <table className="w-full text-left text-[11px] border-collapse">
+                            <thead className="bg-slate-800/90 text-slate-200 sticky top-0 z-10">
+                              <tr>
+                                <th className="py-2 px-2.5 font-bold">Câu</th>
+                                <th className="py-2 px-2.5 font-bold">Bài làm của con</th>
+                                <th className="py-2 px-2.5 font-bold">Đáp án chuẩn</th>
+                                <th className="py-2 px-2.5 font-bold text-right">Kết quả</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/70">
+                              {(currentStudentDailyData.parsedQuestionMetaList || []).map(
+                                (qMeta) => {
+                                  const resultBadgeText = qMeta.isOmrFormatError
+                                    ? qMeta.resultStatusText || "✕ Sai quy cách OMR"
+                                    : qMeta.isCorrect
+                                    ? "✓ Đúng"
+                                    : qMeta.isSkipped
+                                    ? "✕ Trống"
+                                    : "✕ Sai";
+
+                                  return (
+                                    <tr
+                                      key={qMeta.questionOrder}
+                                      onClick={() =>
+                                        handleToggleOMRQuestionCorrectness(
+                                          currentStudentDailyData.studentId,
+                                          qMeta.questionOrder,
+                                          qMeta.isCorrect
+                                        )
+                                      }
+                                      className={`cursor-pointer transition ${
+                                        qMeta.isCorrect
+                                          ? "bg-emerald-950/25 hover:bg-emerald-900/40 text-emerald-100"
+                                          : "bg-rose-950/35 hover:bg-rose-900/50 text-rose-100"
+                                      }`}
+                                    >
+                                      <td className="py-1.5 px-2.5 font-bold whitespace-nowrap">
+                                        Câu {qMeta.questionOrder}{" "}
+                                        <span className="text-[10px] opacity-70">
+                                          ({qMeta.partLabel})
+                                        </span>
+                                      </td>
+                                      <td className="py-1.5 px-2.5 font-mono font-semibold">
+                                        {qMeta.partNum === 2 && !qMeta.isSkipped ? (
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            {(["a", "b", "c", "d"] as const).map((sk) => {
+                                              const stuSub = qMeta.p2StudentSubMap?.[sk] || "-";
+                                              const isSubOk = Boolean(
+                                                qMeta.p2SubCorrectFlags?.[sk]
+                                              );
+                                              return (
+                                                <span
+                                                  key={sk}
+                                                  className={`px-1 py-0.5 rounded text-[10px] font-bold ${
+                                                    isSubOk
+                                                      ? "bg-emerald-800/70 text-emerald-200"
+                                                      : "bg-rose-800/70 text-rose-200"
+                                                  }`}
+                                                >
+                                                  {sk}){stuSub}
+                                                </span>
+                                              );
+                                            })}
+                                          </div>
+                                        ) : (
+                                          <span
+                                            className={
+                                              qMeta.isOmrFormatError
+                                                ? "text-amber-300 font-bold"
+                                                : ""
+                                            }
+                                          >
+                                            {qMeta.studentDisplay}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="py-1.5 px-2.5 font-mono text-slate-300">
+                                        {qMeta.correctDisplay}
+                                      </td>
+                                      <td className="py-1.5 px-2.5 text-right whitespace-nowrap">
+                                        <span
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
+                                            qMeta.isCorrect
+                                              ? "bg-emerald-600 text-white"
+                                              : qMeta.isOmrFormatError
+                                              ? "bg-amber-600 text-white"
+                                              : "bg-rose-600 text-white"
+                                          }`}
+                                        >
+                                          {resultBadgeText}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bảng Lịch học bù / bổ trợ thu nhỏ phía dưới */}
+                    <div className="p-2.5 rounded-lg bg-slate-800/90 border border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>Lịch học bù / Bổ trợ tuần (Thu gọn dưới Trang 2):</span>
+                      </div>
+                      <div className="text-slate-200 font-medium">
+                        {currentStudentDailyData.makeupSessions &&
+                        currentStudentDailyData.makeupSessions.length > 0
+                          ? currentStudentDailyData.makeupSessions
+                              .map((s) => `${s.date}: ${s.shiftLabel}`)
+                              .join(" | ")
+                          : "Đi học đúng lịch cố định — Không phát sinh ca học bù bắt buộc"}
+                      </div>
+                    </div>
                   </div>
                 ) : (
-                  <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-950 flex items-center justify-between gap-3">
-                    <div>
-                      <strong className="font-bold block text-amber-900">
-                        📌 Chế độ Bố cục Thích ứng (Smart Adaptive Layout — Trang 2):
-                      </strong>
-                      <span className="text-amber-800">
-                        Buổi học này học sinh chưa tham gia làm bài kiểm tra định kỳ tại lớp. Khi xuất PDF, Trang 2 sẽ tự động ẩn khung OMR và phóng to Bảng Lịch Học Bù &amp; Kế Hoạch Rèn Luyện Trọng Tâm Tuần Tới.
+                  /* NHÁNH B: KHI KHÔNG CÓ BÀI TEST / NGHỈ HỌC (hasValidTestReview === false) -> Ẩn hoàn toàn OMR & Bảng đối chiếu, Phóng to Bảng Lịch học bù & Bổ trợ tuần lên trung tâm + 2 khối bên dưới */
+                  <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-3.5">
+                    <div className="flex items-center justify-between border-b border-amber-200/80 pb-2.5">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-amber-800 block">
+                          📌 TRANG 2 THÍCH ỨNG THÔNG MINH (KHÔNG CÓ BÀI TEST / NGHỈ HỌC)
+                        </span>
+                        <h4 className="text-sm font-bold text-slate-900 mt-0.5">
+                          Bảng Lịch Học Bù &amp; Lớp Bổ Trợ Tuần (Trung tâm Toán Tâm Chí Tài - TCT)
+                        </h4>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-md bg-amber-600 text-white text-[11px] font-bold">
+                        Đã ẩn khung OMR &amp; Bảng 22 câu
                       </span>
+                    </div>
+
+                    {/* Bảng Lịch học bù & Bổ trợ tuần phóng to ở vị trí trung tâm */}
+                    <div className="bg-white rounded-xl border border-amber-300 overflow-hidden shadow-2xs">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-[#003399] text-white font-bold">
+                            <th className="py-2.5 px-3">Khung Ca Học</th>
+                            <th className="py-2.5 px-3">Thời Gian</th>
+                            <th className="py-2.5 px-3">Trạng Thái Đăng Ký Của Học Sinh</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {AVAILABLE_MAKEUP_SHIFTS.map((shift) => {
+                            const matchedList = (
+                              currentStudentDailyData.makeupSessions || []
+                            ).filter((s) => s.shiftId === shift.id);
+                            const hasBooked = matchedList.length > 0;
+                            return (
+                              <tr
+                                key={shift.id}
+                                className={
+                                  hasBooked
+                                    ? "bg-orange-50/90 font-bold text-orange-950"
+                                    : "bg-white text-slate-700"
+                                }
+                              >
+                                <td className="py-2 px-3 font-bold">{shift.label}</td>
+                                <td className="py-2 px-3 font-mono">{shift.timeSlot}</td>
+                                <td className="py-2 px-3">
+                                  {hasBooked ? (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {matchedList.map((mItem) => (
+                                        <span
+                                          key={mItem.id}
+                                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                            mItem.type === "makeup"
+                                              ? "bg-orange-600 text-white"
+                                              : "bg-blue-600 text-white"
+                                          }`}
+                                        >
+                                          {mItem.type === "makeup"
+                                            ? "🟧 Học bù"
+                                            : "🟦 Bổ trợ"}
+                                          : {mItem.date}
+                                          {mItem.note ? ` (${mItem.note})` : ""}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400 italic">
+                                      Ca bổ trợ mở hàng tuần tại Trung tâm
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Phía dưới hiển thị 2 khối: "Kế hoạch học tập & Mục tiêu tuần tới" và "Quy định học bù tại Trung tâm TCT" */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="p-3.5 rounded-xl bg-white border border-blue-200 space-y-1.5">
+                        <h5 className="text-xs font-bold uppercase text-[#003399] flex items-center gap-1.5">
+                          <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Kế hoạch học tập &amp; Mục tiêu tuần tới</span>
+                        </h5>
+                        <ul className="text-xs text-slate-700 space-y-1 list-disc pl-4">
+                          <li>
+                            Hoàn thành 100% phiếu Bài tập về nhà chuyên đề{" "}
+                            <strong>
+                              {overrideTopicTitle || autoSyncedTopicTitle}
+                            </strong>{" "}
+                            trước buổi học kế tiếp.
+                          </li>
+                          <li>
+                            Ôn tập kỹ hệ thống công thức trọng tâm và luyện phản xạ 22 câu chuẩn cấu trúc mới.
+                          </li>
+                          <li>
+                            Mục tiêu điểm kiểm tra định kỳ buổi tới đạt từ{" "}
+                            <strong>8.0+ / 10</strong>.
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-white border border-orange-200 space-y-1.5">
+                        <h5 className="text-xs font-bold uppercase text-orange-800 flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-orange-600" />
+                          <span>Quy định học bù tại Trung tâm TCT</span>
+                        </h5>
+                        <ul className="text-xs text-slate-700 space-y-1 list-disc pl-4">
+                          <li>
+                            Học sinh vắng mặt buổi chính bắt buộc tham gia học bù trong tuần theo đúng ca đã đăng ký.
+                          </li>
+                          <li>
+                            Khi đi học bù, con mang đầy đủ vở ghi, tài liệu chuyên đề và nộp kiểm tra BTVN tại bàn trợ giảng.
+                          </li>
+                          <li>
+                            Mọi thay đổi lịch học bù Phụ huynh vui lòng liên hệ Hotline{" "}
+                            <strong>0972 26 16 16</strong> trước ca học tối thiểu 2 giờ.
+                          </li>
+                        </ul>
+                      </div>
                     </div>
                   </div>
                 )}
+
+                {/* 6. BRANDING FOOTER CHUẨN HÓA */}
+                <div className="pt-2 border-t border-slate-200 text-center text-[11px] font-bold text-slate-600">
+                  {TCT_BRANDING_FOOTER_TEXT}
+                </div>
               </div>
             ) : currentStudent ? (
               /* ================= NHÁNH 2: BÁO CÁO TỔNG KẾT THÁNG ================= */
@@ -5491,6 +6119,10 @@ export default function AdminStudentReportPanel({
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-blue-600 focus:bg-white"
                   />
                 </div>
+
+                <div className="pt-2 border-t border-slate-200 text-center text-[11px] font-bold text-slate-600">
+                  {TCT_BRANDING_FOOTER_TEXT}
+                </div>
               </>
             ) : (
               <div className="py-24 text-center text-slate-400 font-bold text-xs">
@@ -5553,6 +6185,56 @@ export default function AdminStudentReportPanel({
             </div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div className="p-3.5 bg-emerald-50/50 border border-emerald-200 rounded-xl space-y-2">
+              <span className="text-xs font-bold text-emerald-900 block">
+                Điểm BTVN theo tuần (T1 - T5):
+              </span>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((w) => (
+                  <div key={w}>
+                    <label className="block text-[10px] font-bold text-emerald-700 mb-0.5">
+                      Tuần {w}
+                    </label>
+                    <input
+                      type="text"
+                      value={manualHWScores[w] || ""}
+                      onChange={(e) =>
+                        setManualHWScores((prev) => ({ ...prev, [w]: e.target.value }))
+                      }
+                      placeholder="--"
+                      className="w-full px-2 py-1 text-center bg-white border border-emerald-300 rounded-md text-xs font-bold text-emerald-900 outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-blue-50/50 border border-blue-200 rounded-xl space-y-2">
+              <span className="text-xs font-bold text-blue-900 block">
+                Điểm Kiểm tra định kỳ theo tuần (T1 - T5):
+              </span>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5].map((w) => (
+                  <div key={w}>
+                    <label className="block text-[10px] font-bold text-blue-700 mb-0.5">
+                      Tuần {w}
+                    </label>
+                    <input
+                      type="text"
+                      value={manualTestScores[w] || ""}
+                      onChange={(e) =>
+                        setManualTestScores((prev) => ({ ...prev, [w]: e.target.value }))
+                      }
+                      placeholder="--"
+                      className="w-full px-2 py-1 text-center bg-white border border-blue-300 rounded-md text-xs font-bold text-blue-900 outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Nhận xét của Giáo viên:
@@ -5564,6 +6246,10 @@ export default function AdminStudentReportPanel({
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none"
             />
           </div>
+
+          <div className="pt-2 border-t border-slate-200 text-center text-[11px] font-bold text-slate-600">
+            {TCT_BRANDING_FOOTER_TEXT}
+          </div>
         </div>
       )}
 
@@ -5572,9 +6258,23 @@ export default function AdminStudentReportPanel({
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[85vh] overflow-hidden text-left">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-              <h3 className="font-bold text-slate-800 text-sm">
-                Chọn đề Luyện thi thực chiến đưa vào Báo cáo
-              </h3>
+              <div className="flex items-center gap-3">
+                <h3 className="font-bold text-slate-800 text-sm">
+                  Chọn đề Luyện thi thực chiến đưa vào Báo cáo
+                </h3>
+                <select
+                  value={practiceMonthFilter}
+                  onChange={(e) => setPracticeMonthFilter(e.target.value)}
+                  className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-blue-700 outline-none cursor-pointer"
+                >
+                  <option value="all">Tất cả các tháng</option>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                    <option key={m} value={String(m)}>
+                      Tháng {m < 10 ? "0" + m : m}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowPracticePickerModal(false)}
@@ -5701,7 +6401,10 @@ export default function AdminStudentReportPanel({
                   </span>
                 </div>
 
-                <div className="space-y-2">
+                <div
+                  ref={reportPage2Ref}
+                  className="space-y-2"
+                >
                   <h4 className="text-sm font-bold uppercase text-[#003399]">
                     Nhận xét của Giáo viên phụ trách:
                   </h4>
@@ -5715,6 +6418,27 @@ export default function AdminStudentReportPanel({
                       </div>
                     ))}
                   </div>
+                </div>
+
+                {renderedImageUrls.page1 && (
+                  <div className="pt-2 space-y-2">
+                    <img
+                      src={renderedImageUrls.page1}
+                      alt="Preview Trang 1"
+                      className="w-full rounded-xl border border-slate-200"
+                    />
+                    {renderedImageUrls.page2 && (
+                      <img
+                        src={renderedImageUrls.page2}
+                        alt="Preview Trang 2"
+                        className="w-full rounded-xl border border-slate-200"
+                      />
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-3 border-t border-slate-200 text-center text-xs font-bold text-slate-600">
+                  {TCT_BRANDING_FOOTER_TEXT}
                 </div>
               </div>
             </div>
