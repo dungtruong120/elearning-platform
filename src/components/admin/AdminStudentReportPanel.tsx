@@ -957,16 +957,24 @@ function buildFullOMRQuestionsReview(
       ).trim();
 
       const rawCorP3 =
-        gDetail?.correctAnswerDisplay ??
-        qObj?.correctAnswer ??
-        qObj?.shortAnswer ??
-        qObj?.correct_answer ??
-        qObj?.answer ??
-        "";
-      correctDisplay = String(rawCorP3).trim();
-      if (!correctDisplay || correctDisplay === "--") {
-        correctDisplay = defaultP3Cycle[(localNum - 1) % defaultP3Cycle.length];
-      }
+     gDetail?.correctAnswerDisplay ??
+     qObj?.correctAnswer ??
+     qObj?.shortAnswer ??
+     qObj?.correct_answer ??
+     qObj?.answer ??
+     "";
+   correctDisplay = String(rawCorP3).trim();
+
+   // Nếu correctDisplay bị nhầm sang định dạng Đúng/Sai (chứa Đ, S, ngoặc đơn), dùng ngay default cycle
+   if (
+     !correctDisplay ||
+     correctDisplay === "--" ||
+     correctDisplay.includes(")") ||
+     correctDisplay.includes("Đ") ||
+     correctDisplay.includes("S")
+   ) {
+     correctDisplay = defaultP3Cycle[(localNum - 1) % defaultP3Cycle.length];
+   }
 
       const normStu = studentDisplay.replace(",", ".");
       const normCor = correctDisplay.replace(",", ".");
@@ -1113,27 +1121,50 @@ function buildFullOMRQuestionsReview(
         rowItem.correctAnswer = corParts.join(" ");
         metaItem.studentDisplay = stuParts.join(" ");
         rowItem.studentAnswer = stuParts.join(" ");
-      } else {
+     } else {
         metaItem.partNum = 3;
         metaItem.localNum = idx - 15;
         metaItem.partLabel = "Phần III";
         rowItem.part = "Phần III";
 
+        // 1. Nếu đáp án của đề bị lẫn chuỗi Đúng/Sai (chứa ký tự Đ hoặc S hoặc dấu đóng ngoặc), lập tức fallback về giá trị số mặc định
+        const isCorStrCorrupted =
+          metaItem.correctDisplay &&
+          (metaItem.correctDisplay.includes("Đ") ||
+            metaItem.correctDisplay.includes("S") ||
+            metaItem.correctDisplay.includes(")"));
+
         const corStr =
-          metaItem.correctDisplay && metaItem.correctDisplay !== "--"
+          metaItem.correctDisplay &&
+          metaItem.correctDisplay !== "--" &&
+          !isCorStrCorrupted
             ? metaItem.correctDisplay
             : defaultP3Cycle[(idx - 16) % defaultP3Cycle.length];
+
         metaItem.correctDisplay = corStr;
         rowItem.correctAnswer = corStr;
 
-        const chosenStr = shouldBeCorrect ? corStr : "0";
+        // 2. Lấy đáp án thực tế học sinh đã điền (nếu có). Tuyệt đối không gán cứng "0"
+        let currentStuAnswer =
+          rowItem.studentAnswer &&
+          rowItem.studentAnswer !== "Bỏ trống / Chưa tô" &&
+          rowItem.studentAnswer !== "0"
+            ? rowItem.studentAnswer
+            : "";
+
+        const chosenStr = shouldBeCorrect ? corStr : currentStuAnswer;
+
         metaItem.studentDisplay = chosenStr;
-        rowItem.studentAnswer = chosenStr;
-        metaItem.p3StudentChars = chosenStr.replace(/\./g, ",").slice(0, 4).split("");
+        rowItem.studentAnswer = chosenStr ? chosenStr : "Bỏ trống / Chưa tô";
+        metaItem.isSkipped = !chosenStr;
+        rowItem.isSkipped = !chosenStr;
+
+        // 3. Tách ký tự để tô chấm chì lên phôi OMR Canvas
+        metaItem.p3StudentChars = chosenStr
+          ? chosenStr.replace(/\./g, ",").slice(0, 4).split("")
+          : [];
         metaItem.p3CorrectChars = corStr.replace(/\./g, ",").slice(0, 4).split("");
       }
-    }
-  }
 
   // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
   if (clonedCoords.length > 0) {
