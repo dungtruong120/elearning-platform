@@ -468,7 +468,7 @@ function buildFullOMRQuestionsReview(
     if (Array.isArray(rawSections) && rawSections.length > 0) {
       rawSections.forEach((sec: any, sIdx: number) => {
         const secTitle = normalizeText(sec?.title || sec?.name || sec?.part || "");
-        let inferredSecPart: 1 | 2 | 3 = (sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3) as 1 | 2 | 3;
+        let inferredSecPart: number = sIdx === 0 ? 1 : sIdx === 1 ? 2 : 3;
         if (
           secTitle.includes("phan iii") ||
           secTitle.includes("phan 3") ||
@@ -494,7 +494,7 @@ function buildFullOMRQuestionsReview(
         if (Array.isArray(sec?.questions)) {
           sec.questions.forEach((q: any) => {
             flatQuestions.push(q);
-            detectedPartByIndex.push(inferredSecPart);
+            detectedPartByIndex.push(inferredSecPart as any);
           });
         } else if (
           sec &&
@@ -502,13 +502,13 @@ function buildFullOMRQuestionsReview(
         ) {
           flatQuestions.push(sec);
           const qType = String(sec.type || "").toLowerCase();
-          const p: 1 | 2 | 3 =
+          const p: number =
             qType.includes("short") || sec.shortAnswer !== undefined
               ? 3
               : qType.includes("true") || Array.isArray(sec.statements)
               ? 2
               : 1;
-          detectedPartByIndex.push(p);
+          detectedPartByIndex.push(p as any);
         }
       });
     }
@@ -526,7 +526,7 @@ function buildFullOMRQuestionsReview(
         directQuestions.forEach((q: any, qIdx: number) => {
           flatQuestions.push(q);
           const qType = String(q?.type || "").toLowerCase();
-          let p: 1 | 2 | 3 = 1;
+          let p: number = 1;
           if (qType.includes("short") || q?.shortAnswer !== undefined || q?.part === 3) {
             p = 3;
           } else if (
@@ -538,9 +538,9 @@ function buildFullOMRQuestionsReview(
           } else if (q?.part === 1 || qType.includes("multiple")) {
             p = 1;
           } else if (directQuestions.length === 22) {
-            p = (qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3) as 1 | 2 | 3;
+            p = qIdx < 12 ? 1 : qIdx < 16 ? 2 : 3;
           }
-          detectedPartByIndex.push(p);
+          detectedPartByIndex.push(p as any);
         });
       }
     }
@@ -551,7 +551,7 @@ function buildFullOMRQuestionsReview(
     detectedPartByIndex.every((p) => p === 1)
   ) {
     for (let idx = 0; idx < 22; idx++) {
-      detectedPartByIndex[idx] = (idx < 12 ? 1 : idx < 16 ? 2 : 3) as 1 | 2 | 3;
+      detectedPartByIndex[idx] = idx < 12 ? 1 : idx < 16 ? 2 : 3;
     }
   }
 
@@ -956,6 +956,14 @@ function buildFullOMRQuestionsReview(
             : reconstructedFromBubbles)
       ).trim();
 
+      if (
+        studentDisplay.includes(")") ||
+        studentDisplay.includes("Đ") ||
+        studentDisplay.includes("S")
+      ) {
+        studentDisplay = "";
+      }
+
       const rawCorP3 =
         gDetail?.correctAnswerDisplay ??
         qObj?.correctAnswer ??
@@ -1034,7 +1042,7 @@ function buildFullOMRQuestionsReview(
     });
   }
 
-  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ
+  // CƠ CHẾ TÁI HIỆN BẢO TOÀN ĐIỂM SỐ KHI CÓ ĐIỂM SỐ THỰC TẾ
   const attemptScoreNum = Number(String(attempt?.score ?? attempt?.points ?? 0).replace(",", "."));
   const explicitCorrectCount = Number(
     attempt?.correct_answers_count ?? attempt?.correct_count ?? attempt?.correctCount ?? 0
@@ -1066,9 +1074,7 @@ function buildFullOMRQuestionsReview(
         manualOverride !== undefined ? manualOverride : !wrongOrderSet.has(qOrder);
 
       metaItem.isCorrect = shouldBeCorrect;
-      metaItem.isSkipped = false;
       rowItem.isCorrect = shouldBeCorrect;
-      rowItem.isSkipped = false;
 
       if (idx < 12) {
         metaItem.partNum = 1;
@@ -1088,6 +1094,8 @@ function buildFullOMRQuestionsReview(
         metaItem.p1StudentKey = chosenK;
         metaItem.studentDisplay = chosenK;
         rowItem.studentAnswer = chosenK;
+        metaItem.isSkipped = false;
+        rowItem.isSkipped = false;
       } else if (idx < 16) {
         metaItem.partNum = 2;
         metaItem.localNum = idx - 11;
@@ -1118,6 +1126,8 @@ function buildFullOMRQuestionsReview(
         rowItem.correctAnswer = corParts.join(" ");
         metaItem.studentDisplay = stuParts.join(" ");
         rowItem.studentAnswer = stuParts.join(" ");
+        metaItem.isSkipped = false;
+        rowItem.isSkipped = false;
       } else {
         metaItem.partNum = 3;
         metaItem.localNum = idx - 15;
@@ -1140,14 +1150,18 @@ function buildFullOMRQuestionsReview(
         metaItem.correctDisplay = corStr;
         rowItem.correctAnswer = corStr;
 
-        let currentStuAnswer =
+        const existingCleanStuAnswer =
           rowItem.studentAnswer &&
           rowItem.studentAnswer !== "Bỏ trống / Chưa tô" &&
-          rowItem.studentAnswer !== "0"
+          rowItem.studentAnswer !== "Bỏ trống" &&
+          !rowItem.studentAnswer.includes(")") &&
+          !rowItem.studentAnswer.includes("Đ") &&
+          !rowItem.studentAnswer.includes("S")
             ? rowItem.studentAnswer
             : "";
 
-        const chosenStr = shouldBeCorrect ? corStr : currentStuAnswer;
+        // TUYỆT ĐỐI KHÔNG GÁN CỨNG SỐ "0" KHI HỌC SINH BỎ TRỐNG HOẶC LÀM SAI
+        const chosenStr = shouldBeCorrect ? corStr : existingCleanStuAnswer;
 
         metaItem.studentDisplay = chosenStr;
         rowItem.studentAnswer = chosenStr ? chosenStr : "Bỏ trống / Chưa tô";
@@ -1162,7 +1176,7 @@ function buildFullOMRQuestionsReview(
     }
   }
 
-  // BỔ SUNG TỌA ĐỘ BUBBLE
+  // BỔ SUNG / CẬP NHẬT TỌA ĐỘ `expected_missed` (VÒNG TRÒN VÀNG NÉT ĐỨT) CHO PHIẾU QUÉT THẬT
   if (clonedCoords.length > 0) {
     parsedMetaList.forEach((metaItem) => {
       const { partNum, localNum, isCorrect: finalIsCorrect } = metaItem;
@@ -1328,6 +1342,10 @@ function buildFullOMRQuestionsReview(
     enrichedBubbleCoordinates: clonedCoords
   };
 }
+
+/**
+ * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY / PHIẾU SCAN MỜ THÀNH "PHIẾU OMR CANVAS AI" CHUẨN TCT (1200 x 1700 px)
+ */
 export function generateVirtualOMRSheet(
   attempt: any,
   rawQuizObj: any,
@@ -1855,7 +1873,7 @@ export function generateVirtualOMRSheet(
     const qMeta = p3Metas.find((m) => m.localNum === q);
     const stuChars = qMeta?.p3StudentChars || [];
 
-    // 4 ô viết tay đáp số ở đỉnh mỗi cột câu
+    // 4 ô viết tay đáp số ở đỉnh mỗi cột câu (Nếu học sinh bỏ trống thì để trống ô viết tay)
     for (let c = 0; c < 4; c++) {
       const cx = boxX + 32 + c * 36;
       drawRoundedRect(ctx, cx - 15, 1120, 30, 32, 3, "#FFFFFF", "#475569", 1.2);
@@ -1903,7 +1921,7 @@ export function generateVirtualOMRSheet(
   ctx.fillStyle = "#334155";
   ctx.font = "bold 13.5px " + FONT_SERIF;
   ctx.fillText(
-    "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT)  •  Hotline: 0972 26 16 16  •  Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội",
+    "TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT)  •  Hotline: 0972 26 16 16  •  Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội",
     W / 2,
     1642
   );
@@ -2057,8 +2075,6 @@ export default function AdminStudentReportPanel({
 
   /**
    * 1. CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
-   * - Luôn ưu tiên đọc trực tiếp trường `sbd` đã lưu trong CSDL của từng học sinh.
-   * - Học sinh mới thêm vào tự động nhận `MAX(sbd) + 1` và lưu bền vững vào `edunexus_permanent_sbd_map`.
    */
   const sbdDirectoryMap = useMemo(() => {
     const permanentMap: Record<string, string> = {};
@@ -2508,7 +2524,7 @@ export default function AdminStudentReportPanel({
     [quizAssignmentMap]
   );
 
-  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (ĐỒNG BỘ SBD MỚI NHẤT TỪ OMR & TỰ ĐỘNG DỰNG PHIẾU OMR CANVAS AI)
+  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (ĐỒNG BỘ SBD MỚI NHẤT TỪ OMR & TÁCH BIỆT BTVN KHỎI OMR TRANG 2)
   const computeStudentDailyScoreRecord = useCallback(
     (
       student: any
@@ -2595,7 +2611,6 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        // Quét tất cả tên đề kiểm tra trong bài học của tuần hiện tại
         const currentSessionTestTitles = new Set<string>();
         currentSessionLessons.forEach((m) => {
           m.testTitles.forEach((t) => currentSessionTestTitles.add(t));
@@ -2608,7 +2623,6 @@ export default function AdminStudentReportPanel({
           overrideTopicTitle || autoSyncedTopicTitle
         );
 
-        // Tự nhận diện nếu đề thi khớp theo ID hoặc khớp theo Tên đề (kể cả làm từ Luyện đề)
         const isMatchedCurrentSessionTest =
           currentSessionLessons.some((m) => qId && m.testIds.has(qId)) ||
           (qTitle && currentSessionTestTitles.has(qTitle)) ||
@@ -2617,12 +2631,14 @@ export default function AdminStudentReportPanel({
             (qTitle.includes(effectiveSessionTopicNorm) ||
               effectiveSessionTopicNorm.includes(qTitle)));
 
+        // Tuyệt đối không coi bài BTVN (isHw) là bài Kiểm tra định kỳ tại lớp
         const isValidDailyTest =
-          isMatchedCurrentSessionTest ||
-          (isTest && month === dailyMonth && week === dailyWeek) ||
-          (att.category === "Đề kiểm tra định kỳ" &&
-            month === dailyMonth &&
-            week === dailyWeek);
+          !isHw &&
+          (isMatchedCurrentSessionTest ||
+            (isTest && month === dailyMonth && week === dailyWeek) ||
+            (att.category === "Đề kiểm tra định kỳ" &&
+              month === dailyMonth &&
+              week === dailyWeek));
 
         if (isValidDailyTest) {
           if (
@@ -2662,13 +2678,16 @@ export default function AdminStudentReportPanel({
       if (!bestDailyTestAttempt) {
         const anyPaperInCurrentWeek = stuAttempts.find((att: any) => {
           const { month, week } = resolveAttemptMonthAndWeek(att);
+          const isHw = Boolean(
+            att.type === "homework" || att.isHomework || att.is_homework
+          );
           const isPaper =
             att.submission_type === "paper" ||
             Boolean(att.scanned_image_url) ||
             Boolean(att.paper_scan_url) ||
             Boolean(att.omr_raw_data) ||
             Boolean(att.answers?.__paper_omr_meta);
-          return isPaper && month === dailyMonth && week === dailyWeek;
+          return !isHw && isPaper && month === dailyMonth && week === dailyWeek;
         });
         if (anyPaperInCurrentWeek) {
           bestDailyTestAttempt = anyPaperInCurrentWeek;
@@ -2684,15 +2703,15 @@ export default function AdminStudentReportPanel({
         bestPracticeAttempt = null;
       }
 
-      // ĐỒNG BỘ ƯU TIÊN SỐ BÁO DANH (SBD) TỪ BÀI LÀM OMR MỚI NHẤT TRƯỚC
-      const rawResolvedSbd =
+      // ĐỒNG BỘ SỐ BÁO DANH (SBD) TỪ BÀI LÀM OMR MỚI NHẤT TRƯỚC
+      const sbdRaw =
         (bestDailyTestAttempt?.omr_raw_data?.detected_sbd ||
           bestDailyTestAttempt?.answers?.__paper_omr_meta?.detected_sbd ||
           bestDailyTestAttempt?.sbd ||
           student?.sbd ||
           dirInfo?.sbd) || "000001";
 
-      const sbd = String(rawResolvedSbd)
+      const sbd = String(sbdRaw)
         .replace(/\D/g, "")
         .padStart(6, "0")
         .slice(-6);
@@ -2729,8 +2748,8 @@ export default function AdminStudentReportPanel({
       const pracScore =
         rawPracScore !== null && !isNaN(rawPracScore) && rawPracScore > 0 ? rawPracScore : null;
 
-      // Xác định bài thi dùng để đối soát OMR Trang 2 (Ưu tiên bài Test tại lớp -> Đề thực chiến -> BTVN)
-      const primaryReviewAtt = bestDailyTestAttempt || bestPracticeAttempt || bestHwAttempt || null;
+      // TUYỆT ĐỐI KHÔNG LẤY BTVN (bestHwAttempt) LÀM BÀI CHẤM OMR TRANG 2
+      const primaryReviewAtt = bestDailyTestAttempt || bestPracticeAttempt || null;
 
       let hasPaperOMR = false;
       let scannedPaperImageUrl: string | undefined = undefined;
@@ -2745,7 +2764,8 @@ export default function AdminStudentReportPanel({
       let computedCorrectCount: number | null = null;
       let computedTotalQuestions: number | null = null;
 
-      if (primaryReviewAtt) {
+      // Chỉ dựng đối soát OMR khi học sinh thực sự có tham gia kiểm tra (testScore !== null hoặc có bài thực chiến)
+      if (primaryReviewAtt && (testScore !== null || pracScore !== null)) {
         const meta =
           primaryReviewAtt.answers?.__paper_omr_meta ||
           primaryReviewAtt.user_answers?.__paper_omr_meta ||
@@ -2790,7 +2810,6 @@ export default function AdminStudentReportPanel({
             ""
         );
 
-        // Tìm ngược trong kho practiceExams nếu học sinh làm đề từ mục Luyện đề / Kiểm tra định kỳ
         const matchedFromPracticeExams = (practiceExams || []).find((pe: any) => {
           if (!pe) return false;
           const peId = String(pe.id || "").trim().toLowerCase();
@@ -2805,7 +2824,6 @@ export default function AdminStudentReportPanel({
           );
         });
 
-        // Tìm ngược trong toàn bộ bài học của các chương (chapters)
         let matchedFromChapters: any = null;
         for (const les of allFlattenedLessons) {
           for (const tItem of les.testItems) {
@@ -2824,23 +2842,6 @@ export default function AdminStudentReportPanel({
             }
           }
           if (matchedFromChapters) break;
-
-          for (const hItem of les.hwItems) {
-            const hId = String(hItem.id || "").trim().toLowerCase();
-            const hTitle = normalizeText(hItem.title || "");
-            if (
-              (attQuizIdNorm && hId === attQuizIdNorm) ||
-              (attTitleNorm &&
-                hTitle &&
-                (hTitle === attTitleNorm ||
-                  hTitle.includes(attTitleNorm) ||
-                  attTitleNorm.includes(hTitle)))
-            ) {
-              matchedFromChapters = hItem.rawObj;
-              break;
-            }
-          }
-          if (matchedFromChapters) break;
         }
 
         const fallbackSessionQuizObj =
@@ -2848,12 +2849,15 @@ export default function AdminStudentReportPanel({
           matchedFromPracticeExams ||
           matchedFromChapters ||
           currentSessionLessons[0]?.testItems[0]?.rawObj ||
-          currentSessionLessons[0]?.hwItems[0]?.rawObj ||
           null;
 
-        // TỰ ĐỘNG CHUYỂN ĐỔI & DỰNG "PHIẾU OMR CANVAS AI" SẮC NÉT (1200x1700) CHO BÁO CÁO PHỤ HUYNH
+        const attemptForReview =
+          testScore !== null
+            ? { ...primaryReviewAtt, score: testScore }
+            : primaryReviewAtt;
+
         const virtualBuilt = generateVirtualOMRSheet(
-          primaryReviewAtt,
+          attemptForReview,
           fallbackSessionQuizObj,
           sbd,
           stuName,
@@ -2942,6 +2946,8 @@ export default function AdminStudentReportPanel({
           ? "completed"
           : "missing";
 
+      const hasValidTestReview = Boolean(testScore !== null && hasPaperOMR);
+
       return {
         studentId: stuId,
         studentName: stuName,
@@ -2961,8 +2967,8 @@ export default function AdminStudentReportPanel({
           bestHwAttempt?.quizTitle ||
           effectiveHomeworkTarget.displayTitle,
         dailyTestScore: testScore,
-        dailyTestCorrect:
-          computedCorrectCount !== null
+        dailyTestCorrect: hasValidTestReview
+          ? computedCorrectCount !== null
             ? computedCorrectCount
             : bestDailyTestAttempt
             ? Number(
@@ -2971,15 +2977,17 @@ export default function AdminStudentReportPanel({
                   bestDailyTestAttempt.correctCount ??
                   0
               ) || null
-            : null,
-        dailyTestTotal:
-          computedTotalQuestions !== null
+            : null
+          : null,
+        dailyTestTotal: hasValidTestReview
+          ? computedTotalQuestions !== null
             ? computedTotalQuestions
             : bestDailyTestAttempt
             ? Number(
                 bestDailyTestAttempt.total_questions ?? bestDailyTestAttempt.totalQuestions ?? 0
               ) || null
-            : null,
+            : null
+          : null,
         practiceScore: pracScore,
         practiceExamTitle:
           pracScore !== null
@@ -2987,24 +2995,24 @@ export default function AdminStudentReportPanel({
               bestPracticeAttempt?.examTitle ||
               `Đề thực chiến Tháng ${dailyMonth}`
             : "Không tổ chức kiểm tra đề tháng",
-        part1Score: part1ScoreStr,
-        part2Score: part2ScoreStr,
-        part3Score: part3ScoreStr,
+        part1Score: hasValidTestReview ? part1ScoreStr : undefined,
+        part2Score: hasValidTestReview ? part2ScoreStr : undefined,
+        part3Score: hasValidTestReview ? part3ScoreStr : undefined,
         teacherComment: ov.teacherComment !== undefined ? ov.teacherComment : defaultComment,
         attendance: legacyAttendance,
         attendanceStatus: resolvedAttendanceStatus,
         attendanceNote,
         makeupSessions,
         homeworkStatus: resolvedHomeworkStatus,
-        hasPaperOMR,
-        paperExamTitle,
-        paperExamCode,
-        scannedPaperImageUrl,
+        hasPaperOMR: hasValidTestReview,
+        paperExamTitle: hasValidTestReview ? paperExamTitle : undefined,
+        paperExamCode: hasValidTestReview ? paperExamCode : undefined,
+        scannedPaperImageUrl: hasValidTestReview ? scannedPaperImageUrl : undefined,
         canonicalWidth: OMR_CANONICAL_WIDTH,
         canonicalHeight: OMR_CANONICAL_HEIGHT,
-        bubbleCoordinates,
-        wrongQuestionsList,
-        allQuestionsReviewList
+        bubbleCoordinates: hasValidTestReview ? bubbleCoordinates : [],
+        wrongQuestionsList: hasValidTestReview ? wrongQuestionsList : [],
+        allQuestionsReviewList: hasValidTestReview ? allQuestionsReviewList : []
       };
     },
     [
@@ -3177,6 +3185,14 @@ export default function AdminStudentReportPanel({
     return computeStudentDailyScoreRecord(currentStudent);
   }, [currentStudent, computeStudentDailyScoreRecord]);
 
+  const hasValidTestReview = useMemo(() => {
+    return Boolean(
+      currentStudentDailyData &&
+        currentStudentDailyData.dailyTestScore !== null &&
+        currentStudentDailyData.hasPaperOMR
+    );
+  }, [currentStudentDailyData]);
+
   const handleExportClassDailyPDF = (onlyCurrentStudent: boolean = false) => {
     const targetStudents = onlyCurrentStudent
       ? currentStudent
@@ -3261,9 +3277,9 @@ export default function AdminStudentReportPanel({
         d.homeworkScore !== null ? `${d.homeworkScore}/10` : "-- / 10 (Chưa nộp)"
       }\n` +
       `3. Điểm Kiểm tra tại lớp hôm nay: ${
-        d.dailyTestScore !== null ? `${d.dailyTestScore}/10` : "Chưa kiểm tra"
+        d.dailyTestScore !== null ? `${d.dailyTestScore}/10` : "CHƯA KIỂM TRA"
       }${
-        d.hasPaperOMR
+        d.dailyTestScore !== null && d.hasPaperOMR
           ? ` (Đúng ${d.dailyTestCorrect}/${d.dailyTestTotal} câu trên phiếu OMR)`
           : ""
       }\n` +
@@ -3276,7 +3292,7 @@ export default function AdminStudentReportPanel({
       `II. NHẬN XÉT CỦA GIÁO VIÊN:\n` +
       `"${d.teacherComment}"\n` +
       makeupLines +
-      `\n📞 Hotline TCT: 0972 26 16 16 • Đ/c: Số 10 Tạ Quang Bửu, Bách Khoa, Hà Nội.`;
+      `\n📞 TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • Hotline: 0972 26 16 16 • Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội`;
 
     if (typeof navigator !== "undefined") {
       navigator.clipboard.writeText(msg);
@@ -4152,7 +4168,7 @@ export default function AdminStudentReportPanel({
       "II. NHẬN XÉT CỦA GIÁO VIÊN:\n" +
       currentReport.evaluation +
       "\n\n" +
-      "📞 Hotline TCT: 0972 26 16 16 • Đ/c: Số 10 Tạ Quang Bửu, Bách Khoa, Hà Nội.";
+      "📞 TRUNG TÂM TOÁN TÂM CHÍ TÀI (TCT) • Hotline: 0972 26 16 16 • Địa chỉ: Số 10, Tạ Quang Bửu, Bách Khoa, Hà Nội.";
 
     if (typeof navigator !== "undefined") {
       navigator.clipboard.writeText(msg);
@@ -4494,10 +4510,8 @@ export default function AdminStudentReportPanel({
                 const isSelected = stuId === currentStudent?.id;
                 const isCheckedForExport = selectedExportStudentIds.has(stuId);
                 const dirInfo = sbdDirectoryMap.get(stuId);
-                const fixedSbd =
-                  (student.sbd
-                    ? String(student.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6)
-                    : dirInfo?.sbd) || "000001";
+                const stuDataQuick = computeStudentDailyScoreRecord(student);
+                const fixedSbd = stuDataQuick.sbd || dirInfo?.sbd || "000001";
                 const stuOverride = dailyStudentOverrides[stuId];
                 const attStatus = stuOverride?.attendanceStatus || "present";
 
@@ -4597,9 +4611,13 @@ export default function AdminStudentReportPanel({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {currentStudentDailyData.hasPaperOMR && (
+                    {hasValidTestReview ? (
                       <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1">
                         <Check className="w-3.5 h-3.5" /> Đã sẵn sàng Phiếu OMR Trang 2
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" /> Trang 2: Lịch Học Bù & Bổ Trợ
                       </span>
                     )}
                     <button
@@ -4669,7 +4687,7 @@ export default function AdminStudentReportPanel({
                             ? currentStudentDailyData.dailyTestScore
                             : ""
                         }
-                        placeholder="Chưa thi"
+                        placeholder="CHƯA KIỂM TRA"
                         onChange={(e) =>
                           setDailyStudentOverrides((prev) => ({
                             ...prev,
@@ -4679,12 +4697,14 @@ export default function AdminStudentReportPanel({
                             }
                           }))
                         }
-                        className="w-24 px-2 py-1 rounded-md bg-white border border-blue-300 font-bold text-sm text-blue-900 outline-none"
+                        className="w-32 px-2 py-1 rounded-md bg-white border border-blue-300 font-bold text-xs text-blue-900 outline-none"
                       />
                       <span className="text-xs font-bold text-blue-700">/ 10</span>
                     </div>
                     <p className="text-[10px] text-blue-800 mt-1 truncate">
-                      Kiểm tra Tuần {dailyWeek} - Tháng {dailyMonth}
+                      {currentStudentDailyData.dailyTestScore !== null
+                        ? `Kiểm tra Tuần ${dailyWeek} - Tháng ${dailyMonth}`
+                        : "Chưa tham gia kiểm tra buổi này"}
                     </p>
                   </div>
 
@@ -4830,7 +4850,7 @@ export default function AdminStudentReportPanel({
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
                         <span className="text-xs font-bold text-[#003399] flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-orange-500" />
-                          <span>Xếp lịch Học bù / Bổ trợ (In trực tiếp xuống đáy Trang 2 A4)</span>
+                          <span>Xếp lịch Học bù / Bổ trợ (In trực tiếp lên Trang 2 A4)</span>
                         </span>
 
                         <div className="flex items-center gap-1.5">
@@ -4957,6 +4977,7 @@ export default function AdminStudentReportPanel({
                                   <span>
                                     [{sess.type === "makeup" ? "Học bù" : "Bổ trợ"}] {sess.date} •{" "}
                                     {sess.shiftLabel}
+                                    {sess.note ? ` (${sess.note})` : ""}
                                   </span>
                                   <button
                                     type="button"
@@ -5049,102 +5070,112 @@ export default function AdminStudentReportPanel({
                   />
                 </div>
 
-                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR (HIỂN THỊ CHO CẢ BÀI THI GIẤY LẪN PHIẾU OMR ẢO TỪ WEB) */}
-                {currentStudentDailyData.hasPaperOMR &&
-                  currentStudentDailyData.scannedPaperImageUrl && (
-                    <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-                        <div>
-                          <span className="text-[10px] font-bold uppercase text-emerald-400 block">
-                            ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR (TRANG 2) — BẤM VÀO CÂU ĐỂ ĐỔI ĐÚNG/SAI
+                {/* BẢNG ĐỐI SOÁT & SỬA NHANH TỪNG CÂU HỎI OMR (CHỈ HIỂN THỊ KHI hasValidTestReview === true) */}
+                {hasValidTestReview && currentStudentDailyData.scannedPaperImageUrl ? (
+                  <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase text-emerald-400 block">
+                          ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR (TRANG 2) — BẤM VÀO CÂU ĐỂ ĐỔI ĐÚNG/SAI
+                        </span>
+                        <h4 className="text-xs font-bold text-white mt-0.5">
+                          {currentStudentDailyData.paperExamTitle} (Mã đề:{" "}
+                          {currentStudentDailyData.paperExamCode}) — Đúng:{" "}
+                          <span className="text-emerald-400">
+                            {currentStudentDailyData.dailyTestCorrect}/
+                            {currentStudentDailyData.dailyTestTotal}
+                          </span>{" "}
+                          • Sai/Trống:{" "}
+                          <span className="text-rose-400">
+                            {currentStudentDailyData.wrongQuestionsList?.length || 0}
                           </span>
-                          <h4 className="text-xs font-bold text-white mt-0.5">
-                            {currentStudentDailyData.paperExamTitle} (Mã đề:{" "}
-                            {currentStudentDailyData.paperExamCode}) — Đúng:{" "}
-                            <span className="text-emerald-400">
-                              {currentStudentDailyData.dailyTestCorrect}/
-                              {currentStudentDailyData.dailyTestTotal}
-                            </span>{" "}
-                            • Sai/Trống:{" "}
-                            <span className="text-rose-400">
-                              {currentStudentDailyData.wrongQuestionsList?.length || 0}
-                            </span>
-                          </h4>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPaperZoom(1);
-                            setPreviewPaperItem({
-                              id: "daily-omr",
-                              title: currentStudentDailyData.paperExamTitle || "Bài thi OMR",
-                              category: "Kiểm tra",
-                              completedDate: customDateStr,
-                              score: currentStudentDailyData.dailyTestScore ?? 0,
-                              submissionType: "paper",
-                              paperScanUrl: currentStudentDailyData.scannedPaperImageUrl,
-                              omrRawData: {
-                                canonical_width: OMR_CANONICAL_WIDTH,
-                                canonical_height: OMR_CANONICAL_HEIGHT,
-                                bubble_coordinates: currentStudentDailyData.bubbleCoordinates
-                              }
-                            });
-                          }}
-                          className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> Xem phiếu OMR
-                        </button>
+                        </h4>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaperZoom(1);
+                          setPreviewPaperItem({
+                            id: "daily-omr",
+                            title: currentStudentDailyData.paperExamTitle || "Bài thi OMR",
+                            category: "Kiểm tra",
+                            completedDate: customDateStr,
+                            score: currentStudentDailyData.dailyTestScore ?? 0,
+                            submissionType: "paper",
+                            paperScanUrl: currentStudentDailyData.scannedPaperImageUrl,
+                            omrRawData: {
+                              canonical_width: OMR_CANONICAL_WIDTH,
+                              canonical_height: OMR_CANONICAL_HEIGHT,
+                              bubble_coordinates: currentStudentDailyData.bubbleCoordinates
+                            }
+                          });
+                        }}
+                        className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Xem phiếu OMR
+                      </button>
+                    </div>
 
-                      {currentStudentDailyData.allQuestionsReviewList &&
-                        currentStudentDailyData.allQuestionsReviewList.length > 0 && (
-                          <div className="max-h-52 overflow-y-auto custom-scrollbar pr-1 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            {currentStudentDailyData.allQuestionsReviewList.map((qRow) => (
-                              <div
-                                key={qRow.questionNumber}
-                                onClick={() =>
-                                  handleToggleOMRQuestionCorrectness(
-                                    currentStudentDailyData.studentId,
-                                    qRow.questionNumber,
-                                    qRow.isCorrect
-                                  )
-                                }
-                                className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 cursor-pointer transition ${
+                    {currentStudentDailyData.allQuestionsReviewList &&
+                      currentStudentDailyData.allQuestionsReviewList.length > 0 && (
+                        <div className="max-h-52 overflow-y-auto custom-scrollbar pr-1 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          {currentStudentDailyData.allQuestionsReviewList.map((qRow) => (
+                            <div
+                              key={qRow.questionNumber}
+                              onClick={() =>
+                                handleToggleOMRQuestionCorrectness(
+                                  currentStudentDailyData.studentId,
+                                  qRow.questionNumber,
                                   qRow.isCorrect
-                                    ? "bg-emerald-950/40 border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/50"
-                                    : "bg-rose-950/50 border-rose-600/80 text-rose-200 hover:bg-rose-900/60"
+                                )
+                              }
+                              className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 cursor-pointer transition ${
+                                qRow.isCorrect
+                                  ? "bg-emerald-950/40 border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/50"
+                                  : "bg-rose-950/50 border-rose-600/80 text-rose-200 hover:bg-rose-900/60"
+                              }`}
+                            >
+                              <div className="min-w-0 truncate">
+                                <span className="font-bold">
+                                  Câu {qRow.questionNumber} ({qRow.part}):
+                                </span>{" "}
+                                <span>{qRow.studentAnswer}</span>{" "}
+                                <span className="opacity-75">(ĐA: {qRow.correctAnswer})</span>
+                              </div>
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 flex items-center gap-1 ${
+                                  qRow.isCorrect
+                                    ? "bg-emerald-600 text-white"
+                                    : "bg-rose-600 text-white"
                                 }`}
                               >
-                                <div className="min-w-0 truncate">
-                                  <span className="font-bold">
-                                    Câu {qRow.questionNumber} ({qRow.part}):
-                                  </span>{" "}
-                                  <span>{qRow.studentAnswer}</span>{" "}
-                                  <span className="opacity-75">(ĐA: {qRow.correctAnswer})</span>
-                                </div>
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 flex items-center gap-1 ${
-                                    qRow.isCorrect
-                                      ? "bg-emerald-600 text-white"
-                                      : "bg-rose-600 text-white"
-                                  }`}
-                                >
-                                  {qRow.isCorrect ? (
-                                    <>
-                                      <CheckCircle2 className="w-3 h-3" /> Đúng
-                                    </>
-                                  ) : (
-                                    <>
-                                      <XCircle className="w-3 h-3" /> Sai
-                                    </>
-                                  )}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                                {qRow.isCorrect ? (
+                                  <>
+                                    <CheckCircle2 className="w-3 h-3" /> Đúng
+                                  </>
+                                ) : (
+                                  <>
+                                    <XCircle className="w-3 h-3" /> Sai
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-950 flex items-center justify-between gap-3">
+                    <div>
+                      <strong className="font-bold block text-amber-900">
+                        📌 Chế độ Bố cục Thích ứng (Smart Adaptive Layout — Trang 2):
+                      </strong>
+                      <span className="text-amber-800">
+                        Buổi học này học sinh chưa tham gia làm bài kiểm tra định kỳ tại lớp. Khi xuất PDF, Trang 2 sẽ tự động ẩn khung OMR và phóng to Bảng Lịch Học Bù &amp; Kế Hoạch Rèn Luyện Trọng Tâm Tuần Tới.
+                      </span>
                     </div>
-                  )}
+                  </div>
+                )}
               </div>
             ) : currentStudent ? (
               /* ================= NHÁNH 2: BÁO CÁO TỔNG KẾT THÁNG ================= */
