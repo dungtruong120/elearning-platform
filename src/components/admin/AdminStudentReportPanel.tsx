@@ -28,7 +28,9 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  CalendarPlus
+  CalendarPlus,
+  History,
+  RefreshCw
 } from "lucide-react";
 import {
   OMR_CANONICAL_WIDTH,
@@ -63,6 +65,18 @@ export interface MakeupSupportSessionItem {
   timeSlot: string; // VD: "18:00 - 19:30"
   type: "makeup" | "support"; // 'makeup' = Học bù bài vắng (Cam) | 'support' = Bổ trợ tăng cường (Xanh)
   note?: string;
+}
+
+export interface CandidateAttemptOption {
+  id: string;
+  quizId: string;
+  title: string;
+  score: number;
+  createdAtText: string;
+  rawTimestamp: number;
+  hasRichAnswers: boolean;
+  answerKeyCount: number;
+  rawAttempt: any;
 }
 
 export const AVAILABLE_MAKEUP_SHIFTS = [
@@ -176,6 +190,9 @@ const virtualOMRCache = new Map<
   { dataUrl: string; bubbleCoordinates: any[] }
 >();
 
+// Bộ nhớ đệm đề thi toàn cục ở cấp module giúp chia sẻ tức thì giữa các lần render (0 KB Egress)
+const globalResolvedQuizzesMemoryCache: Record<string, any> = {};
+
 function normalizeText(str: any): string {
   if (!str) return "";
   return String(str)
@@ -205,6 +222,17 @@ function formatVietnameseDayAndDate(isoDateStr: string): string {
   ];
   const dayLabel = days[dateObj.getDay()];
   return `${dayLabel} (${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")})`;
+}
+
+function formatAttemptTimestampShort(rawDate: any): string {
+  if (!rawDate) return "Không rõ giờ";
+  const dt = new Date(rawDate);
+  if (isNaN(dt.getTime())) return String(rawDate);
+  const hh = String(dt.getHours()).padStart(2, "0");
+  const mm = String(dt.getMinutes()).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  const mo = String(dt.getMonth() + 1).padStart(2, "0");
+  return `${hh}:${mm} ngày ${dd}/${mo}`;
 }
 
 function drawRoundedRect(
@@ -330,17 +358,42 @@ function getCanonicalBubblePosition(
   return { x, y, r: 9.5 };
 }
 
+const INTERNAL_META_KEYS = new Set([
+  "part1_answers",
+  "part2_answers",
+  "part3_answers",
+  "bubble_coordinates",
+  "detected_sbd",
+  "detected_exam_code",
+  "warped_image_data_url",
+  "canonical_width",
+  "canonical_height"
+]);
+
 /**
- * 1. ĐỒNG BỘ DỮ LIỆU BÀI LÀM CỦA HỌC SINH (`extractFlexibleStudentAnswersMap`)
- * - Trích xuất dữ liệu trả lời từ: attempt.answers ?? attempt.userAnswers ?? attempt.user_answers ?? attempt.student_answers ?? attempt.detail
- * - Cơ chế Fallback thông minh: Nếu dữ liệu trong attempt bị rỗng (do database chỉ lưu điểm tóm tắt),
- *   tự động đọc từ localStorage.getItem("edunexus_attempts"): tìm theo attempt.id hoặc cặp (student_id + quiz_id)
- *   để lấy đầy đủ object answers gốc mà học sinh đã nộp từ ExamRoomView.tsx.
- * - Chuẩn hóa key truy xuất: Trả về Map/Record hỗ trợ mọi loại key: ID câu hỏi (q.id), số thứ tự câu ("1", "19"),
- *   hoặc tiền tố ("q-1", "q_1", "cau_1").
+ * 4. NÂNG CẤP HÀM `extractFlexibleStudentAnswersMap`:
+ * - Đảm bảo trích xuất toàn bộ các định dạng key câu trả lời:
+ *   + Key ID: `sec-0-q-1-mleye7`, `sec-1-q-13-abc`, `q-1`, `q_1`, `cau_1`
+ *   + Key số nguyên: `'1'`, `'2'`, `'13'`, `'19'`
+ * - Tự động đối chiếu và bồi đắp từ `localStorage.getItem("edunexus_attempts")` nếu attempt từ server bị thiếu `answers`.
  */
 function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
   const merged: Record<string, any> = {};
+
+  const setAliasIfEmptyOrBetter = (aliasKey: string, val: any) => {
+    if (!aliasKey || val === undefined || val === null || val === "") return;
+    const existing = merged[aliasKey];
+    if (existing === undefined || existing === null || existing === "") {
+      merged[aliasKey] = val;
+    } else if (
+      typeof val === "object" &&
+      !Array.isArray(val) &&
+      typeof existing === "object" &&
+      !Array.isArray(existing)
+    ) {
+      merged[aliasKey] = { ...existing, ...val };
+    }
+  };
 
   const registerStandardizedKeys = (rawKey: string, val: any) => {
     if (val === undefined || val === null) return;
@@ -349,31 +402,105 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
 
     merged[keyTrimmed] = val;
 
-    // Chuẩn hóa tiền tố câu hỏi: "1", "q-1", "q_1", "cau_1", "question_1", "c_1"
-    const numMatch = keyTrimmed.match(/^(?:question[-_]?|q[-_]?|cau[-_]?|c[-_]?)?(\d+)$/i);
-    if (numMatch) {
-      const numStr = String(parseInt(numMatch[1], 10));
-      merged[numStr] = val;
-      merged[`q-${numStr}`] = val;
-      merged[`q_${numStr}`] = val;
-      merged[`q${numStr}`] = val;
-      merged[`cau_${numStr}`] = val;
-      merged[`cau-${numStr}`] = val;
-      merged[`question_${numStr}`] = val;
-      merged[`c_${numStr}`] = val;
+    const bindQuestionNumberAliases = (num: number, subKey?: string) => {
+      if (isNaN(num) || num <= 0) return;
+      const numStr = String(num);
+      if (subKey) {
+        const sk = subKey.toLowerCase();
+        setAliasIfEmptyOrBetter(`${numStr}_${sk}`, val);
+        setAliasIfEmptyOrBetter(`q-${numStr}_${sk}`, val);
+        setAliasIfEmptyOrBetter(`q_${numStr}_${sk}`, val);
+        setAliasIfEmptyOrBetter(`cau_${numStr}_${sk}`, val);
+        setAliasIfEmptyOrBetter(`question_${numStr}_${sk}`, val);
+        if (num >= 13 && num <= 16) {
+          setAliasIfEmptyOrBetter(`p2_q${num - 12}_${sk}`, val);
+        }
+        // Đồng thời gom vào object câu cha cho Phần II
+        const curObj =
+          merged[numStr] && typeof merged[numStr] === "object" && !Array.isArray(merged[numStr])
+            ? { ...merged[numStr] }
+            : {};
+        curObj[sk] = val;
+        merged[numStr] = curObj;
+        merged[`q-${numStr}`] = curObj;
+        merged[`q_${numStr}`] = curObj;
+      } else {
+        setAliasIfEmptyOrBetter(numStr, val);
+        setAliasIfEmptyOrBetter(`q-${numStr}`, val);
+        setAliasIfEmptyOrBetter(`q_${numStr}`, val);
+        setAliasIfEmptyOrBetter(`q${numStr}`, val);
+        setAliasIfEmptyOrBetter(`cau_${numStr}`, val);
+        setAliasIfEmptyOrBetter(`cau-${numStr}`, val);
+        setAliasIfEmptyOrBetter(`question_${numStr}`, val);
+        setAliasIfEmptyOrBetter(`c_${numStr}`, val);
+      }
+    };
+
+    // 1. Key chuẩn dạng số hoặc tiền tố đơn giản: "1", "q-1", "q_1", "cau_1", "question_1"
+    const simpleNumMatch = keyTrimmed.match(
+      /^(?:question[-_]?|q[-_]?|cau[-_]?|c[-_]?)?(\d+)$/i
+    );
+    if (simpleNumMatch) {
+      bindQuestionNumberAliases(parseInt(simpleNumMatch[1], 10));
+      return;
     }
 
-    // Hỗ trợ key ý con Phần II: ví dụ "q-13_a", "13_a", "q_13_a", "cau_13_a"
-    const subMatch = keyTrimmed.match(
+    // 2. Key ý con Phần II: "13_a", "q-13_a", "q_13_a", "cau_13-b", "13.a"
+    const simpleSubMatch = keyTrimmed.match(
       /^(?:question[-_]?|q[-_]?|cau[-_]?|c[-_]?)?(\d+)[-_.:]([abcd])$/i
     );
-    if (subMatch) {
-      const numStr = String(parseInt(subMatch[1], 10));
-      const subKey = subMatch[2].toLowerCase();
-      merged[`${numStr}_${subKey}`] = val;
-      merged[`q-${numStr}_${subKey}`] = val;
-      merged[`q_${numStr}_${subKey}`] = val;
-      merged[`cau_${numStr}_${subKey}`] = val;
+    if (simpleSubMatch) {
+      bindQuestionNumberAliases(parseInt(simpleSubMatch[1], 10), simpleSubMatch[2]);
+      return;
+    }
+
+    // 3. Key ID sinh từ ExamRoomView / Section builder:
+    // VD: "sec-0-q-1-mleye7", "sec-1-q-2-mleye7_a", "sec-2-q-19-xyz", "section_0_q_1"
+    const secQMatch = keyTrimmed.match(
+      /^sec(?:tion)?[-_](\d+)[-_](?:question|q|cau|c)[-_](\d+)(?:[-_][a-z0-9]+)?(?:[-_.:]([abcd]))?$/i
+    );
+    if (secQMatch) {
+      const secIdx = parseInt(secQMatch[1], 10);
+      const rawQNum = parseInt(secQMatch[2], 10);
+      const subKey = secQMatch[3];
+
+      let globalOrder = rawQNum;
+      if (secIdx === 0) {
+        globalOrder = rawQNum;
+      } else if (secIdx === 1) {
+        globalOrder = rawQNum <= 4 ? 12 + rawQNum : rawQNum;
+      } else if (secIdx === 2) {
+        globalOrder = rawQNum <= 6 ? 16 + rawQNum : rawQNum;
+      }
+
+      bindQuestionNumberAliases(globalOrder, subKey);
+      // Lưu thêm theo số câu cục bộ của từng phần
+      const partNum = secIdx === 0 ? 1 : secIdx === 1 ? 2 : 3;
+      const localNum =
+        secIdx === 0
+          ? rawQNum
+          : secIdx === 1
+          ? rawQNum > 12
+            ? rawQNum - 12
+            : rawQNum
+          : rawQNum > 16
+          ? rawQNum - 16
+          : rawQNum;
+      if (subKey) {
+        setAliasIfEmptyOrBetter(`p${partNum}_q${localNum}_${subKey.toLowerCase()}`, val);
+      } else {
+        setAliasIfEmptyOrBetter(`p${partNum}_q${localNum}`, val);
+        setAliasIfEmptyOrBetter(`part${partNum}_q${localNum}`, val);
+      }
+      return;
+    }
+
+    // 4. Key có hậu tố hash ngẫu nhiên không kèm sec: VD "q-1-mleye7", "cau-14-xyz_b"
+    const qWithHashMatch = keyTrimmed.match(
+      /^(?:question|q|cau|c)[-_](\d+)[-_][a-z0-9]+?(?:[-_.:]([abcd]))?$/i
+    );
+    if (qWithHashMatch) {
+      bindQuestionNumberAliases(parseInt(qWithHashMatch[1], 10), qWithHashMatch[2]);
     }
   };
 
@@ -471,25 +598,11 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
 
   directCandidates.forEach((src) => ingestSource(src));
 
-  // Kiểm tra xem đã có câu trả lời thực chất chưa (bỏ qua các metadata nội bộ như __paper_omr_meta)
-  const hasMeaningfulAnswers = Object.keys(merged).some(
-    (k) =>
-      !k.startsWith("__") &&
-      ![
-        "part1_answers",
-        "part2_answers",
-        "part3_answers",
-        "bubble_coordinates",
-        "detected_sbd",
-        "detected_exam_code",
-        "warped_image_data_url",
-        "canonical_width",
-        "canonical_height"
-      ].includes(k)
-  );
+  const countMeaningfulKeys = (obj: Record<string, any>): number =>
+    Object.keys(obj).filter((k) => !k.startsWith("__") && !INTERNAL_META_KEYS.has(k)).length;
 
   // Cơ chế Fallback thông minh từ localStorage.getItem("edunexus_attempts")
-  if (!hasMeaningfulAnswers && typeof window !== "undefined" && attempt) {
+  if (countMeaningfulKeys(merged) === 0 && typeof window !== "undefined" && attempt) {
     try {
       const rawLocalAttempts = localStorage.getItem("edunexus_attempts");
       if (rawLocalAttempts) {
@@ -516,12 +629,14 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
               ""
           );
 
+          // 1. Ưu tiên khớp chính xác theo attempt.id
           let matchedLocalAttempt = localAttemptsList.find(
             (la: any) => targetAttemptId && String(la?.id || "").trim() === targetAttemptId
           );
 
+          // 2. Nếu không khớp id, tìm tất cả bài của học sinh + đề thi đó và chọn bài có điểm cao nhất + có dữ liệu answers
           if (!matchedLocalAttempt) {
-            matchedLocalAttempt = localAttemptsList.find((la: any) => {
+            const matchingCandidates = localAttemptsList.filter((la: any) => {
               if (!la) return false;
               const laStuId = String(
                 la.studentId || la.student_id || la.user_id || ""
@@ -548,10 +663,33 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
                 (targetStudentName && laStuName === targetStudentName);
               const quizMatches =
                 (targetQuizId && laQuizId === targetQuizId) ||
-                (targetQuizTitle && laQuizTitle && laQuizTitle === targetQuizTitle);
+                (targetQuizTitle &&
+                  laQuizTitle &&
+                  (laQuizTitle === targetQuizTitle ||
+                    laQuizTitle.includes(targetQuizTitle) ||
+                    targetQuizTitle.includes(laQuizTitle)));
 
               return studentMatches && quizMatches;
             });
+
+            if (matchingCandidates.length > 0) {
+              matchingCandidates.sort((a: any, b: any) => {
+                const scA = Number(a?.score ?? a?.points ?? 0);
+                const scB = Number(b?.score ?? b?.points ?? 0);
+                if (Math.abs(scB - scA) > 1e-4) return scB - scA;
+                const keysA = Object.keys(
+                  a?.answers || a?.userAnswers || a?.user_answers || a?.detail || {}
+                ).length;
+                const keysB = Object.keys(
+                  b?.answers || b?.userAnswers || b?.user_answers || b?.detail || {}
+                ).length;
+                if (keysB !== keysA) return keysB - keysA;
+                const tA = new Date(a?.createdAt || a?.created_at || 0).getTime() || 0;
+                const tB = new Date(b?.createdAt || b?.created_at || 0).getTime() || 0;
+                return tB - tA;
+              });
+              matchedLocalAttempt = matchingCandidates[0];
+            }
           }
 
           if (matchedLocalAttempt) {
@@ -581,24 +719,38 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
 }
 
 /**
- * 2. HÀM ĐỒNG BỘ ĐỀ THI GỐC TỪ PROPS HOẶC LOCALSTORAGE (`edunexus_practice_exams` / `edunexus_course_data`)
- * VÀ BÓC TÁCH ĐÚNG CẤU TRÚC SECTIONS (Phần I: multiple_choice, Phần II: true_false, Phần III: short_answer)
+ * Kiểm tra xem một object đề thi đã có đủ cấu trúc câu hỏi / sections chưa
  */
-function resolveCompleteQuizObject(attempt: any, rawQuizObj: any): any {
-  const hasValidQuestionsOrSections = (obj: any): boolean => {
-    if (!obj || typeof obj !== "object") return false;
-    const rawSec =
-      obj.sections || obj.data || obj.parts || obj.content?.sections || obj.questions || obj.items;
-    if (Array.isArray(rawSec) && rawSec.length > 0) return true;
-    if (typeof rawSec === "string" && rawSec.trim().length > 2) return true;
-    return false;
-  };
-
-  if (hasValidQuestionsOrSections(rawQuizObj)) {
-    return rawQuizObj;
+function hasValidQuestionsOrSections(obj: any): boolean {
+  if (!obj || typeof obj !== "object") return false;
+  const rawSec =
+    obj.sections ||
+    obj.data ||
+    obj.parts ||
+    obj.content?.sections ||
+    obj.questions ||
+    obj.items;
+  if (Array.isArray(rawSec) && rawSec.length > 0) return true;
+  if (typeof rawSec === "string" && rawSec.trim().length > 2) return true;
+  if (
+    rawSec &&
+    typeof rawSec === "object" &&
+    (Array.isArray(rawSec.sections) || Array.isArray(rawSec.questions))
+  ) {
+    return true;
   }
+  return false;
+}
 
-  if (typeof window === "undefined") {
+/**
+ * 2. HÀM ĐỒNG BỘ ĐỀ THI GỐC TỪ MEMORY CACHE, PROPS HOẶC LOCALSTORAGE (`edunexus_practice_exams` / `edunexus_course_data`)
+ */
+function resolveCompleteQuizObject(
+  attempt: any,
+  rawQuizObj: any,
+  externalCacheMap?: Record<string, any>
+): any {
+  if (hasValidQuestionsOrSections(rawQuizObj)) {
     return rawQuizObj;
   }
 
@@ -621,6 +773,22 @@ function resolveCompleteQuizObject(attempt: any, rawQuizObj: any): any {
       rawQuizObj?.title ||
       ""
   );
+
+  // Kiểm tra trong bộ nhớ đệm cachedExamsMap / globalResolvedQuizzesMemoryCache trước (0 KB Egress)
+  const lookupCaches = [externalCacheMap, globalResolvedQuizzesMemoryCache];
+  for (const cacheObj of lookupCaches) {
+    if (!cacheObj) continue;
+    if (targetQuizId && hasValidQuestionsOrSections(cacheObj[targetQuizId])) {
+      return cacheObj[targetQuizId];
+    }
+    if (targetQuizTitle && hasValidQuestionsOrSections(cacheObj[`title:${targetQuizTitle}`])) {
+      return cacheObj[`title:${targetQuizTitle}`];
+    }
+  }
+
+  if (typeof window === "undefined") {
+    return rawQuizObj;
+  }
 
   const matchQuizEntry = (candidate: any): boolean => {
     if (!candidate || typeof candidate !== "object") return false;
@@ -654,7 +822,13 @@ function resolveCompleteQuizObject(attempt: any, rawQuizObj: any): any {
       const foundExam = examsList.find(
         (ex: any) => matchQuizEntry(ex) && hasValidQuestionsOrSections(ex)
       );
-      if (foundExam) return foundExam;
+      if (foundExam) {
+        if (targetQuizId) globalResolvedQuizzesMemoryCache[targetQuizId] = foundExam;
+        if (targetQuizTitle) {
+          globalResolvedQuizzesMemoryCache[`title:${targetQuizTitle}`] = foundExam;
+        }
+        return foundExam;
+      }
     }
   } catch {}
 
@@ -673,11 +847,19 @@ function resolveCompleteQuizObject(attempt: any, rawQuizObj: any): any {
         for (const les of chap?.lessons || []) {
           for (const tq of les?.test_quizzes || []) {
             if (matchQuizEntry(tq) && hasValidQuestionsOrSections(tq)) {
+              if (targetQuizId) globalResolvedQuizzesMemoryCache[targetQuizId] = tq;
+              if (targetQuizTitle) {
+                globalResolvedQuizzesMemoryCache[`title:${targetQuizTitle}`] = tq;
+              }
               return tq;
             }
           }
           for (const hw of les?.homework_files || []) {
             if (matchQuizEntry(hw) && hasValidQuestionsOrSections(hw)) {
+              if (targetQuizId) globalResolvedQuizzesMemoryCache[targetQuizId] = hw;
+              if (targetQuizTitle) {
+                globalResolvedQuizzesMemoryCache[`title:${targetQuizTitle}`] = hw;
+              }
               return hw;
             }
           }
@@ -817,7 +999,8 @@ function extractPart2CorrectSubMap(
 function buildFullOMRQuestionsReview(
   attempt: any,
   rawQuizObjInput: any,
-  questionStatusOverrides?: Record<number, boolean>
+  questionStatusOverrides?: Record<number, boolean>,
+  cachedExamsMap?: Record<string, any>
 ): {
   allRows: FullQuestionReviewRow[];
   wrongRows: WrongQuestionReviewItem[];
@@ -829,7 +1012,7 @@ function buildFullOMRQuestionsReview(
   parsedMetaList: ParsedQuestionEvaluationMeta[];
   enrichedBubbleCoordinates: any[];
 } {
-  const rawQuizObj = resolveCompleteQuizObject(attempt, rawQuizObjInput);
+  const rawQuizObj = resolveCompleteQuizObject(attempt, rawQuizObjInput, cachedExamsMap);
   const answersMap = extractFlexibleStudentAnswersMap(attempt);
 
   const meta =
@@ -1046,8 +1229,9 @@ function buildFullOMRQuestionsReview(
 
     const partLabel = `Phần ${partNum === 1 ? "I" : partNum === 2 ? "II" : "III"}`;
     const sectionTag = `part${partNum}`;
+    const secIdx = partNum - 1;
 
-    // Hỗ trợ đầy đủ các định dạng key câu hỏi: q.id, "1", "19", "q-1", "q_1", "cau_1", ...
+    // Hỗ trợ đầy đủ các định dạng key câu hỏi: q.id, sec-0-q-1-..., "1", "19", "q-1", "q_1", "cau_1", ...
     const candidateKeys = [
       ...(rawQId ? [rawQId, `q-${rawQId}`, `q_${rawQId}`, `cau_${rawQId}`] : []),
       String(qOrder),
@@ -1061,7 +1245,9 @@ function buildFullOMRQuestionsReview(
       `p${partNum}_q${localNum}`,
       `part${partNum}_q${localNum}`,
       `part${partNum}_${localNum}`,
-      `${partNum}_${localNum}`
+      `${partNum}_${localNum}`,
+      `sec-${secIdx}-q-${localNum}`,
+      `sec-${secIdx}-q-${qOrder}`
     ];
 
     let rawStuVal: any = undefined;
@@ -1071,6 +1257,27 @@ function buildFullOMRQuestionsReview(
         break;
       }
     }
+
+    // Fallback quét động các key dạng `sec-{secIdx}-q-{localNum/qOrder}-{hash}` trong answersMap
+    if (rawStuVal === undefined) {
+      const dynamicPrefix1 = `sec-${secIdx}-q-${localNum}-`;
+      const dynamicPrefix2 = `sec-${secIdx}-q-${qOrder}-`;
+      const dynamicPrefix3 = `q-${qOrder}-`;
+      for (const [k, v] of Object.entries(answersMap)) {
+        if (v === undefined || v === null || v === "") continue;
+        const kl = k.toLowerCase();
+        if (
+          (kl.startsWith(dynamicPrefix1) ||
+            kl.startsWith(dynamicPrefix2) ||
+            kl.startsWith(dynamicPrefix3)) &&
+          !/[-_.:][abcd]$/i.test(kl)
+        ) {
+          rawStuVal = v;
+          break;
+        }
+      }
+    }
+
     if (rawStuVal === undefined) {
       rawStuVal =
         attempt?.omr_raw_data?.[`part${partNum}_answers`]?.[localNum] ??
@@ -1227,7 +1434,7 @@ function buildFullOMRQuestionsReview(
         Boolean(correctDisplay) &&
         studentDisplay === correctDisplay;
     } else if (partNum === 2) {
-      // 4. XỬ LÝ CHI TIẾT PHẦN II (ĐÚNG / SAI 4 Ý a, b, c, d)
+      // XỬ LÝ CHI TIẾT PHẦN II (ĐÚNG / SAI 4 Ý a, b, c, d)
       const subKeys: ("a" | "b" | "c" | "d")[] = ["a", "b", "c", "d"];
       p2CorrectSubMap = extractPart2CorrectSubMap(qObj, gDetail, qCoords);
 
@@ -1325,7 +1532,7 @@ function buildFullOMRQuestionsReview(
       correctDisplay = corParts.join("  ");
       autoIsCorrect = !isAllBlank && allSubRight;
     } else {
-      // 3. XỬ LÝ CHUẨN SƯ PHẠM CHO PHẦN III & BẮT LỖI FORM OMR (> 4 KÝ TỰ)
+      // XỬ LÝ CHUẨN SƯ PHẠM CHO PHẦN III & BẮT LỖI FORM OMR (> 4 KÝ TỰ)
       const pickedCols = qCoords
         .filter((b: any) => b.isSelected || b.status === "correct" || b.status === "wrong")
         .sort((a: any, b: any) => Number(a.colIndex || 0) - Number(b.colIndex || 0));
@@ -1381,7 +1588,6 @@ function buildFullOMRQuestionsReview(
         isSkipped = false;
         isOmrFormatError = true;
         studentDisplay = `${rawStudentStr} (Sai form OMR > 4 ô)`;
-        // Nếu đề gốc lưu nhầm "-1300" (5 ký tự) thì chuẩn hóa hiển thị cột Đáp án chuẩn là "1300"
         if (rawCorrectStr.length > 4 && rawCorrectStr.startsWith("-")) {
           correctDisplay = rawCorrectStr.slice(1);
         } else {
@@ -1396,6 +1602,7 @@ function buildFullOMRQuestionsReview(
         studentDisplay = rawStudentStr;
         correctDisplay = rawCorrectStr || "--";
 
+        // Chuẩn hóa số thực: chuyển dấu phẩy `,` thành chấm `.`
         const normStu = rawStudentStr.replace(/\s+/g, "").replace(/,/g, ".");
         const normCor = rawCorrectStr.replace(/\s+/g, "").replace(/,/g, ".");
 
@@ -1637,7 +1844,8 @@ export function generateVirtualOMRSheet(
   studentName: string,
   examTitle?: string,
   examCode: string = "101",
-  questionStatusOverrides?: Record<number, boolean>
+  questionStatusOverrides?: Record<number, boolean>,
+  cachedExamsMap?: Record<string, any>
 ): {
   dataUrl: string;
   bubbleCoordinates: any[];
@@ -1646,7 +1854,8 @@ export function generateVirtualOMRSheet(
   const reviewData = buildFullOMRQuestionsReview(
     attempt,
     rawQuizObj,
-    questionStatusOverrides
+    questionStatusOverrides,
+    cachedExamsMap
   );
 
   const cleanSbd = String(sbd || "000001")
@@ -2297,6 +2506,18 @@ export default function AdminStudentReportPanel({
   >("all");
   const [includeCoverSummaryPage, setIncludeCoverSummaryPage] = useState<boolean>(true);
 
+  // STATE CHỌN LƯỢT THI CŨ LINH HOẠT (MẶC ĐỊNH null = TỰ ĐỘNG ĂN THEO BÀI ĐIỂM CAO NHẤT)
+  const [selectedAttemptIdOverride, setSelectedAttemptIdOverride] = useState<string | null>(
+    null
+  );
+
+  // STATE LƯU CACHE ĐỀ THI ZERO EGRESS OVERHEAD
+  const [cachedExamsMap, setCachedExamsMap] = useState<Record<string, any>>(() => ({
+    ...globalResolvedQuizzesMemoryCache
+  }));
+  const [isFetchingQuizZeroEgress, setIsFetchingQuizZeroEgress] = useState<boolean>(false);
+  const fetchedQuizKeysRef = useRef<Set<string>>(new Set());
+
   // STATE CHỌN HỌC SINH ĐỂ XUẤT PDF (CHECKBOX)
   const [selectedExportStudentIds, setSelectedExportStudentIds] = useState<Set<string>>(
     new Set()
@@ -2394,8 +2615,296 @@ export default function AdminStudentReportPanel({
     5: ""
   });
 
+  // Reset selectedAttemptIdOverride về null (mặc định bài điểm cao nhất) khi đổi học sinh hoặc đổi tuần/tháng
+  useEffect(() => {
+    setSelectedAttemptIdOverride(null);
+  }, [selectedStudentId, dailyMonth, dailyWeek]);
+
   /**
-   * 1. CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
+   * 1. GỘP NGUỒN `allAttempts` (PROPS) + `localStorage.getItem("edunexus_attempts")`
+   * Đảm bảo hợp nhất các trường `answers` đầy đủ từ localStorage vào bản ghi server hoặc thêm mới các bản ghi chỉ có ở localStorage
+   */
+  const combinedAllAttempts = useMemo(() => {
+    const byId = new Map<string, any>();
+    const withoutIdList: any[] = [];
+
+    const countKeys = (att: any): number => {
+      const cand =
+        att?.answers ??
+        att?.userAnswers ??
+        att?.user_answers ??
+        att?.student_answers ??
+        att?.detail;
+      if (!cand) return 0;
+      if (typeof cand === "string") {
+        try {
+          return Object.keys(JSON.parse(cand)).length;
+        } catch {
+          return 0;
+        }
+      }
+      if (typeof cand === "object") return Object.keys(cand).length;
+      return 0;
+    };
+
+    const mergeTwoAttemptRecords = (existing: any, incoming: any) => {
+      const existingKeyCount = countKeys(existing);
+      const incomingKeyCount = countKeys(incoming);
+      const mergedObj = { ...existing, ...incoming };
+
+      // Luôn giữ lại nguồn answers giàu dữ liệu hơn (VD: 84 trường đáp án trong localStorage)
+      if (existingKeyCount > incomingKeyCount) {
+        mergedObj.answers = existing.answers ?? incoming.answers;
+        mergedObj.userAnswers = existing.userAnswers ?? incoming.userAnswers;
+        mergedObj.user_answers = existing.user_answers ?? incoming.user_answers;
+        mergedObj.student_answers = existing.student_answers ?? incoming.student_answers;
+        mergedObj.detail = existing.detail ?? incoming.detail;
+      } else if (incomingKeyCount > 0) {
+        mergedObj.answers = incoming.answers ?? existing.answers;
+        mergedObj.userAnswers = incoming.userAnswers ?? existing.userAnswers;
+        mergedObj.user_answers = incoming.user_answers ?? existing.user_answers;
+        mergedObj.student_answers = incoming.student_answers ?? existing.student_answers;
+        mergedObj.detail = incoming.detail ?? existing.detail;
+      }
+
+      const scExist = Number(existing?.score ?? existing?.points ?? 0);
+      const scIncom = Number(incoming?.score ?? incoming?.points ?? 0);
+      mergedObj.score = Math.max(scExist, scIncom);
+
+      return mergedObj;
+    };
+
+    (allAttempts || []).forEach((att: any) => {
+      if (!att) return;
+      const id = String(att.id || "").trim();
+      if (id) {
+        byId.set(id, att);
+      } else {
+        withoutIdList.push(att);
+      }
+    });
+
+    if (typeof window !== "undefined") {
+      try {
+        const rawLocal = localStorage.getItem("edunexus_attempts");
+        if (rawLocal) {
+          const parsedLocal = JSON.parse(rawLocal);
+          if (Array.isArray(parsedLocal)) {
+            parsedLocal.forEach((lAtt: any) => {
+              if (!lAtt) return;
+              const id = String(lAtt.id || "").trim();
+              if (id) {
+                if (byId.has(id)) {
+                  byId.set(id, mergeTwoAttemptRecords(byId.get(id), lAtt));
+                } else {
+                  byId.set(id, lAtt);
+                }
+              } else {
+                withoutIdList.push(lAtt);
+              }
+            });
+          }
+        }
+      } catch {}
+    }
+
+    return [...Array.from(byId.values()), ...withoutIdList];
+  }, [allAttempts]);
+
+  /**
+   * 3. HÀM TẢI ĐỀ THI AN TOÀN TUYỆT ĐỐI VỚI EGRESS (`fetchQuizDataZeroEgress`)
+   * - Bước 1: Kiểm tra trong `cachedExamsMap` -> Có thì dùng ngay (0 KB Egress).
+   * - Bước 2: Kiểm tra trong `localStorage.getItem("edunexus_practice_exams")` và `edunexus_course_data` -> Có thì lưu vào state cache và dùng ngay (0 KB Egress).
+   * - Bước 3: Nếu chưa có trong máy, fetch ĐÚNG 1 LẦN từ Supabase (`practice_exams` với `select("id, title, sections, questions")`), lưu ngay vào `localStorage.getItem("edunexus_practice_exams")` để tái sử dụng vĩnh viễn.
+   */
+  const fetchQuizDataZeroEgress = useCallback(
+    async (quizIdRaw?: string, quizTitleRaw?: string): Promise<any | null> => {
+      const cleanId = String(quizIdRaw || "").trim();
+      const normId = cleanId.toLowerCase();
+      const cleanTitle = String(quizTitleRaw || "").trim();
+      const normTitle = normalizeText(cleanTitle);
+
+      if (!normId && !normTitle) return null;
+
+      // Bước 1: Kiểm tra trong cachedExamsMap / globalResolvedQuizzesMemoryCache
+      if (normId && hasValidQuestionsOrSections(cachedExamsMap[normId])) {
+        return cachedExamsMap[normId];
+      }
+      if (normTitle && hasValidQuestionsOrSections(cachedExamsMap[`title:${normTitle}`])) {
+        return cachedExamsMap[`title:${normTitle}`];
+      }
+      if (normId && hasValidQuestionsOrSections(globalResolvedQuizzesMemoryCache[normId])) {
+        return globalResolvedQuizzesMemoryCache[normId];
+      }
+      if (
+        normTitle &&
+        hasValidQuestionsOrSections(globalResolvedQuizzesMemoryCache[`title:${normTitle}`])
+      ) {
+        return globalResolvedQuizzesMemoryCache[`title:${normTitle}`];
+      }
+
+      // Bước 2: Kiểm tra trong localStorage ("edunexus_practice_exams" & "edunexus_course_data")
+      const localResolved = resolveCompleteQuizObject(
+        { quizId: cleanId, examTitle: cleanTitle },
+        null,
+        cachedExamsMap
+      );
+      if (hasValidQuestionsOrSections(localResolved)) {
+        setCachedExamsMap((prev) => {
+          const next = { ...prev };
+          if (normId) next[normId] = localResolved;
+          if (normTitle) next[`title:${normTitle}`] = localResolved;
+          return next;
+        });
+        return localResolved;
+      }
+
+      // Bước 3: Chặn tuyệt đối việc gọi lặp lại nếu đã từng truy vấn key này
+      const requestSignature = `${normId}__${normTitle}`;
+      if (fetchedQuizKeysRef.current.has(requestSignature)) {
+        return null;
+      }
+      fetchedQuizKeysRef.current.add(requestSignature);
+
+      if (typeof window === "undefined") return null;
+
+      setIsFetchingQuizZeroEgress(true);
+      try {
+        let fetchedExamObj: any = null;
+
+        // Ưu tiên 3A: Nếu có client supabase trên window hoặc module, chỉ select("id, title, sections, questions")
+        const globalSupabase = (window as any).supabase || (window as any).__supabase;
+        if (globalSupabase && typeof globalSupabase.from === "function") {
+          const orClauses: string[] = [];
+          if (cleanId) orClauses.push(`id.eq.${cleanId}`);
+          if (cleanTitle) orClauses.push(`title.ilike.%${cleanTitle}%`);
+
+          if (orClauses.length > 0) {
+            const { data } = await globalSupabase
+              .from("practice_exams")
+              .select("id, title, sections, questions")
+              .or(orClauses.join(","))
+              .limit(1);
+
+            if (Array.isArray(data) && data.length > 0 && hasValidQuestionsOrSections(data[0])) {
+              fetchedExamObj = data[0];
+            }
+          }
+        }
+
+        // Ưu tiên 3B: Gọi trực tiếp PostgREST endpoint của Supabase với đúng 4 cột `select=id,title,sections,questions`
+        if (!fetchedExamObj) {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+          if (supabaseUrl && supabaseAnonKey) {
+            const orParts: string[] = [];
+            if (cleanId) {
+              orParts.push(`id.eq.${encodeURIComponent(cleanId)}`);
+            }
+            if (cleanTitle) {
+              orParts.push(`title.ilike.*${encodeURIComponent(cleanTitle)}*`);
+            }
+
+            if (orParts.length > 0) {
+              const queryUrl = `${supabaseUrl.replace(
+                /\/$/,
+                ""
+              )}/rest/v1/practice_exams?select=id,title,sections,questions&or=(${orParts.join(
+                ","
+              )})&limit=1`;
+
+              const resp = await fetch(queryUrl, {
+                method: "GET",
+                headers: {
+                  apikey: supabaseAnonKey,
+                  Authorization: `Bearer ${supabaseAnonKey}`,
+                  Accept: "application/json"
+                }
+              });
+
+              if (resp.ok) {
+                const rows = await resp.json();
+                if (
+                  Array.isArray(rows) &&
+                  rows.length > 0 &&
+                  hasValidQuestionsOrSections(rows[0])
+                ) {
+                  fetchedExamObj = rows[0];
+                }
+              }
+            }
+          }
+        }
+
+        if (fetchedExamObj && hasValidQuestionsOrSections(fetchedExamObj)) {
+          const resolvedId = String(fetchedExamObj.id || cleanId || "")
+            .trim()
+            .toLowerCase();
+          const resolvedTitle = normalizeText(fetchedExamObj.title || cleanTitle || "");
+
+          if (resolvedId) globalResolvedQuizzesMemoryCache[resolvedId] = fetchedExamObj;
+          if (normId) globalResolvedQuizzesMemoryCache[normId] = fetchedExamObj;
+          if (resolvedTitle) {
+            globalResolvedQuizzesMemoryCache[`title:${resolvedTitle}`] = fetchedExamObj;
+          }
+          if (normTitle) {
+            globalResolvedQuizzesMemoryCache[`title:${normTitle}`] = fetchedExamObj;
+          }
+
+          // Lưu ngay vào localStorage.getItem("edunexus_practice_exams") để các lần sau và các học sinh khác dùng chung (0 KB Egress)
+          try {
+            const existingRaw = localStorage.getItem("edunexus_practice_exams");
+            let existingList: any[] = [];
+            if (existingRaw) {
+              const parsed = JSON.parse(existingRaw);
+              if (Array.isArray(parsed)) existingList = parsed;
+            }
+            const alreadyIdx = existingList.findIndex(
+              (item: any) =>
+                String(item?.id || "").trim().toLowerCase() === resolvedId
+            );
+            if (alreadyIdx >= 0) {
+              existingList[alreadyIdx] = {
+                ...existingList[alreadyIdx],
+                ...fetchedExamObj
+              };
+            } else {
+              existingList.push(fetchedExamObj);
+            }
+            localStorage.setItem(
+              "edunexus_practice_exams",
+              JSON.stringify(existingList)
+            );
+          } catch {}
+
+          // Xóa cache ảnh OMR cũ để tự động vẽ lại với đáp án đề đầy đủ
+          virtualOMRCache.clear();
+
+          setCachedExamsMap((prev) => {
+            const next = { ...prev };
+            if (resolvedId) next[resolvedId] = fetchedExamObj;
+            if (normId) next[normId] = fetchedExamObj;
+            if (resolvedTitle) next[`title:${resolvedTitle}`] = fetchedExamObj;
+            if (normTitle) next[`title:${normTitle}`] = fetchedExamObj;
+            return next;
+          });
+
+          return fetchedExamObj;
+        }
+      } catch {
+        // Không ném lỗi làm gián đoạn giao diện
+      } finally {
+        setIsFetchingQuizZeroEgress(false);
+      }
+
+      return null;
+    },
+    [cachedExamsMap]
+  );
+
+  /**
+   * CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
    */
   const sbdDirectoryMap = useMemo(() => {
     const permanentMap: Record<string, string> = {};
@@ -2494,7 +3003,7 @@ export default function AdminStudentReportPanel({
     return result;
   }, [registeredStudents]);
 
-  // 2. TRẢI PHẲNG TOÀN BỘ DANH SÁCH BÀI HỌC TRONG KHÓA HỌC THEO THỨ TỰ THỜI GIAN
+  // TRẢI PHẲNG TOÀN BỘ DANH SÁCH BÀI HỌC TRONG KHÓA HỌC THEO THỨ TỰ THỜI GIAN
   const allFlattenedLessons = useMemo<FlattenedLessonEntry[]>(() => {
     const list: FlattenedLessonEntry[] = [];
     let orderCounter = 0;
@@ -2845,10 +3354,11 @@ export default function AdminStudentReportPanel({
     [quizAssignmentMap]
   );
 
-  // 4. ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (ĐỒNG BỘ SBD MỚI NHẤT TỪ OMR & TÁCH BIỆT BTVN KHỎI OMR TRANG 2)
+  // ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (GỘP ATTEMPTS + MAX SCORE + DROPDOWN OVERRIDE + ZERO EGRESS CACHE)
   const computeStudentDailyScoreRecord = useCallback(
     (
-      student: any
+      student: any,
+      attemptIdOverrideForStudent?: string | null
     ): StudentDailyScoreData & {
       allQuestionsReviewList?: FullQuestionReviewRow[];
       parsedQuestionMetaList?: ParsedQuestionEvaluationMeta[];
@@ -2856,6 +3366,11 @@ export default function AdminStudentReportPanel({
       attendanceStatus?: ExtendedAttendanceStatus;
       attendanceNote?: string;
       makeupSessions?: MakeupSupportSessionItem[];
+      availableTestAttempts?: CandidateAttemptOption[];
+      activeAttemptId?: string | null;
+      activeQuizId?: string;
+      activeQuizTitle?: string;
+      hasResolvedQuizDefinition?: boolean;
     } => {
       const stuId = String(student?.id || "").trim();
       const stuName = String(student?.full_name || student?.name || "Học sinh").trim();
@@ -2866,7 +3381,8 @@ export default function AdminStudentReportPanel({
           : dirInfo?.sbd) || "000001";
       const learningMode: "Online" | "Offline" = dirInfo?.mode || "Offline";
 
-      const stuAttempts = (allAttempts || []).filter((att: any) => {
+      // 1. Lấy tất cả bài nộp của học sinh từ nguồn gộp (allAttempts + localStorage "edunexus_attempts")
+      const stuAttempts = combinedAllAttempts.filter((att: any) => {
         if (!att) return false;
         const aStuId = String(att.studentId || att.student_id || att.user_id || "").trim();
         const aStuName = normalizeText(att.studentName || att.student_name || att.full_name || "");
@@ -2885,13 +3401,26 @@ export default function AdminStudentReportPanel({
       });
 
       let bestHwAttempt: any = null;
-      let bestDailyTestAttempt: any = null;
       let bestPracticeAttempt: any = null;
+      const candidateDailyTestAttempts: any[] = [];
+      const fallbackAllNonHwAttempts: any[] = [];
+
+      const currentSessionTestTitles = new Set<string>();
+      currentSessionLessons.forEach((m) => {
+        m.testTitles.forEach((t) => currentSessionTestTitles.add(t));
+        m.testItems.forEach((item) => {
+          if (item.title) currentSessionTestTitles.add(normalizeText(item.title));
+        });
+      });
+
+      const effectiveSessionTopicNorm = normalizeText(
+        overrideTopicTitle || autoSyncedTopicTitle
+      );
 
       stuAttempts.forEach((att: any) => {
         const qId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
         const qTitle = normalizeText(
-          att.examTitle || att.quizTitle || att.quiz_title || att.title || ""
+          att.examTitle || att.exam_title || att.quizTitle || att.quiz_title || att.title || ""
         );
         const meta =
           (qId && quizAssignmentMap.byId.get(qId)) ||
@@ -2933,17 +3462,9 @@ export default function AdminStudentReportPanel({
           }
         }
 
-        const currentSessionTestTitles = new Set<string>();
-        currentSessionLessons.forEach((m) => {
-          m.testTitles.forEach((t) => currentSessionTestTitles.add(t));
-          m.testItems.forEach((item) => {
-            if (item.title) currentSessionTestTitles.add(normalizeText(item.title));
-          });
-        });
-
-        const effectiveSessionTopicNorm = normalizeText(
-          overrideTopicTitle || autoSyncedTopicTitle
-        );
+        if (!isHw) {
+          fallbackAllNonHwAttempts.push(att);
+        }
 
         const isMatchedCurrentSessionTest =
           currentSessionLessons.some((m) => qId && m.testIds.has(qId)) ||
@@ -2953,22 +3474,18 @@ export default function AdminStudentReportPanel({
             (qTitle.includes(effectiveSessionTopicNorm) ||
               effectiveSessionTopicNorm.includes(qTitle)));
 
-        // Tuyệt đối không coi bài BTVN (isHw) là bài Kiểm tra định kỳ tại lớp
+        // Lọc riêng các bài thi trắc nghiệm (không tính BTVN)
         const isValidDailyTest =
           !isHw &&
           (isMatchedCurrentSessionTest ||
             (isTest && month === dailyMonth && week === dailyWeek) ||
             (att.category === "Đề kiểm tra định kỳ" &&
               month === dailyMonth &&
-              week === dailyWeek));
+              week === dailyWeek) ||
+            (isPaper && month === dailyMonth && week === dailyWeek));
 
         if (isValidDailyTest) {
-          if (
-            !bestDailyTestAttempt ||
-            sc >= Number(bestDailyTestAttempt.score ?? bestDailyTestAttempt.points ?? 0)
-          ) {
-            bestDailyTestAttempt = att;
-          }
+          candidateDailyTestAttempts.push(att);
         }
 
         if (
@@ -2997,22 +3514,75 @@ export default function AdminStudentReportPanel({
         }
       });
 
-      if (!bestDailyTestAttempt) {
-        const anyPaperInCurrentWeek = stuAttempts.find((att: any) => {
-          const { month, week } = resolveAttemptMonthAndWeek(att);
-          const isHw = Boolean(
-            att.type === "homework" || att.isHomework || att.is_homework
-          );
-          const isPaper =
-            att.submission_type === "paper" ||
-            Boolean(att.scanned_image_url) ||
-            Boolean(att.paper_scan_url) ||
-            Boolean(att.omr_raw_data) ||
-            Boolean(att.answers?.__paper_omr_meta);
-          return !isHw && isPaper && month === dailyMonth && week === dailyWeek;
+      // Nếu trong tuần hiện tại chưa tìm thấy bài theo tag tuần, kiểm tra các bài trắc nghiệm khác (không phải BTVN) của học sinh
+      const rawPoolForTestSorting =
+        candidateDailyTestAttempts.length > 0
+          ? candidateDailyTestAttempts
+          : fallbackAllNonHwAttempts.filter((att: any) => {
+              const { month } = resolveAttemptMonthAndWeek(att);
+              return month === dailyMonth;
+            });
+
+      // Chuẩn hóa và sắp xếp danh sách bài thi theo đúng 3 mức ưu tiên:
+      // 1. Điểm số cao nhất (score giảm dần)
+      // 2. Nếu bằng điểm, ưu tiên bài CÓ DỮ LIỆU CÂU TRẢ LỜI (answerKeyCount > 0)
+      // 3. Thời gian nộp gần nhất (createdAt mới nhất)
+      const sortedTestAttemptOptions: CandidateAttemptOption[] = rawPoolForTestSorting
+        .map((att: any, idx: number) => {
+          const extractedMap = extractFlexibleStudentAnswersMap(att);
+          const answerKeyCount = Object.keys(extractedMap).filter(
+            (k) => !k.startsWith("__") && !INTERNAL_META_KEYS.has(k)
+          ).length;
+          const rawScore = Number(att?.score ?? att?.points ?? 0);
+          const rawTime =
+            att?.createdAt || att?.created_at || att?.submittedAt || att?.updated_at;
+          const parsedTs = rawTime ? new Date(rawTime).getTime() : 0;
+
+          return {
+            id: String(att?.id || `att_idx_${idx}`),
+            quizId: String(att?.quizId || att?.quiz_id || att?.exam_id || "").trim(),
+            title: String(
+              att?.examTitle ||
+                att?.exam_title ||
+                att?.quizTitle ||
+                att?.quiz_title ||
+                att?.title ||
+                overrideTopicTitle ||
+                autoSyncedTopicTitle
+            ).trim(),
+            score: isNaN(rawScore) ? 0 : rawScore,
+            createdAtText: formatAttemptTimestampShort(rawTime),
+            rawTimestamp: isNaN(parsedTs) ? 0 : parsedTs,
+            hasRichAnswers: answerKeyCount > 0,
+            answerKeyCount,
+            rawAttempt: att
+          };
+        })
+        .sort((a, b) => {
+          if (Math.abs(b.score - a.score) > 1e-4) {
+            return b.score - a.score;
+          }
+          if (a.hasRichAnswers !== b.hasRichAnswers) {
+            return b.hasRichAnswers ? 1 : -1;
+          }
+          if (b.answerKeyCount !== a.answerKeyCount) {
+            return b.answerKeyCount - a.answerKeyCount;
+          }
+          return b.rawTimestamp - a.rawTimestamp;
         });
-        if (anyPaperInCurrentWeek) {
-          bestDailyTestAttempt = anyPaperInCurrentWeek;
+
+      // Mặc định gán bestDailyTestAttempt là bài thi điểm cao nhất (hoặc bài được người dùng chọn trong dropdown)
+      let bestDailyTestAttempt: any =
+        sortedTestAttemptOptions.length > 0
+          ? sortedTestAttemptOptions[0].rawAttempt
+          : null;
+
+      if (attemptIdOverrideForStudent) {
+        const overriddenOpt = sortedTestAttemptOptions.find(
+          (opt) => opt.id === attemptIdOverrideForStudent
+        );
+        if (overriddenOpt) {
+          bestDailyTestAttempt = overriddenOpt.rawAttempt;
         }
       }
 
@@ -3086,8 +3656,10 @@ export default function AdminStudentReportPanel({
       let paperExamCode: string | undefined = undefined;
       let computedCorrectCount: number | null = null;
       let computedTotalQuestions: number | null = null;
+      let activeQuizId = "";
+      let activeQuizTitle = "";
+      let hasResolvedQuizDefinition = false;
 
-      // Chỉ dựng đối soát OMR khi học sinh thực sự có tham gia kiểm tra (testScore !== null hoặc có bài thực chiến)
       if (primaryReviewAtt && (testScore !== null || pracScore !== null)) {
         const meta =
           primaryReviewAtt.answers?.__paper_omr_meta ||
@@ -3115,15 +3687,15 @@ export default function AdminStudentReportPanel({
 
         const { rawQuizObj } = resolveAttemptMonthAndWeek(primaryReviewAtt);
 
-        const attQuizIdNorm = String(
+        activeQuizId = String(
           primaryReviewAtt.quizId ||
             primaryReviewAtt.quiz_id ||
             primaryReviewAtt.exam_id ||
             ""
-        )
-          .trim()
-          .toLowerCase();
-        const attTitleNorm = normalizeText(
+        ).trim();
+        const attQuizIdNorm = activeQuizId.toLowerCase();
+
+        activeQuizTitle = String(
           primaryReviewAtt.examTitle ||
             primaryReviewAtt.exam_title ||
             primaryReviewAtt.quizTitle ||
@@ -3131,7 +3703,8 @@ export default function AdminStudentReportPanel({
             primaryReviewAtt.title ||
             paperExamTitle ||
             ""
-        );
+        ).trim();
+        const attTitleNorm = normalizeText(activeQuizTitle);
 
         const matchedFromPracticeExams = (practiceExams || []).find((pe: any) => {
           if (!pe) return false;
@@ -3173,8 +3746,11 @@ export default function AdminStudentReportPanel({
             matchedFromPracticeExams ||
             matchedFromChapters ||
             currentSessionLessons[0]?.testItems[0]?.rawObj ||
-            null
+            null,
+          cachedExamsMap
         );
+
+        hasResolvedQuizDefinition = hasValidQuestionsOrSections(fallbackSessionQuizObj);
 
         const attemptForReview =
           testScore !== null
@@ -3188,7 +3764,8 @@ export default function AdminStudentReportPanel({
           stuName,
           paperExamTitle,
           paperExamCode,
-          ov.questionStatusOverrides
+          ov.questionStatusOverrides,
+          cachedExamsMap
         );
 
         if (virtualBuilt.dataUrl) {
@@ -3340,12 +3917,17 @@ export default function AdminStudentReportPanel({
         bubbleCoordinates: hasValidTestReview ? bubbleCoordinates : [],
         wrongQuestionsList: hasValidTestReview ? wrongQuestionsList : [],
         allQuestionsReviewList: hasValidTestReview ? allQuestionsReviewList : [],
-        parsedQuestionMetaList: hasValidTestReview ? parsedQuestionMetaList : []
+        parsedQuestionMetaList: hasValidTestReview ? parsedQuestionMetaList : [],
+        availableTestAttempts: sortedTestAttemptOptions,
+        activeAttemptId: primaryReviewAtt ? String(primaryReviewAtt.id || "") : null,
+        activeQuizId,
+        activeQuizTitle,
+        hasResolvedQuizDefinition
       };
     },
     [
       sbdDirectoryMap,
-      allAttempts,
+      combinedAllAttempts,
       quizAssignmentMap,
       resolveAttemptMonthAndWeek,
       effectiveHomeworkTarget,
@@ -3357,7 +3939,8 @@ export default function AdminStudentReportPanel({
       selectedDailyPracticeId,
       dailyStudentOverrides,
       overrideTopicTitle,
-      autoSyncedTopicTitle
+      autoSyncedTopicTitle,
+      cachedExamsMap
     ]
   );
 
@@ -3529,8 +4112,29 @@ export default function AdminStudentReportPanel({
 
   const currentStudentDailyData = useMemo(() => {
     if (!currentStudent) return null;
-    return computeStudentDailyScoreRecord(currentStudent);
-  }, [currentStudent, computeStudentDailyScoreRecord]);
+    return computeStudentDailyScoreRecord(currentStudent, selectedAttemptIdOverride);
+  }, [currentStudent, computeStudentDailyScoreRecord, selectedAttemptIdOverride]);
+
+  // Khi người dùng chọn học sinh hoặc chuyển bài thi mà đề thi gốc chưa có trong local/cache, gọi fetchQuizDataZeroEgress đúng 1 lần
+  useEffect(() => {
+    if (!currentStudentDailyData) return;
+    if (
+      !currentStudentDailyData.hasResolvedQuizDefinition &&
+      (currentStudentDailyData.activeQuizId || currentStudentDailyData.activeQuizTitle)
+    ) {
+      fetchQuizDataZeroEgress(
+        currentStudentDailyData.activeQuizId,
+        currentStudentDailyData.activeQuizTitle
+      );
+    }
+  }, [
+    currentStudentDailyData?.studentId,
+    currentStudentDailyData?.activeAttemptId,
+    currentStudentDailyData?.activeQuizId,
+    currentStudentDailyData?.activeQuizTitle,
+    currentStudentDailyData?.hasResolvedQuizDefinition,
+    fetchQuizDataZeroEgress
+  ]);
 
   // 5. KIỂM TRA ĐIỀU KIỆN BỐ CỤC THÍCH ỨNG THÔNG MINH TRANG 2 (SMART ADAPTIVE LAYOUT)
   const hasValidTestReview = Boolean(
@@ -3556,7 +4160,10 @@ export default function AdminStudentReportPanel({
     }
 
     const studentsScoreData = targetStudents.map((stu) =>
-      computeStudentDailyScoreRecord(stu)
+      computeStudentDailyScoreRecord(
+        stu,
+        stu.id === currentStudent?.id ? selectedAttemptIdOverride : null
+      )
     );
 
     const config: DailyReportConfig & { homeworkTopicLabel?: string } = {
@@ -3647,10 +4254,10 @@ export default function AdminStudentReportPanel({
     }
   };
 
-  // --- CÁC LOGIC BÁO CÁO THÁNG HIỆN CÓ ---
+  // --- CÁC LOGIC BÁO CÁO THÁNG HIỆN CÓ (SỬ DỤNG NGUỒN GỘP combinedAllAttempts) ---
   const studentAllAttempts = useMemo(() => {
     if (!currentStudent) return [];
-    return allAttempts.filter(
+    return combinedAllAttempts.filter(
       (att) =>
         String(att.studentId || att.student_id || "").trim() ===
           String(currentStudent.id || "").trim() ||
@@ -3661,7 +4268,7 @@ export default function AdminStudentReportPanel({
             .trim()
             .toLowerCase()
     );
-  }, [allAttempts, currentStudent]);
+  }, [combinedAllAttempts, currentStudent]);
 
   const studentPracticeAttempts = useMemo(() => {
     return studentAllAttempts.filter((a) => {
@@ -4564,6 +5171,10 @@ export default function AdminStudentReportPanel({
     [schedulerIsoDate]
   );
 
+  const availableTestAttemptsForCurrent =
+    currentStudentDailyData?.availableTestAttempts || [];
+  const bestCandidateAttempt = availableTestAttemptsForCurrent[0] || null;
+
   return (
     <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
       {/* 1. THANH CHUYỂN CHẾ ĐỘ BÁO CÁO TỐI GIẢN & NÚT XUẤT PDF THEO SỐ LƯỢNG HS ĐƯỢC CHỌN */}
@@ -4916,6 +5527,11 @@ export default function AdminStudentReportPanel({
                           <p className="text-[10px] text-slate-400 truncate">
                             {student.school || "THPT"} • {dirInfo?.mode || "Offline"}
                           </p>
+                          {stuDataQuick.dailyTestScore !== null && (
+                            <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-bold text-[9px]">
+                              Test: {stuDataQuick.dailyTestScore}đ
+                            </span>
+                          )}
                           {attStatus === "makeup_done" && (
                             <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold text-[9px]">
                               Đã bù
@@ -4987,6 +5603,45 @@ export default function AdminStudentReportPanel({
                     </button>
                   </div>
                 </div>
+
+                {/* 2. DROPDOWN CHỌN LƯỢT THI CŨ LINH HOẠT (ZERO EGRESS OVERHEAD) */}
+                {availableTestAttemptsForCurrent.length > 1 && bestCandidateAttempt && (
+                  <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-[#003399]">
+                      <History className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>
+                        Học sinh có {availableTestAttemptsForCurrent.length} lượt nộp bài kiểm tra:
+                      </span>
+                    </div>
+
+                    <select
+                      value={selectedAttemptIdOverride || ""}
+                      onChange={(e) => {
+                        const nextId = e.target.value || null;
+                        setSelectedAttemptIdOverride(nextId);
+                        const chosenOpt = availableTestAttemptsForCurrent.find(
+                          (o) => o.id === (nextId || bestCandidateAttempt.id)
+                        );
+                        if (chosenOpt && (chosenOpt.quizId || chosenOpt.title)) {
+                          fetchQuizDataZeroEgress(chosenOpt.quizId, chosenOpt.title);
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-white border border-blue-300 text-xs font-bold text-blue-900 outline-none focus:border-blue-600 cursor-pointer"
+                    >
+                      <option value="">
+                        ⭐ Điểm cao nhất: {bestCandidateAttempt.score}đ (Lượt thi tốt nhất)
+                      </option>
+                      {availableTestAttemptsForCurrent.map((attOpt, idx) => (
+                        <option key={`${attOpt.id}_${idx}`} value={attOpt.id}>
+                          Lần nộp lúc {attOpt.createdAtText}: {attOpt.score}đ
+                          {attOpt.hasRichAnswers
+                            ? ` (${attOpt.answerKeyCount} trường ĐA)`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* 3 Cột Điểm số trong ngày */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -5450,29 +6105,67 @@ export default function AdminStudentReportPanel({
                           </span>
                         </h4>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPaperZoom(1);
-                          setPreviewPaperItem({
-                            id: "daily-omr",
-                            title: currentStudentDailyData.paperExamTitle || "Bài thi OMR",
-                            category: "Kiểm tra",
-                            completedDate: customDateStr,
-                            score: currentStudentDailyData.dailyTestScore ?? 0,
-                            submissionType: "paper",
-                            paperScanUrl: currentStudentDailyData.scannedPaperImageUrl,
-                            omrRawData: {
-                              canonical_width: OMR_CANONICAL_WIDTH,
-                              canonical_height: OMR_CANONICAL_HEIGHT,
-                              bubble_coordinates: currentStudentDailyData.bubbleCoordinates
-                            }
-                          });
-                        }}
-                        className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" /> Phóng to phiếu OMR
-                      </button>
+
+                      <div className="flex items-center gap-1.5">
+                        {!currentStudentDailyData.hasResolvedQuizDefinition &&
+                          (currentStudentDailyData.activeQuizId ||
+                            currentStudentDailyData.activeQuizTitle) && (
+                            <button
+                              type="button"
+                              disabled={isFetchingQuizZeroEgress}
+                              onClick={() => {
+                                const sig = `${String(
+                                  currentStudentDailyData.activeQuizId || ""
+                                )
+                                  .trim()
+                                  .toLowerCase()}__${normalizeText(
+                                  currentStudentDailyData.activeQuizTitle || ""
+                                )}`;
+                                fetchedQuizKeysRef.current.delete(sig);
+                                fetchQuizDataZeroEgress(
+                                  currentStudentDailyData.activeQuizId,
+                                  currentStudentDailyData.activeQuizTitle
+                                );
+                              }}
+                              className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <RefreshCw
+                                className={`w-3.5 h-3.5 ${
+                                  isFetchingQuizZeroEgress ? "animate-spin" : ""
+                                }`}
+                              />
+                              <span>
+                                {isFetchingQuizZeroEgress
+                                  ? "Đang đồng bộ đề..."
+                                  : "Đồng bộ Đáp án đề"}
+                              </span>
+                            </button>
+                          )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaperZoom(1);
+                            setPreviewPaperItem({
+                              id: "daily-omr",
+                              title: currentStudentDailyData.paperExamTitle || "Bài thi OMR",
+                              category: "Kiểm tra",
+                              completedDate: customDateStr,
+                              score: currentStudentDailyData.dailyTestScore ?? 0,
+                              submissionType: "paper",
+                              paperScanUrl: currentStudentDailyData.scannedPaperImageUrl,
+                              omrRawData: {
+                                canonical_width: OMR_CANONICAL_WIDTH,
+                                canonical_height: OMR_CANONICAL_HEIGHT,
+                                bubble_coordinates: currentStudentDailyData.bubbleCoordinates
+                              }
+                            });
+                          }}
+                          className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" /> Phóng to phiếu OMR
+                        </button>
+                      </div>
                     </div>
 
                     {/* Grid 2 cột: Phiếu Canvas OMR bên trái + Bảng đối chiếu 22 câu bên phải */}
