@@ -434,7 +434,6 @@ function buildFullOMRQuestionsReview(
   parsedMetaList: ParsedQuestionEvaluationMeta[];
   enrichedBubbleCoordinates: any[];
 } {
-  {
   // === ĐẶT CHÍNH XÁC TẠI ĐÂY (SAU DẤU { MỞ THÂN HÀM) ===
   console.log("=== [SOI BÀI TEST THẬT] ===", { attempt, rawQuizObj });
   if (typeof window !== "undefined") {
