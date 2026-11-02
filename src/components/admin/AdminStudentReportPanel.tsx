@@ -6148,120 +6148,84 @@ export default function AdminStudentReportPanel({
                         </h4>
                       </div>
 
-                   <button
-  type="button"
-  disabled={isFetchingQuizZeroEgress}
-  onClick={async () => {
-    setIsFetchingQuizZeroEgress(true);
-    try {
-      const targetTitle = "TEST NGUYÊN HÀM";
-      const targetId = "exam-1793503014491";
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={isFetchingQuizZeroEgress}
+                          onClick={async () => {
+                            setIsFetchingQuizZeroEgress(true);
+                            try {
+                              const targetTitle = "TEST NGUYÊN HÀM";
+                              const targetId = "exam-1793503014491";
+                              let examResult: any = null;
+                              const client = getSupabaseClientSafe();
 
-      console.log("Đang bắt đầu kéo đề từ Supabase cho:", { targetId, targetTitle });
+                              if (client) {
+                                try {
+                                  const { data } = await client
+                                    .from("practice_exams")
+                                    .select("id, title, sections, questions")
+                                    .or(`id.eq.${targetId},title.ilike.%${targetTitle}%`)
+                                    .maybeSingle();
+                                  if (data && (data.sections || data.questions)) examResult = data;
+                                } catch (e) {}
+                              }
 
-      let examResult: any = null;
-      const client = getSupabaseClientSafe();
+                              if (!examResult) {
+                                const sUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+                                const sKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+                                if (sUrl && sKey) {
+                                  try {
+                                    const queryUrl = `${sUrl.replace(/\/$/, "")}/rest/v1/practice_exams?select=id,title,sections,questions&or=(id.eq.${targetId},title.ilike.*${encodeURIComponent(targetTitle)}*)&limit=1`;
+                                    const resp = await fetch(queryUrl, {
+                                      headers: {
+                                        apikey: sKey,
+                                        Authorization: `Bearer ${sKey}`,
+                                        Accept: "application/json"
+                                      }
+                                    });
+                                    if (resp.ok) {
+                                      const rows = await resp.json();
+                                      if (Array.isArray(rows) && rows.length > 0) examResult = rows[0];
+                                    }
+                                  } catch (e) {}
+                                }
+                              }
 
-      // CÁCH 1: Nếu có instance client trên trình duyệt
-      if (client) {
-        try {
-          const { data } = await client
-            .from("practice_exams")
-            .select("id, title, sections, questions")
-            .or(`id.eq.${targetId},title.ilike.%${targetTitle}%`)
-            .maybeSingle();
-          if (data && (data.sections || data.questions)) examResult = data;
-        } catch (e) {}
+                              if (examResult) {
+                                const cleanId = String(examResult.id || targetId).toLowerCase();
+                                try {
+                                  const curExams = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
+                                  const nextList = [
+                                    ...curExams.filter((e: any) => String(e.id).toLowerCase() !== cleanId),
+                                    examResult
+                                  ];
+                                  localStorage.setItem("edunexus_practice_exams", JSON.stringify(nextList));
+                                } catch (e) {}
 
-        if (!examResult) {
-          try {
-            const { data: cRow } = await client
-              .from("courses")
-              .select("chapters")
-              .limit(1)
-              .maybeSingle();
-            if (cRow?.chapters && Array.isArray(cRow.chapters)) {
-              for (const chap of cRow.chapters) {
-                for (const les of chap.lessons || []) {
-                  const match = [...(les.homework_files || []), ...(les.test_quizzes || [])].find(
-                    (it: any) =>
-                      String(it.id) === targetId ||
-                      (it.title && String(it.title).toUpperCase().includes("NGUYÊN HÀM"))
-                  );
-                  if (match && (match.sections || match.questions)) {
-                    examResult = match;
-                    break;
-                  }
-                }
-                if (examResult) break;
-              }
-            }
-          } catch (e) {}
-        }
-      }
+                                virtualOMRCache.clear();
+                                setCachedExamsMap((prev) => ({
+                                  ...prev,
+                                  [cleanId]: examResult,
+                                  [`title:${normalizeText(examResult.title || targetTitle)}`]: examResult
+                                }));
 
-      // CÁCH 2: Fallback gọi thẳng PostgREST API (Không sợ thiếu thư viện, tốn ~20KB)
-      if (!examResult) {
-        const sUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const sKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-        if (sUrl && sKey) {
-          try {
-            const queryUrl = `${sUrl.replace(/\/$/, "")}/rest/v1/practice_exams?select=id,title,sections,questions&or=(id.eq.${targetId},title.ilike.*${encodeURIComponent(targetTitle)}*)&limit=1`;
-            const resp = await fetch(queryUrl, {
-              headers: {
-                apikey: sKey,
-                Authorization: `Bearer ${sKey}`,
-                Accept: "application/json"
-              }
-            });
-            if (resp.ok) {
-              const rows = await resp.json();
-              if (Array.isArray(rows) && rows.length > 0) examResult = rows[0];
-            }
-          } catch (e) {}
-        }
-      }
-
-      // XỬ LÝ LƯU TRỮ VÀ CẬP NHẬT GIAO DIỆN KHI ĐÃ CÓ ĐỀ
-      if (examResult) {
-        const cleanId = String(examResult.id || targetId).toLowerCase();
-
-        // 1. Lưu vào localStorage để từ nay về sau tốn 0 KB Egress
-        try {
-          const curExams = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
-          const nextList = [
-            ...curExams.filter((e: any) => String(e.id).toLowerCase() !== cleanId),
-            examResult
-          ];
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(nextList));
-        } catch (e) {}
-
-        // 2. Xóa cache ảnh OMR cũ để tự động vẽ lại
-        virtualOMRCache.clear();
-
-        // 3. Cập nhật state bộ nhớ đệm
-        setCachedExamsMap((prev) => ({
-          ...prev,
-          [cleanId]: examResult,
-          [`title:${normalizeText(examResult.title || targetTitle)}`]: examResult
-        }));
-
-        alert(`✅ Đã đồng bộ thành công đề: "${examResult.title || targetTitle}"! Đáp án 22 câu sẽ hiển thị ngay.`);
-        window.location.reload();
-      } else {
-        alert("⚠️ Không tìm thấy đề thi trên cơ sở dữ liệu Supabase. Hãy kiểm tra lại bảng practice_exams trên Dashboard.");
-      }
-    } catch (err: any) {
-      alert("❌ Lỗi mạng hoặc truy vấn: " + (err.message || err));
-    } finally {
-      setIsFetchingQuizZeroEgress(false);
-    }
-  }}
-  className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition active:scale-95"
->
-  <RefreshCw className={`w-3.5 h-3.5 ${isFetchingQuizZeroEgress ? "animate-spin" : ""}`} />
-  <span>{isFetchingQuizZeroEgress ? "Đang đồng bộ đề..." : "Đồng bộ Đáp án đề"}</span>
-</button>
+                                alert(`✅ Đã đồng bộ thành công đề: "${examResult.title || targetTitle}"!`);
+                                window.location.reload();
+                              } else {
+                                alert("⚠️ Không tìm thấy đề thi trên Supabase.");
+                              }
+                            } catch (err: any) {
+                              alert("❌ Lỗi: " + (err.message || err));
+                            } finally {
+                              setIsFetchingQuizZeroEgress(false);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition active:scale-95"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isFetchingQuizZeroEgress ? "animate-spin" : ""}`} />
+                          <span>{isFetchingQuizZeroEgress ? "Đang đồng bộ đề..." : "Đồng bộ Đáp án đề"}</span>
+                        </button>
 
                         <button
                           type="button"
@@ -6288,10 +6252,7 @@ export default function AdminStudentReportPanel({
                         </button>
                       </div>
                     </div>
-
-                    {/* Grid 2 cột: Phiếu Canvas OMR bên trái + Bảng đối chiếu 22 câu bên phải */}
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
-                      {/* Cột trái: Phiếu Canvas OMR trực quan */}
                       <div className="md:col-span-5 bg-slate-950/60 p-2 rounded-xl border border-slate-800 flex flex-col items-center">
                         <div
                           onClick={() => {
