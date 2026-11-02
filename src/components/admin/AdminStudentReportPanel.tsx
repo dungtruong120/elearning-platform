@@ -1601,11 +1601,15 @@ function buildFullOMRQuestionsReview(
         rawStudentStr = "";
       }
 
-      const rawCorP3 =
+     const rawCorP3 =
         qObj?.correctAnswer ??
         qObj?.shortAnswer ??
-        qObj?.correct_answer ??
+        qObj?.short_answer ??
         qObj?.answer ??
+        qObj?.correct_answer ??
+        qObj?.value ??
+        qObj?.result ??
+        (Array.isArray(qObj?.options) ? (qObj.options[0]?.text ?? qObj.options[0]?.content ?? qObj.options[0]) : "") ??
         gDetail?.correctAnswerDisplay ??
         "";
 
