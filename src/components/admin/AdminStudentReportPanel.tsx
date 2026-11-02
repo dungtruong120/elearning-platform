@@ -424,6 +424,9 @@ function buildFullOMRQuestionsReview(
   rawQuizObj: any,
   questionStatusOverrides?: Record<number, boolean>
 ): {
+  console.log("=== [SOI BÀI TEST THẬT] ===", { attempt, rawQuizObj });
+  (window as any).__DEBUG_ATTEMPT__ = attempt;
+  (window as any).__DEBUG_QUIZ__ = rawQuizObj;
   allRows: FullQuestionReviewRow[];
   wrongRows: WrongQuestionReviewItem[];
   part1Summary: string;
