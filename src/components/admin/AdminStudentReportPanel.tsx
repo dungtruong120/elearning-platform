@@ -424,9 +424,6 @@ function buildFullOMRQuestionsReview(
   rawQuizObj: any,
   questionStatusOverrides?: Record<number, boolean>
 ): {
-  console.log("=== [SOI BÀI TEST THẬT] ===", { attempt, rawQuizObj });
-  (window as any).__DEBUG_ATTEMPT__ = attempt;
-  (window as any).__DEBUG_QUIZ__ = rawQuizObj;
   allRows: FullQuestionReviewRow[];
   wrongRows: WrongQuestionReviewItem[];
   part1Summary: string;
@@ -437,6 +434,12 @@ function buildFullOMRQuestionsReview(
   parsedMetaList: ParsedQuestionEvaluationMeta[];
   enrichedBubbleCoordinates: any[];
 } {
+  {
+  // === ĐẶT CHÍNH XÁC TẠI ĐÂY (SAU DẤU { MỞ THÂN HÀM) ===
+  console.log("=== [SOI BÀI TEST THẬT] ===", { attempt, rawQuizObj });
+  if (typeof window !== "undefined") {
+    (window as any).__DEBUG_ATTEMPT__ = attempt;
+    (window as any).__DEBUG_QUIZ__ = rawQuizObj;
   const answersMap = extractFlexibleStudentAnswersMap(attempt);
   const meta =
     answersMap?.__paper_omr_meta ||
