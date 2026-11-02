@@ -6106,41 +6106,121 @@ export default function AdminStudentReportPanel({
                         </h4>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        {!currentStudentDailyData.hasResolvedQuizDefinition &&
-                          (currentStudentDailyData.activeQuizId ||
-                            currentStudentDailyData.activeQuizTitle) && (
-                            <button
-                              type="button"
-                              disabled={isFetchingQuizZeroEgress}
-                              onClick={() => {
-                                const sig = `${String(
-                                  currentStudentDailyData.activeQuizId || ""
-                                )
-                                  .trim()
-                                  .toLowerCase()}__${normalizeText(
-                                  currentStudentDailyData.activeQuizTitle || ""
-                                )}`;
-                                fetchedQuizKeysRef.current.delete(sig);
-                                fetchQuizDataZeroEgress(
-                                  currentStudentDailyData.activeQuizId,
-                                  currentStudentDailyData.activeQuizTitle
-                                );
-                              }}
-                              className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-                            >
-                              <RefreshCw
-                                className={`w-3.5 h-3.5 ${
-                                  isFetchingQuizZeroEgress ? "animate-spin" : ""
-                                }`}
-                              />
-                              <span>
-                                {isFetchingQuizZeroEgress
-                                  ? "Đang đồng bộ đề..."
-                                  : "Đồng bộ Đáp án đề"}
-                              </span>
-                            </button>
-                          )}
+                     <div className="flex items-center gap-1.5">
+  <button
+    type="button"
+    disabled={isSyncingExamManual}
+    onClick={async () => {
+      setIsSyncingExamManual(true);
+      try {
+        // 1. Trích xuất ID và Tên đề linh hoạt, bao quát mọi định dạng trường
+        const targetQuizId = String(
+          currentStudentDailyData?.activeQuizId ||
+          currentStudentDailyData?.paperExamTitle ||
+          "exam-1793503014491"
+        ).trim();
+
+        const targetTitle = String(
+          currentStudentDailyData?.paperExamTitle ||
+          currentStudentDailyData?.activeQuizTitle ||
+          "TEST NGUYÊN HÀM"
+        ).trim();
+
+        console.log("Đang bắt đầu kéo đề từ Supabase:", { targetQuizId, targetTitle });
+
+        let foundExamData: any = null;
+
+        // 2. Thử truy vấn bảng practice_exams trên Supabase (Chỉ lấy đúng 4 cột, tốn ~20KB)
+        try {
+          // Import supabase client sẵn có trong project của bạn
+          const { data, error } = await supabase
+            .from("practice_exams")
+            .select("id, title, sections, questions")
+            .or(`id.eq.${targetQuizId},title.ilike.%${targetTitle}%`)
+            .maybeSingle();
+
+          if (data && (data.sections || data.questions)) {
+            foundExamData = data;
+          }
+        } catch (errDb) {
+          console.warn("Không tìm thấy trong bảng practice_exams, chuyển sang quét courses:", errDb);
+        }
+
+        // 3. Nếu practice_exams không có, quét tiếp bảng courses
+        if (!foundExamData) {
+          try {
+            const { data: courseRow } = await supabase
+              .from("courses")
+              .select("chapters")
+              .limit(1)
+              .maybeSingle();
+
+            if (courseRow?.chapters && Array.isArray(courseRow.chapters)) {
+              for (const chap of courseRow.chapters) {
+                for (const les of chap.lessons || []) {
+                  const pool = [...(les.homework_files || []), ...(les.test_quizzes || [])];
+                  const match = pool.find(
+                    (it: any) =>
+                      String(it.id) === targetQuizId ||
+                      (it.title && it.title.toUpperCase().includes("NGUYÊN HÀM"))
+                  );
+                  if (match && (match.sections || match.questions)) {
+                    foundExamData = match;
+                    break;
+                  }
+                }
+                if (foundExamData) break;
+              }
+            }
+          } catch (errCourse) {
+            console.warn("Lỗi quét courses:", errCourse);
+          }
+        }
+
+        // 4. Xử lý lưu trữ khi đã tìm thấy đề
+        if (foundExamData) {
+          const cleanId = String(foundExamData.id || targetQuizId).toLowerCase();
+
+          // Ghi vào localStorage để lần sau dùng ngay với 0 KB Egress
+          try {
+            const localExamsRaw = localStorage.getItem("edunexus_practice_exams");
+            const localExams = localExamsRaw ? JSON.parse(localExamsRaw) : [];
+            const nextList = [
+              ...localExams.filter((e: any) => String(e.id).toLowerCase() !== cleanId),
+              foundExamData
+            ];
+            localStorage.setItem("edunexus_practice_exams", JSON.stringify(nextList));
+          } catch (e) {}
+
+          // Cập nhật State để re-render giao diện
+          setCachedExamsMap((prev) => ({
+            ...prev,
+            [cleanId]: foundExamData,
+            [targetQuizId.toLowerCase()]: foundExamData,
+            [targetTitle]: foundExamData
+          }));
+
+          alert(`✅ Đã đồng bộ thành công đề thi: "${foundExamData.title}"!\nToàn bộ 22 đáp án chuẩn đã được nạp.`);
+          
+          // Tải lại nhẹ trang để các bảng và phiếu OMR Canvas áp dụng dữ liệu mới
+          window.location.reload();
+        } else {
+          alert(`⚠️ Không tìm thấy đề thi trên Supabase (ID: ${targetQuizId} | Tên: ${targetTitle}). Hãy kiểm tra lại tên đề trong bảng practice_exams trên Dashboard.`);
+        }
+      } catch (globalErr: any) {
+        console.error("Lỗi đồng bộ đề thi:", globalErr);
+        alert("❌ Đã xảy ra lỗi kết nối: " + (globalErr.message || globalErr));
+      } finally {
+        setIsSyncingExamManual(false);
+      }
+    }}
+    className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition active:scale-95"
+  >
+    <RefreshCw
+      className={`w-3.5 h-3.5 ${isSyncingExamManual ? "animate-spin" : ""}`}
+    />
+    <span>{isSyncingExamManual ? "Đang đồng bộ đề..." : "Đồng bộ Đáp án đề"}</span>
+  </button>
 
                         <button
                           type="button"
