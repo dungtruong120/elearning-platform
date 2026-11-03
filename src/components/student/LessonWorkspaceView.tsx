@@ -342,11 +342,11 @@ export function LessonWorkspaceView({
 
         // ĐÃ SỬA: Thay select("*") bằng PRAC_FIELDS (giảm từ 12.98 MB xuống ~20 KB)
         const { data: byTitlePrac } = await supabase
-          .from("practice_exams")
-          .select(PRAC_FIELDS)
-          .ilike("title", targetTitle)
-          .limit(1)
-          .maybeSingle();
+  .from("practice_exams")
+  .select("id, title, data, questions, media_map")
+  .ilike("title", targetTitle)
+  .limit(1)
+  .maybeSingle();
 
         const tPracAny = byTitlePrac as any;
         if (tPracAny && (tPracAny.data || tPracAny.questions || tPracAny.sections)) {
