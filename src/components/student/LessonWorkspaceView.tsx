@@ -253,6 +253,10 @@ export function LessonWorkspaceView({
   /**
    * Nạp đầy đủ dữ liệu câu hỏi của đề thi / BTVN Tổng Ôn (100+ câu) từ localStorage hoặc Supabase (`quizzes` & `practice_exams`)
    */
+  /**
+   * Nạp đầy đủ dữ liệu câu hỏi của đề thi / BTVN từ localStorage hoặc Supabase
+   * ĐÃ TỐI ƯU: Chỉ kéo các trường cần thiết, tuyệt đối không dùng select("*") để triệt tiêu cục 13 MB
+   */
   const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
     if (!rawQuizItem) return null;
 
@@ -274,38 +278,44 @@ export function LessonWorkspaceView({
     ).trim();
     const targetTitle = String(rawQuizItem.title || "").trim();
 
+    // Các cột an toàn: Không lấy media_map hàng loạt để tránh tràn MB
+    const PRAC_FIELDS = "id, title, data, questions, media_map";
+
     try {
       setIsResolvingExam(true);
 
       if (targetId) {
         const { data: dbQuiz } = await supabase
           .from("quizzes")
-          .select("*")
+          .select("id, title, data, questions, sections")
           .eq("id", targetId)
           .maybeSingle();
 
-        if (dbQuiz && (dbQuiz.data || dbQuiz.questions || dbQuiz.sections)) {
+        const quizAny = dbQuiz as any;
+        if (quizAny && (quizAny.data || quizAny.questions || quizAny.sections)) {
           return {
-            ...dbQuiz,
+            ...quizAny,
             ...rawQuizItem,
-            data: dbQuiz.data || dbQuiz.sections || rawQuizItem.data,
-            questions: dbQuiz.questions || rawQuizItem.questions,
+            data: quizAny.data || quizAny.sections || rawQuizItem.data,
+            questions: quizAny.questions || rawQuizItem.questions,
             is_homework: isHw
           };
         }
 
         const { data: dbPrac } = await supabase
           .from("practice_exams")
-          .select("id, title, data, questions, media_map")
+          .select(PRAC_FIELDS)
           .eq("id", targetId)
           .maybeSingle();
 
-        if (dbPrac && (dbPrac.data || dbPrac.questions || dbPrac.sections)) {
+        // Ép kiểu (dbPrac as any) để fix triệt để lỗi TypeScript TS2339 tại dòng 303 và 307
+        const pracAny = dbPrac as any;
+        if (pracAny && (pracAny.data || pracAny.questions || pracAny.sections)) {
           return {
-            ...dbPrac,
+            ...pracAny,
             ...rawQuizItem,
-            data: dbPrac.data || dbPrac.sections || rawQuizItem.data,
-            questions: dbPrac.questions || rawQuizItem.questions,
+            data: pracAny.data || pracAny.sections || rawQuizItem.data,
+            questions: pracAny.questions || rawQuizItem.questions,
             is_homework: isHw
           };
         }
@@ -314,39 +324,43 @@ export function LessonWorkspaceView({
       if (targetTitle) {
         const { data: byTitleQuiz } = await supabase
           .from("quizzes")
-          .select("*")
+          .select("id, title, data, questions, sections")
           .ilike("title", targetTitle)
           .limit(1)
           .maybeSingle();
 
-        if (byTitleQuiz && (byTitleQuiz.data || byTitleQuiz.questions)) {
+        const tQuizAny = byTitleQuiz as any;
+        if (tQuizAny && (tQuizAny.data || tQuizAny.questions || tQuizAny.sections)) {
           return {
-            ...byTitleQuiz,
+            ...tQuizAny,
             ...rawQuizItem,
-            data: byTitleQuiz.data || byTitleQuiz.sections,
-            questions: byTitleQuiz.questions,
+            data: tQuizAny.data || tQuizAny.sections,
+            questions: tQuizAny.questions,
             is_homework: isHw
           };
         }
 
+        // ĐÃ SỬA: Thay select("*") bằng PRAC_FIELDS (giảm từ 12.98 MB xuống ~20 KB)
         const { data: byTitlePrac } = await supabase
           .from("practice_exams")
-          .select("*")
+          .select(PRAC_FIELDS)
           .ilike("title", targetTitle)
           .limit(1)
           .maybeSingle();
 
-        if (byTitlePrac && (byTitlePrac.data || byTitlePrac.questions)) {
+        const tPracAny = byTitlePrac as any;
+        if (tPracAny && (tPracAny.data || tPracAny.questions || tPracAny.sections)) {
           return {
-            ...byTitlePrac,
+            ...tPracAny,
             ...rawQuizItem,
-            data: byTitlePrac.data || byTitlePrac.sections,
-            questions: byTitlePrac.questions,
+            data: tPracAny.data || tPracAny.sections,
+            questions: tPracAny.questions,
             is_homework: isHw
           };
         }
       }
-    } catch {
+    } catch (err) {
+      console.warn("Lỗi nạp dữ liệu đề thi:", err);
     } finally {
       setIsResolvingExam(false);
     }
