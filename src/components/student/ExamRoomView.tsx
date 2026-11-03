@@ -738,31 +738,33 @@ export function ExamRoomView({
       let mappedImages: Record<string, string> = {};
 
       try {
-        let dbExam: any = null;
-        // Bỏ sections và mediaMap (camelCase) để không bị lỗi 400
-        const VALID_FIELDS = "id, title, data, questions, media_map";
+      let dbExam: any = null;
 
-        // 1. Tìm theo quizId
+        // 1. Tìm chuẩn theo quizId (bỏ chữ sections để hết sạch lỗi 400)
         if (quizId) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select(VALID_FIELDS)
+            .select("id, title, data, questions, media_map")
             .eq("id", quizId)
             .maybeSingle();
 
           if (!error && data) dbExam = data;
         }
 
-        // 2. Dự phòng tìm theo title nếu quizId không khớp
+        // 2. Dự phòng tìm theo title nếu quizId trượt
         if (!dbExam && quizTitle) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select(VALID_FIELDS)
+            .select("id, title, data, questions, media_map")
             .ilike("title", `%${quizTitle.trim()}%`)
             .limit(1)
             .maybeSingle();
 
           if (!error && data) dbExam = data;
+        }
+
+        // 3. Log kiểm tra trực tiếp trên F12
+        console.log(">>> [DEBUG] dbExam tìm được từ Supabase:", dbExam);
         }
 
         // 3. Tải media_map nếu có đề
