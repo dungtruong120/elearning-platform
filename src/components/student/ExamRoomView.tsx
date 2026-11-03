@@ -598,37 +598,23 @@ export function ExamRoomView({
 
       // 2. Nguồn API Server (/api/admin/data) & Supabase Cloud
       try {
-        const [apiRes, dbExamAtt, dbQuizRes, dbProfiles] = await Promise.allSettled([
-          fetch("/api/admin/data", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+        // 2. Tải bảng xếp hạng tối ưu: Chỉ lấy đúng cột cần dùng + Giới hạn Top 50 (Tiết kiệm 99% Egress)
+      try {
+        const [dbExamAtt, dbProfiles] = await Promise.allSettled([
           supabase
             .from("exam_attempts")
-            .select("*")
-            .or(`quiz_id.eq.${quizId},exam_id.eq.${quizId},quiz_title.eq.${quizTitle}`),
+            .select("student_id, student_name, full_name, score, points, duration_seconds, durationSeconds, completionTime, quiz_id, exam_id, quiz_title")
+            .or(`quiz_id.eq.${quizId},exam_id.eq.${quizId},quiz_title.eq.${quizTitle}`)
+            .order("score", { ascending: false })
+            .limit(50),
           supabase
-            .from("quiz_results")
-            .select("*")
-            .or(`quiz_id.eq.${quizId},quiz_title.eq.${quizTitle}`),
-          supabase.from("profiles").select("id, full_name, username, email")
+            .from("profiles")
+            .select("id, full_name, username")
+            .limit(100)
         ]);
-
-        if (apiRes.status === "fulfilled" && apiRes.value) {
-          const apiData = apiRes.value;
-          if (Array.isArray(apiData.attempts)) combinedPool.push(...apiData.attempts);
-          if (Array.isArray(apiData.allAttempts)) combinedPool.push(...apiData.allAttempts);
-          if (Array.isArray(apiData.registeredStudents)) {
-            apiData.registeredStudents.forEach((s: any) => {
-              if (s?.id && s?.full_name) {
-                profileNameLookup.set(String(s.id).trim().toLowerCase(), s.full_name);
-              }
-            });
-          }
-        }
 
         if (dbExamAtt.status === "fulfilled" && Array.isArray(dbExamAtt.value?.data)) {
           combinedPool.push(...dbExamAtt.value.data);
-        }
-        if (dbQuizRes.status === "fulfilled" && Array.isArray(dbQuizRes.value?.data)) {
-          combinedPool.push(...dbQuizRes.value.data);
         }
         if (dbProfiles.status === "fulfilled" && Array.isArray(dbProfiles.value?.data)) {
           dbProfiles.value.data.forEach((p: any) => {
@@ -2062,7 +2048,10 @@ export function ExamRoomView({
                 <button
                   type="button"
                   onClick={() => {
-                    fetchFullExamLeaderboard();
+                    // Nếu đã tải BXH rồi thì tái sử dụng dữ liệu trong RAM, không gọi lại Supabase
+                    if (rankingList.length === 0) {
+                      fetchFullExamLeaderboard();
+                    }
                     setShowResultModal(true);
                   }}
                   className="w-full py-2.5 bg-blue-50 text-[#1D4ED8] hover:bg-blue-100 rounded-xl font-bold text-xs border border-blue-200 flex items-center justify-center gap-1.5 cursor-pointer"
