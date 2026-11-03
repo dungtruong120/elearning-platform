@@ -931,6 +931,39 @@ export function ExamRoomView({
       [qId]: !prev[qId]
     }));
   };
+  // HÀM LỌC SẠCH DỮ LIỆU TỌA ĐỘ RÁC (CẮT BỎ TOÀN BỘ BUBBLE_COORDINATES 10.000 DÒNG)
+function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string, any> {
+  if (!rawAnswers || typeof rawAnswers !== "object") return {};
+
+  const cleaned: Record<string, any> = {};
+
+  Object.entries(rawAnswers).forEach(([key, val]) => {
+    // 1. Chặn thẳng các key rác tọa độ
+    if (key === "bubble_coordinates" || key === "bubbleCoordinates") return;
+
+    // 2. Nếu có trường meta phiếu giấy OMR, chỉ giữ các thông tin định danh cần thiết
+    if (key === "__paper_omr_meta") {
+      if (val && typeof val === "object") {
+        cleaned.__paper_omr_meta = {
+          school: val.school || "THPT",
+          detected_sbd: val.detected_sbd || "",
+          detected_exam_code: val.detected_exam_code || "101",
+          student_name: val.student_name || "",
+          submission_type: val.submission_type || "paper",
+          exam_title: val.exam_title || "",
+          scanned_image_url: val.scanned_image_url || "",
+          flagged_questions: val.flagged_questions || []
+          // ❌ CẮT BỎ HOÀN TOÀN: bubble_coordinates
+        };
+      }
+      return;
+    }
+
+    cleaned[key] = val;
+  });
+
+  return cleaned;
+}
 
   // NỘP BÀI THI - KÍCH HOẠT ANIMATION CHẤM BÀI 1.8S + ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA
   const handleSubmitExam = async () => {
@@ -1033,6 +1066,10 @@ export function ExamRoomView({
     const attemptId = "att-" + Date.now();
 
     // 2. OBJECT ĐẦY ĐỦ LƯU VÀO LOCALSTORAGE (Đảm bảo cache máy có đủ key)
+   // Áp dụng lọc sạch dữ liệu answers trước khi lưu vào LocalStorage và Supabase:
+    const finalCleanAnswers = sanitizeAnswersPayload(cleanAnswersPayload);
+
+    // 2. OBJECT ĐẦY ĐỦ LƯU VÀO LOCALSTORAGE
     const clientRecord: any = {
       id: attemptId,
       quiz_id: String(quizId),
@@ -1058,13 +1095,12 @@ export function ExamRoomView({
       is_homework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
       submission_type: "web",
-      answers: cleanAnswersPayload,
+      answers: finalCleanAnswers, // <-- DÙNG BẢN ĐÃ LỌC
       created_at: nowIso,
       updated_at: nowIso
     };
 
     // 3. OBJECT ĐÚNG CHUẨN SCHEMA CỦA BẢNG exam_attempts TRÊN SUPABASE
-    // (Chỉ gửi đúng các cột tồn tại trong database để tránh bị lỗi từ chối lưu)
     const supabasePayload: any = {
       id: attemptId,
       quiz_id: String(quizId),
@@ -1085,7 +1121,7 @@ export function ExamRoomView({
       is_homework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
       submission_type: "web",
-      answers: cleanAnswersPayload,
+      answers: finalCleanAnswers, // <-- DÙNG BẢN ĐÃ LỌC
       created_at: nowIso,
       updated_at: nowIso
     };
