@@ -733,28 +733,33 @@ export function ExamRoomView({
       let mappedImages: Record<string, string> = {};
 
       try {
-       let dbExam: any = null;
+        let dbExam: any = null;
 
-if (quizId) {
-  const { data, error } = await supabase
-    .from("practice_exams")
-    .select("id, title, data, questions, media_map")
-    .eq("id", quizId)
-    .maybeSingle();
+        // 1. Dùng select("*") bốc đúng 1 đề duy nhất theo quizId (chỉ ~20 KB, không bao giờ lỗi cột)
+        if (quizId) {
+          const { data, error } = await supabase
+            .from("practice_exams")
+            .select("*")
+            .eq("id", quizId)
+            .maybeSingle();
 
-  if (!error && data) dbExam = data;
-}
-
-if (!dbExam && quizTitle) {
-  const { data, error } = await supabase
-    .from("practice_exams")
-    .select("id, title, data, questions, media_map")
-    .ilike("title", `%${quizTitle.trim()}%`)
-    .limit(1)
-    .maybeSingle();
-
-  if (!error && data) dbExam = data;
+          if (!error && data) dbExam = data;
         }
+
+        // 2. Dự phòng tìm theo title nếu quizId trượt
+        if (!dbExam && quizTitle) {
+          const { data, error } = await supabase
+            .from("practice_exams")
+            .select("*")
+            .ilike("title", `%${quizTitle.trim()}%`)
+            .limit(1)
+            .maybeSingle();
+
+          if (!error && data) dbExam = data;
+        }
+
+        // Log kiểm tra trực tiếp
+        console.log(">>> [DEBUG] dbExam tìm được:", dbExam);
 
         let targetExam = dbExam;
 
