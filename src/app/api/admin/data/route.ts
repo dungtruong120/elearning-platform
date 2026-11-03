@@ -27,7 +27,7 @@ export async function GET() {
         .order("created_at", { ascending: false }),
       supabaseServer
         .from("practice_exams")
-        .select("*")
+        .select("id, title, exam_code, category, duration_minutes, total_questions, allowRetake, allowViewFile, driveUrl, created_at, updated_at")
         .order("created_at", { ascending: false }),
       supabaseServer
         .from("exam_attempts")
