@@ -598,14 +598,19 @@ export function ExamRoomView({
       }
 
       // 2. Nguồn Supabase Cloud (Chỉ kéo các cột cần thiết + Giới hạn limit để tiết kiệm Egress)
-      try {
+     try {
+        let attQuery = supabase
+          .from("exam_attempts")
+          .select("student_id, student_name, full_name, score, points, duration_seconds, durationSeconds, completionTime, quiz_id, exam_id, quiz_title");
+
+        if (quizId) {
+          attQuery = attQuery.or(`quiz_id.eq.${quizId},exam_id.eq.${quizId}`);
+        } else if (quizTitle) {
+          attQuery = attQuery.ilike("quiz_title", `%${quizTitle.trim()}%`);
+        }
+
         const [dbExamAtt, dbProfiles] = await Promise.allSettled([
-          supabase
-            .from("exam_attempts")
-            .select("student_id, student_name, full_name, score, points, duration_seconds, durationSeconds, completionTime, quiz_id, exam_id, quiz_title")
-            .or(`quiz_id.eq.${quizId},exam_id.eq.${quizId},quiz_title.eq.${quizTitle}`)
-            .order("score", { ascending: false })
-            .limit(50),
+          attQuery.order("score", { ascending: false }).limit(50),
           supabase
             .from("profiles")
             .select("id, full_name, username")
@@ -726,16 +731,15 @@ export function ExamRoomView({
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted, isReviewMode]);
 
   // TẢI CÂU HỎI VÀ MEDIAMAP
-  useEffect(() => {
+ useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
       let loaded: QuestionItem[] = [];
       let mappedImages: Record<string, string> = {};
 
       try {
-     let dbExam: any = null;
-
-        // Bỏ hoàn toàn chữ "sections" và "mediaMap" để không bị lỗi 400
+        let dbExam: any = null;
+        // Bỏ sections và mediaMap (camelCase) để không bị lỗi 400
         const VALID_FIELDS = "id, title, data, questions, media_map";
 
         // 1. Tìm theo quizId
@@ -761,8 +765,8 @@ export function ExamRoomView({
           if (!error && data) dbExam = data;
         }
 
-        // 3. Nếu tìm thấy đề, tải riêng media_map của đúng đề này (tránh timeout khi query text)
-        if (dbExam && dbExam.id) {
+        // 3. Tải media_map nếu có đề
+        if (dbExam && dbExam.id && !dbExam.media_map) {
           try {
             const { data: mediaRow } = await supabase
               .from("practice_exams")
@@ -776,49 +780,43 @@ export function ExamRoomView({
             console.warn("Không thể tải media_map:", mErr);
           }
         }
+
         let targetExam = dbExam;
 
+        // 4. Fallback đọc localStorage
         if (!targetExam && typeof window !== "undefined") {
           const savedPractice = localStorage.getItem("edunexus_practice_exams");
           if (savedPractice) {
             try {
-              const exams = JSON.parse(savedPractice);
+              const list = JSON.parse(savedPractice);
+              const exams = Array.isArray(list) ? list : list?.exams || [];
               targetExam = exams.find((e: any) => e.id === quizId || e.title === quizTitle);
             } catch (e) {}
           }
         }
 
-        if (!targetExam) {
-          let allChapters: any = null;
-          if (typeof window !== "undefined") {
+        // 5. Fallback đọc từ cây khóa học lưu trong LocalStorage (không gọi Supabase courses để tiết kiệm băng thông)
+        if (!targetExam && typeof window !== "undefined") {
+          try {
             const localCourses = localStorage.getItem("edunexus_course_data");
             if (localCourses) {
-              try { allChapters = JSON.parse(localCourses); } catch (e) {}
-            }
-          }
-
-          if (!allChapters) {
-            const { data: courseRow } = await supabase
-              .from("courses")
-              .select("chapters")
-              .limit(1)
-              .maybeSingle();
-            allChapters = courseRow?.chapters;
-          }
-
-          if (Array.isArray(allChapters)) {
-            for (const chap of allChapters) {
-              for (const les of chap.lessons || []) {
-                const foundHw = (les.homework_files || []).find((f: any) => f.id === quizId || f.title === quizTitle);
-                const foundTest = (les.test_quizzes || []).find((f: any) => f.id === quizId || f.title === quizTitle);
-                if (foundHw) { targetExam = foundHw; break; }
-                if (foundTest) { targetExam = foundTest; break; }
+              const allChapters = JSON.parse(localCourses);
+              if (Array.isArray(allChapters)) {
+                for (const chap of allChapters) {
+                  for (const les of chap.lessons || []) {
+                    const foundHw = (les.homework_files || []).find((f: any) => f.id === quizId || f.title === quizTitle);
+                    const foundTest = (les.test_quizzes || []).find((f: any) => f.id === quizId || f.title === quizTitle);
+                    if (foundHw) { targetExam = foundHw; break; }
+                    if (foundTest) { targetExam = foundTest; break; }
+                  }
+                  if (targetExam) break;
+                }
               }
-              if (targetExam) break;
             }
-          }
+          } catch (e) {}
         }
 
+        // 6. Bóc tách câu hỏi từ targetExam
         if (targetExam) {
           if (targetExam.media_map && typeof targetExam.media_map === "object") {
             Object.assign(mappedImages, targetExam.media_map);
@@ -827,8 +825,20 @@ export function ExamRoomView({
             Object.assign(mappedImages, targetExam.mediaMap);
           }
 
-          const rawSections = targetExam.data || targetExam.sections;
-          if (rawSections && Array.isArray(rawSections)) {
+          // Xử lý chuỗi JSON hoặc object bọc
+          let rawSections = targetExam.data ?? targetExam.questions;
+          if (typeof rawSections === "string") {
+            try {
+              rawSections = JSON.parse(rawSections);
+            } catch (e) {
+              console.error("Lỗi parse data đề thi:", e);
+            }
+          }
+          if (rawSections && typeof rawSections === "object" && !Array.isArray(rawSections) && Array.isArray(rawSections.sections)) {
+            rawSections = rawSections.sections;
+          }
+
+          if (rawSections && Array.isArray(rawSections) && rawSections.length > 0) {
             let qIdx = 1;
 
             rawSections.forEach((sec: any) => {
