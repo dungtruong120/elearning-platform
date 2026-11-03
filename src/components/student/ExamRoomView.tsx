@@ -731,31 +731,32 @@ export function ExamRoomView({
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted, isReviewMode]);
 
   // TẢI CÂU HỎI VÀ MEDIAMAP
- useEffect(() => {
+useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
       let loaded: QuestionItem[] = [];
       let mappedImages: Record<string, string> = {};
 
       try {
-      let dbExam: any = null;
+        let dbExam: any = null;
+        const VALID_FIELDS = "id, title, data, questions, media_map";
 
-        // 1. Tìm chuẩn theo quizId (bỏ chữ sections để hết sạch lỗi 400)
+        // 1. Tìm theo quizId
         if (quizId) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select("id, title, data, questions, media_map")
+            .select(VALID_FIELDS)
             .eq("id", quizId)
             .maybeSingle();
 
           if (!error && data) dbExam = data;
         }
 
-        // 2. Dự phòng tìm theo title nếu quizId trượt
+        // 2. Dự phòng tìm theo title nếu quizId không khớp
         if (!dbExam && quizTitle) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select("id, title, data, questions, media_map")
+            .select(VALID_FIELDS)
             .ilike("title", `%${quizTitle.trim()}%`)
             .limit(1)
             .maybeSingle();
@@ -763,11 +764,7 @@ export function ExamRoomView({
           if (!error && data) dbExam = data;
         }
 
-        // 3. Log kiểm tra trực tiếp trên F12
-        console.log(">>> [DEBUG] dbExam tìm được từ Supabase:", dbExam);
-        }
-
-        // 3. Tải media_map nếu có đề
+        // 3. Nếu tìm thấy đề, tải riêng media_map của đúng đề này
         if (dbExam && dbExam.id && !dbExam.media_map) {
           try {
             const { data: mediaRow } = await supabase
@@ -797,7 +794,7 @@ export function ExamRoomView({
           }
         }
 
-        // 5. Fallback đọc từ cây khóa học lưu trong LocalStorage (không gọi Supabase courses để tiết kiệm băng thông)
+        // 5. Fallback đọc từ cây khóa học
         if (!targetExam && typeof window !== "undefined") {
           try {
             const localCourses = localStorage.getItem("edunexus_course_data");
@@ -827,7 +824,6 @@ export function ExamRoomView({
             Object.assign(mappedImages, targetExam.mediaMap);
           }
 
-          // Xử lý chuỗi JSON hoặc object bọc
           let rawSections = targetExam.data ?? targetExam.questions;
           if (typeof rawSections === "string") {
             try {
@@ -933,7 +929,6 @@ export function ExamRoomView({
 
     loadExamQuestions();
   }, [quizId, quizTitle]);
-
   // ĐỒNG HỒ ĐẾM GIỜ (DỪNG NGAY LẬP TỨC KHI Ở REVIEW MODE HOẶC ĐÃ NỘP BÀI)
   useEffect(() => {
     if (isSubmitted || isReviewMode || isGrading) return;
