@@ -733,19 +733,28 @@ export function ExamRoomView({
       let mappedImages: Record<string, string> = {};
 
       try {
-        let query = supabase
-          .from("practice_exams")
-          .select("id, title, data, sections, questions, media_map, mediaMap");
+        let dbExam: any = null;
 
-        if (quizId && quizTitle) {
-          query = query.or(`id.eq.${quizId},title.eq.${quizTitle}`);
-        } else if (quizId) {
-          query = query.eq("id", quizId);
-        } else {
-          query = query.eq("title", quizTitle);
+        // 1. Tìm theo quizId trước
+        if (quizId) {
+          const { data } = await supabase
+            .from("practice_exams")
+            .select("id, title, data, sections, questions, media_map, mediaMap")
+            .eq("id", quizId)
+            .maybeSingle();
+          dbExam = data;
         }
 
-        const { data: dbExam } = await query.limit(1).maybeSingle();
+        // 2. Nếu id không khớp, tìm theo title bằng ilike (không bao giờ bị lỗi khoảng trắng)
+        if (!dbExam && quizTitle) {
+          const { data } = await supabase
+            .from("practice_exams")
+            .select("id, title, data, sections, questions, media_map, mediaMap")
+            .ilike("title", `%${quizTitle.trim()}%`)
+            .limit(1)
+            .maybeSingle();
+          dbExam = data;
+        }
 
         let targetExam = dbExam;
 
