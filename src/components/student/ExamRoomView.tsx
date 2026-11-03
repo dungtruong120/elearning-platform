@@ -735,14 +735,14 @@ export function ExamRoomView({
       try {
      let dbExam: any = null;
 
-        // 1. Chỉ lấy đúng các cột chứa câu hỏi (bỏ qua media_map và sections để chống timeout 500)
-        const EXAM_FIELDS = "id, title, data, questions";
+        // Bỏ hoàn toàn chữ "sections" và "mediaMap" để không bị lỗi 400
+        const VALID_FIELDS = "id, title, data, questions, media_map";
 
-        // Tìm chính xác theo quizId trước
+        // 1. Tìm theo quizId
         if (quizId) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select(EXAM_FIELDS)
+            .select(VALID_FIELDS)
             .eq("id", quizId)
             .maybeSingle();
 
@@ -753,7 +753,7 @@ export function ExamRoomView({
         if (!dbExam && quizTitle) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select(EXAM_FIELDS)
+            .select(VALID_FIELDS)
             .ilike("title", `%${quizTitle.trim()}%`)
             .limit(1)
             .maybeSingle();
