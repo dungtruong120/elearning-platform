@@ -733,24 +733,27 @@ export function ExamRoomView({
       let mappedImages: Record<string, string> = {};
 
       try {
-        let dbExam: any = null;
+     let dbExam: any = null;
 
-        // 1. Dùng select("*") bốc đúng 1 đề duy nhất theo quizId (chỉ ~20 KB, không bao giờ lỗi cột)
+        // 1. Chỉ lấy đúng các cột chứa câu hỏi (bỏ qua media_map và sections để chống timeout 500)
+        const EXAM_FIELDS = "id, title, data, questions";
+
+        // Tìm chính xác theo quizId trước
         if (quizId) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select("*")
+            .select(EXAM_FIELDS)
             .eq("id", quizId)
             .maybeSingle();
 
           if (!error && data) dbExam = data;
         }
 
-        // 2. Dự phòng tìm theo title nếu quizId trượt
+        // 2. Dự phòng tìm theo title nếu quizId không khớp
         if (!dbExam && quizTitle) {
           const { data, error } = await supabase
             .from("practice_exams")
-            .select("*")
+            .select(EXAM_FIELDS)
             .ilike("title", `%${quizTitle.trim()}%`)
             .limit(1)
             .maybeSingle();
@@ -758,9 +761,21 @@ export function ExamRoomView({
           if (!error && data) dbExam = data;
         }
 
-        // Log kiểm tra trực tiếp
-        console.log(">>> [DEBUG] dbExam tìm được:", dbExam);
-
+        // 3. Nếu tìm thấy đề, tải riêng media_map của đúng đề này (tránh timeout khi query text)
+        if (dbExam && dbExam.id) {
+          try {
+            const { data: mediaRow } = await supabase
+              .from("practice_exams")
+              .select("media_map")
+              .eq("id", dbExam.id)
+              .maybeSingle();
+            if (mediaRow?.media_map) {
+              dbExam.media_map = mediaRow.media_map;
+            }
+          } catch (mErr) {
+            console.warn("Không thể tải media_map:", mErr);
+          }
+        }
         let targetExam = dbExam;
 
         if (!targetExam && typeof window !== "undefined") {
