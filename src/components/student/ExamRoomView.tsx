@@ -729,15 +729,19 @@ export function ExamRoomView({
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
-      let loaded: QuestionItem[] = [];
-      let mappedImages: Record<string, string> = {};
+     let query = supabase
+          .from("practice_exams")
+          .select("id, title, data, sections, questions, media_map, mediaMap");
 
-      try {
-        const { data: dbExam } = await supabase
-  .from("practice_exams")
-  .select("id, title, data, sections, questions, media_map, mediaMap")
-  .eq("id", quizId)
-  .maybeSingle();
+        if (quizId && quizTitle) {
+          query = query.or(`id.eq.${quizId},title.eq.${quizTitle}`);
+        } else if (quizId) {
+          query = query.eq("id", quizId);
+        } else {
+          query = query.eq("title", quizTitle);
+        }
+
+        const { data: dbExam } = await query.limit(1).maybeSingle();
 
         let targetExam = dbExam;
 
