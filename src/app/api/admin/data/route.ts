@@ -26,9 +26,10 @@ export async function GET() {
         .select("*")
         .order("created_at", { ascending: false }),
       supabaseServer
-        .from("practice_exams")
-        .select("id, title, exam_code, category, duration_minutes, total_questions, allowRetake, allowViewFile, driveUrl, created_at, updated_at")
-        .order("created_at", { ascending: false }),
+       .from("practice_exams")
+        .select("id, title, exam_code, category, duration_minutes, total_questions, data, sections, questions, allowRetake, allowViewFile, driveUrl, created_at, updated_at")
+        .order("created_at", { ascending: false })
+        .limit(50),
       supabaseServer
   .from("exam_attempts")
   .select("id, quiz_id, exam_id, quiz_title, exam_title, student_id, student_name, full_name, school, score, points, total_questions, correct_count, time_spent, duration_seconds, is_homework, type, submission_type, created_at, updated_at")
