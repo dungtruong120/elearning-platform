@@ -729,7 +729,11 @@ export function ExamRoomView({
   useEffect(() => {
     setIsLoading(true);
     const loadExamQuestions = async () => {
-     let query = supabase
+      let loaded: QuestionItem[] = [];
+      let mappedImages: Record<string, string> = {};
+
+      try {
+        let query = supabase
           .from("practice_exams")
           .select("id, title, data, sections, questions, media_map, mediaMap");
 
@@ -756,7 +760,6 @@ export function ExamRoomView({
         }
 
         if (!targetExam) {
-          // 1. Kiểm tra cache máy trước (0 KB Egress)
           let allChapters: any = null;
           if (typeof window !== "undefined") {
             const localCourses = localStorage.getItem("edunexus_course_data");
@@ -765,7 +768,6 @@ export function ExamRoomView({
             }
           }
 
-          // 2. Chỉ khi trong máy chưa từng lưu mới gọi lên Supabase
           if (!allChapters) {
             const { data: courseRow } = await supabase
               .from("courses")
