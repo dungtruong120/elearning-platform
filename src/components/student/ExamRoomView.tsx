@@ -734,10 +734,10 @@ export function ExamRoomView({
 
       try {
         const { data: dbExam } = await supabase
-          .from("practice_exams")
-          .select("*")
-          .eq("id", quizId)
-          .maybeSingle();
+  .from("practice_exams")
+  .select("id, title, sections, questions, media_map, mediaMap")
+  .eq("id", quizId)
+  .maybeSingle();
 
         let targetExam = dbExam;
 
@@ -752,13 +752,23 @@ export function ExamRoomView({
         }
 
         if (!targetExam) {
-          const { data: courseRow } = await supabase.from("courses").select("chapters").limit(1).maybeSingle();
-          let allChapters = courseRow?.chapters;
-          if (!allChapters && typeof window !== "undefined") {
+          // 1. Kiểm tra cache máy trước (0 KB Egress)
+          let allChapters: any = null;
+          if (typeof window !== "undefined") {
             const localCourses = localStorage.getItem("edunexus_course_data");
             if (localCourses) {
               try { allChapters = JSON.parse(localCourses); } catch (e) {}
             }
+          }
+
+          // 2. Chỉ khi trong máy chưa từng lưu mới gọi lên Supabase
+          if (!allChapters) {
+            const { data: courseRow } = await supabase
+              .from("courses")
+              .select("chapters")
+              .limit(1)
+              .maybeSingle();
+            allChapters = courseRow?.chapters;
           }
 
           if (Array.isArray(allChapters)) {
