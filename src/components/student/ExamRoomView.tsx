@@ -558,6 +558,7 @@ export function ExamRoomView({
   }, [isReviewMode, questions, reviewAttempt, isQuestionTrueFalse, isQuestionShortAnswer, score, correctCount]);
 
   // HÀM TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA TỪ SUPABASE + API + LOCALSTORAGE (GROUP BY HỌC SINH LẤY ĐIỂM MAX)
+// HÀM TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA TỐI ƯU HÓA (ĐÃ CHUẨN CẤU TRÚC NGOẶC)
   const fetchFullExamLeaderboard = useCallback(
     async (latestClientAttempt?: any) => {
       setIsLoadingRanking(true);
@@ -596,9 +597,7 @@ export function ExamRoomView({
         } catch {}
       }
 
-      // 2. Nguồn API Server (/api/admin/data) & Supabase Cloud
-      try {
-        // 2. Tải bảng xếp hạng tối ưu: Chỉ lấy đúng cột cần dùng + Giới hạn Top 50 (Tiết kiệm 99% Egress)
+      // 2. Nguồn Supabase Cloud (Chỉ kéo các cột cần thiết + Giới hạn limit để tiết kiệm Egress)
       try {
         const [dbExamAtt, dbProfiles] = await Promise.allSettled([
           supabase
@@ -639,7 +638,7 @@ export function ExamRoomView({
         return (targetIdNorm && aId === targetIdNorm) || (targetTitleNorm && aTitle === targetTitleNorm);
       });
 
-      // 4. THUẬT TOÁN GROUP BY HỌC SINH: MỖI HỌC SINH CHỈ LẤY 1 KẾT QUẢ CAO NHẤT (MAX SCORE)
+      // 4. Group by từng học sinh lấy điểm cao nhất
       const currentUserId = String(profile?.id || (profile as any)?.username || "").trim().toLowerCase();
       const currentUserNameNorm = normalizeTextKey(profile?.full_name || (profile as any)?.username || "");
 
@@ -695,7 +694,6 @@ export function ExamRoomView({
         }
       });
 
-      // Đảm bảo luôn có mặt học sinh hiện tại trong BXH nếu vừa nộp bài
       if (latestClientAttempt && !groupedByStudent.has("__CURRENT_USER__")) {
         groupedByStudent.set("__CURRENT_USER__", {
           studentKey: "__CURRENT_USER__",
