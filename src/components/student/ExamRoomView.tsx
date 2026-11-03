@@ -735,7 +735,7 @@ export function ExamRoomView({
       try {
         const { data: dbExam } = await supabase
   .from("practice_exams")
-  .select("id, title, sections, questions, media_map, mediaMap")
+  .select("id, title, data, sections, questions, media_map, mediaMap")
   .eq("id", quizId)
   .maybeSingle();
 
