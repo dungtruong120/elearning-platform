@@ -296,7 +296,7 @@ export function LessonWorkspaceView({
 
         const { data: dbPrac } = await supabase
           .from("practice_exams")
-          .select("*")
+          .select("id, title, data, questions, media_map")
           .eq("id", targetId)
           .maybeSingle();
 
