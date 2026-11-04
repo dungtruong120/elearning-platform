@@ -279,7 +279,7 @@ export function LessonWorkspaceView({
     const targetTitle = String(rawQuizItem.title || "").trim();
 
     // Các cột an toàn: Không lấy media_map hàng loạt để tránh tràn MB
-    const PRAC_FIELDS = "id, title, data, questions, media_map";
+    const PRAC_FIELDS = "id, title, data, media_map";
 
     try {
       setIsResolvingExam(true);
