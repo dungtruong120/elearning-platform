@@ -741,9 +741,8 @@ export function ExamRoomView({
 
       try {
         let dbExam: any = null;
-        const VALID_FIELDS = "id, title, data, questions, media_map";
+        const VALID_FIELDS = "id, title, data, media_map";
 
-        // 1. Tìm chính xác theo quizId
         if (quizId) {
           const { data, error } = await supabase
             .from("practice_exams")
@@ -754,7 +753,6 @@ export function ExamRoomView({
           if (!error && data) dbExam = data;
         }
 
-        // 2. Dự phòng tìm theo title nếu quizId không khớp
         if (!dbExam && quizTitle) {
           const { data, error } = await supabase
             .from("practice_exams")
