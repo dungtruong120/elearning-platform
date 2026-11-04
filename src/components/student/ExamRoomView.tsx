@@ -733,15 +733,16 @@ export function ExamRoomView({
   // TẢI CÂU HỎI VÀ MEDIAMAP
 useEffect(() => {
     setIsLoading(true);
-    const loadExamQuestions = async () => {
+  const loadExamQuestions = async () => {
       let loaded: QuestionItem[] = [];
       let mappedImages: Record<string, string> = {};
 
       try {
         let dbExam: any = null;
+        // Chỉ lấy đúng các cột có thật trong database
         const VALID_FIELDS = "id, title, data, questions, media_map";
 
-        // 1. Tìm theo quizId
+        // 1. Tìm chính xác theo quizId
         if (quizId) {
           const { data, error } = await supabase
             .from("practice_exams")
@@ -764,89 +765,46 @@ useEffect(() => {
           if (!error && data) dbExam = data;
         }
 
-        // 3. Nếu tìm thấy đề, tải riêng media_map của đúng đề này
-        if (dbExam && dbExam.id && !dbExam.media_map) {
-          try {
-            const { data: mediaRow } = await supabase
-              .from("practice_exams")
-              .select("media_map")
-              .eq("id", dbExam.id)
-              .maybeSingle();
-            if (mediaRow?.media_map) {
-              dbExam.media_map = mediaRow.media_map;
-            }
-          } catch (mErr) {
-            console.warn("Không thể tải media_map:", mErr);
-          }
-        }
-
         let targetExam = dbExam;
 
-        // 4. Fallback đọc localStorage
-        if (!targetExam && typeof window !== "undefined") {
-          const savedPractice = localStorage.getItem("edunexus_practice_exams");
-          if (savedPractice) {
-            try {
-              const list = JSON.parse(savedPractice);
-              const exams = Array.isArray(list) ? list : list?.exams || [];
-              targetExam = exams.find((e: any) => e.id === quizId || e.title === quizTitle);
-            } catch (e) {}
-          }
-        }
-
-        // 5. Fallback đọc từ cây khóa học
+        // 3. Fallback đọc localStorage nếu database chưa tải được
         if (!targetExam && typeof window !== "undefined") {
           try {
-            const localCourses = localStorage.getItem("edunexus_course_data");
-            if (localCourses) {
-              const allChapters = JSON.parse(localCourses);
-              if (Array.isArray(allChapters)) {
-                for (const chap of allChapters) {
-                  for (const les of chap.lessons || []) {
-                    const foundHw = (les.homework_files || []).find((f: any) => f.id === quizId || f.title === quizTitle);
-                    const foundTest = (les.test_quizzes || []).find((f: any) => f.id === quizId || f.title === quizTitle);
-                    if (foundHw) { targetExam = foundHw; break; }
-                    if (foundTest) { targetExam = foundTest; break; }
-                  }
-                  if (targetExam) break;
-                }
-              }
+            const saved = localStorage.getItem("edunexus_practice_exams");
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              const list = Array.isArray(parsed) ? parsed : parsed?.exams || [];
+              targetExam = list.find((e: any) => e.id === quizId || e.title === quizTitle);
             }
           } catch (e) {}
         }
 
-        // 6. Bóc tách câu hỏi từ targetExam
         if (targetExam) {
+          // Gán media_map
           if (targetExam.media_map && typeof targetExam.media_map === "object") {
             Object.assign(mappedImages, targetExam.media_map);
           }
-          if (targetExam.mediaMap && typeof targetExam.mediaMap === "object") {
-            Object.assign(mappedImages, targetExam.mediaMap);
-          }
 
-          let rawSections = targetExam.data ?? targetExam.questions;
-          if (typeof rawSections === "string") {
+          // Lấy dữ liệu 3 sections từ cột data
+          let rawData = targetExam.data ?? targetExam.questions;
+          if (typeof rawData === "string") {
             try {
-              rawSections = JSON.parse(rawSections);
+              rawData = JSON.parse(rawData);
             } catch (e) {
-              console.error("Lỗi parse data đề thi:", e);
+              console.error("Lỗi parse JSON:", e);
             }
           }
-          if (rawSections && typeof rawSections === "object" && !Array.isArray(rawSections) && Array.isArray(rawSections.sections)) {
-            rawSections = rawSections.sections;
-          }
 
-          if (rawSections && Array.isArray(rawSections) && rawSections.length > 0) {
+          // Trích xuất toàn bộ câu hỏi từ mảng sections
+          if (Array.isArray(rawData)) {
             let qIdx = 1;
 
-            rawSections.forEach((sec: any) => {
-              if (sec.mediaMap && typeof sec.mediaMap === "object") {
-                Object.assign(mappedImages, sec.mediaMap);
-              }
+            rawData.forEach((sec: any) => {
               if (sec.media_map && typeof sec.media_map === "object") {
                 Object.assign(mappedImages, sec.media_map);
               }
 
+              // Xác định loại câu hỏi: multiple_choice, true_false hoặc short_answer
               const secType = sec.section_type || sec.type || (
                 sec.section_title && /đúng\s*sai/i.test(sec.section_title)
                   ? "true_false"
@@ -855,29 +813,19 @@ useEffect(() => {
                   : "multiple_choice"
               );
 
-              (sec.questions || []).forEach((q: any) => {
+              const secQuestions = sec.questions || (Array.isArray(sec) ? sec : []);
+
+              secQuestions.forEach((q: any) => {
                 const qType = q.type || secType || "multiple_choice";
-
-                const questionSpecificMedia: Record<string, string> = {};
-                if (q.mediaMap && typeof q.mediaMap === "object") {
-                  Object.assign(questionSpecificMedia, q.mediaMap);
-                }
-                if (q.media_map && typeof q.media_map === "object") {
-                  Object.assign(questionSpecificMedia, q.media_map);
-                }
-
-                for (const [mk, mv] of Object.entries(questionSpecificMedia)) {
-                  if (mv && !mappedImages[mk]) {
-                    mappedImages[mk] = mv;
-                  }
-                }
-
                 const promptStr = q.prompt_html || q.prompt || "";
                 const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
-                const qRealId = q.id || ("q-" + qIdx);
+
+                if (q.media_map && typeof q.media_map === "object") {
+                  Object.assign(mappedImages, q.media_map);
+                }
 
                 loaded.push({
-                  id: qRealId,
+                  id: q.id || `q-${qIdx}`,
                   order: qIdx++,
                   type: qType,
                   prompt: promptStr,
@@ -888,37 +836,23 @@ useEffect(() => {
                   correctAnswer: q.correct_answer || q.correctAnswer || "A",
                   explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
                   image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
-                  mediaMap: { ...mappedImages, ...questionSpecificMedia }
+                  mediaMap: mappedImages
                 });
               });
             });
-          } else if (targetExam.questions && Array.isArray(targetExam.questions)) {
-            loaded = targetExam.questions.map((q: any, idx: number) => {
-              const promptStr = q.prompt_html || q.prompt || ("Câu " + (idx + 1));
-              const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
-              const qRealId = q.id || ("q-" + (idx + 1));
-              return {
-                id: qRealId,
-                order: idx + 1,
-                type: q.type || "multiple_choice",
-                prompt: promptStr,
-                options: (q.options || []).map((opt: any) => ({
-                  key: opt.key,
-                  text: opt.text_html || opt.text || ""
-                })),
-                correctAnswer: q.correct_answer || q.correctAnswer || "A",
-                explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
-                image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
-                mediaMap: mappedImages
-              };
-            });
           }
 
-          setMediaMap(mappedImages);
+          if (loaded.length > 0) {
+            setQuestions(loaded);
+            setMediaMap(mappedImages);
+          }
         }
       } catch (err) {
-        console.error("Lỗi khi tải đề thi:", err);
+        console.error("Lỗi khi nạp dữ liệu đề thi:", err);
+      } finally {
+        setIsLoading(false);
       }
+    };
 
       if (loaded.length === 0) {
         loaded = DEFAULT_QUESTIONS;
