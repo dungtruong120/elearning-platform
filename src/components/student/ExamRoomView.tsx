@@ -731,15 +731,16 @@ export function ExamRoomView({
   }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted, isReviewMode]);
 
   // TẢI CÂU HỎI VÀ MEDIAMAP
-useEffect(() => {
+// TẢI CÂU HỎI VÀ MEDIAMAP
+  useEffect(() => {
     setIsLoading(true);
-  const loadExamQuestions = async () => {
+
+    const loadExamQuestions = async () => {
       let loaded: QuestionItem[] = [];
       let mappedImages: Record<string, string> = {};
 
       try {
         let dbExam: any = null;
-        // Chỉ lấy đúng các cột có thật trong database
         const VALID_FIELDS = "id, title, data, questions, media_map";
 
         // 1. Tìm chính xác theo quizId
@@ -767,7 +768,7 @@ useEffect(() => {
 
         let targetExam = dbExam;
 
-        // 3. Fallback đọc localStorage nếu database chưa tải được
+        // 3. Fallback đọc localStorage
         if (!targetExam && typeof window !== "undefined") {
           try {
             const saved = localStorage.getItem("edunexus_practice_exams");
@@ -780,12 +781,10 @@ useEffect(() => {
         }
 
         if (targetExam) {
-          // Gán media_map
           if (targetExam.media_map && typeof targetExam.media_map === "object") {
             Object.assign(mappedImages, targetExam.media_map);
           }
 
-          // Lấy dữ liệu 3 sections từ cột data
           let rawData = targetExam.data ?? targetExam.questions;
           if (typeof rawData === "string") {
             try {
@@ -795,7 +794,6 @@ useEffect(() => {
             }
           }
 
-          // Trích xuất toàn bộ câu hỏi từ mảng sections
           if (Array.isArray(rawData)) {
             let qIdx = 1;
 
@@ -804,7 +802,6 @@ useEffect(() => {
                 Object.assign(mappedImages, sec.media_map);
               }
 
-              // Xác định loại câu hỏi: multiple_choice, true_false hoặc short_answer
               const secType = sec.section_type || sec.type || (
                 sec.section_title && /đúng\s*sai/i.test(sec.section_title)
                   ? "true_false"
@@ -850,15 +847,11 @@ useEffect(() => {
       } catch (err) {
         console.error("Lỗi khi nạp dữ liệu đề thi:", err);
       } finally {
+        if (loaded.length === 0) {
+          setQuestions(DEFAULT_QUESTIONS);
+        }
         setIsLoading(false);
       }
-    };
-
-      if (loaded.length === 0) {
-        loaded = DEFAULT_QUESTIONS;
-      }
-      setQuestions(loaded);
-      setIsLoading(false);
     };
 
     loadExamQuestions();
