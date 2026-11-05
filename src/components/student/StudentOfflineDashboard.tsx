@@ -335,6 +335,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [offlineToast, setOfflineToast] = useState<string>("");
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
+  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
     try {
       const { data: courseRow } = await supabase
@@ -442,7 +443,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       } catch (e) {}
     }
   }, [profile?.id]);
-
   const loadSessionsData = useCallback(async () => {
     try {
       const { data, error } = await supabase
