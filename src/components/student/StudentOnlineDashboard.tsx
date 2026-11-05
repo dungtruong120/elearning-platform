@@ -197,7 +197,7 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
-  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
+// 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
     try {
       const { data: courseRow } = await supabase
@@ -206,7 +206,7 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
         .limit(1)
         .maybeSingle();
 
-      if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
+      if (courseRow?.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
         setChapters(courseRow.chapters);
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
@@ -227,7 +227,8 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
           localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
         }
       }
-    } catch (e) {} finally {
+    } catch (e) {
+    } finally {
       setIsLoadingExams(false);
     }
 
@@ -245,14 +246,63 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
       }
     } catch (e) {}
 
+    // Đồng bộ lịch sử thi
+    let mergedAttempts: any[] = [];
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
-        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+        if (savedAttempts) {
+          const parsed = JSON.parse(savedAttempts);
+          if (Array.isArray(parsed)) mergedAttempts.push(...parsed);
+        }
       } catch (e) {}
+    }
 
-      const studySecs = parseInt(localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0", 10);
+    try {
+      const { data: cloudAttempts } = await supabase
+        .from("exam_attempts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (cloudAttempts && Array.isArray(cloudAttempts)) {
+        const seenIds = new Set(mergedAttempts.map((a: any) => String(a?.id || "")));
+        cloudAttempts.forEach((ca: any) => {
+          const cid = String(ca?.id || "");
+          if (cid && !seenIds.has(cid)) {
+            seenIds.add(cid);
+            mergedAttempts.push(ca);
+          }
+        });
+      }
+    } catch (e) {}
+
+    if (mergedAttempts.length > 0) {
+      setAllAttempts(mergedAttempts);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("edunexus_attempts", JSON.stringify(mergedAttempts));
+        } catch (e) {}
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      const studySecs = parseInt(
+        localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0",
+        10
+      );
       setTotalStudySeconds(studySecs);
+
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        const savedTct = localStorage.getItem("tct_attendance_records");
+        const listAtt = savedAtt ? JSON.parse(savedAtt) : [];
+        const listTct = savedTct ? JSON.parse(savedTct) : [];
+        const combined = [...listAtt, ...listTct];
+        if (Array.isArray(combined)) {
+          setOfflineAttendance(combined.filter((a: any) => a.studentId === profile?.id));
+        }
+      } catch (e) {}
     }
   }, [profile?.id]);
 
