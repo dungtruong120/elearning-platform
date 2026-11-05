@@ -135,7 +135,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return null;
   });
 
-  // TÍCH HỢP HOOK ĐỒNG BỘ NGẦM LỊCH SỬ THI KHÔNG GÂY LAG
   useAutoSyncAttempts(profile);
 
   useEffect(() => {
@@ -149,7 +148,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return formatStudentAutoSBD(rawCode);
   }, [profile]);
 
-  // 1. ĐỒNG BỘ TAB TỪ URL HASH & HIỆU ỨNG LOADING CHUYỂN TAB MƯỢT MÀ
   const [activeTab, setActiveTabState] = useState<string>(() => {
     if (typeof window !== "undefined") {
       const hash = window.location.hash.replace("#", "").trim();
@@ -178,7 +176,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // 2. KHỞI TẠO TỨC THÌ TỪ LOCALSTORAGE TRÁNH TRỄ TRANG
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -299,7 +296,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return () => clearInterval(timer);
   }, []);
 
-  // STATE ĐIỀU HƯỚNG CÁC CHẾ ĐỘ LÀM BÀI (WEB / PHIẾU TÔ ONLINE / QUÉT PHIẾU GIẤY)
   const [examRoom, setExamRoom] = useState<{
     id: string;
     title: string;
@@ -311,7 +307,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
-  // STATE POPUP CHỌN HÌNH THỨC LÀM BÀI & CHẾ ĐỘ PHIẾU TRẮC NGHIỆM
   const [entryModalState, setEntryModalState] = useState<{
     isOpen: boolean;
     exam: any | null;
@@ -334,17 +329,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     exam: any;
   } | null>(null);
 
-  // STATE QUẢN LÝ CHẾ ĐỘ XEM LẠI BÀI LÀM CỦA HỌC SINH
   const [reviewAttemptData, setReviewAttemptData] = useState<{ exam: any; attempt: any } | null>(
     null
   );
   const [offlineToast, setOfflineToast] = useState<string>("");
 
-  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (GỘP CẢ EXAM_ATTEMPTS TỪ SUPABASE ĐỂ BẢNG XẾP HẠNG & LỊCH SỬ LUÔN ĐẦY ĐỦ)
- // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (TỐI ƯU HÓA)
- // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
+  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (TỐI ƯU HÓA EGRESS)
   const fetchAuthAndData = useCallback(async () => {
-    // 1. Kéo bài học từ bảng chapters & lessons
     try {
       const [chapsRes, lessRes] = await Promise.all([
         supabase
@@ -386,10 +377,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         if (curr?.chapters) setChapters(curr.chapters);
       }
     } catch (e) {
-      console.error("Lỗi tải bài học online:", e);
+      console.error("Lỗi tải bài học offline:", e);
     }
 
-    // 2. Chỉ tải metadata đề thi
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
@@ -406,7 +396,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       setIsLoadingExams(false);
     }
 
-    // 3. Tải thông báo hệ thống
     try {
       const { data: dbNotifs } = await supabase
         .from("system_notifications")
@@ -419,18 +408,62 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       }
     } catch (e) {}
 
-    // 4. Lấy lịch sử thi và thời gian học
+    let mergedAttempts: any[] = [];
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
-        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+        if (savedAttempts) {
+          const parsed = JSON.parse(savedAttempts);
+          if (Array.isArray(parsed)) mergedAttempts.push(...parsed);
+        }
       } catch (e) {}
+    }
 
+    try {
+      const { data: cloudAttempts } = await supabase
+        .from("exam_attempts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (cloudAttempts && Array.isArray(cloudAttempts)) {
+        const seenIds = new Set(mergedAttempts.map((a: any) => String(a?.id || "")));
+        cloudAttempts.forEach((ca: any) => {
+          const cid = String(ca?.id || "");
+          if (cid && !seenIds.has(cid)) {
+            seenIds.add(cid);
+            mergedAttempts.push(ca);
+          }
+        });
+      }
+    } catch (e) {}
+
+    if (mergedAttempts.length > 0) {
+      setAllAttempts(mergedAttempts);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("edunexus_attempts", JSON.stringify(mergedAttempts));
+        } catch (e) {}
+      }
+    }
+
+    if (typeof window !== "undefined") {
       const studySecs = parseInt(
         localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0",
         10
       );
       setTotalStudySeconds(studySecs);
+
+      try {
+        const savedAtt = localStorage.getItem("edunexus_attendance");
+        const savedTct = localStorage.getItem("tct_attendance_records");
+        const listAtt = savedAtt ? JSON.parse(savedAtt) : [];
+        const listTct = savedTct ? JSON.parse(savedTct) : [];
+        const combined = [...listAtt, ...listTct];
+        if (Array.isArray(combined)) {
+          setOfflineAttendance(combined.filter((a: any) => a.studentId === profile?.id));
+        }
+      } catch (e) {}
     }
   }, [profile?.id]);
 
@@ -548,7 +581,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return () => window.removeEventListener("readNotifsUpdated", syncReadNotifs);
   }, [syncReadNotifs]);
 
-  // 4. LỌC TOÀN BỘ BÀI NỘP CỦA CHÍNH HỌC SINH NÀY (HỖ TRỢ ĐA TẦNG UUID, USERNAME, EMAIL, FULL_NAME)
   const myAttempts = useMemo(() => {
     if (!profile) return [];
     const pId = String(profile.id || "").trim().toLowerCase();
@@ -881,7 +913,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     setTimeout(() => setOfflineToast(""), 4000);
   };
 
-  // KIỂM TRA TRẠNG THÁI HOÀN THÀNH CỦA BÀI HỌC DỰA TRÊN LƯỢT LÀM BÀI
   const getLessonCompletionStatus = useCallback(
     (lesson: any) => {
       const hwIds = (lesson.homework_files || [])
@@ -908,7 +939,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     [myAttempts]
   );
 
-  // HÀM TRA CỨU BÀI LÀM ĐA TẦNG CHO BTVN VÀ BÀI KIỂM TRA
   const findAttemptForLesson = useCallback(
     (quiz: any, lessonTitle: string, isHomeworkCheck: boolean) => {
       const qId = quiz?.id ? String(quiz.id).trim().toLowerCase() : "";
@@ -952,7 +982,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     [myAttempts]
   );
 
-  // DỮ LIỆU TÍNH TOÁN TIẾN ĐỘ HỌC TẬP TAB #PROGRESS
   const progressStats = useMemo(() => {
     let totalHw = 0;
     let submittedHw = 0;
@@ -989,7 +1018,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     };
   }, [offlineChapters, findAttemptForLesson]);
 
-  // Lọc chính xác danh sách lượt nộp của học sinh cho đề đang mở trong Workspace
   const currentWorkspaceAttempts = useMemo(() => {
     if (!workspacePracticeExam) return [];
     const targetId = String(workspacePracticeExam.id || "").trim().toLowerCase();
@@ -1001,7 +1029,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     });
   }, [workspacePracticeExam, myAttempts]);
 
-  // Mở Popup chọn hình thức thi (Web / Quét phiếu giấy / Tô phiếu Online)
   const handleTriggerExamEntryModal = useCallback(
     (examObj: any, isHomeworkFlag: boolean = false) => {
       setEntryModalState({
@@ -1013,7 +1040,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     []
   );
 
-  // Callback thống nhất khi học sinh hoàn thành quét phiếu giấy
   const handleDashboardPaperScanCompleted = useCallback(
     (attemptRecord: ExamAttempt) => {
       const scannedExam = activePaperScanState?.exam;
@@ -1028,7 +1054,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     },
     [activePaperScanState, fetchAuthAndData]
   );
-// HÀM TẢI ĐỘNG CHI TIẾT BÀI HỌC KHI HỌC SINH CLICK VÀO BÀI
+
+  // HÀM TẢI ĐỘNG CHI TIẾT BÀI HỌC KHI HỌC SINH CLICK VÀO BÀI
   const handleOpenLesson = async (les: any) => {
     if (les.video_list && les.lecture_files && les.video_list.length > 0) {
       setSelectedLesson(les);
@@ -1072,7 +1099,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       setPreviewExam(exam);
     }
   };
-  // 1. RENDER CHẾ ĐỘ XEM LẠI BÀI THI TRÊN PHIẾU (GIẤY HOẶC PHIẾU ONLINE)
+
   if (paperReviewAttemptState) {
     return (
       <PaperReviewView
@@ -1087,7 +1114,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     );
   }
 
-  // 2. RENDER GIAO DIỆN TÔ PHIẾU TRẮC NGHIỆM ONLINE TRÊN WEB
   if (activeDigitalSheetExam) {
     return (
       <DigitalAnswerSheetView
@@ -1111,7 +1137,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     );
   }
 
-  // 3. ƯU TIÊN RENDER CHẾ ĐỘ XEM LẠI BÀI LÀM WEB (REVIEW MODE ĐỘC LẬP)
   if (reviewAttemptData) {
     const isPaperOrDigital =
       reviewAttemptData.attempt?.submission_type === "paper" ||
@@ -1149,7 +1174,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     );
   }
 
-  // 4. RENDER PHÒNG LÀM BÀI THI TRỰC TIẾP TRÊN WEB
   if (examRoom) {
     return (
       <ExamRoomView
@@ -1168,7 +1192,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     );
   }
 
-  // 5. RENDER KHÔNG GIAN BÀI HỌC (KÈM HIỆU ỨNG CHUYỂN CẢNH MƯỢT MÀ)
   if (selectedLesson) {
     return (
       <AnimatePresence mode="wait">
@@ -1201,7 +1224,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     );
   }
 
-  // 6. RENDER KHÔNG GIAN VIDEO CHỮA ĐỀ THỰC CHIẾN
   if (workspacePracticeExam) {
     return (
       <AnimatePresence mode="wait">
@@ -1243,7 +1265,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         )}
       </AnimatePresence>
 
-      {/* SIDEBAR BÊN TRÁI TINH TẾ */}
       <div
         className={
           "h-full shrink-0 transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden hidden md:block z-40 " +
@@ -1289,7 +1310,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         </div>
 
         <main className="flex-1 p-3.5 sm:px-6 py-4 pb-20 md:pb-6 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out w-full">
-          {/* HIỆU ỨNG SKELETON LOADING KHI CHUYỂN TAB MƯỢT MÀ */}
           {isTabChanging ? (
             <div className="max-w-5xl mx-auto space-y-4 animate-pulse">
               <div className="h-14 bg-slate-200/70 rounded-xl w-full" />
@@ -1310,10 +1330,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                 transition={{ duration: 0.16, ease: "easeInOut" }}
                 className="w-full"
               >
-                {/* TAB 1: TỔNG QUAN (#OVERVIEW) */}
                 {activeTab === "overview" && (
                   <div className="w-full max-w-5xl mx-auto space-y-4 text-left">
-                    {/* BANNER CA HỌC TRỰC TIẾP TẠI LỚP TCT */}
                     {todayOfflineSession && (
                       <motion.div
                         initial={{ opacity: 0, y: -4 }}
@@ -1382,7 +1400,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                       </motion.div>
                     )}
 
-                    {/* THANH CHÀO MỪNG SLIM WELCOME BAR TINH GỌN */}
                     <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5 flex-wrap">
                         <span className="text-[13.5px] font-semibold text-slate-800">
@@ -1408,7 +1425,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                       </div>
                     </div>
 
-                    {/* DANH SÁCH BÀI HỌC CỘT DỌC */}
                     <div className="space-y-3.5">
                       {offlineChapters.map((chap, idx) => (
                         <div
@@ -1430,10 +1446,10 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                           <div className="flex flex-col space-y-2 pt-1">
                             {(chap.lessons || []).map((les: any) => (
                               <div
-  key={les.id}
-  onClick={() => handleOpenLesson(les)}
-  className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
->
+                                key={les.id}
+                                onClick={() => handleOpenLesson(les)}
+                                className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                              >
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                                   <span className="text-[13.5px] sm:text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">
@@ -1450,7 +1466,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                   </div>
                 )}
 
-                {/* TAB 2: BÀI HỌC (#COURSES) */}
                 {activeTab === "courses" && (
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
                     <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
@@ -1564,8 +1579,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
                                           {status === "completed" ? (
                                             <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
-                                              <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn
-                                              thành
+                                              <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
                                             </span>
                                           ) : status === "in_progress" ? (
                                             <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
@@ -1593,13 +1607,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
                                       <div className="shrink-0 flex items-center gap-2">
                                         <button
-  type="button"
-  onClick={() => handleOpenLesson(les)}
-  className="..."
->
-  <span>Vào học</span>
-  <ArrowRight className="w-3.5 h-3.5" />
-</button>
+                                          type="button"
+                                          onClick={() => handleOpenLesson(les)}
+                                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                          <span>Vào học</span>
+                                          <ArrowRight className="w-3.5 h-3.5" />
+                                        </button>
                                       </div>
                                     </div>
                                   );
@@ -1613,7 +1627,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                   </div>
                 )}
 
-                {/* TAB 3: LUYỆN ĐỀ (#PRACTICE) */}
                 {activeTab === "practice" && (
                   <div className="max-w-6xl mx-auto space-y-4 text-left">
                     <div className="bg-white py-3.5 px-4.5 rounded-xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1755,14 +1768,14 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                     <div className="pt-2.5 border-t border-slate-100 flex items-center gap-1.5">
                                       {canViewFile && (
                                         <button
-  onClick={() => {
-    if (exam.driveUrl && exam.driveUrl.trim() !== "")
-      window.open(exam.driveUrl, "_blank");
-    else handlePreviewExamWithDetail(exam);
-  }}
-  className="..."
-  title="Xem file đề"
->
+                                          onClick={() => {
+                                            if (exam.driveUrl && exam.driveUrl.trim() !== "")
+                                              window.open(exam.driveUrl, "_blank");
+                                            else handlePreviewExamWithDetail(exam);
+                                          }}
+                                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold transition cursor-pointer"
+                                          title="Xem file đề"
+                                        >
                                           <FileText className="w-4 h-4" />
                                         </button>
                                       )}
@@ -1871,14 +1884,12 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                   </div>
                 )}
 
-                {/* TAB 4: LỊCH HỌC (#SCHEDULE) */}
                 {activeTab === "schedule" && (
                   <div className="space-y-4 max-w-5xl mx-auto text-left">
                     <ScheduleView profile={profile} mode="offline" />
                   </div>
                 )}
 
-                {/* TAB 5: TIẾN TRÌNH (#PROGRESS) */}
                 {(activeTab === "progress" || activeTab === "assessments") && (
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
                     <div className="bg-white rounded-xl p-4 sm:p-4.5 border border-slate-200/80 shadow-2xs space-y-3">
@@ -2024,7 +2035,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                   </div>
                 )}
 
-                {/* TAB 6: XẾP HẠNG (#LEADERBOARD) */}
                 {activeTab === "leaderboard" && (
                   <div className="max-w-5xl mx-auto text-left">
                     <StudentLeaderboardView
@@ -2036,7 +2046,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                   </div>
                 )}
 
-                {/* TAB 7: THÔNG BÁO (#NOTIFICATIONS) */}
                 {activeTab === "notifications" && (
                   <div className="w-full max-w-5xl mx-auto space-y-3.5 text-left">
                     <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/60">
@@ -2103,7 +2112,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         </main>
       </div>
 
-      {/* MODAL LỊCH SỬ CHI TIẾT (CÓ HIỂN THỊ NHÃN [🌐 WEB] / [📄 GIẤY] / [📝 PHIẾU ONL]) */}
       {historyModalExamId && (
         <div
           onClick={(e) => {
@@ -2220,7 +2228,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         </div>
       )}
 
-      {/* MODAL THÔNG BÁO CHI TIẾT */}
       {selectedSysNotif && (
         <div
           onClick={(e) => {
@@ -2245,7 +2252,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         </div>
       )}
 
-      {/* MODAL XEM TRƯỚC FILE ĐỀ */}
       {previewExam && (
         <div
           onClick={(e) => {
@@ -2300,7 +2306,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         </div>
       )}
 
-      {/* POPUP CHỌN HÌNH THỨC LÀM BÀI (WEB vs QUÉT PHIẾU GIẤY vs TÔ PHIẾU ONLINE) */}
       <ExamEntryModal
         isOpen={entryModalState.isOpen}
         onClose={() =>
@@ -2341,7 +2346,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         }}
       />
 
-      {/* MODAL CHỤP / TẢI ẢNH PHIẾU TRẢ LỜI TRÊN GIẤY (NHÁNH 2A - TƯƠNG THÍCH ĐA PROP INTERFACE) */}
       {activePaperScanState && (
         <SafePaperScanModal
           isOpen={Boolean(activePaperScanState)}
