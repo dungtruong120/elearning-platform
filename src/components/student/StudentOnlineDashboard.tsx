@@ -198,12 +198,21 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
+ // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (TỐI ƯU HÓA BĂNG THÔNG)
   const fetchAuthAndData = useCallback(async () => {
     // 1. KÉO DỮ LIỆU TỪ 2 BẢNG CHAPTERS & LESSONS (Chỉ tải thông tin cần hiển thị)
     try {
       const [chapsRes, lessRes] = await Promise.all([
-        supabase.from("chapters").select("id, title, course_id, created_at").order("created_at", { ascending: true }),
-        supabase.from("lessons").select("id, chapter_id, title, description, duration, format, target_mode, homework_files, test_quizzes").order("created_at", { ascending: true })
+        supabase
+          .from("chapters")
+          .select("id, title, course_id, created_at")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("lessons")
+          .select(
+            "id, chapter_id, title, description, duration, format, target_mode, homework_files, test_quizzes"
+          )
+          .order("created_at", { ascending: true })
       ]);
 
       if (chapsRes.data && lessRes.data && chapsRes.data.length > 0) {
@@ -227,20 +236,25 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
 
         setChapters(assembled);
       } else {
-        // Fallback đọc curriculum_data nếu chưa cấu hình xong
-        const { data: curr } = await supabase.from("curriculum_data").select("chapters").eq("id", "main_curriculum").maybeSingle();
+        const { data: curr } = await supabase
+          .from("curriculum_data")
+          .select("chapters")
+          .eq("id", "main_curriculum")
+          .maybeSingle();
         if (curr?.chapters) setChapters(curr.chapters);
       }
     } catch (e) {
       console.error("Lỗi tải bài học:", e);
     }
 
-    // 2. CHỈ TẢI METADATA ĐỀ LUYỆN THI (TUYỆT ĐỐI KHÔNG SELECT * ĐỂ BỎ QUA 10MB MEDIA VÀ CÂU HỎI)
+    // 2. CHỈ TẢI METADATA ĐỀ LUYỆN THI
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
         .from("practice_exams")
-        .select("id, title, category, duration_minutes, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at")
+        .select(
+          "id, title, category, duration_minutes, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
+        )
         .order("created_at", { ascending: false });
 
       if (dbExams && Array.isArray(dbExams)) {
@@ -263,15 +277,21 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
       if (dbNotifs && Array.isArray(dbNotifs)) {
         setSysNotifications(dbNotifs);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Lỗi tải thông báo:", e);
+    }
 
+    // 4. LẤY LỊCH SỬ THI & THỜI GIAN TỰ HỌC
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
         if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
       } catch (e) {}
 
-      const studySecs = parseInt(localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0", 10);
+      const studySecs = parseInt(
+        localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0",
+        10
+      );
       setTotalStudySeconds(studySecs);
     }
   }, [profile?.id]);
