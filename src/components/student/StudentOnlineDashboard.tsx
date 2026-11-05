@@ -198,38 +198,83 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
-  const fetchAuthAndData = useCallback(async () => {
+  cconst fetchAuthAndData = useCallback(async () => {
+    // 1. KÉO DỮ LIỆU TỪ 2 BẢNG CHAPTERS & LESSONS (Chỉ tải thông tin cần hiển thị)
     try {
-      const { data: courseRow } = await supabase
-        .from("courses")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+      const [chapsRes, lessRes] = await Promise.all([
+        supabase.from("chapters").select("id, title, course_id, created_at").order("created_at", { ascending: true }),
+        supabase.from("lessons").select("id, chapter_id, title, description, duration, format, target_mode, homework_files, test_quizzes").order("created_at", { ascending: true })
+      ]);
 
-      if (courseRow && courseRow.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
-        setChapters(courseRow.chapters);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
-        }
+      if (chapsRes.data && lessRes.data && chapsRes.data.length > 0) {
+        const assembled = chapsRes.data.map((chap: any) => ({
+          id: chap.id,
+          title: chap.title,
+          lessons: lessRes.data
+            .filter((les: any) => les.chapter_id === chap.id)
+            .map((les: any) => ({
+              id: les.id,
+              chapter_id: chap.id,
+              title: les.title,
+              description: les.description || "",
+              duration: les.duration || 45,
+              format: les.format || "Zoom",
+              target_mode: les.target_mode || "all",
+              homework_files: les.homework_files || [],
+              test_quizzes: les.test_quizzes || []
+            }))
+        }));
+
+        setChapters(assembled);
+      } else {
+        // Fallback đọc curriculum_data nếu chưa cấu hình xong
+        const { data: curr } = await supabase.from("curriculum_data").select("chapters").eq("id", "main_curriculum").maybeSingle();
+        if (curr?.chapters) setChapters(curr.chapters);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Lỗi tải bài học:", e);
+    }
 
+    // 2. CHỈ TẢI METADATA ĐỀ LUYỆN THI (TUYỆT ĐỐI KHÔNG SELECT * ĐỂ BỎ QUA 10MB MEDIA VÀ CÂU HỎI)
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
         .from("practice_exams")
-        .select("*")
+        .select("id, title, category, duration_minutes, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at")
         .order("created_at", { ascending: false });
 
       if (dbExams && Array.isArray(dbExams)) {
         setPracticeExams(dbExams);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
-        }
       }
-    } catch (e) {} finally {
+    } catch (e) {
+      console.error("Lỗi tải đề thi:", e);
+    } finally {
       setIsLoadingExams(false);
     }
+
+    // 3. TẢI THÔNG BÁO HỆ THỐNG
+    try {
+      const { data: dbNotifs } = await supabase
+        .from("system_notifications")
+        .select("id, title, content, type, created_at")
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (dbNotifs && Array.isArray(dbNotifs)) {
+        setSysNotifications(dbNotifs);
+      }
+    } catch (e) {}
+
+    if (typeof window !== "undefined") {
+      try {
+        const savedAttempts = localStorage.getItem("edunexus_attempts");
+        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+      } catch (e) {}
+
+      const studySecs = parseInt(localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0", 10);
+      setTotalStudySeconds(studySecs);
+    }
+  }, [profile?.id]);
 
     try {
       const { data: dbNotifs } = await supabase
@@ -733,7 +778,33 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
 
     return { totalHw, submittedHw, totalTest, completedTest, totalTasks, completedTasks, percent };
   }, [onlineChapters, findAttemptForLesson]);
+// HÀM TẢI ĐỘNG CHI TIẾT BÀI HỌC KHI BẤM (TIẾT KIỆM 98% BĂNG THÔNG)
+  const handleOpenLesson = async (les: any) => {
+    // 1. Nếu bài học đã có sẵn video/tài liệu thì mở ngay lập tức
+    if (les.video_list && les.lecture_files && les.video_list.length > 0) {
+      setSelectedLesson(les);
+      return;
+    }
 
+    try {
+      // 2. Chỉ truy vấn đúng dòng của bài học này từ bảng lessons
+      const { data, error } = await supabase
+        .from("lessons")
+        .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes")
+        .eq("id", les.id)
+        .maybeSingle();
+
+      if (!error && data) {
+        // Gộp dữ liệu đầy đủ rồi mới mở giao diện học
+        setSelectedLesson({ ...les, ...data });
+      } else {
+        setSelectedLesson(les);
+      }
+    } catch (err) {
+      console.error("Lỗi fetch chi tiết bài học:", err);
+      setSelectedLesson(les);
+    }
+  };
   if (examRoom) {
     return (
       <ExamRoomView 
@@ -937,10 +1008,10 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
                           <div className="flex flex-col space-y-2 pt-1">
                             {(chap.lessons || []).map((les: any) => (
                               <div 
-                                key={les.id} 
-                                onClick={() => setSelectedLesson(les)}
-                                className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                              >
+  key={les.id} 
+  onClick={() => handleOpenLesson(les)}
+  className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
+>
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
                                   <span className="text-[13.5px] sm:text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">
@@ -1086,13 +1157,13 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
 
                                       <div className="shrink-0 flex items-center gap-2">
                                         <button
-                                          type="button"
-                                          onClick={() => setSelectedLesson(les)}
-                                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                          <span>Vào học</span>
-                                          <ArrowRight className="w-3.5 h-3.5" />
-                                        </button>
+  type="button"
+  onClick={() => handleOpenLesson(les)}
+  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+>
+  <span>Vào học</span>
+  <ArrowRight className="w-3.5 h-3.5" />
+</button>
                                       </div>
                                     </div>
                                   );
