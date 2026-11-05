@@ -198,7 +198,7 @@ function StudentOnlineDashboard({ initialProfile, onLogout }: StudentOnlineDashb
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
-  cconst fetchAuthAndData = useCallback(async () => {
+  const fetchAuthAndData = useCallback(async () => {
     // 1. KÉO DỮ LIỆU TỪ 2 BẢNG CHAPTERS & LESSONS (Chỉ tải thông tin cần hiển thị)
     try {
       const [chapsRes, lessRes] = await Promise.all([
