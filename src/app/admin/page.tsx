@@ -336,7 +336,7 @@ function AdminDashboardContent() {
   const [bulkOmrScannerQuiz, setBulkOmrScannerQuiz] = useState<any | null>(null);
   const [isBulkOmrScannerOpen, setIsBulkOmrScannerOpen] = useState<boolean>(false);
 
-  const [chapters, setChapters] = useState<any[]>(() => {
+ const [chapters, setChapters] = useState<any[]>([]);
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("edunexus_course_data");
@@ -779,39 +779,41 @@ function AdminDashboardContent() {
             message: `Đang lưu ${taskName} lên đám mây Supabase... [80%]`,
           }));
 
-          const nowIso = new Date().toISOString();
-          const { error: sbErr } = await supabase.from("courses").upsert({
-            id: "11111111-1111-1111-1111-111111111111",
-            title: "Toán 12 TCT",
+         const nowIso = new Date().toISOString();
+
+          // 1. Lưu từng chương vào bảng chapters
+          for (const chap of cleanCoursesData) {
+            await supabase.from("chapters").upsert({
+              id: String(chap.id),
+              title: chap.title,
+              course_id: "11111111-1111-1111-1111-111111111111"
+            });
+
+            // 2. Lưu từng bài học con vào bảng lessons
+            if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
+              for (const les of chap.lessons) {
+                await supabase.from("lessons").upsert({
+                  id: String(les.id),
+                  chapter_id: String(chap.id),
+                  title: les.title,
+                  description: les.description || "",
+                  video_list: les.video_list || [],
+                  lecture_files: les.lecture_files || [],
+                  homework_files: les.homework_files || [],
+                  test_quizzes: les.test_quizzes || []
+                });
+              }
+            }
+          }
+
+          // 3. Lưu 1 bản sao dự phòng vào curriculum_data để an toàn tuyệt đối
+          await supabase.from("curriculum_data").upsert({
+            id: "main_curriculum",
             chapters: cleanCoursesData,
             updated_at: nowIso
           });
 
-          if (sbErr) {
-            console.error("Supabase Error Details (courses upsert):", sbErr);
-            const { data: existingRows } = await supabase.from("courses").select("id").limit(1);
-            const targetId =
-              existingRows && existingRows.length > 0
-                ? existingRows[0].id
-                : "11111111-1111-1111-1111-111111111111";
-
-            const { error: fallbackErr } = await supabase
-              .from("courses")
-              .update({ chapters: cleanCoursesData, updated_at: nowIso })
-              .eq("id", targetId);
-
-            if (fallbackErr) {
-              console.error("Supabase Error Details (courses update):", fallbackErr);
-              throw fallbackErr;
-            }
-          }
-
-          try {
-            localStorage.setItem("edunexus_course_data", JSON.stringify(cleanCoursesData));
-            window.dispatchEvent(new Event("storage"));
-          } catch (lsErr) {
-            console.warn("LocalStorage đầy:", lsErr);
-          }
+          // 4. KHÔNG lưu toàn bộ JSON nặng vào localStorage nữa để chặn triệt để lỗi QuotaExceededError
 
           setSyncStatus({
             isSyncing: true,
@@ -1327,13 +1329,12 @@ function AdminDashboardContent() {
       loadDeletedBlacklistFromStorage();
 
       try {
-        const [courseRes, sessRes, notifRes] = await Promise.allSettled([
-          supabase.from("courses").select("id, title, chapters, updated_at").limit(1),
+        const [chapsRes, lessRes, sessRes, notifRes] = await Promise.allSettled([
+          supabase.from("chapters").select("*").order("created_at", { ascending: true }),
+          supabase.from("lessons").select("*").order("created_at", { ascending: true }),
           supabase
             .from("sessions")
-            .select(
-              "id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at"
-            )
+            .select("id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at")
             .order("created_at", { ascending: false })
             .limit(50),
           supabase
@@ -1343,20 +1344,52 @@ function AdminDashboardContent() {
             .limit(50),
         ]);
 
-        if (courseRes.status === "fulfilled") {
-          if (courseRes.value.error) {
-            console.error("Supabase Error Details (courses):", courseRes.value.error);
-          } else if (Array.isArray(courseRes.value.data) && courseRes.value.data.length > 0) {
-            const row = courseRes.value.data[0];
-            const loadedChapters = row.chapters || (row as any).data;
-            if (Array.isArray(loadedChapters) && loadedChapters.length > 0) {
-              setChapters(loadedChapters);
-              if (typeof window !== "undefined") {
-                try {
-                  localStorage.setItem("edunexus_course_data", JSON.stringify(loadedChapters));
-                } catch {}
-              }
-            }
+        // Ghép nối trực tiếp dữ liệu từ 2 bảng chapters và lessons vào state
+        if (
+          chapsRes.status === "fulfilled" &&
+          lessRes.status === "fulfilled" &&
+          !chapsRes.value.error &&
+          !lessRes.value.error &&
+          Array.isArray(chapsRes.value.data) &&
+          chapsRes.value.data.length > 0
+        ) {
+          const dbChapters = chapsRes.value.data;
+          const dbLessons = lessRes.value.data || [];
+
+          const assembled = dbChapters.map((chap: any) => ({
+            id: chap.id,
+            title: chap.title,
+            target_mode: chap.target_mode || "all",
+            lessons: dbLessons
+              .filter((l: any) => l.chapter_id === chap.id)
+              .map((l: any) => ({
+                id: l.id,
+                chapter_id: chap.id,
+                title: l.title,
+                description: l.description || "",
+                duration: l.duration || 45,
+                format: l.format || "Zoom",
+                target_mode: l.target_mode || "all",
+                video_list: l.video_list || [],
+                lecture_files: l.lecture_files || [],
+                homework_files: l.homework_files || [],
+                test_quizzes: l.test_quizzes || []
+              }))
+          }));
+
+          setChapters(assembled);
+          latestChaptersRef.current = assembled;
+        } else {
+          // Fallback dự phòng: đọc từ bảng curriculum_data nếu chưa sync xong 2 bảng con
+          const { data: fallbackCurriculum } = await supabase
+            .from("curriculum_data")
+            .select("chapters")
+            .eq("id", "main_curriculum")
+            .maybeSingle();
+
+          if (fallbackCurriculum?.chapters && Array.isArray(fallbackCurriculum.chapters)) {
+            setChapters(fallbackCurriculum.chapters);
+            latestChaptersRef.current = fallbackCurriculum.chapters;
           }
         }
 
