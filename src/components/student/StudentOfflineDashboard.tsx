@@ -342,8 +342,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (GỘP CẢ EXAM_ATTEMPTS TỪ SUPABASE ĐỂ BẢNG XẾP HẠNG & LỊCH SỬ LUÔN ĐẦY ĐỦ)
  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (TỐI ƯU HÓA)
+ // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
-    // 1. Kéo dữ liệu từ chapters & lessons
+    // 1. Kéo bài học từ bảng chapters & lessons
     try {
       const [chapsRes, lessRes] = await Promise.all([
         supabase
@@ -385,10 +386,10 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         if (curr?.chapters) setChapters(curr.chapters);
       }
     } catch (e) {
-      console.error("Lỗi tải bài học offline:", e);
+      console.error("Lỗi tải bài học online:", e);
     }
 
-    // 2. Tải metadata đề luyện thi
+    // 2. Chỉ tải metadata đề thi
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
@@ -405,66 +406,31 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       setIsLoadingExams(false);
     }
 
-    // 3. Tải thông báo hệ thống (Nằm trọn vẹn bên trong async)
-
-    // 4. Đồng bộ lịch sử bài thi
-    let mergedAttempts: any[] = [];
-    if (typeof window !== "undefined") {
-      try {
-        const savedAttempts = localStorage.getItem("edunexus_attempts");
-        if (savedAttempts) {
-          const parsed = JSON.parse(savedAttempts);
-          if (Array.isArray(parsed)) mergedAttempts.push(...parsed);
-        }
-      } catch (e) {}
-    }
-
+    // 3. Tải thông báo hệ thống
     try {
-      const { data: cloudAttempts } = await supabase
-        .from("exam_attempts")
-        .select("*")
+      const { data: dbNotifs } = await supabase
+        .from("system_notifications")
+        .select("id, title, content, type, created_at")
         .order("created_at", { ascending: false })
-        .limit(500);
+        .limit(30);
 
-      if (cloudAttempts && Array.isArray(cloudAttempts)) {
-        const seenIds = new Set(mergedAttempts.map((a: any) => String(a?.id || "")));
-        cloudAttempts.forEach((ca: any) => {
-          const cid = String(ca?.id || "");
-          if (cid && !seenIds.has(cid)) {
-            seenIds.add(cid);
-            mergedAttempts.push(ca);
-          }
-        });
+      if (dbNotifs && Array.isArray(dbNotifs)) {
+        setSysNotifications(dbNotifs);
       }
     } catch (e) {}
 
-    if (mergedAttempts.length > 0) {
-      setAllAttempts(mergedAttempts);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("edunexus_attempts", JSON.stringify(mergedAttempts));
-        } catch (e) {}
-      }
-    }
-
-    // 5. Đồng bộ thời gian học và điểm danh
+    // 4. Lấy lịch sử thi và thời gian học
     if (typeof window !== "undefined") {
+      try {
+        const savedAttempts = localStorage.getItem("edunexus_attempts");
+        if (savedAttempts) setAllAttempts(JSON.parse(savedAttempts));
+      } catch (e) {}
+
       const studySecs = parseInt(
         localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0",
         10
       );
       setTotalStudySeconds(studySecs);
-
-      try {
-        const savedAtt = localStorage.getItem("edunexus_attendance");
-        const savedTct = localStorage.getItem("tct_attendance_records");
-        const listAtt = savedAtt ? JSON.parse(savedAtt) : [];
-        const listTct = savedTct ? JSON.parse(savedTct) : [];
-        const combined = [...listAtt, ...listTct];
-        if (Array.isArray(combined)) {
-          setOfflineAttendance(combined.filter((a: any) => a.studentId === profile?.id));
-        }
-      } catch (e) {}
     }
   }, [profile?.id]);
 
