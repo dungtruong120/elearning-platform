@@ -334,63 +334,37 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   );
   const [offlineToast, setOfflineToast] = useState<string>("");
 
+  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
     try {
-      const [chapsRes, lessRes] = await Promise.all([
-        supabase
-          .from("chapters")
-          .select("id, title, course_id, created_at")
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("lessons")
-          .select("id, chapter_id, title, description, duration, format, target_mode, homework_files, test_quizzes")
-          .order("created_at", { ascending: true })
-      ]);
+      const { data: courseRow } = await supabase
+        .from("courses")
+        .select("*")
+        .limit(1)
+        .maybeSingle();
 
-      if (chapsRes.data && lessRes.data && chapsRes.data.length > 0) {
-        const assembled = chapsRes.data.map((chap: any) => ({
-          id: chap.id,
-          title: chap.title,
-          lessons: lessRes.data
-            .filter((les: any) => les.chapter_id === chap.id)
-            .map((les: any) => ({
-              id: les.id,
-              chapter_id: chap.id,
-              title: les.title,
-              description: les.description || "",
-              duration: les.duration || 45,
-              format: les.format || "Zoom",
-              target_mode: les.target_mode || "all",
-              homework_files: les.homework_files || [],
-              test_quizzes: les.test_quizzes || []
-            }))
-        }));
-
-        setChapters(assembled);
-      } else {
-        const { data: curr } = await supabase
-          .from("curriculum_data")
-          .select("chapters")
-          .eq("id", "main_curriculum")
-          .maybeSingle();
-        if (curr?.chapters) setChapters(curr.chapters);
+      if (courseRow?.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
+        setChapters(courseRow.chapters);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+        }
       }
-    } catch (e) {
-      console.error("Lỗi tải bài học offline:", e);
-    }
+    } catch (e) {}
 
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
         .from("practice_exams")
-        .select("id, title, category, duration_minutes, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at")
+        .select("*")
         .order("created_at", { ascending: false });
 
       if (dbExams && Array.isArray(dbExams)) {
         setPracticeExams(dbExams);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
+        }
       }
     } catch (e) {
-      console.error("Lỗi tải đề thi:", e);
     } finally {
       setIsLoadingExams(false);
     }
@@ -398,15 +372,18 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     try {
       const { data: dbNotifs } = await supabase
         .from("system_notifications")
-        .select("id, title, content, type, created_at")
-        .order("created_at", { ascending: false })
-        .limit(30);
+        .select("*")
+        .order("created_at", { ascending: false });
 
       if (dbNotifs && Array.isArray(dbNotifs)) {
         setSysNotifications(dbNotifs);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
+        }
       }
     } catch (e) {}
 
+    // Đồng bộ lịch sử thi
     let mergedAttempts: any[] = [];
     if (typeof window !== "undefined") {
       try {
