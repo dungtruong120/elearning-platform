@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react"; 
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/student/Sidebar";
 import { Header } from "@/components/student/Header";
