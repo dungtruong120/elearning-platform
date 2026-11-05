@@ -406,22 +406,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
 
     // 3. Tải thông báo hệ thống (Nằm trọn vẹn bên trong async)
-    try {
-      const { data: dbNotifs } = await supabase
-        .from("system_notifications")
-        .select("id, title, content, type, created_at")
-        .order("created_at", { ascending: false })
-        .limit(30);
-
-      if (dbNotifs && Array.isArray(dbNotifs)) {
-        setSysNotifications(dbNotifs);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
-        }
-      }
-    } catch (e) {
-      console.error("Lỗi tải thông báo:", e);
-    }
 
     // 4. Đồng bộ lịch sử bài thi
     let mergedAttempts: any[] = [];
