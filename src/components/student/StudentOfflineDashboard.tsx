@@ -342,40 +342,55 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (GỘP CẢ EXAM_ATTEMPTS TỪ SUPABASE ĐỂ BẢNG XẾP HẠNG & LỊCH SỬ LUÔN ĐẦY ĐỦ)
   const fetchAuthAndData = useCallback(async () => {
+    // 1. KÉO DỮ LIỆU TỪ 2 BẢNG CHAPTERS & LESSONS (Chỉ tải thông tin cần hiển thị)
     try {
-      const { data: courseRow } = await supabase
-        .from("courses")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+      const [chapsRes, lessRes] = await Promise.all([
+        supabase.from("chapters").select("id, title, course_id, created_at").order("created_at", { ascending: true }),
+        supabase.from("lessons").select("id, chapter_id, title, description, duration, format, target_mode, homework_files, test_quizzes").order("created_at", { ascending: true })
+      ]);
 
-      if (
-        courseRow &&
-        courseRow.chapters &&
-        Array.isArray(courseRow.chapters) &&
-        courseRow.chapters.length > 0
-      ) {
-        setChapters(courseRow.chapters);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
-        }
+      if (chapsRes.data && lessRes.data && chapsRes.data.length > 0) {
+        const assembled = chapsRes.data.map((chap: any) => ({
+          id: chap.id,
+          title: chap.title,
+          lessons: lessRes.data
+            .filter((les: any) => les.chapter_id === chap.id)
+            .map((les: any) => ({
+              id: les.id,
+              chapter_id: chap.id,
+              title: les.title,
+              description: les.description || "",
+              duration: les.duration || 45,
+              format: les.format || "Zoom",
+              target_mode: les.target_mode || "all",
+              homework_files: les.homework_files || [],
+              test_quizzes: les.test_quizzes || []
+            }))
+        }));
+
+        setChapters(assembled);
+      } else {
+        // Fallback đọc curriculum_data nếu chưa cấu hình xong
+        const { data: curr } = await supabase.from("curriculum_data").select("chapters").eq("id", "main_curriculum").maybeSingle();
+        if (curr?.chapters) setChapters(curr.chapters);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Lỗi tải bài học offline:", e);
+    }
 
+    // 2. CHỈ TẢI METADATA ĐỀ LUYỆN THI (TUYỆT ĐỐI BỎ QUA CỘT DATA & MEDIA_MAP NẶNG 10MB)
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
         .from("practice_exams")
-        .select("*")
+        .select("id, title, category, duration_minutes, target_mode, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at")
         .order("created_at", { ascending: false });
 
       if (dbExams && Array.isArray(dbExams)) {
         setPracticeExams(dbExams);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
-        }
       }
     } catch (e) {
+      console.error("Lỗi tải đề thi:", e);
     } finally {
       setIsLoadingExams(false);
     }
@@ -1048,7 +1063,50 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     },
     [activePaperScanState, fetchAuthAndData]
   );
+// HÀM TẢI ĐỘNG CHI TIẾT BÀI HỌC KHI HỌC SINH CLICK VÀO BÀI
+  const handleOpenLesson = async (les: any) => {
+    if (les.video_list && les.lecture_files && les.video_list.length > 0) {
+      setSelectedLesson(les);
+      return;
+    }
 
+    try {
+      const { data, error } = await supabase
+        .from("lessons")
+        .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes")
+        .eq("id", les.id)
+        .maybeSingle();
+
+      if (!error && data) {
+        setSelectedLesson({ ...les, ...data });
+      } else {
+        setSelectedLesson(les);
+      }
+    } catch (err) {
+      console.error("Lỗi fetch chi tiết bài học:", err);
+      setSelectedLesson(les);
+    }
+  };
+
+  // HÀM TẢI CÂU HỎI KHI HỌC SINH BẤM "XEM FILE ĐỀ"
+  const handlePreviewExamWithDetail = async (exam: any) => {
+    if (exam.data && exam.data.length > 0) {
+      setPreviewExam(exam);
+      return;
+    }
+
+    try {
+      const { data } = await supabase
+        .from("practice_exams")
+        .select("data, sections")
+        .eq("id", exam.id)
+        .maybeSingle();
+
+      setPreviewExam({ ...exam, data: data?.data || data?.sections || [] });
+    } catch {
+      setPreviewExam(exam);
+    }
+  };
   // 1. RENDER CHẾ ĐỘ XEM LẠI BÀI THI TRÊN PHIẾU (GIẤY HOẶC PHIẾU ONLINE)
   if (paperReviewAttemptState) {
     return (
@@ -1407,10 +1465,10 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                           <div className="flex flex-col space-y-2 pt-1">
                             {(chap.lessons || []).map((les: any) => (
                               <div
-                                key={les.id}
-                                onClick={() => setSelectedLesson(les)}
-                                className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                              >
+  key={les.id}
+  onClick={() => handleOpenLesson(les)}
+  className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
+>
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                                   <span className="text-[13.5px] sm:text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">
@@ -1570,13 +1628,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
                                       <div className="shrink-0 flex items-center gap-2">
                                         <button
-                                          type="button"
-                                          onClick={() => setSelectedLesson(les)}
-                                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                          <span>Vào học</span>
-                                          <ArrowRight className="w-3.5 h-3.5" />
-                                        </button>
+  type="button"
+  onClick={() => handleOpenLesson(les)}
+  className="..."
+>
+  <span>Vào học</span>
+  <ArrowRight className="w-3.5 h-3.5" />
+</button>
                                       </div>
                                     </div>
                                   );
@@ -1732,14 +1790,14 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                     <div className="pt-2.5 border-t border-slate-100 flex items-center gap-1.5">
                                       {canViewFile && (
                                         <button
-                                          onClick={() => {
-                                            if (exam.driveUrl && exam.driveUrl.trim() !== "")
-                                              window.open(exam.driveUrl, "_blank");
-                                            else setPreviewExam(exam);
-                                          }}
-                                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold transition cursor-pointer"
-                                          title="Xem file đề"
-                                        >
+  onClick={() => {
+    if (exam.driveUrl && exam.driveUrl.trim() !== "")
+      window.open(exam.driveUrl, "_blank");
+    else handlePreviewExamWithDetail(exam);
+  }}
+  className="..."
+  title="Xem file đề"
+>
                                           <FileText className="w-4 h-4" />
                                         </button>
                                       )}
