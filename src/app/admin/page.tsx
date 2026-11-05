@@ -1318,12 +1318,14 @@ function AdminDashboardContent() {
       loadDeletedBlacklistFromStorage();
 
       try {
-        const [chapsRes, lessRes, sessRes, notifRes] = await Promise.allSettled([
+       const [chapsRes, lessRes, sessRes, notifRes] = await Promise.allSettled([
           supabase.from("chapters").select("*").order("created_at", { ascending: true }),
           supabase.from("lessons").select("*").order("created_at", { ascending: true }),
           supabase
             .from("sessions")
-            .select("id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at")
+            .select(
+              "id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at"
+            )
             .order("created_at", { ascending: false })
             .limit(50),
           supabase
@@ -1333,7 +1335,6 @@ function AdminDashboardContent() {
             .limit(50),
         ]);
 
-        // Ghép nối trực tiếp dữ liệu từ 2 bảng chapters và lessons vào state
         if (
           chapsRes.status === "fulfilled" &&
           lessRes.status === "fulfilled" &&
@@ -1369,7 +1370,6 @@ function AdminDashboardContent() {
           setChapters(assembled);
           latestChaptersRef.current = assembled;
         } else {
-          // Fallback dự phòng: đọc từ bảng curriculum_data nếu chưa sync xong 2 bảng con
           const { data: fallbackCurriculum } = await supabase
             .from("curriculum_data")
             .select("chapters")
