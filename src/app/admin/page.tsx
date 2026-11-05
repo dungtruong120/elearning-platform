@@ -337,17 +337,6 @@ function AdminDashboardContent() {
   const [isBulkOmrScannerOpen, setIsBulkOmrScannerOpen] = useState<boolean>(false);
 
  const [chapters, setChapters] = useState<any[]>([]);
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("edunexus_course_data");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch (e) {}
-    }
-    return INITIAL_CHAPTERS || [];
-  });
 
   const [practiceExams, setPracticeExams] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
