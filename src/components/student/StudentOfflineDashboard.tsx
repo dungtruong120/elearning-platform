@@ -341,12 +341,19 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [offlineToast, setOfflineToast] = useState<string>("");
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (GỘP CẢ EXAM_ATTEMPTS TỪ SUPABASE ĐỂ BẢNG XẾP HẠNG & LỊCH SỬ LUÔN ĐẦY ĐỦ)
+ // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (TỐI ƯU HÓA)
   const fetchAuthAndData = useCallback(async () => {
-    // 1. KÉO DỮ LIỆU TỪ 2 BẢNG CHAPTERS & LESSONS (Chỉ tải thông tin cần hiển thị)
+    // 1. Kéo dữ liệu từ chapters & lessons
     try {
       const [chapsRes, lessRes] = await Promise.all([
-        supabase.from("chapters").select("id, title, course_id, created_at").order("created_at", { ascending: true }),
-        supabase.from("lessons").select("id, chapter_id, title, description, duration, format, target_mode, homework_files, test_quizzes").order("created_at", { ascending: true })
+        supabase
+          .from("chapters")
+          .select("id, title, course_id, created_at")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("lessons")
+          .select("id, chapter_id, title, description, duration, format, target_mode, homework_files, test_quizzes")
+          .order("created_at", { ascending: true })
       ]);
 
       if (chapsRes.data && lessRes.data && chapsRes.data.length > 0) {
@@ -370,15 +377,18 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
         setChapters(assembled);
       } else {
-        // Fallback đọc curriculum_data nếu chưa cấu hình xong
-        const { data: curr } = await supabase.from("curriculum_data").select("chapters").eq("id", "main_curriculum").maybeSingle();
+        const { data: curr } = await supabase
+          .from("curriculum_data")
+          .select("chapters")
+          .eq("id", "main_curriculum")
+          .maybeSingle();
         if (curr?.chapters) setChapters(curr.chapters);
       }
     } catch (e) {
       console.error("Lỗi tải bài học offline:", e);
     }
 
-    // 2. CHỈ TẢI METADATA ĐỀ LUYỆN THI (TUYỆT ĐỐI BỎ QUA CỘT DATA & MEDIA_MAP NẶNG 10MB)
+    // 2. Tải metadata đề luyện thi
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
@@ -395,11 +405,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       setIsLoadingExams(false);
     }
 
+    // 3. Tải thông báo hệ thống (Nằm trọn vẹn bên trong async)
     try {
       const { data: dbNotifs } = await supabase
         .from("system_notifications")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("id, title, content, type, created_at")
+        .order("created_at", { ascending: false })
+        .limit(30);
 
       if (dbNotifs && Array.isArray(dbNotifs)) {
         setSysNotifications(dbNotifs);
@@ -407,9 +419,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Lỗi tải thông báo:", e);
+    }
 
-    // Đồng bộ lịch sử thi từ cả localStorage lẫn Supabase exam_attempts
+    // 4. Đồng bộ lịch sử bài thi
     let mergedAttempts: any[] = [];
     if (typeof window !== "undefined") {
       try {
@@ -449,6 +463,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       }
     }
 
+    // 5. Đồng bộ thời gian học và điểm danh
     if (typeof window !== "undefined") {
       const studySecs = parseInt(
         localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0",
