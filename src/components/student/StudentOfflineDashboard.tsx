@@ -334,7 +334,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   );
   const [offlineToast, setOfflineToast] = useState<string>("");
 
-  // 3. ĐỒNG BỘ NỀN TỪ SUPABASE (TỐI ƯU HÓA EGRESS)
   const fetchAuthAndData = useCallback(async () => {
     try {
       const [chapsRes, lessRes] = await Promise.all([
@@ -1055,7 +1054,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     [activePaperScanState, fetchAuthAndData]
   );
 
-  // HÀM TẢI ĐỘNG CHI TIẾT BÀI HỌC KHI HỌC SINH CLICK VÀO BÀI
   const handleOpenLesson = async (les: any) => {
     if (les.video_list && les.lecture_files && les.video_list.length > 0) {
       setSelectedLesson(les);
@@ -1080,7 +1078,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
   };
 
-  // HÀM TẢI CÂU HỎI KHI HỌC SINH BẤM "XEM FILE ĐỀ"
   const handlePreviewExamWithDetail = async (exam: any) => {
     if (exam.data && exam.data.length > 0) {
       setPreviewExam(exam);
