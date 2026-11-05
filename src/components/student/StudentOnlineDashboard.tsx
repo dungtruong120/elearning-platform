@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sidebar } from "@/components/student/Sidebar";
+import { Sidebar } from "@/components/student/Sidebar"; 
 import { Header } from "@/components/student/Header";
 import { StudentLeaderboardView } from "@/components/student/StudentLeaderboardView";
 import ScheduleView from "@/components/student/ScheduleView";
