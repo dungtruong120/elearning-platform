@@ -256,26 +256,39 @@ export function deriveExamCode3Digits(examOrId?: any): string {
 export function formatStudentAutoSBD(profileOrCode: any, directory?: any[]): string {
   if (!profileOrCode) return "000001";
 
-  // 1. Ưu tiên đọc trực tiếp student_code từ Supabase
+  // 1. Nếu là object profile từ Supabase
   if (typeof profileOrCode === "object") {
     const raw = profileOrCode.student_code || profileOrCode.studentCode || profileOrCode.sbd;
-    if (raw) return String(raw).replace(/\D/g, "").padStart(6, "0").slice(-6);
+    if (raw) {
+      return String(raw).replace(/\D/g, "").padStart(6, "0").slice(-6);
+    }
     if (profileOrCode.id && /^\d+$/.test(String(profileOrCode.id))) {
       return String(profileOrCode.id).padStart(6, "0").slice(-6);
     }
   }
 
-  // 2. Nếu truyền vào chuỗi số
+  // 2. Nếu là chuỗi số (VD: "000001" hoặc "1")
   if (typeof profileOrCode === "string" && /^\d+$/.test(profileOrCode)) {
     return profileOrCode.padStart(6, "0").slice(-6);
   }
 
-  // 3. Fallback danh bạ bộ nhớ đệm nếu có
+  // 3. Tra cứu từ danh bạ nếu có
   if (Array.isArray(directory) && directory.length > 0) {
-    const targetId = typeof profileOrCode === "object" ? profileOrCode.id : profileOrCode;
-    const found = directory.find((d: any) => d.id === targetId);
-    if (found?.student_code || found?.sbd) {
+    const targetId = typeof profileOrCode === "object" ? String(profileOrCode.id || "") : String(profileOrCode);
+    const targetName = typeof profileOrCode === "object" ? String(profileOrCode.full_name || profileOrCode.name || "").trim().toLowerCase() : "";
+
+    const found = directory.find((item: any) => {
+      const itemId = String(item.id || "");
+      const itemName = String(item.full_name || item.name || "").trim().toLowerCase();
+      return (targetId && itemId === targetId) || (targetName && itemName === targetName);
+    });
+
+    if (found && (found.student_code || found.sbd)) {
       return String(found.student_code || found.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6);
+    }
+
+    if (found && found.stt) {
+      return String(found.stt).padStart(6, "0").slice(-6);
     }
   }
 
