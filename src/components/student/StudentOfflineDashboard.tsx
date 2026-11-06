@@ -1044,36 +1044,34 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   );
 
 const handleOpenLesson = async (les: any) => {
-    // 1. Nếu bài học này đã có sẵn dữ liệu thì mở ngay
-    if (
-      (les.homework_files && les.homework_files.length > 0) ||
-      (les.test_quizzes && les.test_quizzes.length > 0) ||
-      (les.lecture_files && les.lecture_files.length > 0) ||
-      (les.video_list && les.video_list.length > 0)
-    ) {
-      setSelectedLesson(les);
-      return;
-    }
+  if (
+    (les.homework_files && les.homework_files.length > 0) ||
+    (les.test_quizzes && les.test_quizzes.length > 0) ||
+    (les.lecture_files && les.lecture_files.length > 0) ||
+    (les.video_list && les.video_list.length > 0)
+  ) {
+    setSelectedLesson(les);
+    return;
+  }
 
-    try {
-      // 2. Tải chi tiết bài tập, đề kiểm tra, video của riêng bài học này từ Supabase
-      const { data, error } = await supabase
-        .from("lessons")
-        .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes, description")
-        .eq("id", les.id)
-        .maybeSingle();
+  try {
+    // Chỉ chọn các cột bài tập, đề kiểm tra, video, tài liệu và mô tả
+    const { data, error } = await supabase
+      .from("lessons")
+      .select("video_list, lecture_files, homework_files, test_quizzes, description")
+      .eq("id", les.id)
+      .maybeSingle();
 
-      if (!error && data) {
-        setSelectedLesson({ ...les, ...data });
-      } else {
-        setSelectedLesson(les);
-      }
-    } catch (err) {
-      console.error("Lỗi fetch chi tiết bài học:", err);
+    if (!error && data) {
+      setSelectedLesson({ ...les, ...data });
+    } else {
       setSelectedLesson(les);
     }
-  };
-
+  } catch (err) {
+    console.error("Lỗi fetch chi tiết bài học:", err);
+    setSelectedLesson(les);
+  }
+};
   const handlePreviewExamWithDetail = async (exam: any) => {
     if (exam.data && exam.data.length > 0) {
       setPreviewExam(exam);
