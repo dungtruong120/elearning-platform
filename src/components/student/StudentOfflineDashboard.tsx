@@ -168,6 +168,16 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
   return null;
 });
 
+  const [activeTab, setActiveTabState] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "").trim();
+      if (VALID_TABS.includes(hash)) return hash;
+    }
+    return "overview";
+  });
+
+  const [isTabChanging, setIsTabChanging] = useState<boolean>(false);
+
   const setActiveTab = useCallback(
     (newTab: string) => {
       if (newTab === activeTab) return;
@@ -182,7 +192,6 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
     },
     [activeTab]
   );
-
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
