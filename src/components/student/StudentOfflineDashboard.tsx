@@ -345,7 +345,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
       const { data: dbLessons } = await supabase
         .from("lessons")
-        .select("id, chapter_id, title, target_mode, assigned_month, assigned_week, created_at")
+        .select("id, chapter_id, title, created_at")
         .order("created_at", { ascending: true });
 
       if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
