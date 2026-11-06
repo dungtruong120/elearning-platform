@@ -54,9 +54,14 @@ function normalizeStudentProfile(raw: any): any {
     .trim();
   const isOffline = rawMode === "offline" || rawMode.includes("off");
 
+  // Lấy mã SBD từ database
+  const studentCodeVal = raw.student_code || raw.studentCode || raw.sbd || "";
+
   return {
     ...raw,
     id: String(raw.id || raw.user_id || raw.studentId || `stu-${Date.now()}`),
+    student_code: studentCodeVal ? String(studentCodeVal).replace(/\D/g, "").padStart(6, "0").slice(-6) : "",
+    sbd: studentCodeVal ? String(studentCodeVal).replace(/\D/g, "").padStart(6, "0").slice(-6) : "",
     full_name: raw.full_name || raw.fullName || raw.studentName || raw.name || "Chưa cập nhật",
     email: raw.email || raw.user_email || raw.userEmail || "",
     phone: raw.phone || raw.phone_number || raw.phoneNumber || raw.tel || "",
@@ -976,7 +981,7 @@ function AdminDashboardContent() {
           supabase
             .from("profiles")
             .select(
-              "id, full_name, username, email, phone, school, grade, role, learning_mode, study_mode, approval_status, is_approved, created_at"
+              "id, student_code, full_name, username, email, phone, school, grade, role, learning_mode, study_mode, approval_status, is_approved, created_at"
             )
             .limit(200),
           supabase
