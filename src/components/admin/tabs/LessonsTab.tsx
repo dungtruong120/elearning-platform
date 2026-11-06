@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// Dynamic import AzotaExamConfigModal chuẩn Next.js (SSR: false)
 const AzotaExamConfigModal = dynamic<any>(
   () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
@@ -123,13 +122,11 @@ export default function LessonsTab({
   syncStatus,
   ...restProps
 }: LessonsTabProps) {
-  // THÁNG VÀ TUẦN HIỆN TẠI THEO THỜI GIAN THỰC (REALTIME DEFAULT)
   const currentRealtimeMonth = useMemo(() => new Date().getMonth() + 1, []);
   const currentRealtimeWeek = useMemo(() => Math.min(5, Math.max(1, Math.ceil(new Date().getDate() / 7))), []);
 
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("all");
 
-  // 1. TỰ ĐỘNG TÍNH TOÁN AN TOÀN NỘI BỘ SỐ LƯỢNG BÀI HỌC ONLINE / OFFLINE
   const safeOfflineCount = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return 0;
     return chapters.reduce((total: number, chap: any) => {
@@ -144,7 +141,7 @@ export default function LessonsTab({
     }, 0);
   }, [chapters]);
 
-  // 2. TỰ ĐỘNG TÍNH TOÁN & SẮP XẾP ĐA TẦNG DANH SÁCH BÀI HỌC PHẲNG (MULTI-LEVEL SORT: THÁNG -> TUẦN -> THỨ TỰ GỐC)
+  // SẮP XẾP BÀI MỚI TẠO LÊN TRÊN ĐẦU
   const computedFlattenedLessons = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return [];
     const list: any[] = [];
@@ -161,7 +158,6 @@ export default function LessonsTab({
           return;
         }
 
-        // Ưu tiên tháng lưu trên bài, nếu chưa có thì lấy tháng 10
         const lesMonth = Number(les?.assigned_month) || 10;
         const lesWeek = Number(les?.assigned_week) || 1;
 
@@ -183,9 +179,6 @@ export default function LessonsTab({
       });
     });
 
-    // SẮP XẾP BÀI MỚI NHẤT LÊN ĐẦU TIÊN (DỄ DÀNG SETUP):
-    // 1. So sánh ngày tạo (mới nhất lên trên)
-    // 2. Nếu không có ngày tạo, so sánh originalIndex giảm dần (bài sau lên trước)
     list.sort((a, b) => {
       if (b.createdAtTime && a.createdAtTime && b.createdAtTime !== a.createdAtTime) {
         return b.createdAtTime - a.createdAtTime;
@@ -199,7 +192,7 @@ export default function LessonsTab({
   const flattenedLessons = useMemo(() => {
     return computedFlattenedLessons;
   }, [computedFlattenedLessons]);
-  // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE) kèm chọn Tuần & Tháng
+
   const [internalUploadModal, setInternalUploadModal] = useState<{
     lessonId: string;
     lessonTitle: string;
@@ -210,7 +203,6 @@ export default function LessonsTab({
 
   const [activeTestFile, setActiveTestFile] = useState<File | null>(null);
   
-  // DÙNG REF ĐỂ LƯU TARGET NẠP (BAO GỒM ASSIGNED_MONTH & ASSIGNED_WEEK) TRÁNH BỊ MẤT KHI MODAL UNMOUNT
   const uploadTargetRef = useRef<{
     lessonId: string;
     type: "homework_files" | "test_quizzes";
@@ -225,7 +217,6 @@ export default function LessonsTab({
     assignedWeek: number;
   } | null>(null);
 
-  // Modal dán link Google Drive thủ công
   const [driveModal, setDriveModal] = useState<{
     lessonId: string;
     type: "homework_files" | "test_quizzes";
@@ -238,7 +229,6 @@ export default function LessonsTab({
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const docxInputRef = useRef<HTMLInputElement | null>(null);
 
-  // HÀM ĐẨY THAY ĐỔI LÊN CẤP CHA TỨC THÌ (OPTIMISTIC DISPATCH - 0MS)
   const dispatchOptimisticUpdate = (newChapters: any[], taskLabel: string = "bài tập") => {
     if (typeof onUpdateChapters === "function") {
       onUpdateChapters(newChapters, taskLabel);
@@ -249,8 +239,7 @@ export default function LessonsTab({
     }
   };
 
-  // HÀM ĐỔI NHANH TUẦN / THÁNG CỦA BÀI HỌC NGAY TRÊN BẢNG VÀ ĐỒNG BỘ XUỐNG BTVN & ĐỀ KIỂM TRA
- const handleQuickChangeLessonSchedule = async (
+  const handleQuickChangeLessonSchedule = async (
     chapterId: string,
     lessonId: string,
     newMonth: number,
@@ -287,12 +276,10 @@ export default function LessonsTab({
       };
     });
 
-    // 1. Cập nhật state cục bộ
     if (typeof setChapters === "function") {
       setChapters(updatedChapters);
     }
 
-    // 2. Đẩy thẳng lên Supabase & Storage
     if (typeof onUpdateChapters === "function") {
       await onUpdateChapters(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
     } else if (typeof saveToStorage === "function") {
@@ -300,10 +287,6 @@ export default function LessonsTab({
     }
   };
 
-    dispatchOptimisticUpdate(updatedChapters, `lịch bài học T${newWeek}.Th${newMonth}`);
-  };
-
-  // MỞ MENU CHỌN NẠP ĐỀ (MẶC ĐỊNH LẤY THÁNG & TUẦN CỦA BÀI HỌC HOẶC THÁNG/TUẦN HIỆN TẠI REALTIME)
   const handleOpenUploadPicker = (lesson: any, type: "homework_files" | "test_quizzes") => {
     const defaultM = Number(lesson?.assigned_month) || currentRealtimeMonth;
     const defaultW = Number(lesson?.assigned_week) || currentRealtimeWeek;
@@ -324,7 +307,6 @@ export default function LessonsTab({
     setInternalUploadModal(targetObj);
   };
 
-  // CHỌN FILE VÀ MỞ AZOTA MODAL NGAY
   const handleSelectFile = (file: File) => {
     if (!internalUploadModal) return;
     const targetObj = {
@@ -339,8 +321,6 @@ export default function LessonsTab({
     setInternalUploadModal(null);
   };
 
-  // CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN ĐỀ (ĐÍNH KÈM ASSIGNED_MONTH & ASSIGNED_WEEK)
-// CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN ĐỀ
   const handleSaveExamFromAzota = (payload: any) => {
     const currentTarget = activeUploadTarget || uploadTargetRef.current;
     if (!currentTarget) {
@@ -353,16 +333,37 @@ export default function LessonsTab({
 
     const examData = payload?.examData || payload?.data || payload;
     const rawSections = payload?.sections || examData?.sections || payload?.data || [];
-    const incomingMediaMap = payload?.mediaMap || payload?.media_map || examData?.mediaMap || examData?.media_map || {};
+    const incomingMediaMap =
+      payload?.mediaMap ||
+      payload?.media_map ||
+      examData?.mediaMap ||
+      examData?.media_map ||
+      {};
 
     const defaultTitle = isHw ? "Bài tập về nhà (BTVN)" : "Đề kiểm tra định kỳ";
-    const title = payload?.title || examData?.title || activeTestFile?.name?.replace(/\.[^/.]+$/, "") || defaultTitle;
-    
-    const duration = isHw ? 0 : (payload?.duration_minutes || examData?.duration_minutes || 45);
-    const quizId = payload?.id || examData?.id || ("quiz-" + Date.now());
+    const title =
+      payload?.title ||
+      examData?.title ||
+      activeTestFile?.name?.replace(/\.[^/.]+$/, "") ||
+      defaultTitle;
 
-    const finalMonth = Number(payload?.assigned_month || examData?.assigned_month || assignedMonth || currentRealtimeMonth);
-    const finalWeek = Number(payload?.assigned_week || examData?.assigned_week || assignedWeek || currentRealtimeWeek);
+    const duration = isHw
+      ? 0
+      : payload?.duration_minutes || examData?.duration_minutes || 45;
+    const quizId = payload?.id || examData?.id || "quiz-" + Date.now();
+
+    const finalMonth = Number(
+      payload?.assigned_month ||
+        examData?.assigned_month ||
+        assignedMonth ||
+        currentRealtimeMonth
+    );
+    const finalWeek = Number(
+      payload?.assigned_week ||
+        examData?.assigned_week ||
+        assignedWeek ||
+        currentRealtimeWeek
+    );
 
     setActiveTestFile(null);
     setActiveUploadTarget(null);
@@ -380,7 +381,7 @@ export default function LessonsTab({
       sections: rawSections,
       media_map: incomingMediaMap,
       mediaMap: incomingMediaMap,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
 
     const updatedChapters = (chapters || []).map((chap: any) => ({
@@ -392,15 +393,17 @@ export default function LessonsTab({
           ...les,
           assigned_month: les.assigned_month || finalMonth,
           assigned_week: les.assigned_week || finalWeek,
-          [type]: [...currentList, newQuizItem]
+          [type]: [...currentList, newQuizItem],
         };
-      })
+      }),
     }));
 
-    dispatchOptimisticUpdate(updatedChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
+    dispatchOptimisticUpdate(
+      updatedChapters,
+      isHw ? "bài tập về nhà" : "đề kiểm tra"
+    );
   };
 
-  // LƯU LINK DRIVE THỦ CÔNG (CÓ ĐÍNH KÈM ASSIGNED_MONTH & ASSIGNED_WEEK)
   const handleSaveDriveLink = (e: React.FormEvent) => {
     e.preventDefault();
     if (!driveModal || !driveTitle.trim() || !driveUrl.trim()) return;
@@ -416,7 +419,7 @@ export default function LessonsTab({
       is_drive_file: true,
       assigned_month: assignedMonth || currentRealtimeMonth,
       assigned_week: assignedWeek || currentRealtimeWeek,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
 
     setDriveModal(null);
@@ -430,62 +433,23 @@ export default function LessonsTab({
         const currentList = Array.isArray(les[type]) ? les[type] : [];
         return {
           ...les,
-          assigned_month: les.assigned_month || assignedMonth || currentRealtimeMonth,
-          assigned_week: les.assigned_week || assignedWeek || currentRealtimeWeek,
-          [type]: [...currentList, newItem]
+          assigned_month:
+            les.assigned_month || assignedMonth || currentRealtimeMonth,
+          assigned_week:
+            les.assigned_week || assignedWeek || currentRealtimeWeek,
+          [type]: [...currentList, newItem],
         };
-      })
+      }),
     }));
 
-    dispatchOptimisticUpdate(updatedChapters, isHw ? "file Drive BTVN" : "file Drive đề thi");
+    dispatchOptimisticUpdate(
+      updatedChapters,
+      isHw ? "file Drive BTVN" : "file Drive đề thi"
+    );
   };
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300 text-left relative font-sans">
-
-  // LƯU LINK DRIVE THỦ CÔNG (CÓ ĐÍNH KÈM ASSIGNED_MONTH & ASSIGNED_WEEK)
-  const handleSaveDriveLink = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!driveModal || !driveTitle.trim() || !driveUrl.trim()) return;
-
-    const { lessonId, type, assignedMonth, assignedWeek } = driveModal;
-    const isHw = type === "homework_files";
-    const newItem = {
-      id: "drive-" + Date.now(),
-      title: driveTitle.trim(),
-      url: driveUrl.trim(),
-      is_quiz: false,
-      isHomework: isHw,
-      is_drive_file: true,
-      assigned_month: assignedMonth || currentRealtimeMonth,
-      assigned_week: assignedWeek || currentRealtimeWeek,
-      created_at: new Date().toISOString()
-    };
-
-    setDriveModal(null);
-    setDriveTitle("");
-    setDriveUrl("");
-
-    const updatedChapters = (chapters || []).map((chap: any) => ({
-      ...chap,
-      lessons: (chap?.lessons || []).map((les: any) => {
-        if (les.id !== lessonId) return les;
-        const currentList = Array.isArray(les[type]) ? les[type] : [];
-        return {
-          ...les,
-          assigned_month: les.assigned_month || assignedMonth || currentRealtimeMonth,
-          assigned_week: les.assigned_week || assignedWeek || currentRealtimeWeek,
-          [type]: [...currentList, newItem]
-        };
-      })
-    }));
-
-    dispatchOptimisticUpdate(updatedChapters, isHw ? "file Drive BTVN" : "file Drive đề thi");
-  };
-
-  return (
-    <div className="space-y-4 animate-in fade-in duration-300 text-left relative font-sans">
-      {/* INPUT FILE ẨN PHỤC VỤ UPLOAD WORD & PDF */}
       <input 
         type="file" 
         ref={pdfInputRef} 
@@ -509,7 +473,7 @@ export default function LessonsTab({
         }}
       />
 
-      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC PHÂN LUỒNG + LỌC THÁNG + NÚT TẠO MỚI */}
+      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
@@ -554,7 +518,6 @@ export default function LessonsTab({
             </button>
           </div>
 
-          {/* BỘ LỌC NHANH THEO THÁNG */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50/70 rounded-2xl border border-blue-200/70">
             <Filter className="w-3.5 h-3.5 text-[#1D4ED8]" />
             <span className="text-[11px] font-bold text-slate-600">Tháng:</span>
@@ -598,7 +561,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC CHUẨN NỀN XANH #1D4ED8 (ĐÃ TỰ ĐỘNG SẮP XẾP THEO THÁNG -> TUẦN 1..5) */}
+      {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC */}
       <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full min-w-[1180px] text-left border-collapse">
@@ -645,7 +608,6 @@ export default function LessonsTab({
                       <h4 className="font-bold text-[#1D4ED8] text-[13px] uppercase leading-snug">{lesTitle}</h4>
                     </td>
 
-                    {/* CỘT CHỌN NHANH TUẦN & THÁNG REALTIME (ĐỔI XONG TỰ ĐỘNG SẮP XẾP LẠI DÒNG THỜI GIAN) */}
                     <td className="py-3.5 px-3 text-center border-r border-slate-100">
                       <div className="flex items-center justify-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/90">
                         <select
@@ -708,7 +670,6 @@ export default function LessonsTab({
                       {les.format || "Zoom"}
                     </td>
 
-                    {/* CỘT VIDEO */}
                     <td className="py-3.5 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.video_list} 
@@ -718,7 +679,6 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT BÀI GIẢNG */}
                     <td className="py-3.5 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.lecture_files} 
@@ -728,7 +688,6 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT VIẾT TAY */}
                     <td className="py-3.5 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.handwritten_notes} 
@@ -738,7 +697,6 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT BTVN - HIỂN THỊ TAG TUẦN/THÁNG */}
                     <td className="py-3.5 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.homework_files} 
@@ -749,7 +707,6 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT ĐỀ KT - HIỂN THỊ TAG TUẦN/THÁNG */}
                     <td className="py-3.5 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.test_quizzes} 
@@ -760,7 +717,6 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* CỘT TĂNG CƯỜNG */}
                     <td className="py-3.5 px-3 border-r border-slate-100">
                       <MatrixCell 
                         items={les.extra_resources} 
@@ -770,7 +726,6 @@ export default function LessonsTab({
                       />
                     </td>
 
-                    {/* THAO TÁC */}
                     <td className="py-3.5 px-3">
                       <div className="flex items-center justify-center gap-1.5">
                         <button 
@@ -814,7 +769,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 3. MODAL CHỌN PHƯƠNG THỨC NẠP ĐỀ THI / BTVN (CÓ CHỌN TUẦN & THÁNG REALTIME) */}
+      {/* 3. MODAL CHỌN PHƯƠNG THỨC NẠP ĐỀ THI / BTVN */}
       {internalUploadModal && (
         <div 
           onClick={() => setInternalUploadModal(null)} 
@@ -843,7 +798,6 @@ export default function LessonsTab({
               </button>
             </div>
 
-            {/* CHỌN THÁNG & TUẦN CHO BTVN / ĐỀ KIỂM TRA TRƯỚC KHI TẢI LÊN */}
             <div className="grid grid-cols-2 gap-3 p-3.5 bg-blue-50/60 rounded-2xl border border-blue-200/80 mb-4">
               <div>
                 <label className="block text-[11px] font-extrabold text-[#1D4ED8] mb-1">
@@ -888,7 +842,6 @@ export default function LessonsTab({
             </div>
             
             <div className="flex flex-col gap-3">
-              {/* TẢI LÊN FILE PDF */}
               <div 
                 onClick={() => pdfInputRef.current?.click()}
                 className="p-4 border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl hover:bg-indigo-100/60 transition cursor-pointer flex items-start gap-4 group shadow-2xs"
@@ -907,7 +860,6 @@ export default function LessonsTab({
                 </div>
               </div>
 
-              {/* TẢI LÊN FILE WORD (.DOCX) */}
               <div 
                 onClick={() => docxInputRef.current?.click()}
                 className="p-4 border border-blue-200 bg-blue-50/40 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group shadow-2xs"
@@ -923,7 +875,6 @@ export default function LessonsTab({
                 </div>
               </div>
               
-              {/* ĐÍNH KÈM LINK GOOGLE DRIVE */}
               <button 
                 type="button"
                 onClick={() => { 
@@ -1038,7 +989,7 @@ export default function LessonsTab({
         </div>
       )}
 
-      {/* 5. GỌI TRỰC TIẾP AZOTA EXAM CONFIG MODAL (NON-BLOCKING CALLBACK) */}
+      {/* 5. AZOTA EXAM CONFIG MODAL */}
       {activeTestFile && (
         <AzotaExamConfigModal 
           isOpen={Boolean(activeTestFile)} 
