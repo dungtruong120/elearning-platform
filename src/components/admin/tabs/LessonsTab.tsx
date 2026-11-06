@@ -160,48 +160,41 @@ export default function LessonsTab({
         if (lessonModeTab === "online" && les?.target_mode !== "online" && les?.target_mode !== "all") {
           return;
         }
-        const lesMonth = Number(les?.assigned_month) || currentRealtimeMonth;
+
+        // Ưu tiên tháng lưu trên bài, nếu chưa có thì lấy tháng 10
+        const lesMonth = Number(les?.assigned_month) || 10;
         const lesWeek = Number(les?.assigned_week) || 1;
 
         if (selectedMonthFilter !== "all" && lesMonth !== Number(selectedMonthFilter)) {
           return;
         }
 
+        const createdAtTime = les?.created_at ? new Date(les.created_at).getTime() : 0;
+
         list.push({
           ...les,
           assigned_month: lesMonth,
           assigned_week: lesWeek,
           originalIndex: runningOriginalIndex,
+          createdAtTime,
           chapterId: chap?.id || "chap-default",
           chapterTitle: (chap?.title || "").split(":")[0] || chap?.title || "Chương"
         });
       });
     });
 
-    // THUẬT TOÁN SẮP XẾP ĐA TẦNG (MULTI-LEVEL SORT):
-    // Tầng 1: So sánh assigned_month (Tháng nhỏ đứng trước tháng lớn)
-    // Tầng 2: Trong cùng 1 tháng, so sánh assigned_week (Tuần 1 -> Tuần 2 -> Tuần 3 -> Tuần 4 -> Tuần 5)
-    // Tầng 3: Nếu cùng Tuần & Tháng, giữ nguyên thứ tự tạo bài (hoặc theo trường order nếu có)
+    // SẮP XẾP BÀI MỚI NHẤT LÊN ĐẦU TIÊN (DỄ DÀNG SETUP):
+    // 1. So sánh ngày tạo (mới nhất lên trên)
+    // 2. Nếu không có ngày tạo, so sánh originalIndex giảm dần (bài sau lên trước)
     list.sort((a, b) => {
-      const monthA = Number(a.assigned_month) || currentRealtimeMonth;
-      const monthB = Number(b.assigned_month) || currentRealtimeMonth;
-      if (monthA !== monthB) {
-        return monthA - monthB;
+      if (b.createdAtTime && a.createdAtTime && b.createdAtTime !== a.createdAtTime) {
+        return b.createdAtTime - a.createdAtTime;
       }
-
-      const weekA = Number(a.assigned_week) || 1;
-      const weekB = Number(b.assigned_week) || 1;
-      if (weekA !== weekB) {
-        return weekA - weekB;
-      }
-
-      const orderA = a.order !== undefined ? Number(a.order) : a.originalIndex;
-      const orderB = b.order !== undefined ? Number(b.order) : b.originalIndex;
-      return orderA - orderB;
+      return b.originalIndex - a.originalIndex;
     });
 
     return list;
-  }, [chapters, lessonModeTab, selectedMonthFilter, currentRealtimeMonth]);
+  }, [chapters, lessonModeTab, selectedMonthFilter]);
 
   // Luôn đảm bảo nếu có truyền flattenedLessons từ ngoài vào thì cũng được sort chuẩn theo Tháng -> Tuần
   const flattenedLessons = useMemo(() => {
