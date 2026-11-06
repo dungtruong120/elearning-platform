@@ -256,7 +256,6 @@ export function deriveExamCode3Digits(examOrId?: any): string {
 export function formatStudentAutoSBD(profileOrCode: any, directory?: any[]): string {
   if (!profileOrCode) return "000001";
 
-  // 1. Nếu là object profile từ Supabase
   if (typeof profileOrCode === "object") {
     const raw = profileOrCode.student_code || profileOrCode.studentCode || profileOrCode.sbd;
     if (raw) {
@@ -267,12 +266,10 @@ export function formatStudentAutoSBD(profileOrCode: any, directory?: any[]): str
     }
   }
 
-  // 2. Nếu là chuỗi số (VD: "000001" hoặc "1")
   if (typeof profileOrCode === "string" && /^\d+$/.test(profileOrCode)) {
     return profileOrCode.padStart(6, "0").slice(-6);
   }
 
-  // 3. Tra cứu từ danh bạ nếu có
   if (Array.isArray(directory) && directory.length > 0) {
     const targetId = typeof profileOrCode === "object" ? String(profileOrCode.id || "") : String(profileOrCode);
     const targetName = typeof profileOrCode === "object" ? String(profileOrCode.full_name || profileOrCode.name || "").trim().toLowerCase() : "";
