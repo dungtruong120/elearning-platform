@@ -338,21 +338,32 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
     try {
-      const { data: courseRow } = await supabase
-  .from("courses")
-  .select("*")
-  .order("updated_at", { ascending: false })
-  .limit(1)
-  .maybeSingle();
+     try {
+      const { data: dbChapters } = await supabase
+        .from("chapters")
+        .select("*")
+        .order("created_at", { ascending: true });
 
-      if (courseRow?.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
-        setChapters(courseRow.chapters);
+      const { data: dbLessons } = await supabase
+        .from("lessons")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
+        const formattedChapters = dbChapters.map((chap: any) => ({
+          ...chap,
+          lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
+        }));
+
+        setChapters(formattedChapters);
+
         if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_course_data", JSON.stringify(courseRow.chapters));
+          localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
         }
       }
-    } catch (e) {}
-
+    } catch (e) {
+      console.error("Lỗi tải chương trình học:", e);
+    }
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
@@ -1032,41 +1043,29 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     [activePaperScanState, fetchAuthAndData]
   );
 
-  const handleOpenLesson = async (les: any) => {
+ const handleOpenLesson = async (les: any) => {
     if (les.video_list && les.lecture_files && les.video_list.length > 0) {
       setSelectedLesson(les);
       return;
     }
 
-  try {
-      // 1. Tải toàn bộ danh sách chương
-      const { data: dbChapters } = await supabase
-        .from("chapters")
-        .select("*")
-        .order("created_at", { ascending: true });
-
-      // 2. Tải toàn bộ danh sách bài học
-      const { data: dbLessons } = await supabase
+    try {
+      const { data, error } = await supabase
         .from("lessons")
-        .select("*")
-        .order("created_at", { ascending: true });
+        .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes")
+        .eq("id", les.id)
+        .maybeSingle();
 
-      if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
-        // Ghép các bài học vào đúng chương theo chapter_id
-        const formattedChapters = dbChapters.map((chap: any) => ({
-          ...chap,
-          lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
-        }));
-
-        setChapters(formattedChapters);
-
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
-        }
+      if (!error && data) {
+        setSelectedLesson({ ...les, ...data });
+      } else {
+        setSelectedLesson(les);
       }
-    } catch (e) {
-      console.error("Lỗi tải chương trình học:", e);
+    } catch (err) {
+      console.error("Lỗi fetch chi tiết bài học:", err);
+      setSelectedLesson(les);
     }
+  };
 
   const handlePreviewExamWithDetail = async (exam: any) => {
     if (exam.data && exam.data.length > 0) {
