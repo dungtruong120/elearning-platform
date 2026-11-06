@@ -143,10 +143,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
   }, [initialProfile]);
 
-  const studentAutoSbd = useMemo(() => {
-    const rawCode = profile?.student_code || profile?.id || "1";
-    return formatStudentAutoSBD(rawCode);
-  }, [profile]);
+ const studentAutoSbd = useMemo(() => {
+  return profile?.student_code
+    ? String(profile.student_code).padStart(6, "0")
+    : formatStudentAutoSBD(profile);
+}, [profile]);
 
  const [selectedLesson, setSelectedLesson] = useState<any | null>(() => {
   if (typeof window !== "undefined") {
