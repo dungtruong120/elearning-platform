@@ -196,23 +196,9 @@ export default function LessonsTab({
     return list;
   }, [chapters, lessonModeTab, selectedMonthFilter]);
 
-  // Luôn đảm bảo nếu có truyền flattenedLessons từ ngoài vào thì cũng được sort chuẩn theo Tháng -> Tuần
   const flattenedLessons = useMemo(() => {
     return computedFlattenedLessons;
   }, [computedFlattenedLessons]);
-    return [...restProps.flattenedLessons].sort((a: any, b: any) => {
-      const monthA = Number(a?.assigned_month) || currentRealtimeMonth;
-      const monthB = Number(b?.assigned_month) || currentRealtimeMonth;
-      if (monthA !== monthB) return monthA - monthB;
-
-      const weekA = Number(a?.assigned_week) || 1;
-      const weekB = Number(b?.assigned_week) || 1;
-      if (weekA !== weekB) return weekA - weekB;
-
-      return 0;
-    });
-  }, [restProps.flattenedLessons, computedFlattenedLessons, currentRealtimeMonth]);
-
   // Modal trung gian chọn loại file nạp (PDF / DOCX / DRIVE) kèm chọn Tuần & Tháng
   const [internalUploadModal, setInternalUploadModal] = useState<{
     lessonId: string;
