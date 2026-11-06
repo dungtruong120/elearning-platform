@@ -787,6 +787,7 @@ function AdminDashboardContent() {
             // 2. Lưu từng bài học con vào bảng lessons (chỉ giữ thông tin cơ bản)
             if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
               for (const les of chap.lessons) {
+                // 2. Lưu từng bài học con vào bảng lessons
                 await supabase.from("lessons").upsert({
                   id: String(les.id),
                   chapter_id: String(chap.id),
@@ -794,6 +795,8 @@ function AdminDashboardContent() {
                   description: les.description || "",
                   target_mode: les.target_mode || "all",
                   duration: Number(les.duration) || 45,
+                  assigned_month: Number(les.assigned_month) || 10, // 👈 THÊM DÒNG NÀY
+                  assigned_week: Number(les.assigned_week) || 1,    // 👈 THÊM DÒNG NÀY
                   video_list: les.video_list || [],
                   lecture_files: les.lecture_files || []
                 });
@@ -1343,7 +1346,7 @@ function AdminDashboardContent() {
       try {
        const [chapsRes, lessRes, sessRes, notifRes, hwRes] = await Promise.allSettled([
           supabase.from("chapters").select("*").order("created_at", { ascending: true }),
-          supabase.from("lessons").select("*").order("created_at", { ascending: true }),
+          supabase.from("lessons").select("id, chapter_id, title, description, duration, format, target_mode, assigned_month, assigned_week, video_list, lecture_files, created_at").order("created_at", { ascending: false })
           supabase
             .from("sessions")
             .select("id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at")
