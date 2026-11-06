@@ -1044,7 +1044,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   );
 
 const handleOpenLesson = async (les: any) => {
-    // Nếu bài học đã có sẵn dữ liệu bài tập/tài liệu thì mở ngay
+    // 1. Nếu bài học này đã có sẵn dữ liệu thì mở ngay
     if (
       (les.homework_files && les.homework_files.length > 0) ||
       (les.test_quizzes && les.test_quizzes.length > 0) ||
@@ -1056,7 +1056,7 @@ const handleOpenLesson = async (les: any) => {
     }
 
     try {
-      // Tải chi tiết bài tập, đề kiểm tra, video, tài liệu của bài này từ Supabase
+      // 2. Tải chi tiết bài tập, đề kiểm tra, video của riêng bài học này từ Supabase
       const { data, error } = await supabase
         .from("lessons")
         .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes, description")
