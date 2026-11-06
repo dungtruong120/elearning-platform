@@ -360,7 +360,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
         }
       }
-    } catch (e) {
+    catch (e) {
       console.error("Lỗi tải chương trình học:", e);
     }
     try {
