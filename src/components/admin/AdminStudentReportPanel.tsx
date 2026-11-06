@@ -2952,7 +2952,7 @@ export default function AdminStudentReportPanel({
   /**
    * CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
    */
-  const sbdDirectoryMap = useMemo(() => {
+const sbdDirectoryMap = useMemo(() => {
     const result = new Map<string, { sbd: string; stt: number; mode: "Online" | "Offline" }>();
 
     (registeredStudents || []).filter(Boolean).forEach((stu, idx) => {
