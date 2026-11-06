@@ -1196,44 +1196,37 @@ if (examRoom) {
               setSelectedLesson(null);
               fetchAuthAndData();
             }}
-            onStartQuiz={async (qId, qTitle, isHomework, durationMinutes) => {
-              let fullExamPayload: any = null;
+            onStartQuiz={async (qId, qTitle, isHomework, durationMinutes, incomingExam) => {
+              let targetExam: any = incomingExam || null;
 
-              // 1. Nếu là BTVN, tìm trong mảng homework_files của bài học đang chọn
-              if (isHomework && selectedLesson?.homework_files) {
-                const matched = selectedLesson.homework_files.find(
+              if (!targetExam && isHomework && Array.isArray(selectedLesson?.homework_files)) {
+                targetExam = selectedLesson.homework_files.find(
                   (h: any) => h.id === qId || h.title === qTitle
                 );
-                if (matched && (matched.data || matched.sections)) {
-                  fullExamPayload = matched;
-                }
               }
 
-              // 2. Nếu chưa có, query trực tiếp bảng homeworks
-              if (!fullExamPayload && isHomework) {
+              if (!targetExam && isHomework) {
                 const { data: dbHw } = await supabase
                   .from("homeworks")
                   .select("*")
                   .or(`id.eq.${qId},title.eq.${qTitle}`)
                   .maybeSingle();
-                if (dbHw) fullExamPayload = dbHw;
+                if (dbHw) targetExam = dbHw;
               }
 
-              // 3. Nếu vẫn không thấy, tìm trong practice_exams
-              if (!fullExamPayload) {
+              if (!targetExam) {
                 const { data: dbPrac } = await supabase
                   .from("practice_exams")
                   .select("*")
                   .or(`id.eq.${qId},title.eq.${qTitle}`)
                   .maybeSingle();
-                if (dbPrac) fullExamPayload = dbPrac;
+                if (dbPrac) targetExam = dbPrac;
               }
 
-              // Chuẩn hóa và làm phẳng câu hỏi nếu cần
-              const rawSections = fullExamPayload?.sections || fullExamPayload?.data || [];
+              const rawSections = targetExam?.sections || targetExam?.data || [];
               let extractedQuestions: any[] = [];
-              if (Array.isArray(fullExamPayload?.questions) && fullExamPayload.questions.length > 0) {
-                extractedQuestions = fullExamPayload.questions;
+              if (Array.isArray(targetExam?.questions) && targetExam.questions.length > 0) {
+                extractedQuestions = targetExam.questions;
               } else if (Array.isArray(rawSections)) {
                 rawSections.forEach((sec: any) => {
                   if (Array.isArray(sec.questions)) {
@@ -1247,7 +1240,7 @@ if (examRoom) {
                 title: qTitle,
                 duration: durationMinutes || 45,
                 isHomework,
-                ...(fullExamPayload || {}),
+                ...(targetExam || {}),
                 data: rawSections,
                 sections: rawSections,
                 questions: extractedQuestions.length > 0 ? extractedQuestions : undefined
