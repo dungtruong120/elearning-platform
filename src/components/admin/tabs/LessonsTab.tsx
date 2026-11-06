@@ -340,6 +340,7 @@ export default function LessonsTab({
   };
 
   // CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN ĐỀ (ĐÍNH KÈM ASSIGNED_MONTH & ASSIGNED_WEEK)
+// CALLBACK KHI AZOTA CONFIG HOÀN TẤT BÓC TÁCH VÀ XUẤT BẢN ĐỀ
   const handleSaveExamFromAzota = (payload: any) => {
     const currentTarget = activeUploadTarget || uploadTargetRef.current;
     if (!currentTarget) {
@@ -363,12 +364,10 @@ export default function LessonsTab({
     const finalMonth = Number(payload?.assigned_month || examData?.assigned_month || assignedMonth || currentRealtimeMonth);
     const finalWeek = Number(payload?.assigned_week || examData?.assigned_week || assignedWeek || currentRealtimeWeek);
 
-    // 1. ĐÓNG MODAL NGAY LẬP TỨC (< 30MS)
     setActiveTestFile(null);
     setActiveUploadTarget(null);
     uploadTargetRef.current = null;
 
-    // 2. CẤU TRÚC ĐỐI TƯỢNG BÀI THI/BTVN CHUẨN XÁC (GẮN ASSIGNED_MONTH & ASSIGNED_WEEK)
     const newQuizItem = {
       id: quizId,
       title: title,
@@ -384,7 +383,46 @@ export default function LessonsTab({
       created_at: new Date().toISOString()
     };
 
-    // 3. CẬP NHẬT VÀO BÀI HỌC (ĐỒNG BỘ LUÔN ASSIGNED_MONTH & ASSIGNED_WEEK CHO BÀI HỌC ĐÓ)
+    const updatedChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les.id !== lessonId) return les;
+        const currentList = Array.isArray(les[type]) ? les[type] : [];
+        return {
+          ...les,
+          assigned_month: les.assigned_month || finalMonth,
+          assigned_week: les.assigned_week || finalWeek,
+          [type]: [...currentList, newQuizItem]
+        };
+      })
+    }));
+
+    dispatchOptimisticUpdate(updatedChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
+  };
+
+  // LƯU LINK DRIVE THỦ CÔNG (CÓ ĐÍNH KÈM ASSIGNED_MONTH & ASSIGNED_WEEK)
+  const handleSaveDriveLink = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driveModal || !driveTitle.trim() || !driveUrl.trim()) return;
+
+    const { lessonId, type, assignedMonth, assignedWeek } = driveModal;
+    const isHw = type === "homework_files";
+    const newItem = {
+      id: "drive-" + Date.now(),
+      title: driveTitle.trim(),
+      url: driveUrl.trim(),
+      is_quiz: false,
+      isHomework: isHw,
+      is_drive_file: true,
+      assigned_month: assignedMonth || currentRealtimeMonth,
+      assigned_week: assignedWeek || currentRealtimeWeek,
+      created_at: new Date().toISOString()
+    };
+
+    setDriveModal(null);
+    setDriveTitle("");
+    setDriveUrl("");
+
     const updatedChapters = (chapters || []).map((chap: any) => ({
       ...chap,
       lessons: (chap?.lessons || []).map((les: any) => {
