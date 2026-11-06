@@ -305,9 +305,6 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 10000);
     return () => clearInterval(timer);
   }, []);
-
-  const [examRoom, setExamRoom] = useState<any | null>(null);
-  const [selectedLesson, setSelectedLesson] = useState<any | null>(null);
   const [previewExam, setPreviewExam] = useState<any | null>(null);
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
   const [workspacePracticeExam, setWorkspacePracticeExam] = useState<any | null>(null);
