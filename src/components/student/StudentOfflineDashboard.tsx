@@ -296,7 +296,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return () => clearInterval(timer);
   }, []);
 
-  const [examRoom, setExamRoom] = useState<{
+  const [examRoom, setExamRoom] = useState<any | null>(null);
     id: string;
     title: string;
     duration: number;
@@ -1162,15 +1162,18 @@ const handleOpenLesson = async (les: any) => {
     );
   }
 
-  if (examRoom) {
+if (examRoom) {
     return (
       <ExamRoomView
         key={"active-exam-" + examRoom.id}
         quizId={examRoom.id}
         quizTitle={examRoom.title}
-        durationMinutes={examRoom.duration}
+        durationMinutes={examRoom.duration || 45}
         profile={profile!}
         isHomework={examRoom.isHomework}
+        exam={examRoom}
+        examData={examRoom}
+        initialExam={examRoom}
         isReviewMode={false}
         onBackToDashboard={() => {
           setExamRoom(null);
@@ -1198,12 +1201,61 @@ const handleOpenLesson = async (les: any) => {
               setSelectedLesson(null);
               fetchAuthAndData();
             }}
-            onStartQuiz={(qId, qTitle, isHomework, durationMinutes) => {
+            onStartQuiz={async (qId, qTitle, isHomework, durationMinutes) => {
+              let fullExamPayload: any = null;
+
+              // 1. Nếu là BTVN, tìm trong mảng homework_files của bài học đang chọn
+              if (isHomework && selectedLesson?.homework_files) {
+                const matched = selectedLesson.homework_files.find(
+                  (h: any) => h.id === qId || h.title === qTitle
+                );
+                if (matched && (matched.data || matched.sections)) {
+                  fullExamPayload = matched;
+                }
+              }
+
+              // 2. Nếu chưa có, query trực tiếp bảng homeworks
+              if (!fullExamPayload && isHomework) {
+                const { data: dbHw } = await supabase
+                  .from("homeworks")
+                  .select("*")
+                  .or(`id.eq.${qId},title.eq.${qTitle}`)
+                  .maybeSingle();
+                if (dbHw) fullExamPayload = dbHw;
+              }
+
+              // 3. Nếu vẫn không thấy, tìm trong practice_exams
+              if (!fullExamPayload) {
+                const { data: dbPrac } = await supabase
+                  .from("practice_exams")
+                  .select("*")
+                  .or(`id.eq.${qId},title.eq.${qTitle}`)
+                  .maybeSingle();
+                if (dbPrac) fullExamPayload = dbPrac;
+              }
+
+              // Chuẩn hóa và làm phẳng câu hỏi nếu cần
+              const rawSections = fullExamPayload?.sections || fullExamPayload?.data || [];
+              let extractedQuestions: any[] = [];
+              if (Array.isArray(fullExamPayload?.questions) && fullExamPayload.questions.length > 0) {
+                extractedQuestions = fullExamPayload.questions;
+              } else if (Array.isArray(rawSections)) {
+                rawSections.forEach((sec: any) => {
+                  if (Array.isArray(sec.questions)) {
+                    extractedQuestions.push(...sec.questions);
+                  }
+                });
+              }
+
               setExamRoom({
                 id: qId,
                 title: qTitle,
                 duration: durationMinutes || 45,
-                isHomework
+                isHomework,
+                ...(fullExamPayload || {}),
+                data: rawSections,
+                sections: rawSections,
+                questions: extractedQuestions.length > 0 ? extractedQuestions : undefined
               });
             }}
           />
