@@ -324,18 +324,19 @@ export function ExamRoomView({
   const [showResultModal, setShowResultModal] = useState<boolean>(false);
 
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>(() => {
-    if (initialReviewMode && reviewAttempt) {
-      return extractRawAnswersFromAttempt(reviewAttempt);
-    }
-    if (typeof window !== "undefined" && isHomework && !initialReviewMode) {
-      try {
-        const key = "tct_hw_draft_" + (profile?.id || "anon") + "_" + quizId;
-        const saved = localStorage.getItem(key);
-        if (saved) return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return {};
-  });
+  if (initialReviewMode && reviewAttempt) {
+    return extractRawAnswersFromAttempt(reviewAttempt);
+  }
+  // Đọc bản nháp cục bộ từ máy học sinh (Egress = 0 byte)
+  if (typeof window !== "undefined" && !initialReviewMode) {
+    try {
+      const draftKey = `tct_draft_${profile?.id || "guest"}_${quizId}`;
+      const saved = localStorage.getItem(draftKey);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+  }
+  return {};
+});
 
   // Nếu ở chế độ Review Mode, mặc định hiển thị dạng "scroll" hoặc "single" đều xem được đầy đủ lời giải
   const [layoutMode, setLayoutMode] = useState<"single" | "scroll">(() =>
@@ -722,13 +723,15 @@ export function ExamRoomView({
 
   // LƯU BẢN NHÁP BTVN (CHỈ KHI ĐANG LÀM BÀI, KHÔNG GHI ĐÈ KHI Ở REVIEW MODE)
   useEffect(() => {
-    if (isHomework && typeof window !== "undefined" && profile?.id && !isSubmitted && !isReviewMode) {
-      try {
-        const key = "tct_hw_draft_" + profile.id + "_" + quizId;
-        localStorage.setItem(key, JSON.stringify(userAnswers));
-      } catch (e) {}
-    }
-  }, [userAnswers, isHomework, profile?.id, quizId, isSubmitted, isReviewMode]);
+  if (typeof window !== "undefined" && profile?.id && !isSubmitted && !isReviewMode) {
+    try {
+      const draftKey = `tct_draft_${profile.id}_${quizId}`;
+      if (Object.keys(userAnswers).length > 0) {
+        localStorage.setItem(draftKey, JSON.stringify(userAnswers));
+      }
+    } catch (e) {}
+  }
+}, [userAnswers, profile?.id, quizId, isSubmitted, isReviewMode]);
 
   // TẢI CÂU HỎI VÀ MEDIAMAP
 // TẢI CÂU HỎI VÀ MEDIAMAP
@@ -736,36 +739,47 @@ export function ExamRoomView({
     setIsLoading(true);
 
     const loadExamQuestions = async () => {
-      let loaded: QuestionItem[] = [];
-      let mappedImages: Record<string, string> = {};
+  let loaded: QuestionItem[] = [];
+  let mappedImages: Record<string, string> = {};
 
+  try {
+    let dbExam: any = null;
+
+    // ƯU TIÊN 1: Lấy trực tiếp từ sessionStorage của phòng thi (Egress = 0 byte)
+    if (typeof window !== "undefined") {
       try {
-      let dbExam: any = null;
+        const cachedRoom = sessionStorage.getItem("tct_active_exam_room");
+        if (cachedRoom) {
+          const parsed = JSON.parse(cachedRoom);
+          if (parsed && (parsed.id === quizId || parsed.title === quizTitle) && (parsed.data || parsed.sections)) {
+            dbExam = parsed;
+          }
+        }
+      } catch {}
+    }
 
-    // 1. TRUY VẤN BẢNG HOMEWORKS (CHỈ CHỌN CÁC CỘT THỰC SỰ TỒN TẠI)
-    if (isHomework || String(quizId).startsWith("exam-") || String(quizId).startsWith("hw-")) {
-      const HW_FIELDS = "id, title, data, sections, media_map, duration_minutes";
-
-      if (quizId) {
-        const { data, error } = await supabase
+    // ƯU TIÊN 2: Nếu bộ nhớ máy chưa có, mới query Supabase (chỉ lấy đúng các cột thực tế)
+    if (!dbExam) {
+      if (isHomework || String(quizId).startsWith("exam-") || String(quizId).startsWith("hw-")) {
+        const HW_FIELDS = "id, title, data, sections, media_map, duration_minutes";
+        const { data } = await supabase
           .from("homeworks")
           .select(HW_FIELDS)
-          .eq("id", quizId)
+          .or(`id.eq.${quizId},title.eq.${quizTitle}`)
           .maybeSingle();
-        if (!error && data) dbExam = data;
-      }
-
-      if (!dbExam && quizTitle) {
-        const { data, error } = await supabase
-          .from("homeworks")
-          .select(HW_FIELDS)
-          .ilike("title", `%${quizTitle.trim()}%`)
-          .limit(1)
+        if (data) dbExam = data;
+      } else {
+        const PRAC_FIELDS = "id, title, data, media_map, duration_minutes";
+        const { data } = await supabase
+          .from("practice_exams")
+          .select(PRAC_FIELDS)
+          .or(`id.eq.${quizId},title.eq.${quizTitle}`)
           .maybeSingle();
-        if (!error && data) dbExam = data;
+        if (data) dbExam = data;
       }
     }
 
+    // Đoạn parse rawData thành questions bên dưới giữ nguyên...
     // 2. TRUY VẤN BẢNG PRACTICE_EXAMS (NẾU LÀ ĐỀ THI)
     if (!dbExam) {
       const PRAC_FIELDS = "id, title, data, media_map, duration_minutes";
@@ -969,6 +983,12 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
 
   // NỘP BÀI THI - KÍCH HOẠT ANIMATION CHẤM BÀI 1.8S + ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA
   const handleSubmitExam = async () => {
+    if (typeof window !== "undefined" && profile?.id) {
+  try {
+    localStorage.removeItem(`tct_draft_${profile.id}_${quizId}`);
+    sessionStorage.removeItem("tct_active_exam_room");
+  } catch (e) {}
+}
     if (isSubmitting || isGrading || isReviewMode) return;
     setIsSubmitting(true);
     setIsGrading(true);
