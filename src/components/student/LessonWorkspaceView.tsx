@@ -133,41 +133,6 @@ useEffect(() => {
     }
   }, [profile]);
 
-        if (Array.isArray(profs) && profs.length > 0) {
-          const sorted = [...profs].sort((a: any, b: any) =>
-            String(a.full_name || a.username || "").localeCompare(
-              String(b.full_name || b.username || ""),
-              "vi"
-            )
-          );
-          const dir = sorted.map((p: any, i: number) => ({
-            stt: i + 1,
-            sbd: String(i + 1).padStart(6, "0"),
-            id: String(p.id || ""),
-            username: String(p.username || ""),
-            full_name: String(p.full_name || p.username || "Học sinh")
-          }));
-          if (typeof window !== "undefined") {
-            localStorage.setItem("edunexus_sbd_directory", JSON.stringify(dir));
-          }
-          if (isMounted) {
-            setStudentAutoSbd(formatStudentAutoSBD(profile, dir));
-          }
-          return;
-        }
-      } catch {}
-
-      if (isMounted) {
-        setStudentAutoSbd(formatStudentAutoSBD(profile));
-      }
-    };
-
-    syncCanonicalSbdFromDb();
-    return () => {
-      isMounted = false;
-    };
-  }, [profile]);
-
   const fallbackProfile: Profile = useMemo(() => {
     if (profile) return profile;
     return {
