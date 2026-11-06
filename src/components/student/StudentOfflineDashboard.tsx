@@ -1165,10 +1165,7 @@ if (examRoom) {
         quizTitle={examRoom.title}
         durationMinutes={examRoom.duration || 45}
         profile={profile!}
-        isHomework={examRoom.isHomework}
-        exam={examRoom}
-        examData={examRoom}
-        initialExam={examRoom}
+        isHomework={Boolean(examRoom.isHomework)}
         isReviewMode={false}
         onBackToDashboard={() => {
           setExamRoom(null);
@@ -1196,10 +1193,10 @@ if (examRoom) {
               setSelectedLesson(null);
               fetchAuthAndData();
             }}
-            onStartQuiz={async (qId, qTitle, isHomework, durationMinutes, incomingExam) => {
-              let targetExam: any = incomingExam || null;
+            onStartQuiz={async (qId: string, qTitle: string, isHomework: boolean, durationMinutes?: number) => {
+              let targetExam: any = null;
 
-              if (!targetExam && isHomework && Array.isArray(selectedLesson?.homework_files)) {
+              if (isHomework && Array.isArray(selectedLesson?.homework_files)) {
                 targetExam = selectedLesson.homework_files.find(
                   (h: any) => h.id === qId || h.title === qTitle
                 );
