@@ -148,15 +148,25 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return formatStudentAutoSBD(rawCode);
   }, [profile]);
 
-  const [activeTab, setActiveTabState] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const hash = window.location.hash.replace("#", "").trim();
-      if (VALID_TABS.includes(hash)) return hash;
-    }
-    return "overview";
-  });
+ const [selectedLesson, setSelectedLesson] = useState<any | null>(() => {
+  if (typeof window !== "undefined") {
+    try {
+      const saved = sessionStorage.getItem("tct_active_lesson");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+  }
+  return null;
+});
 
-  const [isTabChanging, setIsTabChanging] = useState<boolean>(false);
+const [examRoom, setExamRoom] = useState<any | null>(() => {
+  if (typeof window !== "undefined") {
+    try {
+      const saved = sessionStorage.getItem("tct_active_exam_room");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+  }
+  return null;
+});
 
   const setActiveTab = useCallback(
     (newTab: string) => {
@@ -1040,25 +1050,27 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
 const handleOpenLesson = async (les: any) => {
   try {
-    // 1. Tải thông tin bài học cơ bản
     const { data: lessonData } = await supabase
       .from("lessons")
       .select("video_list, lecture_files, description")
       .eq("id", les.id)
       .maybeSingle();
 
-    // 2. Kéo toàn bộ BTVN từ bảng riêng homeworks
     const { data: hwData } = await supabase
       .from("homeworks")
       .select("id, lesson_id, title, duration_minutes, is_quiz, data, sections")
       .eq("lesson_id", les.id);
 
-    // 3. Ghép vào state để LessonWorkspaceView hiển thị chuẩn
-    setSelectedLesson({
+    const fullLesson = {
       ...les,
       ...(lessonData || {}),
       homework_files: hwData || []
-    });
+    };
+
+    setSelectedLesson(fullLesson);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("tct_active_lesson", JSON.stringify(fullLesson));
+    }
   } catch (err) {
     console.error("Lỗi tải bài học:", err);
     setSelectedLesson(les);
@@ -1158,22 +1170,25 @@ const handleOpenLesson = async (les: any) => {
   }
 
 if (examRoom) {
-    return (
-      <ExamRoomView
-        key={"active-exam-" + examRoom.id}
-        quizId={examRoom.id}
-        quizTitle={examRoom.title}
-        durationMinutes={examRoom.duration || 45}
-        profile={profile!}
-        isHomework={Boolean(examRoom.isHomework)}
-        isReviewMode={false}
-        onBackToDashboard={() => {
-          setExamRoom(null);
-          fetchAuthAndData();
-        }}
-      />
-    );
-  }
+  return (
+    <ExamRoomView
+      key={"active-exam-" + examRoom.id}
+      quizId={examRoom.id}
+      quizTitle={examRoom.title}
+      durationMinutes={examRoom.duration || 45}
+      profile={profile!}
+      isHomework={Boolean(examRoom.isHomework)}
+      isReviewMode={false}
+      onBackToDashboard={() => {
+        setExamRoom(null);
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("tct_active_exam_room");
+        }
+        fetchAuthAndData();
+      }}
+    />
+  );
+}
 
   if (selectedLesson) {
     return (
@@ -1190,47 +1205,60 @@ if (examRoom) {
             lesson={selectedLesson}
             profile={profile}
             onBackToCatalog={() => {
-              setSelectedLesson(null);
-              fetchAuthAndData();
-            }}
+  setSelectedLesson(null);
+  if (typeof window !== "undefined") {
+    sessionStorage.removeItem("tct_active_lesson");
+  }
+  fetchAuthAndData();
+}}
             onStartQuiz={async (qId: string, qTitle: string, isHomework: boolean, durationMinutes?: number) => {
-              let targetExam: any = null;
+  let targetExam: any = null;
 
-              if (isHomework && Array.isArray(selectedLesson?.homework_files)) {
-                targetExam = selectedLesson.homework_files.find(
-                  (h: any) => h.id === qId || h.title === qTitle
-                );
-              }
+  // 1. Tận dụng dữ liệu đã có sẵn trong RAM bài học (Egress = 0 byte)
+  if (isHomework && Array.isArray(selectedLesson?.homework_files)) {
+    targetExam = selectedLesson.homework_files.find(
+      (h: any) => h.id === qId || h.title === qTitle
+    );
+  }
 
-              if (!targetExam && isHomework) {
-                const { data: dbHw } = await supabase
-                  .from("homeworks")
-                  .select("*")
-                  .or(`id.eq.${qId},title.eq.${qTitle}`)
-                  .maybeSingle();
-                if (dbHw) targetExam = dbHw;
-              }
+  // 2. Chỉ query Supabase nếu chưa có sẵn
+  if (!targetExam && isHomework) {
+    const { data: dbHw } = await supabase
+      .from("homeworks")
+      .select("id, title, data, sections, media_map, duration_minutes")
+      .eq("id", qId)
+      .maybeSingle();
+    if (dbHw) targetExam = dbHw;
+  }
 
-              if (!targetExam) {
-                const { data: dbPrac } = await supabase
-                  .from("practice_exams")
-                  .select("*")
-                  .or(`id.eq.${qId},title.eq.${qTitle}`)
-                  .maybeSingle();
-                if (dbPrac) targetExam = dbPrac;
-              }
+  const rawSections = targetExam?.sections || targetExam?.data || [];
+  let extractedQuestions: any[] = [];
+  if (Array.isArray(targetExam?.questions) && targetExam.questions.length > 0) {
+    extractedQuestions = targetExam.questions;
+  } else if (Array.isArray(rawSections)) {
+    rawSections.forEach((sec: any) => {
+      if (Array.isArray(sec.questions)) {
+        extractedQuestions.push(...sec.questions);
+      }
+    });
+  }
 
-              const rawSections = targetExam?.sections || targetExam?.data || [];
-              let extractedQuestions: any[] = [];
-              if (Array.isArray(targetExam?.questions) && targetExam.questions.length > 0) {
-                extractedQuestions = targetExam.questions;
-              } else if (Array.isArray(rawSections)) {
-                rawSections.forEach((sec: any) => {
-                  if (Array.isArray(sec.questions)) {
-                    extractedQuestions.push(...sec.questions);
-                  }
-                });
-              }
+  const examRoomPayload = {
+    id: qId,
+    title: qTitle,
+    duration: durationMinutes || 45,
+    isHomework,
+    ...(targetExam || {}),
+    data: rawSections,
+    sections: rawSections,
+    questions: extractedQuestions.length > 0 ? extractedQuestions : undefined
+  };
+
+  setExamRoom(examRoomPayload);
+  if (typeof window !== "undefined") {
+    sessionStorage.setItem("tct_active_exam_room", JSON.stringify(examRoomPayload));
+  }
+}}
 
               setExamRoom({
                 id: qId,
