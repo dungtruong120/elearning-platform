@@ -104,9 +104,11 @@ export default function StudentsTab({
       <div className="bg-white/90 backdrop-blur-2xl rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#1D4ED8] text-white text-[11px] uppercase tracking-wider font-black">
+           <thead className="bg-[#1D4ED8] text-white text-[11px] uppercase tracking-wider font-black">
               <tr>
                 <th className="py-4 px-4 text-center w-12">STT</th>
+                {/* THÊM CỘT SBD VÀO ĐÂY: */}
+                <th className="py-4 px-3 text-center w-24">SBD</th>
                 <th className="py-4 px-5">Họ và tên</th>
                 <th className="py-4 px-5">Liên hệ</th>
                 <th className="py-4 px-4">Trường & Khối</th>
@@ -122,13 +124,14 @@ export default function StudentsTab({
                   const st = s.approval_status || s.status || (s.is_approved ? "approved" : "pending");
                   return st === studentFilter;
                 })
-                .filter(s => {
+               .filter(s => {
                   const q = studentSearch.toLowerCase();
                   const name = (s.full_name || s.name || "").toLowerCase();
                   const email = getStudentEmail(s).toLowerCase();
                   const school = (s.school || "").toLowerCase();
                   const phone = getStudentPhone(s).toLowerCase();
-                  return name.includes(q) || email.includes(q) || school.includes(q) || phone.includes(q);
+                  const sbd = String(s.student_code || s.sbd || "").toLowerCase(); // 👈 Thêm dòng này
+                  return name.includes(q) || email.includes(q) || school.includes(q) || phone.includes(q) || sbd.includes(q);
                 })
                 .map((student, idx) => {
                   const statusVal = student.approval_status || student.status || (student.is_approved ? "approved" : "pending");
@@ -142,6 +145,13 @@ export default function StudentsTab({
                     <tr key={student.id || idx} className="hover:bg-slate-50/60 transition-colors bg-white/70">
                       <td className="py-4 px-4 text-center font-bold text-slate-400">{idx + 1}</td>
                       <td className="py-4 px-5 font-bold text-slate-800">
+                        <td className="py-4 px-3 text-center">
+                        <span className="inline-block px-2 py-1 rounded-md bg-blue-50 text-[#1D4ED8] font-mono font-black text-xs border border-blue-200 shadow-2xs">
+                          {student.student_code
+                            ? String(student.student_code).padStart(6, "0")
+                            : String(student.sbd || idx + 1).padStart(6, "0")}
+                        </span>
+                      </td>
                         <div>{student.full_name || student.name || "Chưa cập nhật"}</div>
                         <div className="text-[10px] text-slate-400 font-normal mt-0.5">
                           ĐK: {new Date(student.created_at || Date.now()).toLocaleDateString("vi-VN")}
