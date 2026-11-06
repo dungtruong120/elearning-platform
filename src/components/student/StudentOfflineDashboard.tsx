@@ -348,19 +348,20 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         .select("id, chapter_id, title, duration, target_mode, assigned_month, assigned_week, created_at")
         .order("created_at", { ascending: true });
 
-     if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
-  const formattedChapters = dbChapters.map((chap: any) => ({
-    ...chap,
-    lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
-  }));
-  setChapters(formattedChapters);
-}
+      if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
+        const formattedChapters = dbChapters.map((chap: any) => ({
+          ...chap,
+          lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
+        }));
+
+        // ĐẶT BÊN TRONG KHỐI IF NÀY:
+        setChapters(formattedChapters);
 
         if (typeof window !== "undefined") {
           localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
         }
       }
-    catch (e) {
+    } catch (e) {
       console.error("Lỗi tải chương trình học:", e);
     }
     try {
