@@ -523,12 +523,12 @@ export default function PracticeTab({
           } catch {}
         }
 
-        // BƯỚC 3: CHỈ TRUY VẤN `profiles` SIÊU NHẸ KHI DANH SÁCH HỌC SINH ĐANG TRỐNG
+        // BƯỚC 3: CHỈ TRUY VẤN profiles SIÊU NHẸ KHI DANH SÁCH HỌC SINH ĐANG TRỐNG
         if (propRegisteredStudents.length === 0 && internalStudents.length === 0) {
           try {
             const { data: sbProfiles } = await effectiveSupabase
               .from("profiles")
-              .select("id, full_name, username, school, grade, role, learning_mode, study_mode")
+              .select("id, student_code, full_name, username, school, grade, role, learning_mode, study_mode") // 👈 THÊM student_code VÀO ĐÂY
               .limit(200);
             if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
               recoveredStudents = sbProfiles.filter(
@@ -800,12 +800,13 @@ export default function PracticeTab({
     return Array.from(fromAttemptsMap.values());
   }, [propRegisteredStudents, internalStudents, effectiveAttempts]);
 
-  const sbdDirectoryList = useMemo(() => {
+ const sbdDirectoryList = useMemo(() => {
     const pool: {
       id: string;
       username: string;
       full_name: string;
       school: string;
+      student_code: string;
       mode: "Online" | "Offline";
       modeKey: "online" | "offline";
     }[] = [];
@@ -816,15 +817,24 @@ export default function PracticeTab({
       const key = String(s.id || s.username || s.full_name || "").trim();
       if (!key || seen.has(key.toLowerCase())) return;
       seen.add(key.toLowerCase());
+
       const rawMode = String(
         s.learning_mode || s.study_mode || s.mode || "offline"
       ).toLowerCase();
       const isOnline = rawMode.includes("on");
+
+      // Đọc mã SBD trực tiếp từ Supabase
+      const rawCode = s.student_code || s.studentCode || s.sbd || "";
+      const cleanCode = rawCode
+        ? String(rawCode).replace(/\D/g, "").padStart(6, "0").slice(-6)
+        : "";
+
       pool.push({
         id: String(s.id || key),
         username: String(s.username || ""),
         full_name: String(s.full_name || s.name || s.username || "Học sinh"),
         school: String(s.school || "THPT"),
+        student_code: cleanCode,
         mode: isOnline ? "Online" : "Offline",
         modeKey: isOnline ? "online" : "offline"
       });
@@ -832,11 +842,15 @@ export default function PracticeTab({
 
     pool.sort((a, b) => a.full_name.localeCompare(b.full_name, "vi"));
 
-    const directory = pool.map((stu, idx) => ({
-      ...stu,
-      stt: idx + 1,
-      sbd: formatStudentAutoSBD(idx + 1)
-    }));
+    const directory = pool.map((stu, idx) => {
+      // Ưu tiên SBD từ database, nếu tài khoản chưa có mới dùng STT
+      const finalSbd = stu.student_code || String(idx + 1).padStart(6, "0");
+      return {
+        ...stu,
+        stt: idx + 1,
+        sbd: finalSbd
+      };
+    });
 
     if (typeof window !== "undefined" && directory.length > 0) {
       try {
