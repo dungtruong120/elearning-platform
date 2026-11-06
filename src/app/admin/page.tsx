@@ -771,6 +771,7 @@ function AdminDashboardContent() {
          const nowIso = new Date().toISOString();
 
           // 1. Lưu từng chương vào bảng chapters
+         // 1. Lưu từng chương vào bảng chapters
           for (const chap of cleanCoursesData) {
             await supabase.from("chapters").upsert({
               id: String(chap.id),
@@ -778,7 +779,7 @@ function AdminDashboardContent() {
               course_id: "11111111-1111-1111-1111-111111111111"
             });
 
-            // 2. Lưu từng bài học con vào bảng lessons
+            // 2. Lưu từng bài học con vào bảng lessons (chỉ giữ thông tin cơ bản)
             if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
               for (const les of chap.lessons) {
                 await supabase.from("lessons").upsert({
@@ -786,13 +787,28 @@ function AdminDashboardContent() {
                   chapter_id: String(chap.id),
                   title: les.title,
                   description: les.description || "",
-                  target_mode: les.target_mode || "all", // <-- BỔ SUNG DÒNG NÀY
-                  duration: Number(les.duration) || 45,  // <-- BỔ SUNG DÒNG NÀY
+                  target_mode: les.target_mode || "all",
+                  duration: Number(les.duration) || 45,
                   video_list: les.video_list || [],
-                  lecture_files: les.lecture_files || [],
-                  homework_files: les.homework_files || [],
-                  test_quizzes: les.test_quizzes || []
+                  lecture_files: les.lecture_files || []
                 });
+
+                // 2.1 LƯU BTVN VÀO BẢNG RIÊNG homeworks
+                if (Array.isArray(les.homework_files) && les.homework_files.length > 0) {
+                  for (const hw of les.homework_files) {
+                    await supabase.from("homeworks").upsert({
+                      id: String(hw.id || `hw-${Date.now()}`),
+                      lesson_id: String(les.id),
+                      title: hw.title || "Bài tập về nhà",
+                      duration_minutes: Number(hw.duration_minutes) || 45,
+                      is_quiz: hw.is_quiz !== false,
+                      data: hw.data || hw.sections || [],
+                      sections: hw.sections || hw.data || [],
+                      media_map: hw.media_map || hw.mediaMap || {},
+                      updated_at: nowIso
+                    });
+                  }
+                }
               }
             }
           }
@@ -1320,14 +1336,12 @@ function AdminDashboardContent() {
       loadDeletedBlacklistFromStorage();
 
       try {
-       const [chapsRes, lessRes, sessRes, notifRes] = await Promise.allSettled([
+       const [chapsRes, lessRes, sessRes, notifRes, hwRes] = await Promise.allSettled([
           supabase.from("chapters").select("*").order("created_at", { ascending: true }),
           supabase.from("lessons").select("*").order("created_at", { ascending: true }),
           supabase
             .from("sessions")
-            .select(
-              "id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at"
-            )
+            .select("id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at")
             .order("created_at", { ascending: false })
             .limit(50),
           supabase
@@ -1335,6 +1349,8 @@ function AdminDashboardContent() {
             .select("id, title, content, type, createdAt, created_at")
             .order("created_at", { ascending: false })
             .limit(50),
+          // BỔ SUNG TRUY VẤN BẢNG HOMEWORKS:
+          supabase.from("homeworks").select("*")
         ]);
 
         if (
@@ -1347,6 +1363,9 @@ function AdminDashboardContent() {
         ) {
           const dbChapters = chapsRes.value.data;
           const dbLessons = lessRes.value.data || [];
+          const allHomeworks = (hwRes.status === "fulfilled" && !hwRes.value.error && Array.isArray(hwRes.value.data))
+            ? hwRes.value.data 
+            : [];
 
           const assembled = dbChapters.map((chap: any) => ({
             id: chap.id,
@@ -1364,14 +1383,16 @@ function AdminDashboardContent() {
                 target_mode: l.target_mode || "all",
                 video_list: l.video_list || [],
                 lecture_files: l.lecture_files || [],
-                homework_files: l.homework_files || [],
+                // ĐỌC BTVN TỪ BẢNG RIÊNG VÀ GHÉP VÀO:
+                homework_files: allHomeworks.filter((h: any) => h.lesson_id === l.id),
                 test_quizzes: l.test_quizzes || []
               }))
           }));
 
           setChapters(assembled);
           latestChaptersRef.current = assembled;
-        } else {
+        }
+        else {
           const { data: fallbackCurriculum } = await supabase
             .from("curriculum_data")
             .select("chapters")
