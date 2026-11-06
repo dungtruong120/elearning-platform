@@ -1043,23 +1043,16 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     [activePaperScanState, fetchAuthAndData]
   );
 
-const handleOpenLesson = async (les: any) => {
-    // Nếu bài học đã có sẵn dữ liệu bài tập/tài liệu thì mở ngay
-    if (
-      (les.homework_files && les.homework_files.length > 0) ||
-      (les.test_quizzes && les.test_quizzes.length > 0) ||
-      (les.lecture_files && les.lecture_files.length > 0) ||
-      (les.video_list && les.video_list.length > 0)
-    ) {
+ const handleOpenLesson = async (les: any) => {
+    if (les.video_list && les.lecture_files && les.video_list.length > 0) {
       setSelectedLesson(les);
       return;
     }
 
     try {
-      // Tải chi tiết bài tập, đề kiểm tra, video, tài liệu của bài này từ Supabase
       const { data, error } = await supabase
         .from("lessons")
-        .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes, description")
+        .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes")
         .eq("id", les.id)
         .maybeSingle();
 
@@ -1069,11 +1062,6 @@ const handleOpenLesson = async (les: any) => {
         setSelectedLesson(les);
       }
     } catch (err) {
-      console.error("Lỗi fetch chi tiết bài học:", err);
-      setSelectedLesson(les);
-    }
-    };
-  catch (err) {
       console.error("Lỗi fetch chi tiết bài học:", err);
       setSelectedLesson(les);
     }
