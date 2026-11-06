@@ -2953,28 +2953,31 @@ export default function AdminStudentReportPanel({
    * CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
    */
   const sbdDirectoryMap = useMemo(() => {
-  const result = new Map<string, { sbd: string; stt: number; mode: "Online" | "Offline" }>();
+    const result = new Map<string, { sbd: string; stt: number; mode: "Online" | "Offline" }>();
 
-  (registeredStudents || []).filter(Boolean).forEach((stu, idx) => {
-    const id = String(stu.id || "").trim();
-    if (!id) return;
+    (registeredStudents || []).filter(Boolean).forEach((stu, idx) => {
+      const id = String(stu.id || "").trim();
+      if (!id) return;
 
-    const rawMode = String(stu.learning_mode || stu.study_mode || "offline").toLowerCase();
-    const codeFromDb = stu.student_code || stu.sbd || stu.studentCode;
+      const rawMode = String(stu.learning_mode || stu.study_mode || "offline").toLowerCase();
+      const codeFromDb = stu.student_code || stu.sbd || stu.studentCode;
 
-    const finalSbd = codeFromDb
-      ? String(codeFromDb).replace(/\D/g, "").padStart(6, "0").slice(-6)
-      : String(idx + 1).padStart(6, "0");
+      let finalSbd = "";
+      if (codeFromDb) {
+        finalSbd = String(codeFromDb).replace(/\D/g, "").padStart(6, "0").slice(-6);
+      } else {
+        finalSbd = String(idx + 1).padStart(6, "0").slice(-6);
+      }
 
-    result.set(id, {
-      stt: parseInt(finalSbd, 10) || idx + 1,
-      sbd: finalSbd,
-      mode: rawMode.includes("on") ? "Online" : "Offline"
+      result.set(id, {
+        stt: parseInt(finalSbd, 10) || idx + 1,
+        sbd: finalSbd,
+        mode: rawMode.includes("on") ? "Online" : "Offline"
+      });
     });
-  });
 
-  return result;
-}, [registeredStudents]);
+    return result;
+  }, [registeredStudents]);
 
         const savedDirRaw = localStorage.getItem("edunexus_sbd_directory");
         if (savedDirRaw) {
