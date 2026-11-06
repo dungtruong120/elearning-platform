@@ -786,6 +786,8 @@ function AdminDashboardContent() {
                   chapter_id: String(chap.id),
                   title: les.title,
                   description: les.description || "",
+                  target_mode: les.target_mode || "all", // <-- BỔ SUNG DÒNG NÀY
+                  duration: Number(les.duration) || 45,  // <-- BỔ SUNG DÒNG NÀY
                   video_list: les.video_list || [],
                   lecture_files: les.lecture_files || [],
                   homework_files: les.homework_files || [],
