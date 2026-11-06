@@ -126,12 +126,12 @@ export function LessonWorkspaceView({
 
  // Thay thế useEffect syncCanonicalSbdFromDb bằng:
 useEffect(() => {
-  if (profile?.student_code) {
-    setStudentAutoSbd(String(profile.student_code).padStart(6, "0"));
-  } else {
-    setStudentAutoSbd(formatStudentAutoSBD(profile));
-  }
-}, [profile]);
+    if (profile?.student_code) {
+      setStudentAutoSbd(String(profile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6));
+    } else {
+      setStudentAutoSbd(formatStudentAutoSBD(profile));
+    }
+  }, [profile]);
 
         if (Array.isArray(profs) && profs.length > 0) {
           const sorted = [...profs].sort((a: any, b: any) =>
