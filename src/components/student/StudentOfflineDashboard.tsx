@@ -354,9 +354,9 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
         .select("*")
         .order("created_at", { ascending: true });
 
-      const { data: dbLessons } = await supabase
+     const { data: dbLessons } = await supabase
         .from("lessons")
-        .select("id, chapter_id, title, created_at")
+        .select("id, chapter_id, title, target_mode, created_at")
         .order("created_at", { ascending: true });
 
       if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
@@ -1055,33 +1055,35 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
   );
 
 const handleOpenLesson = async (les: any) => {
-  try {
-    const { data: lessonData } = await supabase
-      .from("lessons")
-      .select("video_list, lecture_files, description")
-      .eq("id", les.id)
-      .maybeSingle();
+    try {
+      // 1. Tải thông tin cơ bản của bài học
+      const { data: lessonData } = await supabase
+        .from("lessons")
+        .select("video_list, lecture_files, description")
+        .eq("id", les.id)
+        .maybeSingle();
 
-    const { data: hwData } = await supabase
-      .from("homeworks")
-      .select("id, lesson_id, title, duration_minutes, is_quiz, data, sections")
-      .eq("lesson_id", les.id);
+      // 2. TỐI ƯU EGRESS: Chỉ kéo thông tin tóm tắt đề, BỎ data và sections (tiết kiệm 99% dung lượng)
+      const { data: hwData } = await supabase
+        .from("homeworks")
+        .select("id, lesson_id, title, duration_minutes, is_quiz")
+        .eq("lesson_id", les.id);
 
-    const fullLesson = {
-      ...les,
-      ...(lessonData || {}),
-      homework_files: hwData || []
-    };
+      const fullLesson = {
+        ...les,
+        ...(lessonData || {}),
+        homework_files: hwData || []
+      };
 
-    setSelectedLesson(fullLesson);
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("tct_active_lesson", JSON.stringify(fullLesson));
+      setSelectedLesson(fullLesson);
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("tct_active_lesson", JSON.stringify(fullLesson));
+      }
+    } catch (err) {
+      console.error("Lỗi tải bài học:", err);
+      setSelectedLesson(les);
     }
-  } catch (err) {
-    console.error("Lỗi tải bài học:", err);
-    setSelectedLesson(les);
-  }
-};
+  };
   const handlePreviewExamWithDetail = async (exam: any) => {
     if (exam.data && exam.data.length > 0) {
       setPreviewExam(exam);
