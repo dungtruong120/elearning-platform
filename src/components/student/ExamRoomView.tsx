@@ -740,51 +740,55 @@ export function ExamRoomView({
       let mappedImages: Record<string, string> = {};
 
       try {
-        let dbExam: any = null;
-        const VALID_FIELDS = "id, title, data, sections, questions, media_map";
+      let dbExam: any = null;
 
-        // 1. NẾU LÀ BTVN HOẶC ID BẮT ĐẦU BẰNG exam-/hw-, ƯU TIÊN TÌM TRONG BẢNG HOMEWORKS
-        if (isHomework || String(quizId).startsWith("exam-") || String(quizId).startsWith("hw-")) {
-          if (quizId) {
-            const { data, error } = await supabase
-              .from("homeworks")
-              .select(VALID_FIELDS)
-              .eq("id", quizId)
-              .maybeSingle();
-            if (!error && data) dbExam = data;
-          }
+    // 1. TRUY VẤN BẢNG HOMEWORKS (CHỈ CHỌN CÁC CỘT THỰC SỰ TỒN TẠI)
+    if (isHomework || String(quizId).startsWith("exam-") || String(quizId).startsWith("hw-")) {
+      const HW_FIELDS = "id, title, data, sections, media_map, duration_minutes";
 
-          if (!dbExam && quizTitle) {
-            const { data, error } = await supabase
-              .from("homeworks")
-              .select(VALID_FIELDS)
-              .ilike("title", `%${quizTitle.trim()}%`)
-              .limit(1)
-              .maybeSingle();
-            if (!error && data) dbExam = data;
-          }
-        }
+      if (quizId) {
+        const { data, error } = await supabase
+          .from("homeworks")
+          .select(HW_FIELDS)
+          .eq("id", quizId)
+          .maybeSingle();
+        if (!error && data) dbExam = data;
+      }
 
-        // 2. NẾU CHƯA CÓ, TÌM TIẾP TRONG BẢNG PRACTICE_EXAMS (ĐỀ LUYỆN THI)
-        if (!dbExam && quizId) {
-          const { data, error } = await supabase
-            .from("practice_exams")
-            .select(VALID_FIELDS)
-            .eq("id", quizId)
-            .maybeSingle();
-          if (!error && data) dbExam = data;
-        }
+      if (!dbExam && quizTitle) {
+        const { data, error } = await supabase
+          .from("homeworks")
+          .select(HW_FIELDS)
+          .ilike("title", `%${quizTitle.trim()}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) dbExam = data;
+      }
+    }
 
-        if (!dbExam && quizTitle) {
-          const { data, error } = await supabase
-            .from("practice_exams")
-            .select(VALID_FIELDS)
-            .ilike("title", `%${quizTitle.trim()}%`)
-            .limit(1)
-            .maybeSingle();
-          if (!error && data) dbExam = data;
-        }
+    // 2. TRUY VẤN BẢNG PRACTICE_EXAMS (NẾU LÀ ĐỀ THI)
+    if (!dbExam) {
+      const PRAC_FIELDS = "id, title, data, media_map, duration_minutes";
 
+      if (quizId) {
+        const { data, error } = await supabase
+          .from("practice_exams")
+          .select(PRAC_FIELDS)
+          .eq("id", quizId)
+          .maybeSingle();
+        if (!error && data) dbExam = data;
+      }
+
+      if (!dbExam && quizTitle) {
+        const { data, error } = await supabase
+          .from("practice_exams")
+          .select(PRAC_FIELDS)
+          .ilike("title", `%${quizTitle.trim()}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) dbExam = data;
+      }
+    }
         let targetExam = dbExam;
 
         // 3. Fallback đọc localStorage
