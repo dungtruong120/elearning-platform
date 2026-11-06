@@ -3044,7 +3044,19 @@ const sbdDirectoryMap = useMemo(() => {
       (l) => l.month === dailyMonth && l.week === dailyWeek
     );
   }, [allFlattenedLessons, dailyMonth, dailyWeek]);
+const autoSyncedTopicTitle = useMemo(() => {
+    if (currentSessionLessons.length > 0) {
+      return currentSessionLessons.map((m) => m.lessonTitle).join(" • ");
+    }
+    if (allFlattenedLessons.length > 0) {
+      return allFlattenedLessons[0].lessonTitle;
+    }
+    return `Chuyên đề Toán 12 — Tuần ${dailyWeek} Tháng ${dailyMonth}`;
+  }, [currentSessionLessons, allFlattenedLessons, dailyWeek, dailyMonth]);
 
+  useEffect(() => {
+    setOverrideTopicTitle("");
+  }, [dailyMonth, dailyWeek]);
   // 1. DI CHUYỂN QUIZ ASSIGNMENT MAP & RESOLVE ATTEMPT LÊN TRÊN ĐỂ TRÁNH LỖI TDZ
   const quizAssignmentMap = useMemo(() => {
     const byId = new Map<
