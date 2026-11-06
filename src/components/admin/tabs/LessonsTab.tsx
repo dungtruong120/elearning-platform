@@ -392,15 +392,18 @@ export default function LessonsTab({
         const currentList = Array.isArray(les[type]) ? les[type] : [];
         return {
           ...les,
-          assigned_month: les.assigned_month || finalMonth,
-          assigned_week: les.assigned_week || finalWeek,
-          [type]: [...currentList, newQuizItem]
+          assigned_month: les.assigned_month || assignedMonth || currentRealtimeMonth,
+          assigned_week: les.assigned_week || assignedWeek || currentRealtimeWeek,
+          [type]: [...currentList, newItem]
         };
       })
     }));
 
-    dispatchOptimisticUpdate(updatedChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
+    dispatchOptimisticUpdate(updatedChapters, isHw ? "file Drive BTVN" : "file Drive đề thi");
   };
+
+  return (
+    <div className="space-y-4 animate-in fade-in duration-300 text-left relative font-sans">
 
   // LƯU LINK DRIVE THỦ CÔNG (CÓ ĐÍNH KÈM ASSIGNED_MONTH & ASSIGNED_WEEK)
   const handleSaveDriveLink = (e: React.FormEvent) => {
