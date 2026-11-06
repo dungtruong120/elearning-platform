@@ -338,7 +338,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
     try {
-     try {
       const { data: dbChapters } = await supabase
         .from("chapters")
         .select("*")
