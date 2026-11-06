@@ -422,7 +422,7 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
     try {
       const { data: cloudAttempts } = await supabase
   .from("exam_attempts")
-  .select("id, quiz_id, exam_id, quiz_title, exam_title, student_id, user_id, student_name, full_name, score, points, created_at, is_homework, type, submission_type")
+  .select("id, quiz_id, exam_id, quiz_title, exam_title, student_id, student_name, full_name, score, points, created_at, is_homework, type, submission_type")
   .order("created_at", { ascending: false })
   .limit(100);
 
