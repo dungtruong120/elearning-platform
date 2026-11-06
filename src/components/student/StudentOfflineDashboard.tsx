@@ -339,10 +339,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const fetchAuthAndData = useCallback(async () => {
     try {
       const { data: courseRow } = await supabase
-        .from("courses")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+  .from("courses")
+  .select("*")
+  .order("updated_at", { ascending: false })
+  .limit(1)
+  .maybeSingle();
 
       if (courseRow?.chapters && Array.isArray(courseRow.chapters) && courseRow.chapters.length > 0) {
         setChapters(courseRow.chapters);
@@ -356,7 +357,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
         .from("practice_exams")
-        .select("*")
+        .select("id, title, category, duration_minutes, created_at, target_mode, allowViewFile, driveUrl")
         .order("created_at", { ascending: false });
 
       if (dbExams && Array.isArray(dbExams)) {
