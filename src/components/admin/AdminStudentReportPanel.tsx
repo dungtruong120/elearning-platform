@@ -2953,27 +2953,28 @@ export default function AdminStudentReportPanel({
    * CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
    */
   const sbdDirectoryMap = useMemo(() => {
-    const permanentMap: Record<string, string> = {};
-    let maxSbdNumber = 0;
+  const result = new Map<string, { sbd: string; stt: number; mode: "Online" | "Offline" }>();
 
-    if (typeof window !== "undefined") {
-      try {
-        const savedMapRaw = localStorage.getItem("edunexus_permanent_sbd_map");
-        if (savedMapRaw) {
-          const parsed = JSON.parse(savedMapRaw);
-          if (parsed && typeof parsed === "object") {
-            Object.entries(parsed).forEach(([stuId, sbdVal]) => {
-              const cleanSbd = String(sbdVal || "").trim();
-              if (/^\d{6}$/.test(cleanSbd)) {
-                permanentMap[stuId] = cleanSbd;
-                const num = parseInt(cleanSbd, 10);
-                if (!isNaN(num) && num > maxSbdNumber) {
-                  maxSbdNumber = num;
-                }
-              }
-            });
-          }
-        }
+  (registeredStudents || []).filter(Boolean).forEach((stu, idx) => {
+    const id = String(stu.id || "").trim();
+    if (!id) return;
+
+    const rawMode = String(stu.learning_mode || stu.study_mode || "offline").toLowerCase();
+    const codeFromDb = stu.student_code || stu.sbd || stu.studentCode;
+
+    const finalSbd = codeFromDb
+      ? String(codeFromDb).replace(/\D/g, "").padStart(6, "0").slice(-6)
+      : String(idx + 1).padStart(6, "0");
+
+    result.set(id, {
+      stt: parseInt(finalSbd, 10) || idx + 1,
+      sbd: finalSbd,
+      mode: rawMode.includes("on") ? "Online" : "Offline"
+    });
+  });
+
+  return result;
+}, [registeredStudents]);
 
         const savedDirRaw = localStorage.getItem("edunexus_sbd_directory");
         if (savedDirRaw) {
@@ -3649,10 +3650,9 @@ export default function AdminStudentReportPanel({
           student?.sbd ||
           dirInfo?.sbd) || "000001";
 
-      const sbd = String(sbdRaw)
-        .replace(/\D/g, "")
-        .padStart(6, "0")
-        .slice(-6);
+      const sbd = student?.student_code
+  ? String(student.student_code).padStart(6, "0")
+  : dirInfo?.sbd || "000001";
 
       const ov = dailyStudentOverrides[stuId] || {};
 
