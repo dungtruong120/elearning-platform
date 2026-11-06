@@ -1038,7 +1038,8 @@ export function LessonWorkspaceView({
           const qDuration = Number(
             selectedQuizForEntry.duration_minutes || selectedQuizForEntry.duration || 45
           );
-          onStartQuiz(qId, qTitle, isEntryHomework, qDuration);
+          // Truyền cả selectedQuizForEntry sang file cha
+          (onStartQuiz as any)(qId, qTitle, isEntryHomework, qDuration, selectedQuizForEntry);
         }}
         onSelectPaperScan={() => {
           if (!selectedQuizForEntry) return;
