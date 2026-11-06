@@ -281,46 +281,50 @@ export function LessonWorkspaceView({
     // Các cột an toàn: Không lấy media_map hàng loạt để tránh tràn MB
     const PRAC_FIELDS = "id, title, data, media_map";
 
-    try {
-      setIsResolvingExam(true);
+   try {
+  setIsResolvingExam(true);
 
-      if (targetId) {
-        const { data: dbQuiz } = await supabase
-          .from("quizzes")
-          .select("id, title, data, questions, sections")
-          .eq("id", targetId)
-          .maybeSingle();
+  // 1. ƯU TIÊN KIỂM TRA TRONG BẢNG HOMEWORKS MỚI
+  if (targetId) {
+    const { data: dbHw } = await supabase
+      .from("homeworks")
+      .select("id, title, data, sections, duration_minutes")
+      .eq("id", targetId)
+      .maybeSingle();
 
-        const quizAny = dbQuiz as any;
-        if (quizAny && (quizAny.data || quizAny.questions || quizAny.sections)) {
-          return {
-            ...quizAny,
-            ...rawQuizItem,
-            data: quizAny.data || quizAny.sections || rawQuizItem.data,
-            questions: quizAny.questions || rawQuizItem.questions,
-            is_homework: isHw
-          };
-        }
+    const hwAny = dbHw as any;
+    if (hwAny && (hwAny.data?.length > 0 || hwAny.sections?.length > 0)) {
+      return {
+        ...rawQuizItem,
+        ...hwAny,
+        data: hwAny.data || hwAny.sections,
+        sections: hwAny.sections || hwAny.data,
+        is_homework: isHw
+      };
+    }
+  }
 
-        const { data: dbPrac } = await supabase
-          .from("practice_exams")
-          .select(PRAC_FIELDS)
-          .eq("id", targetId)
-          .maybeSingle();
+  if (targetTitle) {
+    const { data: dbHwTitle } = await supabase
+      .from("homeworks")
+      .select("id, title, data, sections, duration_minutes")
+      .ilike("title", targetTitle)
+      .limit(1)
+      .maybeSingle();
 
-        // Ép kiểu (dbPrac as any) để fix triệt để lỗi TypeScript TS2339 tại dòng 303 và 307
-        const pracAny = dbPrac as any;
-        if (pracAny && (pracAny.data || pracAny.questions || pracAny.sections)) {
-          return {
-            ...pracAny,
-            ...rawQuizItem,
-            data: pracAny.data || pracAny.sections || rawQuizItem.data,
-            questions: pracAny.questions || rawQuizItem.questions,
-            is_homework: isHw
-          };
-        }
-      }
+    const hwTitleAny = dbHwTitle as any;
+    if (hwTitleAny && (hwTitleAny.data?.length > 0 || hwTitleAny.sections?.length > 0)) {
+      return {
+        ...rawQuizItem,
+        ...hwTitleAny,
+        data: hwTitleAny.data || hwTitleAny.sections,
+        sections: hwTitleAny.sections || hwTitleAny.data,
+        is_homework: isHw
+      };
+    }
+  }
 
+  // Các đoạn truy vấn bảng quizzes và practice_exams cũ giữ nguyên phía dưới...
       if (targetTitle) {
         const { data: byTitleQuiz } = await supabase
           .from("quizzes")
