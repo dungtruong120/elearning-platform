@@ -1038,23 +1038,35 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       return;
     }
 
-    try {
-      const { data, error } = await supabase
-        .from("lessons")
-        .select("video_list, lecture_files, handwritten_notes, extra_resources, homework_files, test_quizzes")
-        .eq("id", les.id)
-        .maybeSingle();
+  try {
+      // 1. Tải toàn bộ danh sách chương
+      const { data: dbChapters } = await supabase
+        .from("chapters")
+        .select("*")
+        .order("created_at", { ascending: true });
 
-      if (!error && data) {
-        setSelectedLesson({ ...les, ...data });
-      } else {
-        setSelectedLesson(les);
+      // 2. Tải toàn bộ danh sách bài học
+      const { data: dbLessons } = await supabase
+        .from("lessons")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
+        // Ghép các bài học vào đúng chương theo chapter_id
+        const formattedChapters = dbChapters.map((chap: any) => ({
+          ...chap,
+          lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
+        }));
+
+        setChapters(formattedChapters);
+
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
+        }
       }
-    } catch (err) {
-      console.error("Lỗi fetch chi tiết bài học:", err);
-      setSelectedLesson(les);
+    } catch (e) {
+      console.error("Lỗi tải chương trình học:", e);
     }
-  };
 
   const handlePreviewExamWithDetail = async (exam: any) => {
     if (exam.data && exam.data.length > 0) {
