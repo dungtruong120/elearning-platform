@@ -741,15 +741,37 @@ export function ExamRoomView({
 
       try {
         let dbExam: any = null;
-        const VALID_FIELDS = "id, title, data, media_map";
+        const VALID_FIELDS = "id, title, data, sections, questions, media_map";
 
-        if (quizId) {
+        // 1. NẾU LÀ BTVN HOẶC ID BẮT ĐẦU BẰNG exam-/hw-, ƯU TIÊN TÌM TRONG BẢNG HOMEWORKS
+        if (isHomework || String(quizId).startsWith("exam-") || String(quizId).startsWith("hw-")) {
+          if (quizId) {
+            const { data, error } = await supabase
+              .from("homeworks")
+              .select(VALID_FIELDS)
+              .eq("id", quizId)
+              .maybeSingle();
+            if (!error && data) dbExam = data;
+          }
+
+          if (!dbExam && quizTitle) {
+            const { data, error } = await supabase
+              .from("homeworks")
+              .select(VALID_FIELDS)
+              .ilike("title", `%${quizTitle.trim()}%`)
+              .limit(1)
+              .maybeSingle();
+            if (!error && data) dbExam = data;
+          }
+        }
+
+        // 2. NẾU CHƯA CÓ, TÌM TIẾP TRONG BẢNG PRACTICE_EXAMS (ĐỀ LUYỆN THI)
+        if (!dbExam && quizId) {
           const { data, error } = await supabase
             .from("practice_exams")
             .select(VALID_FIELDS)
             .eq("id", quizId)
             .maybeSingle();
-
           if (!error && data) dbExam = data;
         }
 
@@ -760,7 +782,6 @@ export function ExamRoomView({
             .ilike("title", `%${quizTitle.trim()}%`)
             .limit(1)
             .maybeSingle();
-
           if (!error && data) dbExam = data;
         }
 
