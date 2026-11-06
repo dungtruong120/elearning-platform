@@ -1205,62 +1205,45 @@ if (examRoom) {
             lesson={selectedLesson}
             profile={profile}
             onBackToCatalog={() => {
-  setSelectedLesson(null);
-  if (typeof window !== "undefined") {
-    sessionStorage.removeItem("tct_active_lesson");
-  }
-  fetchAuthAndData();
-}}
+              setSelectedLesson(null);
+              if (typeof window !== "undefined") {
+                sessionStorage.removeItem("tct_active_lesson");
+              }
+              fetchAuthAndData();
+            }}
             onStartQuiz={async (qId: string, qTitle: string, isHomework: boolean, durationMinutes?: number) => {
-  let targetExam: any = null;
+              let targetExam: any = null;
 
-  // 1. Tận dụng dữ liệu đã có sẵn trong RAM bài học (Egress = 0 byte)
-  if (isHomework && Array.isArray(selectedLesson?.homework_files)) {
-    targetExam = selectedLesson.homework_files.find(
-      (h: any) => h.id === qId || h.title === qTitle
-    );
-  }
+              // 1. Tận dụng dữ liệu có sẵn trong RAM bài học
+              if (isHomework && Array.isArray(selectedLesson?.homework_files)) {
+                targetExam = selectedLesson.homework_files.find(
+                  (h: any) => h.id === qId || h.title === qTitle
+                );
+              }
 
-  // 2. Chỉ query Supabase nếu chưa có sẵn
-  if (!targetExam && isHomework) {
-    const { data: dbHw } = await supabase
-      .from("homeworks")
-      .select("id, title, data, sections, media_map, duration_minutes")
-      .eq("id", qId)
-      .maybeSingle();
-    if (dbHw) targetExam = dbHw;
-  }
+              // 2. Query Supabase nếu chưa có
+              if (!targetExam && isHomework) {
+                const { data: dbHw } = await supabase
+                  .from("homeworks")
+                  .select("id, title, data, sections, media_map, duration_minutes")
+                  .eq("id", qId)
+                  .maybeSingle();
+                if (dbHw) targetExam = dbHw;
+              }
 
-  const rawSections = targetExam?.sections || targetExam?.data || [];
-  let extractedQuestions: any[] = [];
-  if (Array.isArray(targetExam?.questions) && targetExam.questions.length > 0) {
-    extractedQuestions = targetExam.questions;
-  } else if (Array.isArray(rawSections)) {
-    rawSections.forEach((sec: any) => {
-      if (Array.isArray(sec.questions)) {
-        extractedQuestions.push(...sec.questions);
-      }
-    });
-  }
+              const rawSections = targetExam?.sections || targetExam?.data || [];
+              let extractedQuestions: any[] = [];
+              if (Array.isArray(targetExam?.questions) && targetExam.questions.length > 0) {
+                extractedQuestions = targetExam.questions;
+              } else if (Array.isArray(rawSections)) {
+                rawSections.forEach((sec: any) => {
+                  if (Array.isArray(sec.questions)) {
+                    extractedQuestions.push(...sec.questions);
+                  }
+                });
+              }
 
-  const examRoomPayload = {
-    id: qId,
-    title: qTitle,
-    duration: durationMinutes || 45,
-    isHomework,
-    ...(targetExam || {}),
-    data: rawSections,
-    sections: rawSections,
-    questions: extractedQuestions.length > 0 ? extractedQuestions : undefined
-  };
-
-  setExamRoom(examRoomPayload);
-  if (typeof window !== "undefined") {
-    sessionStorage.setItem("tct_active_exam_room", JSON.stringify(examRoomPayload));
-  }
-}}
-
-              setExamRoom({
+              const examRoomPayload = {
                 id: qId,
                 title: qTitle,
                 duration: durationMinutes || 45,
@@ -1269,7 +1252,12 @@ if (examRoom) {
                 data: rawSections,
                 sections: rawSections,
                 questions: extractedQuestions.length > 0 ? extractedQuestions : undefined
-              });
+              };
+
+              setExamRoom(examRoomPayload);
+              if (typeof window !== "undefined") {
+                sessionStorage.setItem("tct_active_exam_room", JSON.stringify(examRoomPayload));
+              }
             }}
           />
         </motion.div>
