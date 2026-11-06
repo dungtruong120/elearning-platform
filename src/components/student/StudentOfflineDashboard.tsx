@@ -297,11 +297,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   }, []);
 
   const [examRoom, setExamRoom] = useState<any | null>(null);
-    id: string;
-    title: string;
-    duration: number;
-    isHomework: boolean;
-  } | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<any | null>(null);
   const [previewExam, setPreviewExam] = useState<any | null>(null);
   const [selectedSysNotif, setSelectedSysNotif] = useState<any | null>(null);
