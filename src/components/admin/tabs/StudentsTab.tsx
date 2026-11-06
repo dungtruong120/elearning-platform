@@ -147,10 +147,10 @@ export default function StudentsTab({
                       <td className="py-4 px-5 font-bold text-slate-800">
                         <td className="py-4 px-3 text-center">
                         <span className="inline-block px-2 py-1 rounded-md bg-blue-50 text-[#1D4ED8] font-mono font-black text-xs border border-blue-200 shadow-2xs">
-                          {student.student_code
-                            ? String(student.student_code).padStart(6, "0")
-                            : String(student.sbd || idx + 1).padStart(6, "0")}
-                        </span>
+  {student.student_code || student.sbd
+    ? String(student.student_code || student.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6)
+    : "Chưa cấp"}
+</span>
                       </td>
                         <div>{student.full_name || student.name || "Chưa cập nhật"}</div>
                         <div className="text-[10px] text-slate-400 font-normal mt-0.5">
