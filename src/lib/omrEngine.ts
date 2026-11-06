@@ -253,33 +253,34 @@ export function deriveExamCode3Digits(examOrId?: any): string {
   return String(100 + Math.abs(hash)).slice(0, 3);
 }
 
-export function formatStudentAutoSBD(studentOrIndex: any, optionalStudentsList?: any[]): string {
-  if (typeof studentOrIndex === "number" && studentOrIndex > 0 && studentOrIndex < 100000) {
-    return String(Math.floor(studentOrIndex)).padStart(6, "0").slice(-6);
+export function formatStudentAutoSBD(profileOrCode: any, directory?: any[]): string {
+  if (!profileOrCode) return "000001";
+
+  // 1. Ưu tiên đọc trực tiếp student_code từ Supabase
+  if (typeof profileOrCode === "object") {
+    const raw = profileOrCode.student_code || profileOrCode.studentCode || profileOrCode.sbd;
+    if (raw) return String(raw).replace(/\D/g, "").padStart(6, "0").slice(-6);
+    if (profileOrCode.id && /^\d+$/.test(String(profileOrCode.id))) {
+      return String(profileOrCode.id).padStart(6, "0").slice(-6);
+    }
   }
 
-  if (typeof studentOrIndex === "string" && /^\d{1,6}$/.test(studentOrIndex.trim())) {
-    const n = parseInt(studentOrIndex.trim(), 10);
-    if (n > 0) return String(n).padStart(6, "0").slice(-6);
+  // 2. Nếu truyền vào chuỗi số
+  if (typeof profileOrCode === "string" && /^\d+$/.test(profileOrCode)) {
+    return profileOrCode.padStart(6, "0").slice(-6);
   }
 
-  if (typeof window !== "undefined") {
-    try {
-      const targetId = String(
-        typeof studentOrIndex === "object" ? studentOrIndex?.id || "" : studentOrIndex || ""
-      )
-        .trim()
-        .toLowerCase();
-      const targetUser = String(
-        typeof studentOrIndex === "object" ? studentOrIndex?.username || "" : studentOrIndex || ""
-      )
-        .trim()
-        .toLowerCase();
-      const targetName = String(
-        typeof studentOrIndex === "object" ? studentOrIndex?.full_name || "" : ""
-      )
-        .trim()
-        .toLowerCase();
+  // 3. Fallback danh bạ bộ nhớ đệm nếu có
+  if (Array.isArray(directory) && directory.length > 0) {
+    const targetId = typeof profileOrCode === "object" ? profileOrCode.id : profileOrCode;
+    const found = directory.find((d: any) => d.id === targetId);
+    if (found?.student_code || found?.sbd) {
+      return String(found.student_code || found.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6);
+    }
+  }
+
+  return "000001";
+}
 
       const savedDirRaw = localStorage.getItem("edunexus_sbd_directory");
       if (savedDirRaw) {
