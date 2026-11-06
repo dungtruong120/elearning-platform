@@ -1044,31 +1044,28 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   );
 
 const handleOpenLesson = async (les: any) => {
-  if (
-    (les.homework_files && les.homework_files.length > 0) ||
-    (les.test_quizzes && les.test_quizzes.length > 0) ||
-    (les.lecture_files && les.lecture_files.length > 0) ||
-    (les.video_list && les.video_list.length > 0)
-  ) {
-    setSelectedLesson(les);
-    return;
-  }
-
   try {
-    // Chỉ chọn các cột bài tập, đề kiểm tra, video, tài liệu và mô tả
-    const { data, error } = await supabase
+    // 1. Tải thông tin bài học cơ bản
+    const { data: lessonData } = await supabase
       .from("lessons")
-      .select("video_list, lecture_files, homework_files, test_quizzes, description")
+      .select("video_list, lecture_files, description")
       .eq("id", les.id)
       .maybeSingle();
 
-    if (!error && data) {
-      setSelectedLesson({ ...les, ...data });
-    } else {
-      setSelectedLesson(les);
-    }
+    // 2. Kéo toàn bộ BTVN từ bảng riêng homeworks
+    const { data: hwData } = await supabase
+      .from("homeworks")
+      .select("id, lesson_id, title, duration_minutes, is_quiz, data, sections")
+      .eq("lesson_id", les.id);
+
+    // 3. Ghép vào state để LessonWorkspaceView hiển thị chuẩn
+    setSelectedLesson({
+      ...les,
+      ...(lessonData || {}),
+      homework_files: hwData || []
+    });
   } catch (err) {
-    console.error("Lỗi fetch chi tiết bài học:", err);
+    console.error("Lỗi tải bài học:", err);
     setSelectedLesson(les);
   }
 };
