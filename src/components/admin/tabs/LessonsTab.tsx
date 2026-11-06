@@ -198,9 +198,8 @@ export default function LessonsTab({
 
   // Luôn đảm bảo nếu có truyền flattenedLessons từ ngoài vào thì cũng được sort chuẩn theo Tháng -> Tuần
   const flattenedLessons = useMemo(() => {
-    if (!restProps.flattenedLessons || !Array.isArray(restProps.flattenedLessons)) {
-      return computedFlattenedLessons;
-    }
+    return computedFlattenedLessons;
+  }, [computedFlattenedLessons]);
     return [...restProps.flattenedLessons].sort((a: any, b: any) => {
       const monthA = Number(a?.assigned_month) || currentRealtimeMonth;
       const monthB = Number(b?.assigned_month) || currentRealtimeMonth;
@@ -265,7 +264,7 @@ export default function LessonsTab({
   };
 
   // HÀM ĐỔI NHANH TUẦN / THÁNG CỦA BÀI HỌC NGAY TRÊN BẢNG VÀ ĐỒNG BỘ XUỐNG BTVN & ĐỀ KIỂM TRA
-  const handleQuickChangeLessonSchedule = (
+ const handleQuickChangeLessonSchedule = async (
     chapterId: string,
     lessonId: string,
     newMonth: number,
@@ -280,27 +279,40 @@ export default function LessonsTab({
           const updatedHw = Array.isArray(les.homework_files)
             ? les.homework_files.map((hw: any) => ({
                 ...hw,
-                assigned_month: newMonth,
-                assigned_week: newWeek,
+                assigned_month: Number(newMonth),
+                assigned_week: Number(newWeek),
               }))
             : [];
           const updatedTests = Array.isArray(les.test_quizzes)
             ? les.test_quizzes.map((tq: any) => ({
                 ...tq,
-                assigned_month: newMonth,
-                assigned_week: newWeek,
+                assigned_month: Number(newMonth),
+                assigned_week: Number(newWeek),
               }))
             : [];
           return {
             ...les,
-            assigned_month: newMonth,
-            assigned_week: newWeek,
+            assigned_month: Number(newMonth),
+            assigned_week: Number(newWeek),
             homework_files: updatedHw,
             test_quizzes: updatedTests,
           };
         }),
       };
     });
+
+    // 1. Cập nhật state cục bộ
+    if (typeof setChapters === "function") {
+      setChapters(updatedChapters);
+    }
+
+    // 2. Đẩy thẳng lên Supabase & Storage
+    if (typeof onUpdateChapters === "function") {
+      await onUpdateChapters(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
+    } else if (typeof saveToStorage === "function") {
+      await saveToStorage(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
+    }
+  };
 
     dispatchOptimisticUpdate(updatedChapters, `lịch bài học T${newWeek}.Th${newMonth}`);
   };
