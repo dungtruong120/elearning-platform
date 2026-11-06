@@ -1344,9 +1344,9 @@ function AdminDashboardContent() {
       loadDeletedBlacklistFromStorage();
 
       try {
-       const [chapsRes, lessRes, sessRes, notifRes, hwRes] = await Promise.allSettled([
+     const [chapsRes, lessRes, sessRes, notifRes, hwRes] = await Promise.allSettled([
           supabase.from("chapters").select("*").order("created_at", { ascending: true }),
-          supabase.from("lessons").select("id, chapter_id, title, description, duration, format, target_mode, assigned_month, assigned_week, video_list, lecture_files, created_at").order("created_at", { ascending: false })
+          supabase.from("lessons").select("id, chapter_id, title, description, duration, format, target_mode, assigned_month, assigned_week, video_list, lecture_files, created_at").order("created_at", { ascending: false }), // 👈 THÊM DẤU PHẨY VÀO CUỐI DÒNG NÀY
           supabase
             .from("sessions")
             .select("id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at")
@@ -1357,7 +1357,6 @@ function AdminDashboardContent() {
             .select("id, title, content, type, createdAt, created_at")
             .order("created_at", { ascending: false })
             .limit(50),
-          // BỔ SUNG TRUY VẤN BẢNG HOMEWORKS:
           supabase.from("homeworks").select("*")
         ]);
 
