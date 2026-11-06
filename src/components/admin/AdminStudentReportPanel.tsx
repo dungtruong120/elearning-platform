@@ -3045,66 +3045,196 @@ const sbdDirectoryMap = useMemo(() => {
     );
   }, [allFlattenedLessons, dailyMonth, dailyWeek]);
 
-  const autoSyncedTopicTitle = useMemo(() => {
-    if (currentSessionLessons.length > 0) {
-      return currentSessionLessons.map((m) => m.lessonTitle).join(" • ");
-    }
-    if (allFlattenedLessons.length > 0) {
-      return allFlattenedLessons[0].lessonTitle;
-    }
-    return `Chuyên đề Toán 12 — Tuần ${dailyWeek} Tháng ${dailyMonth}`;
-  }, [currentSessionLessons, allFlattenedLessons, dailyWeek, dailyMonth]);
+  // 1. DI CHUYỂN QUIZ ASSIGNMENT MAP & RESOLVE ATTEMPT LÊN TRÊN ĐỂ TRÁNH LỖI TDZ
+  const quizAssignmentMap = useMemo(() => {
+    const byId = new Map<
+      string,
+      { month?: number; week?: number; isHw?: boolean; isTest?: boolean; category?: string; rawObj?: any }
+    >();
+    const byTitle = new Map<
+      string,
+      { month?: number; week?: number; isHw?: boolean; isTest?: boolean; category?: string; rawObj?: any }
+    >();
 
-  useEffect(() => {
-    setOverrideTopicTitle("");
-  }, [dailyMonth, dailyWeek]);
+    (chapters || []).forEach((chap: any) => {
+      const chapMonth = chap?.assigned_month ? Number(chap.assigned_month) : undefined;
+      const chapWeek = chap?.assigned_week ? Number(chap.assigned_week) : undefined;
 
-  const autoPreviousHomeworkSource = useMemo(() => {
-    const prevMonth = dailyWeek > 1 ? dailyMonth : dailyMonth === 1 ? 12 : dailyMonth - 1;
+      (chap?.lessons || []).forEach((les: any) => {
+        const lesMonth = les?.assigned_month ? Number(les.assigned_month) : chapMonth;
+        const lesWeek = les?.assigned_week ? Number(les.assigned_week) : chapWeek;
 
-    if (dailyWeek > 1) {
-      const targetPrevWeek = dailyWeek - 1;
-      const lessonsInPrevWeek = allFlattenedLessons.filter(
-        (l) => l.month === dailyMonth && l.week === targetPrevWeek && l.hwItems.length > 0
+        (les?.homework_files || []).forEach((hw: any) => {
+          if (!hw) return;
+          const m = hw.assigned_month ? Number(hw.assigned_month) : lesMonth;
+          const w = hw.assigned_week ? Number(hw.assigned_week) : lesWeek;
+          const meta = { month: m, week: w, isHw: true, isTest: false, rawObj: hw };
+          if (hw.id) byId.set(String(hw.id).trim().toLowerCase(), meta);
+          if (hw.title) byTitle.set(normalizeText(hw.title), meta);
+        });
+
+        (les?.test_quizzes || []).forEach((tq: any) => {
+          if (!tq) return;
+          const m = tq.assigned_month ? Number(tq.assigned_month) : lesMonth;
+          const w = tq.assigned_week ? Number(tq.assigned_week) : lesWeek;
+          const meta = { month: m, week: w, isHw: false, isTest: true, rawObj: tq };
+          if (tq.id) byId.set(String(tq.id).trim().toLowerCase(), meta);
+          if (tq.title) byTitle.set(normalizeText(tq.title), meta);
+        });
+      });
+    });
+
+    (practiceExams || []).forEach((pe: any) => {
+      if (!pe) return;
+      const m = pe.assigned_month ? Number(pe.assigned_month) : undefined;
+      const w = pe.assigned_week ? Number(pe.assigned_week) : undefined;
+      const meta = {
+        month: m,
+        week: w,
+        isHw: false,
+        isTest: false,
+        category: pe.category || "Luyện đề",
+        rawObj: pe
+      };
+      if (pe.id) byId.set(String(pe.id).trim().toLowerCase(), meta);
+      if (pe.title) byTitle.set(normalizeText(pe.title), meta);
+    });
+
+    return { byId, byTitle };
+  }, [chapters, practiceExams]);
+
+  const resolveAttemptMonthAndWeek = useCallback(
+    (att: any): { month: number; week: number; category?: string; rawQuizObj?: any } => {
+      const qId = String(att?.quizId || att?.quiz_id || att?.exam_id || "").trim().toLowerCase();
+      const qTitle = normalizeText(
+        att?.examTitle || att?.quizTitle || att?.quiz_title || att?.title || ""
       );
-      if (lessonsInPrevWeek.length > 0) {
-        return {
-          modeLabel: `Tuần ${targetPrevWeek} - Tháng ${dailyMonth}`,
-          lessons: lessonsInPrevWeek,
-          displayTitle: lessonsInPrevWeek
-            .flatMap((l) => l.hwItems.map((h) => h.title))
-            .join(", ")
+
+      const matchedMeta =
+        (qId && quizAssignmentMap.byId.get(qId)) ||
+        (qTitle && quizAssignmentMap.byTitle.get(qTitle)) ||
+        null;
+
+      const rawDate = att?.createdAt || att?.created_at || att?.submittedAt;
+      const parsedDate = rawDate ? new Date(rawDate) : new Date();
+      const validDate = !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
+
+      const resolvedMonth =
+        Number(att?.assigned_month) || Number(matchedMeta?.month) || validDate.getMonth() + 1;
+
+      const dayOfMonth = validDate.getDate();
+      const fallbackWeekFromDate = Math.min(5, Math.max(1, Math.ceil(dayOfMonth / 7)));
+
+      const resolvedWeek =
+        Number(att?.assigned_week) || Number(matchedMeta?.week) || fallbackWeekFromDate;
+
+      return {
+        month: resolvedMonth,
+        week: Math.min(5, Math.max(1, resolvedWeek)),
+        category: matchedMeta?.category || att?.category,
+        rawQuizObj: matchedMeta?.rawObj
+      };
+    },
+    [quizAssignmentMap]
+  );
+
+  // 2. TỰ ĐỘNG XÁC ĐỊNH BÀI BTVN TUẦN TRƯỚC (CÓ KIỂM TRA THỰC TẾ HỌC SINH CÓ NỘP BÀI HAY KHÔNG)
+  const autoPreviousHomeworkSource = useMemo(() => {
+    // Tạo danh sách các tuần cần quét lùi từ tuần hiện tại
+    const candidateWeeks: { month: number; week: number }[] = [];
+
+    // 1. Quét lùi các tuần trong cùng tháng hiện tại
+    for (let w = dailyWeek - 1; w >= 1; w--) {
+      candidateWeeks.push({ month: dailyMonth, week: w });
+    }
+
+    // 2. Quét lùi các tuần trong tháng liền trước (từ tuần 5 về tuần 1)
+    const prevMonth = dailyMonth === 1 ? 12 : dailyMonth - 1;
+    for (let w = 5; w >= 1; w--) {
+      candidateWeeks.push({ month: prevMonth, week: w });
+    }
+
+    // 3. Dự phòng tháng trước đó nữa
+    const prevMonth2 = prevMonth === 1 ? 12 : prevMonth - 1;
+    for (let w = 5; w >= 1; w--) {
+      candidateWeeks.push({ month: prevMonth2, week: w });
+    }
+
+    let firstFoundCandidateWithHw: {
+      modeLabel: string;
+      lessons: FlattenedLessonEntry[];
+      displayTitle: string;
+    } | null = null;
+
+    for (const { month: m, week: w } of candidateWeeks) {
+      const lessonsInWeek = allFlattenedLessons.filter(
+        (l) => l.month === m && l.week === w && l.hwItems.length > 0
+      );
+
+      if (lessonsInWeek.length > 0) {
+        const candidateHwIds = new Set<string>();
+        const candidateHwTitles = new Set<string>();
+        lessonsInWeek.forEach((l) => {
+          l.hwIds.forEach((id) => candidateHwIds.add(id));
+          l.hwTitles.forEach((t) => candidateHwTitles.add(t));
+        });
+
+        const displayTitle = lessonsInWeek
+          .flatMap((l) => l.hwItems.map((h) => h.title))
+          .join(", ");
+        const modeLabel = `Tuần ${w} - Tháng ${m}`;
+
+        const candidateObj = {
+          modeLabel,
+          lessons: lessonsInWeek,
+          displayTitle
         };
-      }
-    } else {
-      for (let w = 5; w >= 1; w--) {
-        const lessonsInLastMonth = allFlattenedLessons.filter(
-          (l) => l.month === prevMonth && l.week === w && l.hwItems.length > 0
-        );
-        if (lessonsInLastMonth.length > 0) {
-          return {
-            modeLabel: `Tuần ${w} - Tháng ${prevMonth}`,
-            lessons: lessonsInLastMonth,
-            displayTitle: lessonsInLastMonth
-              .flatMap((l) => l.hwItems.map((h) => h.title))
-              .join(", ")
-          };
+
+        if (!firstFoundCandidateWithHw) {
+          firstFoundCandidateWithHw = candidateObj;
+        }
+
+        // KIỂM TRA XEM TUẦN NÀY THỰC TẾ CÓ HỌC SINH NÀO NỘP BÀI HAY KHÔNG
+        // (Nếu Tuần 5 Tháng 10 nghỉ học không có bài nộp -> bỏ qua, tự động lùi về Tuần 4 Tháng 10 có bài nộp)
+        const hasActualSubmissions = (combinedAllAttempts || []).some((att: any) => {
+          if (!att) return false;
+          const aQId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
+          const aTitle = normalizeText(
+            att.examTitle || att.exam_title || att.quizTitle || att.quiz_title || att.title || ""
+          );
+
+          const meta =
+            (aQId && quizAssignmentMap.byId.get(aQId)) ||
+            (aTitle && quizAssignmentMap.byTitle.get(aTitle));
+
+          const isHw = Boolean(
+            meta?.isHw || att.type === "homework" || att.isHomework || att.is_homework
+          );
+          if (!isHw) return false;
+
+          if (aQId && candidateHwIds.has(aQId)) return true;
+          if (
+            aTitle &&
+            (candidateHwTitles.has(aTitle) ||
+              Array.from(candidateHwTitles).some(
+                (ct) => ct && (ct.includes(aTitle) || aTitle.includes(ct))
+              ))
+          ) {
+            return true;
+          }
+
+          const { month: attM, week: attW } = resolveAttemptMonthAndWeek(att);
+          return attM === m && attW === w;
+        });
+
+        if (hasActualSubmissions) {
+          return candidateObj;
         }
       }
     }
 
-    if (currentSessionLessons.length > 0) {
-      const firstCurrentOrder = currentSessionLessons[0].globalOrder;
-      for (let idx = firstCurrentOrder - 1; idx >= 0; idx--) {
-        const candidate = allFlattenedLessons[idx];
-        if (candidate && candidate.hwItems.length > 0) {
-          return {
-            modeLabel: `Tuần ${candidate.week} - Tháng ${candidate.month}`,
-            lessons: [candidate],
-            displayTitle: candidate.hwItems.map((h) => h.title).join(", ")
-          };
-        }
-      }
+    if (firstFoundCandidateWithHw) {
+      return firstFoundCandidateWithHw;
     }
 
     if (currentSessionLessons.some((l) => l.hwItems.length > 0)) {
@@ -3131,8 +3261,15 @@ const sbdDirectoryMap = useMemo(() => {
       lessons: [] as FlattenedLessonEntry[],
       displayTitle: "Bài tập về nhà tuần trước"
     };
-  }, [allFlattenedLessons, currentSessionLessons, dailyMonth, dailyWeek]);
-
+  }, [
+    dailyWeek,
+    dailyMonth,
+    allFlattenedLessons,
+    combinedAllAttempts,
+    quizAssignmentMap,
+    resolveAttemptMonthAndWeek,
+    currentSessionLessons
+  ]);
   const allHomeworkOptionsForDropdown = useMemo(() => {
     const options: {
       value: string;
@@ -3417,12 +3554,17 @@ const sbdDirectoryMap = useMemo(() => {
         const sc = Number(att.score ?? att.points ?? 0);
 
         if (!effectiveHomeworkTarget.isNone && isHw) {
+          // 1. Khớp theo ID hoặc Tên bài BTVN (hỗ trợ cả so sánh chuỗi con)
           const matchByIdOrTitle =
             (qId && effectiveHomeworkTarget.hwIds.has(qId)) ||
-            (qTitle && effectiveHomeworkTarget.hwTitles.has(qTitle));
+            (qTitle && effectiveHomeworkTarget.hwTitles.has(qTitle)) ||
+            (qTitle &&
+              Array.from(effectiveHomeworkTarget.hwTitles).some(
+                (ht) => ht && (ht.includes(qTitle) || qTitle.includes(ht))
+              ));
 
+          // 2. Khớp dự phòng theo Tháng & Tuần bài nộp (không bị kẹt hwIds.size === 0)
           const matchByPrevTime =
-            effectiveHomeworkTarget.hwIds.size === 0 &&
             effectiveHomeworkTarget.targetMonth !== undefined &&
             effectiveHomeworkTarget.targetWeek !== undefined &&
             month === effectiveHomeworkTarget.targetMonth &&
