@@ -310,28 +310,6 @@ export default function LessonsTab({
     }
   };
 
-  // 2. GẠT NHANH KHÓA / MỞ BÀI HỌC (🔒 / 🔓)
-  const handleToggleLockLesson = async (chapterId: string, lessonId: string, currentLockState: boolean) => {
-    const nextLock = !currentLockState;
-    const updatedChapters = (chapters || []).map((chap: any) => {
-      if (chap?.id !== chapterId) return chap;
-      return {
-        ...chap,
-        lessons: (chap?.lessons || []).map((les: any) => {
-          if (les?.id !== lessonId) return les;
-          return { ...les, is_locked: nextLock };
-        }),
-      };
-    });
-
-    if (typeof setChapters === "function") setChapters(updatedChapters);
-    if (typeof onUpdateChapters === "function") {
-      await onUpdateChapters(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
-    } else if (typeof saveToStorage === "function") {
-      await saveToStorage(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
-    }
-  };
-
   // 3. ĐỔI NHANH NGÀY HỌC DỰ KIẾN (VD: 08/11/2026)
   const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
     const updatedChapters = (chapters || []).map((chap: any) => {
