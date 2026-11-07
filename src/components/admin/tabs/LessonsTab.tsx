@@ -16,7 +16,9 @@ import {
   CheckSquare, 
   Award,
   Calendar,
-  Filter
+  Filter,
+  Lock,    // 👈 Thêm icon này
+  Unlock   // 👈 Thêm icon này
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -239,51 +241,46 @@ export default function LessonsTab({
     }
   };
 
-  const handleQuickChangeLessonSchedule = async (
-    chapterId: string,
-    lessonId: string,
-    newMonth: number,
-    newWeek: number
-  ) => {
+  // 1. GẠT NHANH KHÓA / MỞ BÀI HỌC (🔒 / 🔓)
+  const handleToggleLockLesson = async (chapterId: string, lessonId: string, currentLockState: boolean) => {
+    const nextLock = !currentLockState;
     const updatedChapters = (chapters || []).map((chap: any) => {
       if (chap?.id !== chapterId) return chap;
       return {
         ...chap,
         lessons: (chap?.lessons || []).map((les: any) => {
           if (les?.id !== lessonId) return les;
-          const updatedHw = Array.isArray(les.homework_files)
-            ? les.homework_files.map((hw: any) => ({
-                ...hw,
-                assigned_month: Number(newMonth),
-                assigned_week: Number(newWeek),
-              }))
-            : [];
-          const updatedTests = Array.isArray(les.test_quizzes)
-            ? les.test_quizzes.map((tq: any) => ({
-                ...tq,
-                assigned_month: Number(newMonth),
-                assigned_week: Number(newWeek),
-              }))
-            : [];
-          return {
-            ...les,
-            assigned_month: Number(newMonth),
-            assigned_week: Number(newWeek),
-            homework_files: updatedHw,
-            test_quizzes: updatedTests,
-          };
+          return { ...les, is_locked: nextLock };
         }),
       };
     });
 
-    if (typeof setChapters === "function") {
-      setChapters(updatedChapters);
-    }
-
+    if (typeof setChapters === "function") setChapters(updatedChapters);
     if (typeof onUpdateChapters === "function") {
-      await onUpdateChapters(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
+      await onUpdateChapters(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
     } else if (typeof saveToStorage === "function") {
-      await saveToStorage(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
+      await saveToStorage(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
+    }
+  };
+
+  // 2. ĐỔI NHANH NGÀY HỌC DỰ KIẾN (VD: 08/11/2026)
+  const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
+    const updatedChapters = (chapters || []).map((chap: any) => {
+      if (chap?.id !== chapterId) return chap;
+      return {
+        ...chap,
+        lessons: (chap?.lessons || []).map((les: any) => {
+          if (les?.id !== lessonId) return les;
+          return { ...les, study_date: newDateStr };
+        }),
+      };
+    });
+
+    if (typeof setChapters === "function") setChapters(updatedChapters);
+    if (typeof onUpdateChapters === "function") {
+      await onUpdateChapters(updatedChapters, `ngày học ${newDateStr}`);
+    } else if (typeof saveToStorage === "function") {
+      await saveToStorage(updatedChapters, `ngày học ${newDateStr}`);
     }
   };
 
@@ -568,8 +565,9 @@ export default function LessonsTab({
             <thead className="bg-[#1D4ED8] text-white text-[11px] font-black uppercase tracking-wider">
               <tr>
                 <th className="py-4 px-3 text-center w-12 border-r border-blue-400/30">STT</th>
-                <th className="py-4 px-4 border-r border-blue-400/30 min-w-[230px]">Nội dung bài học</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-36">Tuần / Tháng</th>
+                <th className="py-4 px-3 text-center w-16 border-r border-blue-400/30">Khóa</th>
+                <th className="py-4 px-4 border-r border-blue-400/30 min-w-[220px]">Nội dung bài học</th>
+                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-40">Tuần / Tháng / Ngày</th>
                 <th className="py-4 px-3 border-r border-blue-400/30 text-center">Chương</th>
                 <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Phân luồng</th>
                 <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Hình thức</th>
@@ -589,12 +587,37 @@ export default function LessonsTab({
                 const lesMonth = Number(les?.assigned_month) || currentRealtimeMonth;
                 const lesWeek = Number(les?.assigned_week) || 1;
                 const scheduleTag = `T${lesWeek}.Th${lesMonth}`;
+                const isLocked = Boolean(les?.is_locked);
+                const studyDate = les?.study_date || "";
 
                 return (
-                  <tr key={les?.id || idx} className="hover:bg-slate-50/50 transition-colors bg-white">
+                  <tr key={les?.id || idx} className={`transition-colors ${isLocked ? "bg-slate-100/60" : "hover:bg-slate-50/50 bg-white"}`}>
                     <td className="py-3.5 px-3 text-center text-slate-500 font-bold text-xs border-r border-slate-100">{idx + 1}</td>
+
+                    {/* CỘT KHÓA BÀI HỌC TRỰC TIẾP (BẤM LÀ KHÓA / MỞ NGAY) */}
+                    <td className="py-3.5 px-2 text-center border-r border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleLockLesson(les.chapterId, les.id, isLocked)}
+                        title={isLocked ? "Bài đang KHÓA (Học sinh chưa xem được). Bấm để MỞ" : "Bài đang MỞ. Bấm để KHÓA"}
+                        className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                          isLocked
+                            ? "bg-rose-50 text-rose-600 border-rose-300 hover:bg-rose-100 shadow-xs"
+                            : "bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      </button>
+                    </td>
+
+                    {/* TÊN BÀI HỌC + BADGE KHÓA */}
                     <td className="py-3.5 px-4 border-r border-slate-100">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        {isLocked && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[9px] font-bold uppercase rounded border border-rose-200">
+                            <Lock className="w-2.5 h-2.5" /> Đang khóa
+                          </span>
+                        )}
                         {isReview && (
                           <span className="inline-block px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold uppercase rounded border border-amber-200">
                             Ôn tập
@@ -604,52 +627,70 @@ export default function LessonsTab({
                           <Calendar className="w-2.5 h-2.5" />
                           Tuần {lesWeek} - Tháng {lesMonth < 10 ? "0" + lesMonth : lesMonth}
                         </span>
+                        {studyDate && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-extrabold rounded-md border border-emerald-200">
+                            📅 {studyDate}
+                          </span>
+                        )}
                       </div>
-                      <h4 className="font-bold text-[#1D4ED8] text-[13px] uppercase leading-snug">{lesTitle}</h4>
+                      <h4 className={`font-bold text-[13px] uppercase leading-snug ${isLocked ? "text-slate-600 line-through" : "text-[#1D4ED8]"}`}>
+                        {lesTitle}
+                      </h4>
                     </td>
 
+                    {/* CỘT CHỌN TUẦN / THÁNG & NHẬP NGÀY HỌC */}
                     <td className="py-3.5 px-3 text-center border-r border-slate-100">
-                      <div className="flex items-center justify-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/90">
-                        <select
-                          value={lesWeek}
-                          onChange={(e) =>
-                            handleQuickChangeLessonSchedule(
-                              les.chapterId,
-                              les.id,
-                              lesMonth,
-                              Number(e.target.value)
-                            )
-                          }
-                          title="Chọn Tuần trong tháng cho bài học"
-                          className="bg-white border border-slate-200 rounded-lg px-1.5 py-1 text-[11px] font-black text-emerald-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
-                        >
-                          {[1, 2, 3, 4, 5].map((w) => (
-                            <option key={w} value={w}>
-                              Tuần {w}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={lesMonth}
-                          onChange={(e) =>
-                            handleQuickChangeLessonSchedule(
-                              les.chapterId,
-                              les.id,
-                              Number(e.target.value),
-                              lesWeek
-                            )
-                          }
-                          title="Chọn Tháng báo cáo cho bài học"
-                          className="bg-white border border-slate-200 rounded-lg px-1.5 py-1 text-[11px] font-black text-[#1D4ED8] outline-none focus:border-[#1D4ED8] cursor-pointer"
-                        >
-                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                            <option key={m} value={m}>
-                              Th.{m < 10 ? "0" + m : m}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="flex flex-col items-center gap-1.5">
+                        <div className="flex items-center justify-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/90 w-full">
+                          <select
+                            value={lesWeek}
+                            onChange={(e) =>
+                              handleQuickChangeLessonSchedule(
+                                les.chapterId,
+                                les.id,
+                                lesMonth,
+                                Number(e.target.value)
+                              )
+                            }
+                            title="Chọn Tuần"
+                            className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-emerald-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                          >
+                            {[1, 2, 3, 4, 5].map((w) => (
+                              <option key={w} value={w}>
+                                Tuần {w}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={lesMonth}
+                            onChange={(e) =>
+                              handleQuickChangeLessonSchedule(
+                                les.chapterId,
+                                les.id,
+                                Number(e.target.value),
+                                lesWeek
+                              )
+                            }
+                            title="Chọn Tháng"
+                            className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-[#1D4ED8] outline-none focus:border-[#1D4ED8] cursor-pointer"
+                          >
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                              <option key={m} value={m}>
+                                Th.{m < 10 ? "0" + m : m}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <input
+                          type="text"
+                          defaultValue={studyDate}
+                          placeholder="Ngày: 08/11/2026"
+                          onBlur={(e) => handleChangeStudyDate(les.chapterId, les.id, e.target.value.trim())}
+                          className="w-full text-center text-[10px] font-bold bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 outline-none focus:border-[#1D4ED8]"
+                        />
                       </div>
                     </td>
+            
 
                     <td className="py-3.5 px-3 text-center border-r border-slate-100 text-[11px] text-slate-500 font-semibold uppercase">
                       {les.chapterTitle}
