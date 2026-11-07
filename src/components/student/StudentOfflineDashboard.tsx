@@ -144,14 +144,14 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   }, [initialProfile]);
 
 const studentAutoSbd = useMemo(() => {
+    // 1. Ưu tiên mã 6 chữ số từ profile
     const rawCode = profile?.student_code || profile?.sbd;
     if (rawCode) {
-      return String(rawCode).replace(/\D/g, "").padStart(6, "0").slice(-6);
+      const clean = String(rawCode).replace(/\D/g, "");
+      if (clean) return clean.padStart(6, "0").slice(-6);
     }
-    // Nếu profile chưa kịp load student_code, lấy số từ formatStudentAutoSBD
-    const fallback = formatStudentAutoSBD(profile);
-    const digitsOnly = String(fallback || "").replace(/\D/g, "");
-    return digitsOnly.length >= 6 ? digitsOnly.slice(-6) : "000001";
+    // 2. Fallback tuyệt đối không gọi formatStudentAutoSBD (tránh sinh mã HS-OFF-...)
+    return "000001";
   }, [profile]);
 
  const [selectedLesson, setSelectedLesson] = useState<any | null>(() => {
@@ -354,32 +354,38 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
-    try {
-      const { data: dbChapters } = await supabase
-        .from("chapters")
-        .select("*")
-        .order("created_at", { ascending: true });
+    // 0. TỰ ĐỘNG ĐỒNG BỘ PROFILE MỚI NHẤT TỪ SUPABASE
+    if (profile?.id) {
+      try {
+        const { data: freshProfile } = await supabase
+          .from("profiles")
+          .select("id, student_code, sbd, full_name, email, phone, school, grade, role, learning_mode, study_mode")
+          .eq("id", profile.id)
+          .maybeSingle();
 
-     const { data: dbLessons } = await supabase
-        .from("lessons")
-        .select("id, chapter_id, title, target_mode, created_at")
-        .order("created_at", { ascending: true });
+        if (freshProfile) {
+          const cleanCode = freshProfile.student_code || freshProfile.sbd || "";
+          const formattedCode = cleanCode ? String(cleanCode).replace(/\D/g, "").padStart(6, "0").slice(-6) : "";
 
-      if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
-        const formattedChapters = dbChapters.map((chap: any) => ({
-          ...chap,
-          lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
-        }));
-
-        // ĐẶT BÊN TRONG KHỐI IF NÀY:
-        setChapters(formattedChapters);
-
-        if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
+          setProfile((prev: any) => {
+            const updated = {
+              ...prev,
+              ...freshProfile,
+              student_code: formattedCode || prev?.student_code || "000001",
+              sbd: formattedCode || prev?.sbd || "000001"
+            };
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem("tct_current_user", JSON.stringify(updated));
+                localStorage.setItem("edunexus_current_user", JSON.stringify(updated));
+              } catch {}
+            }
+            return updated;
+          });
         }
+      } catch (e) {
+        console.warn("Lỗi làm mới profile:", e);
       }
-    } catch (e) {
-      console.error("Lỗi tải chương trình học:", e);
     }
     try {
       setIsLoadingExams(true);
@@ -1062,17 +1068,17 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
 
 const handleOpenLesson = async (les: any) => {
     try {
-      // 1. Tải đầy đủ tài liệu bài học từ bảng lessons
+      // 1. Tải tài liệu bài giảng từ bảng lessons
       const { data: lessonData } = await supabase
         .from("lessons")
         .select("video_list, lecture_files, handwritten_notes, test_quizzes, extra_resources, description")
         .eq("id", les.id)
         .maybeSingle();
 
-      // 2. Kéo danh sách BTVN từ bảng homeworks
+      // 2. Kéo danh sách BTVN từ bảng homeworks (BAO GỒM DATA & SECTIONS CÂU HỎI)
       const { data: hwData } = await supabase
         .from("homeworks")
-        .select("id, lesson_id, title, duration_minutes, is_quiz")
+        .select("id, lesson_id, title, duration_minutes, is_quiz, data, sections")
         .eq("lesson_id", les.id);
 
       const fullLesson = {
@@ -1225,23 +1231,47 @@ if (examRoom) {
               }
               fetchAuthAndData();
             }}
-            onStartQuiz={async (
+          onStartQuiz={async (
               qId: string, 
               qTitle: string, 
               isHomework: boolean, 
               durationMinutes?: number, 
-              incomingExam?: any // 👈 Nhận examObject đầy đủ từ LessonWorkspaceView
+              incomingExam?: any
             ) => {
               let targetExam: any = incomingExam;
 
-              const hasQuestions = (ex: any) =>
-                Boolean(
-                  (Array.isArray(ex?.data) && ex.data.length > 0) ||
-                  (Array.isArray(ex?.sections) && ex.sections.length > 0) ||
-                  (Array.isArray(ex?.questions) && ex.questions.length > 0)
-                );
+              const ensureArray = (val: any) => {
+                if (!val) return [];
+                if (Array.isArray(val)) return val;
+                if (typeof val === "string") {
+                  try {
+                    const parsed = JSON.parse(val);
+                    if (Array.isArray(parsed)) return parsed;
+                    if (parsed && typeof parsed === "object") {
+                      if (Array.isArray(parsed.sections)) return parsed.sections;
+                      if (Array.isArray(parsed.data)) return parsed.data;
+                      if (Array.isArray(parsed.questions)) return parsed.questions;
+                    }
+                  } catch {}
+                }
+                if (typeof val === "object") {
+                  if (Array.isArray(val.sections)) return val.sections;
+                  if (Array.isArray(val.data)) return val.data;
+                  if (Array.isArray(val.questions)) return val.questions;
+                }
+                return [];
+              };
 
-              // 1. Nếu incomingExam chưa có câu hỏi, kiểm tra trong homework_files
+              const hasQuestions = (ex: any) => {
+                if (!ex) return false;
+                return (
+                  ensureArray(ex.data).length > 0 ||
+                  ensureArray(ex.sections).length > 0 ||
+                  ensureArray(ex.questions).length > 0
+                );
+              };
+
+              // 1. Kiểm tra trong homework_files của bài học hiện tại
               if (!hasQuestions(targetExam) && isHomework && Array.isArray(selectedLesson?.homework_files)) {
                 const found = selectedLesson.homework_files.find(
                   (h: any) => h.id === qId || h.title === qTitle
@@ -1249,7 +1279,7 @@ if (examRoom) {
                 if (hasQuestions(found)) targetExam = found;
               }
 
-              // 2. NẾU CHƯA CÓ CÂU HỎI (KỂ CẢ ĐÃ TÌM THẤY TÓM TẮT), QUERY NGAY BẢNG HOMEWORKS
+              // 2. Query trực tiếp bảng homeworks từ Supabase nếu chưa nạp đủ câu hỏi
               if (!hasQuestions(targetExam) && isHomework) {
                 const { data: dbHw } = await supabase
                   .from("homeworks")
@@ -1260,7 +1290,6 @@ if (examRoom) {
                 if (dbHw && hasQuestions(dbHw)) {
                   targetExam = dbHw;
                 } else if (!dbHw && qTitle) {
-                  // Dự phòng tìm theo tiêu đề đề thi
                   const { data: dbHwTitle } = await supabase
                     .from("homeworks")
                     .select("id, title, data, sections, media_map, duration_minutes")
@@ -1273,7 +1302,7 @@ if (examRoom) {
                 }
               }
 
-              // 3. Dự phòng tìm trong practice_exams nếu không phải homework
+              // 3. Fallback sang practice_exams nếu là bài thi định kỳ
               if (!hasQuestions(targetExam)) {
                 const { data: dbExam } = await supabase
                   .from("practice_exams")
@@ -1285,16 +1314,22 @@ if (examRoom) {
                 }
               }
 
-              const rawSections = targetExam?.sections || targetExam?.data || [];
-              let extractedQuestions: any[] = [];
-              if (Array.isArray(targetExam?.questions) && targetExam.questions.length > 0) {
-                extractedQuestions = targetExam.questions;
-              } else if (Array.isArray(rawSections)) {
-                rawSections.forEach((sec: any) => {
-                  if (Array.isArray(sec.questions)) {
-                    extractedQuestions.push(...sec.questions);
-                  }
-                });
+              const rawSections =
+                ensureArray(targetExam?.sections).length > 0
+                  ? ensureArray(targetExam?.sections)
+                  : ensureArray(targetExam?.data);
+
+              let extractedQuestions = ensureArray(targetExam?.questions);
+              if (extractedQuestions.length === 0 && Array.isArray(rawSections)) {
+                if (rawSections.length > 0 && (rawSections[0]?.prompt || rawSections[0]?.question || rawSections[0]?.options)) {
+                  extractedQuestions = rawSections;
+                } else {
+                  rawSections.forEach((sec: any) => {
+                    if (Array.isArray(sec.questions)) {
+                      extractedQuestions.push(...sec.questions);
+                    }
+                  });
+                }
               }
 
               const examRoomPayload = {
@@ -1308,9 +1343,18 @@ if (examRoom) {
                 questions: extractedQuestions.length > 0 ? extractedQuestions : undefined
               };
 
+              // Đồng bộ vào state và toàn bộ các bộ nhớ đệm
               setExamRoom(examRoomPayload);
               if (typeof window !== "undefined") {
                 sessionStorage.setItem("tct_active_exam_room", JSON.stringify(examRoomPayload));
+                sessionStorage.setItem("edunexus_active_exam", JSON.stringify(examRoomPayload));
+                try {
+                  const qList = JSON.parse(localStorage.getItem("edunexus_quizzes") || "[]");
+                  localStorage.setItem("edunexus_quizzes", JSON.stringify([...qList.filter((x: any) => x.id !== qId), examRoomPayload]));
+
+                  const pList = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
+                  localStorage.setItem("edunexus_practice_exams", JSON.stringify([...pList.filter((x: any) => x.id !== qId), examRoomPayload]));
+                } catch {}
               }
             }}
           />
