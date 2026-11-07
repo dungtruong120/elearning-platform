@@ -1690,12 +1690,11 @@ if (examRoom) {
                                       <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5"/>
                                     )}
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                            );
+                          })}
                         </div>
-                      ))}
+                      </div>
+                    ))}
                     </div>
                   </div>
                 )}
@@ -1989,7 +1988,7 @@ if (examRoom) {
                             </button>
 
                             {!isCollapsed && (
-                             <div className="flex flex-col space-y-2 pt-1">
+          
                          <div className="flex flex-col space-y-2 pt-1">
                             {(chap.lessons || []).map((les: any) => {
                               const isLocked = Boolean(les.is_locked);
@@ -2480,13 +2479,12 @@ if (examRoom) {
             <>
               <span>Vào học</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </>
           )}
-        </button>
-      </div>
-    </div>
-  );
-})}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       ))}
