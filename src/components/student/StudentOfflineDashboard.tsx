@@ -143,11 +143,16 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
   }, [initialProfile]);
 
- const studentAutoSbd = useMemo(() => {
-  return profile?.student_code
-    ? String(profile.student_code).padStart(6, "0")
-    : formatStudentAutoSBD(profile);
-}, [profile]);
+const studentAutoSbd = useMemo(() => {
+    const rawCode = profile?.student_code || profile?.sbd;
+    if (rawCode) {
+      return String(rawCode).replace(/\D/g, "").padStart(6, "0").slice(-6);
+    }
+    // Nếu profile chưa kịp load student_code, lấy số từ formatStudentAutoSBD
+    const fallback = formatStudentAutoSBD(profile);
+    const digitsOnly = String(fallback || "").replace(/\D/g, "");
+    return digitsOnly.length >= 6 ? digitsOnly.slice(-6) : "000001";
+  }, [profile]);
 
  const [selectedLesson, setSelectedLesson] = useState<any | null>(() => {
   if (typeof window !== "undefined") {
