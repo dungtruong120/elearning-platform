@@ -792,9 +792,15 @@ const channelCourses = supabase
   };
 
 const offlineChapters = useMemo(() => {
-    const extractLessonNumber = (title: string) => {
-      const match = String(title || "").match(/b[aà]i\s*(\d+)/i);
-      return match ? parseInt(match[1], 10) : 0;
+    // Hàm lấy thời gian tạo chính xác nhất từ created_at hoặc bóc tách từ ID (les-179340...)
+    const getLessonTimestamp = (les: any): number => {
+      if (les?.created_at) {
+        const t = new Date(les.created_at).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      // Dự phòng: bóc dãy số timestamp từ ID bài học (VD: les-1794072144636 -> 1794072144636)
+      const match = String(les?.id || "").match(/\d+/);
+      return match ? parseInt(match[0], 10) : 0;
     };
 
     return (chapters || [])
@@ -806,29 +812,10 @@ const offlineChapters = useMemo(() => {
               !les?.target_mode || les?.target_mode === "offline" || les?.target_mode === "all"
           )
           .sort((a: any, b: any) => {
-            // 1. So sánh ngày tạo (bài tạo sau đứng trước)
-            const tA = a?.created_at ? new Date(a.created_at).getTime() : 0;
-            const tB = b?.created_at ? new Date(b.created_at).getTime() : 0;
-            if (tA && tB && Math.abs(tA - tB) > 1000) {
-              return tB - tA;
-            }
-
-            // 2. So sánh Tháng học giảm dần
-            const mA = Number(a?.assigned_month) || 10;
-            const mB = Number(b?.assigned_month) || 10;
-            if (mA !== mB) return mB - mA;
-
-            // 3. So sánh Tuần học giảm dần
-            const wA = Number(a?.assigned_week) || 1;
-            const wB = Number(b?.assigned_week) || 1;
-            if (wA !== wB) return wB - wA;
-
-            // 4. So sánh số thứ tự bài (Bài 12 lên trước Bài 8)
-            const numA = extractLessonNumber(a?.title);
-            const numB = extractLessonNumber(b?.title);
-            if (numA !== numB) return numB - numA;
-
-            return 0;
+            // SẮP XẾP TUYỆT ĐỐI THEO ĐỘ MỚI (BÀI VỪA UP ĐỨNG ĐẦU TIÊN)
+            const timeA = getLessonTimestamp(a);
+            const timeB = getLessonTimestamp(b);
+            return timeB - timeA;
           })
       }))
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
@@ -1665,15 +1652,16 @@ if (examRoom) {
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
                     <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-semibold uppercase tracking-wider border border-blue-100">
-                            Lớp Offline TCT
-                          </span>
-                          <span className="text-xs sm:text-[13px] font-semibold text-slate-800">
-                            Học viên:{" "}
-                            <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>
-                          </span>
-                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                                            📅 {les.study_date ? les.study_date : `Tuần ${les.assigned_week || 1} - Th.${les.assigned_month || 10}`}
+                                          </span>
+                                          {les.is_locked && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
+                                              <Lock className="w-2.5 h-2.5" /> Chưa mở
+                                            </span>
+                                          )}
+                                        </div>
 
                         <div className="flex items-center gap-2">
                           {isEditingGoal ? (
@@ -1754,110 +1742,79 @@ if (examRoom) {
                             </button>
 
                             {!isCollapsed && (
-                              <div className="divide-y divide-slate-100">
-                                {(chap.lessons || []).map((les: any, lIdx: number) => {
-                                  const status = getLessonCompletionStatus(les);
-                                  const docCount =
-                                    (les.lecture_files?.length || 0) +
-                                    (les.homework_files?.length || 0);
-                                  const isLocked = Boolean(les.is_locked);
-                                  const lesMonth = Number(les.assigned_month) || 10;
-                                  const lesWeek = Number(les.assigned_week) || 1;
-                                  const studyDate = les.study_date ? String(les.study_date).trim() : "";
+                             <div className="flex flex-col space-y-2 pt-1">
+                            {(chap.lessons || []).map((les: any) => {
+                              const isLocked = Boolean(les.is_locked);
+                              const lesMonth = Number(les.assigned_month) || 10;
+                              const lesWeek = Number(les.assigned_week) || 1;
+                              const studyDate = les.study_date ? String(les.study_date).trim() : "";
 
-                                  return (
+                              return (
+                                <div
+                                  key={les.id}
+                                  onClick={() => handleOpenLesson(les)}
+                                  className={`py-3 px-3.5 sm:px-4 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer group ${
+                                    isLocked
+                                      ? "border-slate-200 bg-slate-50/70 opacity-80"
+                                      : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/30"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
                                     <div
-                                      key={les.id || lIdx}
-                                      className={`p-3.5 sm:p-4 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left ${
-                                        isLocked ? "bg-slate-50/70 opacity-80" : "hover:bg-slate-50/60"
+                                      className={`w-2 h-2 rounded-full shrink-0 ${
+                                        isLocked ? "bg-slate-400" : "bg-emerald-500"
                                       }`}
-                                    >
-                                      <div className="min-w-0 space-y-1.5 flex-1">
-                                        {/* DÒNG TAG THÔNG BÁO NGÀY HỌC, TUẦN/THÁNG & KHÓA */}
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span className="text-[10px] font-extrabold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                                            Tuần {lesWeek} - Th.{lesMonth < 10 ? "0" + lesMonth : lesMonth}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      {/* CÁC BOX THÔNG TIN: NGÀY HỌC • TUẦN/THÁNG • KHÓA */}
+                                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                        {/* Box ngày học (Luôn hiển thị: có ngày cụ thể thì hiện ngày, chưa có thì hiện Tuần/Tháng) */}
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                                          📅 {studyDate ? studyDate : `Tuần ${lesWeek} - Th.${lesMonth < 10 ? "0" + lesMonth : lesMonth}`}
+                                        </span>
+
+                                        {/* Tag phụ nếu đã có ngày cụ thể */}
+                                        {studyDate && (
+                                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                            T{lesWeek}.Th{lesMonth}
                                           </span>
+                                        )}
 
-                                          {studyDate ? (
-                                            <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-300 flex items-center gap-1">
-                                              📅 Học ngày: {studyDate}
-                                            </span>
-                                          ) : (
-                                            <span className="text-[10px] font-medium text-slate-400 italic">
-                                              Chưa xếp ngày học
-                                            </span>
-                                          )}
-
-                                          {isLocked && (
-                                            <span className="text-[10px] font-extrabold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 flex items-center gap-1">
-                                              <Lock className="w-2.5 h-2.5" /> Chưa mở tài liệu
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                          <h4
-                                            className={`text-[14.5px] sm:text-[15.5px] font-semibold truncate ${
-                                              isLocked ? "text-slate-500 line-through" : "text-slate-800"
-                                            }`}
-                                          >
-                                            {les.title}
-                                          </h4>
-
-                                          {status === "completed" ? (
-                                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
-                                              <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
-                                            </span>
-                                          ) : status === "in_progress" ? (
-                                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
-                                              Đang học
-                                            </span>
-                                          ) : (
-                                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
-                                              Chưa học
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        <div className="flex items-center gap-3 text-xs text-slate-500 font-normal">
-                                          <span className="flex items-center gap-1.5">
-                                            <Clock className="w-3.5 h-3.5 text-slate-400" /> {les.duration || 45} phút
+                                        {/* Tag khóa bài */}
+                                        {isLocked && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
+                                            <Lock className="w-2.5 h-2.5" /> Chưa mở
                                           </span>
-                                          <span>•</span>
-                                          <span className="flex items-center gap-1.5">
-                                            <FileText className="w-3.5 h-3.5 text-slate-400" /> {docCount} tài liệu & BTVN
-                                          </span>
-                                        </div>
+                                        )}
                                       </div>
 
-                                      <div className="shrink-0 flex items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenLesson(les)}
-                                          className={`px-5 py-2.5 rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer ${
-                                            isLocked
-                                              ? "bg-slate-200 hover:bg-slate-300 text-slate-600"
-                                              : "bg-blue-600 hover:bg-blue-700 text-white"
-                                          }`}
-                                        >
-                                          {isLocked ? (
-                                            <>
-                                              <Lock className="w-3.5 h-3.5" />
-                                              <span>Chưa mở</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <span>Vào học</span>
-                                              <ArrowRight className="w-3.5 h-3.5" />
-                                            </>
-                                          )}
-                                        </button>
-                                      </div>
+                                      {/* Tên bài học */}
+                                      <span
+                                        className={`text-[13.5px] sm:text-sm font-semibold truncate block ${
+                                          isLocked
+                                            ? "text-slate-500"
+                                            : "text-slate-800 group-hover:text-blue-700"
+                                        }`}
+                                      >
+                                        {les.title}
+                                      </span>
                                     </div>
-                                  );
-                                })}
-                              </div>
+                                  </div>
+
+                                  <div className="shrink-0 flex items-center">
+                                    {isLocked ? (
+                                      <div className="p-1.5 rounded-lg bg-slate-200/60 text-slate-500 flex items-center gap-1 text-[11px] font-bold">
+                                        <Lock className="w-3.5 h-3.5" />
+                                        <span className="hidden sm:inline">Khóa</span>
+                                      </div>
+                                    ) : (
+                                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                             )}
                           </div>
                         );
