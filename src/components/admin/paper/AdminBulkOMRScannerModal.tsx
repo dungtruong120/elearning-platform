@@ -499,6 +499,9 @@ export function AdminBulkOMRScannerModal({
    * - Giữ nguyên danh sách gốc từ props, không sort theo tên, không tự sinh SBD bằng index + 1.
    * - `sbdLookupMap` chỉ dùng duy nhất key là chuỗi SBD 6 chữ số đã chuẩn hóa.
    */
+ /**
+   * 2. DANH MỤC HỌC SINH & BẢNG TRA CỨU SBD 6 CHỮ SỐ ĐỒNG BỘ SUPABASE
+   */
   const studentDirectory = useMemo(() => {
     const permanentSbdById: Record<string, string> = {};
     if (typeof window !== "undefined") {
@@ -519,7 +522,7 @@ export function AdminBulkOMRScannerModal({
           if (Array.isArray(parsedDir)) {
             parsedDir.forEach((entry: any) => {
               const idKey = String(entry?.id || entry?.studentId || "").trim();
-              const norm = normalizeSbd6Digits(entry?.sbd);
+              const norm = normalizeSbd6Digits(entry?.student_code || entry?.sbd);
               if (idKey && norm && !permanentSbdById[idKey]) {
                 permanentSbdById[idKey] = norm;
               }
@@ -540,15 +543,22 @@ export function AdminBulkOMRScannerModal({
 
     return pool.map((stu, idx) => {
       const id = String(stu.id || stu.studentId || `stu_${idx + 1}`).trim();
-      const rawSbdFromProp = stu.sbd
-        ? String(stu.sbd).trim().replace(/\D/g, "").padStart(6, "0").slice(-6)
+      
+      // ✅ ĐỌC TRỰC TIẾP student_code TỪ SUPABASE
+      const rawCode = stu.student_code || stu.studentCode || stu.sbd || "";
+      const rawSbdFromProp = rawCode
+        ? String(rawCode).trim().replace(/\D/g, "").padStart(6, "0").slice(-6)
         : "";
+
       const validPropSbd =
         /^\d{6}$/.test(rawSbdFromProp) && rawSbdFromProp !== "000000"
           ? rawSbdFromProp
           : "";
+
       const savedPermSbd = permanentSbdById[id] || "";
-      const finalSbd = validPropSbd || savedPermSbd || "";
+      // Nếu tài khoản chưa có SBD thì mới fallback theo STT
+      const fallbackSttSbd = String(idx + 1).padStart(6, "0");
+      const finalSbd = validPropSbd || savedPermSbd || fallbackSttSbd;
 
       return {
         id,
