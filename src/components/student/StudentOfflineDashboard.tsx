@@ -56,7 +56,8 @@ import {
   Eye,
   Printer,
   PenTool,
-  Camera
+  Camera,
+  Lock
 } from "lucide-react";
 
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
@@ -351,13 +352,13 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
 
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
-  const fetchAuthAndData = useCallback(async () => {
- // 0. TỰ ĐỘNG ĐỒNG BỘ PROFILE MỚI NHẤT TỪ SUPABASE
+ const fetchAuthAndData = useCallback(async () => {
+    // 0. TỰ ĐỘNG ĐỒNG BỘ PROFILE MỚI NHẤT TỪ SUPABASE
     if (profile?.id) {
       try {
         const { data: freshProfile } = await supabase
           .from("profiles")
-          .select("id, student_code, full_name, email, phone, school, grade, role, learning_mode") // 👈 Chỉ lấy các cột thực sự có trong bảng
+          .select("id, student_code, full_name, email, phone, school, grade, role, learning_mode")
           .eq("id", profile.id)
           .maybeSingle();
 
@@ -383,6 +384,33 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
       } catch (e) {
         console.warn("Lỗi làm mới profile:", e);
       }
+    }
+
+    // 1. TẢI TOÀN BỘ CHƯƠNG & BÀI HỌC TƯƠI TỪ SUPABASE (KÈM IS_LOCKED & STUDY_DATE)
+    try {
+      const { data: dbChapters } = await supabase
+        .from("chapters")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      const { data: dbLessons } = await supabase
+        .from("lessons")
+        .select("id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date")
+        .order("created_at", { ascending: false });
+
+      if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
+        const formattedChapters = dbChapters.map((chap: any) => ({
+          ...chap,
+          lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
+        }));
+
+        setChapters(formattedChapters);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
+        }
+      }
+    } catch (e) {
+      console.error("Lỗi tải chương trình học:", e);
     }
     try {
       setIsLoadingExams(true);
@@ -520,10 +548,12 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("storage", fetchAuthAndData);
     window.addEventListener("storage", loadSessionsData);
-
-    const channelCourses = supabase
+const channelCourses = supabase
       .channel("student-offline-global-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, () =>
+      .on("postgres_changes", { event: "*", schema: "public", table: "lessons" }, () =>
+        fetchAuthAndData()
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "chapters" }, () =>
         fetchAuthAndData()
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () =>
@@ -761,7 +791,7 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
     return m + "p " + s + "s";
   };
 
-  const offlineChapters = useMemo(() => {
+ const offlineChapters = useMemo(() => {
     return (chapters || [])
       .map((chap: any) => ({
         ...chap,
@@ -771,17 +801,22 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
               !les?.target_mode || les?.target_mode === "offline" || les?.target_mode === "all"
           )
           .sort((a: any, b: any) => {
+            // 1. Ưu tiên bài mới tạo lên trước
+            const tA = a?.created_at ? new Date(a.created_at).getTime() : 0;
+            const tB = b?.created_at ? new Date(b.created_at).getTime() : 0;
+            if (tA && tB && tA !== tB) return tB - tA;
+
+            // 2. Dự phòng so sánh theo Tháng và Tuần giảm dần (Tuần mới hơn lên trước)
             const mA = Number(a?.assigned_month) || 10;
             const mB = Number(b?.assigned_month) || 10;
-            if (mA !== mB) return mA - mB;
+            if (mA !== mB) return mB - mA;
             const wA = Number(a?.assigned_week) || 1;
             const wB = Number(b?.assigned_week) || 1;
-            return wA - wB;
+            return wB - wA;
           })
       }))
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
-
   const parseTimeSlotMinutes = (
     timeSlot?: string
   ): { startMinutes: number; endMinutes: number } | null => {
@@ -1064,6 +1099,13 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
   );
 
 const handleOpenLesson = async (les: any) => {
+    // CHẶN XEM NẾU BÀI ĐANG KHÓA
+    if (les?.is_locked) {
+      setOfflineToast("🔒 Bài học chưa diễn ra, tài liệu và BTVN sẽ mở sau buổi học!");
+      setTimeout(() => setOfflineToast(""), 3500);
+      return;
+    }
+
     try {
       // 1. Tải tài liệu bài giảng từ bảng lessons
       const { data: lessonData } = await supabase
@@ -1501,27 +1543,28 @@ if (examRoom) {
                           </div>
                         </div>
                         <div className="shrink-0 flex items-center gap-2">
-                          {isAttendedTodayOffline ? (
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-100 font-semibold text-xs border border-emerald-400/30">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                                <span>Đã điểm danh ✓</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveTab("courses");
-                                  setOfflineToast(
-                                    "Đang mở không gian học tập: " +
-                                      (todayOfflineSession.subject || todayOfflineSession.title)
-                                  );
-                                }}
-                                className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
-                              >
-                                <BookOpen className="w-3.5 h-3.5" />
-                                <span>Vào học</span>
-                              </button>
-                            </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenLesson(les)}
+                                          className={`px-4 py-2 rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer ${
+                                            les.is_locked
+                                              ? "bg-slate-200 text-slate-500 hover:bg-slate-300"
+                                              : "bg-blue-600 hover:bg-blue-700 text-white"
+                                          }`}
+                                        >
+                                          {les.is_locked ? (
+                                            <>
+                                              <Lock className="w-3.5 h-3.5" />
+                                              <span>Chưa mở</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <span>Vào học</span>
+                                              <ArrowRight className="w-3.5 h-3.5" />
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
                           ) : (
                             <button
                               type="button"
@@ -1696,64 +1739,53 @@ if (examRoom) {
 
                             {!isCollapsed && (
                               <div className="divide-y divide-slate-100">
-                                {(chap.lessons || []).map((les: any, lIdx: number) => {
-                                  const status = getLessonCompletionStatus(les);
-                                  const docCount =
-                                    (les.lecture_files?.length || 0) +
-                                    (les.homework_files?.length || 0);
+                                {(chap.lessons || []).map((les: any) => {
+                              const isLocked = Boolean(les.is_locked);
+                              const lesMonth = Number(les.assigned_month) || 10;
+                              const lesWeek = Number(les.assigned_week) || 1;
+                              const studyDate = les.study_date || "";
 
-                                  return (
-                                    <div
-                                      key={les.id || lIdx}
-                                      className="p-3.5 sm:p-4 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left"
-                                    >
-                                      <div className="min-w-0 space-y-1.5">
-                                        <div className="flex items-center gap-2">
-                                          <h4 className="text-[14.5px] sm:text-[15.5px] font-semibold text-slate-800 truncate">
-                                            {les.title}
-                                          </h4>
-
-                                          {status === "completed" ? (
-                                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
-                                              <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
-                                            </span>
-                                          ) : status === "in_progress" ? (
-                                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
-                                              Đang học
-                                            </span>
-                                          ) : (
-                                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
-                                              Chưa học
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        <div className="flex items-center gap-3 text-xs text-slate-500 font-normal">
-                                          <span className="flex items-center gap-1.5">
-                                            <Clock className="w-3.5 h-3.5 text-slate-400" />{" "}
-                                            {les.duration || 45} phút
+                              return (
+                                <div
+                                  key={les.id}
+                                  onClick={() => handleOpenLesson(les)}
+                                  className={`py-3 px-3.5 sm:px-4 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer group ${
+                                    isLocked
+                                      ? "border-slate-200 bg-slate-50/70 opacity-75"
+                                      : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/30"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isLocked ? "bg-slate-400" : "bg-emerald-500"}`} />
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-[10px] font-extrabold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                          Tuần {lesWeek} - Th.{lesMonth}
+                                        </span>
+                                        {studyDate && (
+                                          <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                            📅 {studyDate}
                                           </span>
-                                          <span>•</span>
-                                          <span className="flex items-center gap-1.5">
-                                            <FileText className="w-3.5 h-3.5 text-slate-400" />{" "}
-                                            {docCount} tài liệu & BTVN
+                                        )}
+                                        {isLocked && (
+                                          <span className="text-[10px] font-extrabold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 flex items-center gap-1">
+                                            <Lock className="w-2.5 h-2.5" /> Chưa mở
                                           </span>
-                                        </div>
+                                        )}
                                       </div>
-
-                                      <div className="shrink-0 flex items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenLesson(les)}
-                                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                          <span>Vào học</span>
-                                          <ArrowRight className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
+                                      <span className={`text-[13.5px] sm:text-sm font-semibold truncate block mt-0.5 ${isLocked ? "text-slate-500" : "text-slate-700 group-hover:text-blue-700"}`}>
+                                        {les.title}
+                                      </span>
                                     </div>
-                                  );
-                                })}
+                                  </div>
+                                  {isLocked ? (
+                                    <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                                  ) : (
+                                    <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                                  )}
+                                </div>
+                              );
+                            })}
                               </div>
                             )}
                           </div>
