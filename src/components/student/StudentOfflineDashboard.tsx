@@ -1513,7 +1513,7 @@ if (examRoom) {
               >
                 {activeTab === "overview" && (
                   <div className="w-full max-w-5xl mx-auto space-y-4 text-left">
-                   {todayOfflineSession && (
+                    {todayOfflineSession && (
                       <motion.div
                         initial={{ opacity: 0, y: -4 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -1521,7 +1521,7 @@ if (examRoom) {
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="p-2 rounded-lg bg-white/20 text-white shrink-0">
-                            <MapPin className="w-4 h-4" />
+                            <MapPin className="w-4 h-4"/>
                           </div>
                           <div className="min-w-0 text-left">
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-100 flex items-center gap-1.5">
@@ -1550,7 +1550,7 @@ if (examRoom) {
                           {isAttendedTodayOffline ? (
                             <div className="flex items-center gap-2">
                               <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-100 font-semibold text-xs border border-emerald-400/30">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300"/>
                                 <span>Đã điểm danh ✓</span>
                               </span>
                               <button
@@ -1564,7 +1564,7 @@ if (examRoom) {
                                 }}
                                 className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
                               >
-                                <BookOpen className="w-3.5 h-3.5" />
+                                <BookOpen className="w-3.5 h-3.5"/>
                                 <span>Vào học</span>
                               </button>
                             </div>
@@ -1574,7 +1574,7 @@ if (examRoom) {
                               onClick={handleOfflineSelfCheckIn}
                               className="px-4 py-2 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-700"/>
                               <span>Xác nhận có mặt</span>
                             </button>
                           )}
@@ -1602,7 +1602,7 @@ if (examRoom) {
                           {offlineChapters.length} Chương
                         </span>
                         <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5" /> {formattedStudyTimeToday}
+                          <Clock className="w-3.5 h-3.5"/> {formattedStudyTimeToday}
                         </span>
                       </div>
                     </div>
@@ -1626,20 +1626,267 @@ if (examRoom) {
                           </div>
 
                           <div className="flex flex-col space-y-2 pt-1">
-                            {(chap.lessons || []).map((les: any) => (
-                              <div
-                                key={les.id}
-                                onClick={() => handleOpenLesson(les)}
-                                className="py-3 px-3.5 sm:px-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                  <span className="text-[13.5px] sm:text-sm font-medium text-slate-700 truncate group-hover:text-blue-700">
-                                    {les.title}
-                                  </span>
+                            {(chap.lessons || []).map((les: any) => {
+                              const isLocked = Boolean(les.is_locked);
+                              const lesMonth = Number(les.assigned_month) || 10;
+                              const lesWeek = Number(les.assigned_week) || 1;
+                              const studyDate = les.study_date ? String(les.study_date).trim() : "";
+
+                              return (
+                                <div
+                                  key={les.id}
+                                  onClick={() => handleOpenLesson(les)}
+                                  className={`py-3 px-3.5 sm:px-4 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer group ${
+                                    isLocked
+                                      ? "border-slate-200 bg-slate-50/70 opacity-80"
+                                      : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/30"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <div
+                                      className={`w-2 h-2 rounded-full shrink-0 ${
+                                        isLocked ? "bg-slate-400" : "bg-emerald-500"
+                                      }`}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      {/* CÁC BOX THÔNG TIN: NGÀY HỌC • TUẦN/THÁNG • KHÓA */}
+                                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                                          📅 {studyDate ? studyDate : `Tuần ${lesWeek} - Th.${lesMonth < 10 ? "0" + lesMonth : lesMonth}`}
+                                        </span>
+
+                                        {studyDate && (
+                                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                            T{lesWeek}.Th{lesMonth}
+                                          </span>
+                                        )}
+
+                                        {isLocked && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
+                                            <Lock className="w-2.5 h-2.5"/> Chưa mở
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <span
+                                        className={`text-[13.5px] sm:text-sm font-semibold truncate block ${
+                                          isLocked
+                                            ? "text-slate-500"
+                                            : "text-slate-800 group-hover:text-blue-700"
+                                        }`}
+                                      >
+                                        {les.title}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="shrink-0 flex items-center">
+                                    {isLocked ? (
+                                      <div className="p-1.5 rounded-lg bg-slate-200/60 text-slate-500 flex items-center gap-1 text-[11px] font-bold">
+                                        <Lock className="w-3.5 h-3.5"/>
+                                        <span className="hidden sm:inline">Khóa</span>
+                                      </div>
+                                    ) : (
+                                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5"/>
+                                    )}
+                                  </div>
                                 </div>
-                                <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "courses" && (
+                  <div className="max-w-5xl mx-auto space-y-4 text-left">
+                    <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-semibold uppercase tracking-wider border border-blue-100">
+                            Lớp Offline TCT
+                          </span>
+                          <span className="text-xs sm:text-[13px] font-semibold text-slate-800">
+                            Học viên:{" "}
+                            <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isEditingGoal ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={tempGoal}
+                                onChange={(e) => setTempGoal(e.target.value)}
+                                className="px-2.5 py-1 border border-blue-300 rounded text-xs font-semibold text-slate-800 focus:outline-none"
+                              />
+                              <button
+                                onClick={handleSaveGoal}
+                                className="px-2.5 py-1 bg-blue-600 text-white rounded text-xs font-semibold cursor-pointer"
+                              >
+                                Lưu
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-slate-600 font-medium">
+                                🎯 {studyGoal}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setTempGoal(studyGoal);
+                                  setIsEditingGoal(true);
+                                }}
+                                className="text-slate-400 hover:text-blue-600 p-0.5 cursor-pointer"
+                                title="Sửa mục tiêu"
+                              >
+                                <Edit3 className="w-3.5 h-3.5"/>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-500 italic border-t border-slate-100 pt-2 flex items-center gap-1.5">
+                        <Quote className="w-3.5 h-3.5 text-amber-500 shrink-0"/>
+                        <span>&quot;{dailyQuote}&quot;</span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-3.5 pt-1">
+                      {offlineChapters.map((chap, idx) => {
+                        const isCollapsed = Boolean(collapsedChapters[chap.id]);
+                        const lessonCount = chap.lessons?.length || 0;
+
+                        return (
+                          <div
+                            key={chap.id || idx}
+                            className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleChapterCollapse(chap.id)}
+                              className="w-full px-4.5 py-3.5 bg-slate-50/70 hover:bg-slate-50 border-b border-slate-100 flex items-center justify-between text-left transition cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                  Chương {idx + 1}
+                                </span>
+                                <h3 className="font-semibold text-slate-900 text-[13.5px] sm:text-sm">
+                                  {chap.title}
+                                </h3>
                               </div>
+
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-slate-400">
+                                  {lessonCount} bài học
+                                </span>
+                                {isCollapsed ? (
+                                  <ChevronDown className="w-4 h-4 text-slate-400"/>
+                                ) : (
+                                  <ChevronUp className="w-4 h-4 text-slate-400"/>
+                                )}
+                              </div>
+                            </button>
+
+                            {!isCollapsed && (
+                              <div className="divide-y divide-slate-100">
+                                {(chap.lessons || []).map((les: any, lIdx: number) => {
+                                  const status = getLessonCompletionStatus(les);
+                                  const docCount =
+                                    (les.lecture_files?.length || 0) +
+                                    (les.homework_files?.length || 0);
+                                  const isLocked = Boolean(les.is_locked);
+                                  const lesMonth = Number(les.assigned_month) || 10;
+                                  const lesWeek = Number(les.assigned_week) || 1;
+                                  const studyDate = les.study_date ? String(les.study_date).trim() : "";
+
+                                  return (
+                                    <div
+                                      key={les.id || lIdx}
+                                      className={`p-3.5 sm:p-4 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left ${
+                                        isLocked ? "bg-slate-50/70 opacity-80" : "hover:bg-slate-50/60"
+                                      }`}
+                                    >
+                                      <div className="min-w-0 space-y-1.5 flex-1">
+                                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                                            📅 {studyDate ? studyDate : `Tuần ${lesWeek} - Th.${lesMonth < 10 ? "0" + lesMonth : lesMonth}`}
+                                          </span>
+                                          {studyDate && (
+                                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                              T{lesWeek}.Th{lesMonth}
+                                            </span>
+                                          )}
+                                          {isLocked && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
+                                              <Lock className="w-2.5 h-2.5"/> Chưa mở
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                          <h4
+                                            className={`text-[14.5px] sm:text-[15.5px] font-semibold truncate ${
+                                              isLocked ? "text-slate-500 line-through" : "text-slate-800"
+                                            }`}
+                                          >
+                                            {les.title}
+                                          </h4>
+
+                                          {status === "completed" ? (
+                                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
+                                              <Check className="w-2.5 h-2.5 stroke-[3]"/> Đã hoàn thành
+                                            </span>
+                                          ) : status === "in_progress" ? (
+                                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
+                                              Đang học
+                                            </span>
+                                          ) : (
+                                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
+                                              Chưa học
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="flex items-center gap-3 text-xs text-slate-500 font-normal">
+                                          <span className="flex items-center gap-1.5">
+                                            <Clock className="w-3.5 h-3.5 text-slate-400"/> {les.duration || 45} phút
+                                          </span>
+                                          <span>•</span>
+                                          <span className="flex items-center gap-1.5">
+                                            <FileText className="w-3.5 h-3.5 text-slate-400"/> {docCount} tài liệu & BTVN
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div className="shrink-0 flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenLesson(les)}
+                                          className={`px-5 py-2.5 rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer ${
+                                            isLocked
+                                              ? "bg-slate-200 hover:bg-slate-300 text-slate-600"
+                                              : "bg-blue-600 hover:bg-blue-700 text-white"
+                                          }`}
+                                        >
+                                          {isLocked ? (
+                                            <>
+                                              <Lock className="w-3.5 h-3.5"/>
+                                              <span>Chưa mở</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <span>Vào học</span>
+                                              <ArrowRight className="w-3.5 h-3.5"/>
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
+                                    </div>
                                   );
                                 })}
                               </div>
@@ -1650,8 +1897,6 @@ if (examRoom) {
                     </div>
                   </div>
                 )}
-
-                {activeTab === "courses" && (
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
                     <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
