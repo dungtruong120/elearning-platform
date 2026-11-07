@@ -2301,6 +2301,7 @@ if (examRoom) {
                     </div>
                   </div>
                 )}
+                  {activeTab === "leaderboard" && (
                   <div className="max-w-5xl mx-auto text-left">
                     <StudentLeaderboardView
                       profile={profile!}
