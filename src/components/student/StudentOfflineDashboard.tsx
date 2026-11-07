@@ -1510,7 +1510,7 @@ if (examRoom) {
               >
                 {activeTab === "overview" && (
                   <div className="w-full max-w-5xl mx-auto space-y-4 text-left">
-                    {todayOfflineSession && (
+                   {todayOfflineSession && (
                       <motion.div
                         initial={{ opacity: 0, y: -4 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -1542,29 +1542,29 @@ if (examRoom) {
                             </p>
                           </div>
                         </div>
+
                         <div className="shrink-0 flex items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenLesson(les)}
-                                          className={`px-4 py-2 rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer ${
-                                            les.is_locked
-                                              ? "bg-slate-200 text-slate-500 hover:bg-slate-300"
-                                              : "bg-blue-600 hover:bg-blue-700 text-white"
-                                          }`}
-                                        >
-                                          {les.is_locked ? (
-                                            <>
-                                              <Lock className="w-3.5 h-3.5" />
-                                              <span>Chưa mở</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <span>Vào học</span>
-                                              <ArrowRight className="w-3.5 h-3.5" />
-                                            </>
-                                          )}
-                                        </button>
-                                      </div>
+                          {isAttendedTodayOffline ? (
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-100 font-semibold text-xs border border-emerald-400/30">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                                <span>Đã điểm danh ✓</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab("courses");
+                                  setOfflineToast(
+                                    "Đang mở không gian học tập: " +
+                                      (todayOfflineSession.subject || todayOfflineSession.title)
+                                  );
+                                }}
+                                className="px-3.5 py-1.5 bg-white text-blue-700 hover:bg-blue-50 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span>Vào học</span>
+                              </button>
+                            </div>
                           ) : (
                             <button
                               type="button"
