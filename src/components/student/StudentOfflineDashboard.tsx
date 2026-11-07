@@ -1640,10 +1640,13 @@ if (examRoom) {
                                 </div>
                                 <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                               </div>
-                            ))}
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
