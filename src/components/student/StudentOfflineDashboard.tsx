@@ -1652,18 +1652,15 @@ if (examRoom) {
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
                     <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        {/* CÁC BOX THÔNG TIN: NGÀY HỌC • TUẦN/THÁNG • KHÓA */}
-                                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
-                                            📅 {studyDate ? studyDate : `Tuần ${lesWeek} - Th.${lesMonth < 10 ? "0" + lesMonth : lesMonth}`}
-                                          </span>
-
-                                          {isLocked && (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
-                                              <Lock className="w-2.5 h-2.5" /> Chưa mở
-                                            </span>
-                                          )}
-                                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-semibold uppercase tracking-wider border border-blue-100">
+                            Lớp Offline TCT
+                          </span>
+                          <span className="text-xs sm:text-[13px] font-semibold text-slate-800">
+                            Học viên:{" "}
+                            <span className="text-blue-700">{profile?.full_name || "Học sinh"}</span>
+                          </span>
+                        </div>
 
                         <div className="flex items-center gap-2">
                           {isEditingGoal ? (
@@ -1745,6 +1742,7 @@ if (examRoom) {
 
                             {!isCollapsed && (
                              <div className="flex flex-col space-y-2 pt-1">
+                         <div className="flex flex-col space-y-2 pt-1">
                             {(chap.lessons || []).map((les: any) => {
                               const isLocked = Boolean(les.is_locked);
                               const lesMonth = Number(les.assigned_month) || 10;
@@ -1770,19 +1768,16 @@ if (examRoom) {
                                     <div className="min-w-0 flex-1">
                                       {/* CÁC BOX THÔNG TIN: NGÀY HỌC • TUẦN/THÁNG • KHÓA */}
                                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                        {/* Box ngày học (Luôn hiển thị: có ngày cụ thể thì hiện ngày, chưa có thì hiện Tuần/Tháng) */}
                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
                                           📅 {studyDate ? studyDate : `Tuần ${lesWeek} - Th.${lesMonth < 10 ? "0" + lesMonth : lesMonth}`}
                                         </span>
 
-                                        {/* Tag phụ nếu đã có ngày cụ thể */}
                                         {studyDate && (
                                           <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
                                             T{lesWeek}.Th{lesMonth}
                                           </span>
                                         )}
 
-                                        {/* Tag khóa bài */}
                                         {isLocked && (
                                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
                                             <Lock className="w-2.5 h-2.5" /> Chưa mở
@@ -1790,7 +1785,6 @@ if (examRoom) {
                                         )}
                                       </div>
 
-                                      {/* Tên bài học */}
                                       <span
                                         className={`text-[13.5px] sm:text-sm font-semibold truncate block ${
                                           isLocked
