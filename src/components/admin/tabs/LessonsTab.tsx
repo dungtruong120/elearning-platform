@@ -21,7 +21,7 @@ import {
   Unlock   // 👈 Thêm icon này
 } from "lucide-react";
 import dynamic from "next/dynamic";
-
+import { supabase } from "@/lib/supabaseClient";
 const AzotaExamConfigModal = dynamic<any>(
   () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
   { ssr: false }
@@ -241,7 +241,6 @@ export default function LessonsTab({
     }
   };
 
- import { supabase } from "@/lib/supabaseClient"; // 👈 Đảm bảo có import supabase
 
   // 1. GẠT NHANH KHÓA / MỞ BÀI HỌC VÀ LƯU THẲNG LÊN SUPABASE
   const handleToggleLockLesson = async (chapterId: string, lessonId: string, currentLockState: boolean) => {
