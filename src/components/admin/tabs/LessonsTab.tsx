@@ -264,6 +264,75 @@ export default function LessonsTab({
   };
 
   // 2. ĐỔI NHANH NGÀY HỌC DỰ KIẾN (VD: 08/11/2026)
+ // 1. ĐỔI NHANH TUẦN / THÁNG BÀI HỌC VÀ ĐỒNG BỘ XUỐNG BTVN / ĐỀ KIỂM TRA
+  const handleQuickChangeLessonSchedule = async (
+    chapterId: string,
+    lessonId: string,
+    newMonth: number,
+    newWeek: number
+  ) => {
+    const updatedChapters = (chapters || []).map((chap: any) => {
+      if (chap?.id !== chapterId) return chap;
+      return {
+        ...chap,
+        lessons: (chap?.lessons || []).map((les: any) => {
+          if (les?.id !== lessonId) return les;
+          const updatedHw = Array.isArray(les.homework_files)
+            ? les.homework_files.map((hw: any) => ({
+                ...hw,
+                assigned_month: Number(newMonth),
+                assigned_week: Number(newWeek),
+              }))
+            : [];
+          const updatedTests = Array.isArray(les.test_quizzes)
+            ? les.test_quizzes.map((tq: any) => ({
+                ...tq,
+                assigned_month: Number(newMonth),
+                assigned_week: Number(newWeek),
+              }))
+            : [];
+          return {
+            ...les,
+            assigned_month: Number(newMonth),
+            assigned_week: Number(newWeek),
+            homework_files: updatedHw,
+            test_quizzes: updatedTests,
+          };
+        }),
+      };
+    });
+
+    if (typeof setChapters === "function") setChapters(updatedChapters);
+    if (typeof onUpdateChapters === "function") {
+      await onUpdateChapters(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
+    } else if (typeof saveToStorage === "function") {
+      await saveToStorage(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
+    }
+  };
+
+  // 2. GẠT NHANH KHÓA / MỞ BÀI HỌC (🔒 / 🔓)
+  const handleToggleLockLesson = async (chapterId: string, lessonId: string, currentLockState: boolean) => {
+    const nextLock = !currentLockState;
+    const updatedChapters = (chapters || []).map((chap: any) => {
+      if (chap?.id !== chapterId) return chap;
+      return {
+        ...chap,
+        lessons: (chap?.lessons || []).map((les: any) => {
+          if (les?.id !== lessonId) return les;
+          return { ...les, is_locked: nextLock };
+        }),
+      };
+    });
+
+    if (typeof setChapters === "function") setChapters(updatedChapters);
+    if (typeof onUpdateChapters === "function") {
+      await onUpdateChapters(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
+    } else if (typeof saveToStorage === "function") {
+      await saveToStorage(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
+    }
+  };
+
+  // 3. ĐỔI NHANH NGÀY HỌC DỰ KIẾN (VD: 08/11/2026)
   const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
     const updatedChapters = (chapters || []).map((chap: any) => {
       if (chap?.id !== chapterId) return chap;
