@@ -364,26 +364,7 @@ export default function LessonsTab({
     }
   };
 
-  // 3. ĐỔI NHANH NGÀY HỌC DỰ KIẾN (VD: 08/11/2026)
-  const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
-    const updatedChapters = (chapters || []).map((chap: any) => {
-      if (chap?.id !== chapterId) return chap;
-      return {
-        ...chap,
-        lessons: (chap?.lessons || []).map((les: any) => {
-          if (les?.id !== lessonId) return les;
-          return { ...les, study_date: newDateStr };
-        }),
-      };
-    });
-
-    if (typeof setChapters === "function") setChapters(updatedChapters);
-    if (typeof onUpdateChapters === "function") {
-      await onUpdateChapters(updatedChapters, `ngày học ${newDateStr}`);
-    } else if (typeof saveToStorage === "function") {
-      await saveToStorage(updatedChapters, `ngày học ${newDateStr}`);
-    }
-  };
+ 
 
   const handleOpenUploadPicker = (lesson: any, type: "homework_files" | "test_quizzes") => {
     const defaultM = Number(lesson?.assigned_month) || currentRealtimeMonth;
