@@ -1800,7 +1800,7 @@ if (examRoom) {
                                     </div>
                                   </div>
 
-                                  <div className="shrink-0 flex items-center">
+                                 <div className="shrink-0 flex items-center">
                                     {isLocked ? (
                                       <div className="p-1.5 rounded-lg bg-slate-200/60 text-slate-500 flex items-center gap-1 text-[11px] font-bold">
                                         <Lock className="w-3.5 h-3.5" />
@@ -1814,10 +1814,8 @@ if (examRoom) {
                               );
                             })}
                           </div>
-          
-                          </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
