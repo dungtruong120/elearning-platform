@@ -1652,8 +1652,13 @@ if (examRoom) {
                   <div className="max-w-5xl mx-auto space-y-4 text-left">
                     <div className="bg-white rounded-xl p-3.5 sm:px-4.5 border border-slate-200/80 shadow-2xs space-y-2.5">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          
+                        {/* CÁC BOX THÔNG TIN: NGÀY HỌC • TUẦN/THÁNG • KHÓA */}
+                                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                                            📅 {studyDate ? studyDate : `Tuần ${lesWeek} - Th.${lesMonth < 10 ? "0" + lesMonth : lesMonth}`}
+                                          </span>
+
+                                          {isLocked && (
                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
                                               <Lock className="w-2.5 h-2.5" /> Chưa mở
                                             </span>
