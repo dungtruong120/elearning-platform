@@ -1057,14 +1057,14 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
 
 const handleOpenLesson = async (les: any) => {
     try {
-      // 1. Tải thông tin cơ bản của bài học
+      // 1. Tải đầy đủ tài liệu bài học từ bảng lessons
       const { data: lessonData } = await supabase
         .from("lessons")
-        .select("video_list, lecture_files, description")
+        .select("video_list, lecture_files, handwritten_notes, test_quizzes, extra_resources, description")
         .eq("id", les.id)
         .maybeSingle();
 
-      // 2. TỐI ƯU EGRESS: Chỉ kéo thông tin tóm tắt đề, BỎ data và sections (tiết kiệm 99% dung lượng)
+      // 2. Kéo danh sách BTVN từ bảng homeworks
       const { data: hwData } = await supabase
         .from("homeworks")
         .select("id, lesson_id, title, duration_minutes, is_quiz")
@@ -1220,24 +1220,64 @@ if (examRoom) {
               }
               fetchAuthAndData();
             }}
-            onStartQuiz={async (qId: string, qTitle: string, isHomework: boolean, durationMinutes?: number) => {
-              let targetExam: any = null;
+            onStartQuiz={async (
+              qId: string, 
+              qTitle: string, 
+              isHomework: boolean, 
+              durationMinutes?: number, 
+              incomingExam?: any // 👈 Nhận examObject đầy đủ từ LessonWorkspaceView
+            ) => {
+              let targetExam: any = incomingExam;
 
-              // 1. Tận dụng dữ liệu có sẵn trong RAM bài học
-              if (isHomework && Array.isArray(selectedLesson?.homework_files)) {
-                targetExam = selectedLesson.homework_files.find(
+              const hasQuestions = (ex: any) =>
+                Boolean(
+                  (Array.isArray(ex?.data) && ex.data.length > 0) ||
+                  (Array.isArray(ex?.sections) && ex.sections.length > 0) ||
+                  (Array.isArray(ex?.questions) && ex.questions.length > 0)
+                );
+
+              // 1. Nếu incomingExam chưa có câu hỏi, kiểm tra trong homework_files
+              if (!hasQuestions(targetExam) && isHomework && Array.isArray(selectedLesson?.homework_files)) {
+                const found = selectedLesson.homework_files.find(
                   (h: any) => h.id === qId || h.title === qTitle
                 );
+                if (hasQuestions(found)) targetExam = found;
               }
 
-              // 2. Query Supabase nếu chưa có
-              if (!targetExam && isHomework) {
+              // 2. NẾU CHƯA CÓ CÂU HỎI (KỂ CẢ ĐÃ TÌM THẤY TÓM TẮT), QUERY NGAY BẢNG HOMEWORKS
+              if (!hasQuestions(targetExam) && isHomework) {
                 const { data: dbHw } = await supabase
                   .from("homeworks")
                   .select("id, title, data, sections, media_map, duration_minutes")
                   .eq("id", qId)
                   .maybeSingle();
-                if (dbHw) targetExam = dbHw;
+
+                if (dbHw && hasQuestions(dbHw)) {
+                  targetExam = dbHw;
+                } else if (!dbHw && qTitle) {
+                  // Dự phòng tìm theo tiêu đề đề thi
+                  const { data: dbHwTitle } = await supabase
+                    .from("homeworks")
+                    .select("id, title, data, sections, media_map, duration_minutes")
+                    .ilike("title", qTitle)
+                    .limit(1)
+                    .maybeSingle();
+                  if (dbHwTitle && hasQuestions(dbHwTitle)) {
+                    targetExam = dbHwTitle;
+                  }
+                }
+              }
+
+              // 3. Dự phòng tìm trong practice_exams nếu không phải homework
+              if (!hasQuestions(targetExam)) {
+                const { data: dbExam } = await supabase
+                  .from("practice_exams")
+                  .select("id, title, data, sections, duration_minutes")
+                  .eq("id", qId)
+                  .maybeSingle();
+                if (dbExam && hasQuestions(dbExam)) {
+                  targetExam = dbExam;
+                }
               }
 
               const rawSections = targetExam?.sections || targetExam?.data || [];
@@ -1255,7 +1295,7 @@ if (examRoom) {
               const examRoomPayload = {
                 id: qId,
                 title: qTitle,
-                duration: durationMinutes || 45,
+                duration: isHomework ? 0 : (durationMinutes || 45),
                 isHomework,
                 ...(targetExam || {}),
                 data: rawSections,
@@ -2371,12 +2411,17 @@ if (examRoom) {
         onSelectWeb={() => {
           const ex = entryModalState.exam;
           if (!ex) return;
-          setExamRoom({
+          const payload = {
             id: ex.id,
             title: ex.title || "Đề thi",
             duration: ex.duration_minutes || ex.duration || 45,
-            isHomework: entryModalState.isHomework
-          });
+            isHomework: entryModalState.isHomework,
+            ...ex // 👈 Bổ sung ...ex để giữ nguyên data câu hỏi
+          };
+          setExamRoom(payload);
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("tct_active_exam_room", JSON.stringify(payload));
+          }
         }}
         onSelectPaperScan={() => {
           const ex = entryModalState.exam;
