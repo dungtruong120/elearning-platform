@@ -144,13 +144,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   }, [initialProfile]);
 
 const studentAutoSbd = useMemo(() => {
-    // 1. Ưu tiên mã 6 chữ số từ profile
-    const rawCode = profile?.student_code || profile?.sbd;
-    if (rawCode) {
-      const clean = String(rawCode).replace(/\D/g, "");
+    const raw = profile?.student_code || profile?.sbd;
+    if (raw && !String(raw).includes("HS-")) {
+      const clean = String(raw).replace(/\D/g, "");
       if (clean) return clean.padStart(6, "0").slice(-6);
     }
-    // 2. Fallback tuyệt đối không gọi formatStudentAutoSBD (tránh sinh mã HS-OFF-...)
     return "000001";
   }, [profile]);
 
@@ -354,25 +352,24 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
-    // 0. TỰ ĐỘNG ĐỒNG BỘ PROFILE MỚI NHẤT TỪ SUPABASE
+ // 0. TỰ ĐỘNG ĐỒNG BỘ PROFILE MỚI NHẤT TỪ SUPABASE
     if (profile?.id) {
       try {
         const { data: freshProfile } = await supabase
           .from("profiles")
-          .select("id, student_code, sbd, full_name, email, phone, school, grade, role, learning_mode, study_mode")
+          .select("id, student_code, full_name, email, phone, school, grade, role, learning_mode") // 👈 Chỉ lấy các cột thực sự có trong bảng
           .eq("id", profile.id)
           .maybeSingle();
 
         if (freshProfile) {
-          const cleanCode = freshProfile.student_code || freshProfile.sbd || "";
-          const formattedCode = cleanCode ? String(cleanCode).replace(/\D/g, "").padStart(6, "0").slice(-6) : "";
+          const cleanCode = freshProfile.student_code ? String(freshProfile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6) : "";
 
           setProfile((prev: any) => {
             const updated = {
               ...prev,
               ...freshProfile,
-              student_code: formattedCode || prev?.student_code || "000001",
-              sbd: formattedCode || prev?.sbd || "000001"
+              student_code: cleanCode || prev?.student_code || "000001",
+              sbd: cleanCode || prev?.sbd || "000001"
             };
             if (typeof window !== "undefined") {
               try {
