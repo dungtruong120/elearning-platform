@@ -241,9 +241,13 @@ export default function LessonsTab({
     }
   };
 
-  // 1. GẠT NHANH KHÓA / MỞ BÀI HỌC (🔒 / 🔓)
+ import { supabase } from "@/lib/supabaseClient"; // 👈 Đảm bảo có import supabase
+
+  // 1. GẠT NHANH KHÓA / MỞ BÀI HỌC VÀ LƯU THẲNG LÊN SUPABASE
   const handleToggleLockLesson = async (chapterId: string, lessonId: string, currentLockState: boolean) => {
     const nextLock = !currentLockState;
+
+    // Cập nhật state giao diện trước (optimistic)
     const updatedChapters = (chapters || []).map((chap: any) => {
       if (chap?.id !== chapterId) return chap;
       return {
@@ -254,8 +258,22 @@ export default function LessonsTab({
         }),
       };
     });
-
     if (typeof setChapters === "function") setChapters(updatedChapters);
+
+    // GHI TRỰC TIẾP VÀO BẢNG LESSONS TRÊN SUPABASE
+    try {
+      const { error } = await supabase
+        .from("lessons")
+        .update({ is_locked: nextLock })
+        .eq("id", lessonId);
+
+      if (error) {
+        console.error("Lỗi cập nhật is_locked lên Supabase:", error);
+      }
+    } catch (err) {
+      console.error("Lỗi ghi Supabase:", err);
+    }
+
     if (typeof onUpdateChapters === "function") {
       await onUpdateChapters(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
     } else if (typeof saveToStorage === "function") {
@@ -263,6 +281,43 @@ export default function LessonsTab({
     }
   };
 
+  // 2. NHẬP NGÀY HỌC VÀ LƯU THẲNG LÊN SUPABASE
+  const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
+    const cleanDate = newDateStr.trim();
+
+    // Cập nhật state giao diện
+    const updatedChapters = (chapters || []).map((chap: any) => {
+      if (chap?.id !== chapterId) return chap;
+      return {
+        ...chap,
+        lessons: (chap?.lessons || []).map((les: any) => {
+          if (les?.id !== lessonId) return les;
+          return { ...les, study_date: cleanDate };
+        }),
+      };
+    });
+    if (typeof setChapters === "function") setChapters(updatedChapters);
+
+    // GHI TRỰC TIẾP VÀO BẢNG LESSONS TRÊN SUPABASE
+    try {
+      const { error } = await supabase
+        .from("lessons")
+        .update({ study_date: cleanDate })
+        .eq("id", lessonId);
+
+      if (error) {
+        console.error("Lỗi cập nhật study_date lên Supabase:", error);
+      }
+    } catch (err) {
+      console.error("Lỗi ghi Supabase:", err);
+    }
+
+    if (typeof onUpdateChapters === "function") {
+      await onUpdateChapters(updatedChapters, `ngày học ${cleanDate}`);
+    } else if (typeof saveToStorage === "function") {
+      await saveToStorage(updatedChapters, `ngày học ${cleanDate}`);
+    }
+  };
   // 2. ĐỔI NHANH NGÀY HỌC DỰ KIẾN (VD: 08/11/2026)
  // 1. ĐỔI NHANH TUẦN / THÁNG BÀI HỌC VÀ ĐỒNG BỘ XUỐNG BTVN / ĐỀ KIỂM TRA
   const handleQuickChangeLessonSchedule = async (
