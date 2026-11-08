@@ -1337,7 +1337,6 @@ export function detectRealtimeCornerBoxes(
     }
     const meanLum = countLum > 0 ? sumLum / countLum : 170;
     const darkThresh = Math.min(138, meanLum * 0.72);
-    // Ngưỡng sáng nền giấy tương đối để thích nghi với cả mặt bàn gỗ
     const brightThresh = Math.max(115, meanLum * 0.82);
 
     const candidateSizes = [
@@ -1415,7 +1414,6 @@ export function detectRealtimeCornerBoxes(
           const refinedCx = Math.round(cx + (spanR - spanL) * 0.5);
           const refinedCy = Math.round(cy + (spanD - spanU) * 0.5);
 
-          // Kiểm tra vành trắng bao quanh: hạ ngưỡng tỉ lệ trắng xuống 0.45 để không trượt khi chạm mặt bàn gỗ
           const ringDirs = [
             [-ringR, 0],
             [ringR, 0],
@@ -1459,7 +1457,6 @@ export function detectRealtimeCornerBoxes(
     return { point: bestPt, score: bestScore };
   };
 
-  // MỞ RỘNG VÙNG QUÉT ROI: Ngang 34%, Dọc 28% (thay vì 24% x 18%) để bắt trọn mốc đen trên điện thoại
   const roiW = W * 0.34;
   const roiH = H * 0.28;
 
@@ -1468,7 +1465,6 @@ export function detectRealtimeCornerBoxes(
   const brRes = scanCornerROI(W - roiW, H - roiH, roiW, roiH, W * 0.92, H * 0.94);
   const blRes = scanCornerROI(0, H - roiH, roiW, roiH, W * 0.08, H * 0.94);
 
-  // Hạ ngưỡng xác thực góc từ 0.64 xuống 0.50 để bắt dính nhanh chóng trong điều kiện ánh sáng phòng
   const cornerStatus = {
     topLeft: Boolean(tlRes.point && tlRes.score >= 0.50),
     topRight: Boolean(trRes.point && trRes.score >= 0.50),
@@ -1507,7 +1503,6 @@ export function detectRealtimeCornerBoxes(
     const hRatio = Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
     const aspectHtoW = (leftEdge + rightEdge) / Math.max(1, topEdge + botEdge);
 
-    // Nới lỏng điều kiện hình thang để máy điện thoại cầm nghiêng 20-30 độ vẫn bắt dính lập tức
     const isQuadValid =
       wRatio >= 0.66 &&
       hRatio >= 0.66 &&
@@ -1548,250 +1543,6 @@ export function detectRealtimeCornerBoxes(
     detectedCorners: null,
   };
 }
-
-  const imgData = ctx.getImageData(0, 0, W, H);
-  const data = imgData.data;
-
-  // Quét nhanh 1 vùng góc ROI với đa kích thước mẫu thử (8px & 11px) và kiểm tra tính đối xứng vuông
-  const scanCornerROI = (
-    roiX0: number,
-    roiY0: number,
-    roiW: number,
-    roiH: number,
-    targetX: number,
-    targetY: number
-  ): { point: OMRCornerPoint | null; score: number } => {
-    const xStart = Math.max(4, Math.floor(roiX0));
-    const yStart = Math.max(4, Math.floor(roiY0));
-    const xEnd = Math.min(W - 5, Math.ceil(roiX0 + roiW));
-    const yEnd = Math.min(H - 5, Math.ceil(roiY0 + roiH));
-
-    // Tính độ sáng trung bình của vùng góc để làm ngưỡng động cục bộ
-    let sumLum = 0;
-    let countLum = 0;
-    for (let y = yStart; y < yEnd; y += 3) {
-      const rowOff = y * W * 4;
-      for (let x = xStart; x < xEnd; x += 3) {
-        const idx = rowOff + x * 4;
-        sumLum += 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
-        countLum++;
-      }
-    }
-    const meanLum = countLum > 0 ? sumLum / countLum : 170;
-    const darkThresh = Math.min(142, meanLum * 0.70);
-    const brightThresh = Math.max(125, meanLum * 0.90);
-
-    const candidateSizes = [
-      Math.max(7, Math.round(Math.min(W, H) * 0.018)),
-      Math.max(10, Math.round(Math.min(W, H) * 0.025)),
-    ];
-
-    let bestPt: OMRCornerPoint | null = null;
-    let bestScore = 0;
-
-    for (const patchSize of candidateSizes) {
-      const step = Math.max(2, Math.floor(patchSize / 3));
-      const ringR = Math.round(patchSize * 1.55);
-
-      for (let y = yStart; y <= yEnd - patchSize; y += step) {
-        for (let x = xStart; x <= xEnd - patchSize; x += step) {
-          let darkPixels = 0;
-          let totalSamples = 0;
-          for (let py = 0; py < patchSize; py += 2) {
-            const rOff = (y + py) * W * 4;
-            for (let px = 0; px < patchSize; px += 2) {
-              totalSamples++;
-              const pIdx = rOff + (x + px) * 4;
-              const lum =
-                0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
-              if (lum < darkThresh) darkPixels++;
-            }
-          }
-
-          const darkRatio = darkPixels / Math.max(1, totalSamples);
-          if (darkRatio < 0.65) continue;
-
-          const cx = Math.round(x + patchSize / 2);
-          const cy = Math.round(y + patchSize / 2);
-
-          // Kiểm tra kích thước ngang/dọc của vết đen để loại bỏ đường kẻ bảng dài
-          const maxSpan = Math.round(patchSize * 1.8);
-          let spanL = 0;
-          while (spanL < maxSpan && cx - spanL >= 0) {
-            const pIdx = (cy * W + (cx - spanL)) * 4;
-            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
-            if (lum >= darkThresh) break;
-            spanL++;
-          }
-          let spanR = 0;
-          while (spanR < maxSpan && cx + spanR < W) {
-            const pIdx = (cy * W + (cx + spanR)) * 4;
-            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
-            if (lum >= darkThresh) break;
-            spanR++;
-          }
-          let spanU = 0;
-          while (spanU < maxSpan && cy - spanU >= 0) {
-            const pIdx = ((cy - spanU) * W + cx) * 4;
-            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
-            if (lum >= darkThresh) break;
-            spanU++;
-          }
-          let spanD = 0;
-          while (spanD < maxSpan && cy + spanD < H) {
-            const pIdx = ((cy + spanD) * W + cx) * 4;
-            const lum = 0.299 * data[pIdx] + 0.587 * data[pIdx + 1] + 0.114 * data[pIdx + 2];
-            if (lum >= darkThresh) break;
-            spanD++;
-          }
-
-          const blobW = spanL + spanR;
-          const blobH = spanU + spanD;
-          if (blobW < 5 || blobH < 5 || blobW >= maxSpan * 1.7 || blobH >= maxSpan * 1.7) {
-            continue;
-          }
-          const aspect = blobW / Math.max(1, blobH);
-          if (aspect < 0.68 || aspect > 1.45) continue;
-
-          const refinedCx = Math.round(cx + (spanR - spanL) * 0.5);
-          const refinedCy = Math.round(cy + (spanD - spanU) * 0.5);
-
-          // Kiểm tra 8 điểm viền trắng Quiet Zone xung quanh
-          const ringDirs = [
-            [-ringR, 0],
-            [ringR, 0],
-            [0, -ringR],
-            [0, ringR],
-            [-ringR, -ringR],
-            [ringR, -ringR],
-            [-ringR, ringR],
-            [ringR, ringR],
-          ];
-          let brightRing = 0;
-          let validRing = 0;
-          for (const [dx, dy] of ringDirs) {
-            const rx = refinedCx + dx;
-            const ry = refinedCy + dy;
-            if (rx >= 0 && rx < W && ry >= 0 && ry < H) {
-              validRing++;
-              const rIdx = (ry * W + rx) * 4;
-              const rLum =
-                0.299 * data[rIdx] + 0.587 * data[rIdx + 1] + 0.114 * data[rIdx + 2];
-              if (rLum >= brightThresh) brightRing++;
-            }
-          }
-
-          const quietRatio = brightRing / Math.max(1, validRing);
-          if (quietRatio < 0.68) continue;
-
-          const dist = Math.hypot(refinedCx - targetX, refinedCy - targetY);
-          const maxD = Math.hypot(roiW, roiH);
-          const prox = Math.max(0, 1 - dist / Math.max(1, maxD));
-
-          const sc = darkRatio * 0.4 + quietRatio * 0.4 + prox * 0.2;
-          if (sc > bestScore) {
-            bestScore = sc;
-            bestPt = { x: refinedCx, y: refinedCy };
-          }
-        }
-      }
-    }
-
-    return { point: bestPt, score: bestScore };
-  };
-
-  // Thu gọn vùng ROI dọc ở trên/dưới (18% chiều cao) để không bao giờ quét xuống bảng Giám thị ở giữa tờ giấy
-  const roiW = W * 0.24;
-  const roiH = H * 0.18;
-
-  const tlRes = scanCornerROI(0, 0, roiW, roiH, W * 0.06, H * 0.05);
-  const trRes = scanCornerROI(W - roiW, 0, roiW, roiH, W * 0.94, H * 0.05);
-  const brRes = scanCornerROI(W - roiW, H - roiH, roiW, roiH, W * 0.94, H * 0.95);
-  const blRes = scanCornerROI(0, H - roiH, roiW, roiH, W * 0.06, H * 0.95);
-
-  const cornerStatus = {
-    topLeft: Boolean(tlRes.point && tlRes.score >= 0.64),
-    topRight: Boolean(trRes.point && trRes.score >= 0.64),
-    bottomRight: Boolean(brRes.point && brRes.score >= 0.64),
-    bottomLeft: Boolean(blRes.point && blRes.score >= 0.64),
-  };
-
-  if (
-    tlRes.point &&
-    trRes.point &&
-    brRes.point &&
-    blRes.point &&
-    cornerStatus.topLeft &&
-    cornerStatus.topRight &&
-    cornerStatus.bottomRight &&
-    cornerStatus.bottomLeft
-  ) {
-    const topEdge = Math.hypot(
-      trRes.point.x - tlRes.point.x,
-      trRes.point.y - tlRes.point.y
-    );
-    const botEdge = Math.hypot(
-      brRes.point.x - blRes.point.x,
-      brRes.point.y - blRes.point.y
-    );
-    const leftEdge = Math.hypot(
-      blRes.point.x - tlRes.point.x,
-      blRes.point.y - tlRes.point.y
-    );
-    const rightEdge = Math.hypot(
-      brRes.point.x - trRes.point.x,
-      brRes.point.y - trRes.point.y
-    );
-
-    const wRatio = Math.min(topEdge, botEdge) / Math.max(1, Math.max(topEdge, botEdge));
-    const hRatio =
-      Math.min(leftEdge, rightEdge) / Math.max(1, Math.max(leftEdge, rightEdge));
-    const aspectHtoW =
-      (leftEdge + rightEdge) / Math.max(1, topEdge + botEdge);
-
-    // Ràng buộc chặt tỷ lệ khung A4: chiều cao tứ giác phải đạt tối thiểu 64% khung ngắm (chống cắt cụt đầu phiếu như Ảnh 1)
-    const isQuadValid =
-      wRatio >= 0.76 &&
-      hRatio >= 0.76 &&
-      topEdge > W * 0.52 &&
-      leftEdge > H * 0.64 &&
-      aspectHtoW >= 1.15 &&
-      aspectHtoW <= 1.72;
-
-    const avgConf = Math.round(
-      ((tlRes.score + trRes.score + brRes.score + blRes.score) / 4) * 100
-    );
-
-    if (isQuadValid) {
-      return {
-        isMatched: true,
-        confidence: Math.min(99, avgConf),
-        cornerStatus,
-        detectedCorners: {
-          topLeft: tlRes.point,
-          topRight: trRes.point,
-          bottomRight: brRes.point,
-          bottomLeft: blRes.point,
-        },
-      };
-    }
-  }
-
-  const matchedCount =
-    (cornerStatus.topLeft ? 1 : 0) +
-    (cornerStatus.topRight ? 1 : 0) +
-    (cornerStatus.bottomRight ? 1 : 0) +
-    (cornerStatus.bottomLeft ? 1 : 0);
-
-  return {
-    isMatched: false,
-    confidence: matchedCount * 22,
-    cornerStatus,
-    detectedCorners: null,
-  };
-}
-
-export function solvePerspectiveHomography3x3(
   dstPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint],
   srcPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint]
 ): number[] {
