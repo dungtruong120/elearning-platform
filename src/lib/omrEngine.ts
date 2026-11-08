@@ -1543,6 +1543,7 @@ export function detectRealtimeCornerBoxes(
     detectedCorners: null,
   };
 }
+export function solvePerspectiveHomography3x3(
   dstPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint],
   srcPts: [OMRCornerPoint, OMRCornerPoint, OMRCornerPoint, OMRCornerPoint]
 ): number[] {
