@@ -386,22 +386,34 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
       }
     }
 
-    // 1. TẢI TOÀN BỘ CHƯƠNG & BÀI HỌC TƯƠI TỪ SUPABASE (KÈM IS_LOCKED & STUDY_DATE)
+   // 1. TẢI TOÀN BỘ CHƯƠNG, BÀI HỌC & BTVN TỪ SUPABASE
     try {
       const { data: dbChapters } = await supabase
         .from("chapters")
         .select("*")
         .order("created_at", { ascending: true });
 
+      // Bổ sung lấy thêm cột test_quizzes
       const { data: dbLessons } = await supabase
         .from("lessons")
-        .select("id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date")
+        .select("id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes")
         .order("created_at", { ascending: false });
+
+      // Kéo toàn bộ danh sách BTVN từ bảng homeworks
+      const { data: dbHomeworks } = await supabase
+        .from("homeworks")
+        .select("id, lesson_id, title, duration_minutes, is_quiz");
 
       if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
         const formattedChapters = dbChapters.map((chap: any) => ({
           ...chap,
-          lessons: (dbLessons || []).filter((les: any) => les.chapter_id === chap.id)
+          lessons: (dbLessons || [])
+            .filter((les: any) => les.chapter_id === chap.id)
+            .map((les: any) => ({
+              ...les,
+              test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
+              homework_files: (dbHomeworks || []).filter((hw: any) => hw.lesson_id === les.id)
+            }))
         }));
 
         setChapters(formattedChapters);
@@ -410,7 +422,7 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
         }
       }
     } catch (e) {
-      console.error("Lỗi tải chương trình học:", e);
+      console.error("Lỗi tải chương trình học & BTVN:", e);
     }
     try {
       setIsLoadingExams(true);
