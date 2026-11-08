@@ -792,14 +792,38 @@ const channelCourses = supabase
   };
 
 const offlineChapters = useMemo(() => {
-    // Hàm lấy thời gian tạo chính xác nhất từ created_at hoặc bóc tách từ ID (les-179340...)
+    // 1. Hàm bóc tách số chương (VD: "Chương 2: ..." -> 2, "Chương 1: ..." -> 1)
+    const extractChapterNum = (title: string): number => {
+      const match = String(title || "").match(/ch[uư][oơ]ng\s*(\d+)/i);
+      return match ? parseInt(match[1], 10) : 0;
+    };
+
+    // 2. Hàm bóc tách số thứ tự bài (VD: "Đại-Bài 8" -> 8, "Bài 5" -> 5, "Tổng ôn buổi 4" -> 4)
+    const extractLessonNum = (title: string): number => {
+      const match = String(title || "").match(/(?:b[aà]i|bu[ổo]i)\s*(\d+)/i);
+      return match ? parseInt(match[1], 10) : 0;
+    };
+
+    // 3. Hàm chuyển chuỗi ngày học "DD/MM/YYYY" sang timestamp miligiây
+    const parseDateStrToTimestamp = (dateStr?: string): number => {
+      if (!dateStr || !dateStr.includes("/")) return 0;
+      const parts = dateStr.trim().split("/");
+      if (parts.length === 3) {
+        const d = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const y = parseInt(parts[2], 10);
+        return new Date(y, m, d).getTime();
+      }
+      return 0;
+    };
+
+    // 4. Hàm lấy thời gian tạo bài học (từ created_at hoặc ID dạng les-179...)
     const getLessonTimestamp = (les: any): number => {
       if (les?.created_at) {
         const t = new Date(les.created_at).getTime();
         if (!isNaN(t) && t > 0) return t;
       }
-      // Dự phòng: bóc dãy số timestamp từ ID bài học (VD: les-1794072144636 -> 1794072144636)
-      const match = String(les?.id || "").match(/\d+/);
+      const match = String(les?.id || "").match(/\d{10,}/);
       return match ? parseInt(match[0], 10) : 0;
     };
 
@@ -812,12 +836,42 @@ const offlineChapters = useMemo(() => {
               !les?.target_mode || les?.target_mode === "offline" || les?.target_mode === "all"
           )
           .sort((a: any, b: any) => {
-            // SẮP XẾP TUYỆT ĐỐI THEO ĐỘ MỚI (BÀI VỪA UP ĐỨNG ĐẦU TIÊN)
+            // TIÊU CHÍ 1: So sánh theo Ngày học thực tế (ngày mới hơn/gần nhất lên đầu)
+            const dateA = parseDateStrToTimestamp(a?.study_date);
+            const dateB = parseDateStrToTimestamp(b?.study_date);
+            if (dateA && dateB && dateA !== dateB) return dateB - dateA;
+
+            // TIÊU CHÍ 2: So sánh theo Tháng học giảm dần (Tháng 11 > Tháng 10)
+            const mA = Number(a?.assigned_month) || 10;
+            const mB = Number(b?.assigned_month) || 10;
+            if (mA !== mB) return mB - mA;
+
+            // TIÊU CHÍ 3: So sánh theo Tuần học giảm dần (Tuần 2 > Tuần 1)
+            const wA = Number(a?.assigned_week) || 1;
+            const wB = Number(b?.assigned_week) || 1;
+            if (wA !== wB) return wB - wA;
+
+            // TIÊU CHÍ 4: So sánh theo số bài (Bài 8 > Bài 5, Buổi 4 > Buổi 3)
+            const numA = extractLessonNum(a?.title);
+            const numB = extractLessonNum(b?.title);
+            if (numA && numB && numA !== numB) return numB - numA;
+
+            // TIÊU CHÍ 5: Dự phòng theo độ mới khi up lên (timestamp lớn hơn đứng trước)
             const timeA = getLessonTimestamp(a);
             const timeB = getLessonTimestamp(b);
             return timeB - timeA;
           })
       }))
+      // SẮP XẾP CHƯƠNG: Chương số to hơn (Chương 2, Chương 3...) luôn đẩy lên trên đầu
+      .sort((chapA: any, chapB: any) => {
+        const cNumA = extractChapterNum(chapA?.title);
+        const cNumB = extractChapterNum(chapB?.title);
+        if (cNumA !== cNumB) return cNumB - cNumA;
+
+        const cTimeA = chapA?.created_at ? new Date(chapA.created_at).getTime() : 0;
+        const cTimeB = chapB?.created_at ? new Date(chapB.created_at).getTime() : 0;
+        return cTimeB - cTimeA;
+      })
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
   const parseTimeSlotMinutes = (
