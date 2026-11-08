@@ -37,7 +37,8 @@ import {
   OMR_CANONICAL_HEIGHT,
   formatStudentAutoSBD,
   gradeOMRSubmission,
-  extractExamQuestionCounts
+  extractExamQuestionCounts,
+  buildDynamicOMRBlueprint
 } from "@/lib/omrEngine";
 import {
   DailyReportConfig,
@@ -319,51 +320,97 @@ function formatCategoryWithSubmissionMode(
 /**
  * TÍNH TOÁN TỌA ĐỘ CHUẨN TRÊN KHUNG 1200x1700 CHO TỪNG Ô TRÒN OMR (DÙNG CHO CẢ PHIẾU ẢO & BỔ SUNG VÒNG TRÒN VÀNG NÉT ĐỨT)
  */
+/**
+ * TÍNH TOÁN TỌA ĐỘ CHUẨN CHO TỪNG Ô TRÒN DỰA THEO BLUEPRINT ĐỘNG CỦA ĐỀ THI
+ */
 function getCanonicalBubblePosition(
   partNum: 1 | 2 | 3,
   localNum: number,
   optionKey: string,
   subKey?: "a" | "b" | "c" | "d",
-  colIndex?: number
+  colIndex?: number,
+  blueprint?: any
 ): { x: number; y: number; r: number } {
+  if (blueprint) {
+    if (partNum === 1 && Array.isArray(blueprint.part1?.blocks)) {
+      const b = blueprint.part1.blocks.find(
+        (blk: any) => localNum >= blk.startQuestion && localNum <= blk.endQuestion
+      );
+      if (b) {
+        const rowIdx = localNum - b.startQuestion;
+        const optIdx = Math.max(0, ["A", "B", "C", "D"].indexOf(String(optionKey).toUpperCase()));
+        return {
+          x: b.startX + optIdx * b.optionStepX,
+          y: b.startY + rowIdx * b.rowStepY,
+          r: b.radius || 9.5
+        };
+      }
+    }
+
+    if (partNum === 2 && Array.isArray(blueprint.part2?.blocks)) {
+      const b = blueprint.part2.blocks.find((blk: any) => blk.questionNumber === localNum);
+      if (b) {
+        const subIdx = Math.max(0, ["a", "b", "c", "d"].indexOf(subKey || "a"));
+        const isTrueOpt = String(optionKey).toUpperCase() === "T" || String(optionKey).toUpperCase() === "Đ";
+        return {
+          x: isTrueOpt ? b.trueX : b.falseX,
+          y: b.startY + subIdx * b.rowStepY,
+          r: b.radius || 9.0
+        };
+      }
+    }
+
+    if (partNum === 3 && Array.isArray(blueprint.part3?.blocks)) {
+      const b = blueprint.part3.blocks.find((blk: any) => blk.questionNumber === localNum);
+      if (b) {
+        const c = Math.max(0, Math.min(3, colIndex ?? 0));
+        const cx = b.startX + c * b.colStepX;
+        const cleanKey = String(optionKey).trim();
+        let cy = b.digit0Y;
+        if (cleanKey === "-") cy = b.minusY;
+        else if (cleanKey === "," || cleanKey === ".") cy = b.commaY;
+        else {
+          const num = parseInt(cleanKey, 10);
+          cy = b.digit0Y + (!isNaN(num) ? num * b.rowStepY : 0);
+        }
+        return {
+          x: cx,
+          y: cy,
+          r: b.radius || 8.6
+        };
+      }
+    }
+  }
+
+  // Fallback nếu không có blueprint
   if (partNum === 1) {
-    const colGroup = Math.floor((localNum - 1) / 6); // 0, 1, 2
-    const rowInCol = (localNum - 1) % 6; // 0..5
+    const colGroup = Math.floor((localNum - 1) / 6);
+    const rowInCol = (localNum - 1) % 6;
     const baseGroupX = 115 + colGroup * 340;
-    const optIdx = Math.max(0, ["A", "B", "C", "D"].indexOf(optionKey.toUpperCase()));
-    const x = baseGroupX + 58 + optIdx * 56;
-    const y = 515 + rowInCol * 38;
-    return { x, y, r: 10.5 };
+    const optIdx = Math.max(0, ["A", "B", "C", "D"].indexOf(String(optionKey).toUpperCase()));
+    return { x: baseGroupX + 58 + optIdx * 56, y: 515 + rowInCol * 38, r: 10.5 };
   }
 
   if (partNum === 2) {
     const boxIdx = Math.min(3, Math.max(0, localNum - 1));
     const boxX = 95 + boxIdx * 260;
     const subIdx = Math.max(0, ["a", "b", "c", "d"].indexOf(subKey || "a"));
-    const isTrueOpt = optionKey.toUpperCase() === "T" || optionKey.toUpperCase() === "Đ";
-    const x = boxX + (isTrueOpt ? 118 : 186);
-    const y = 868 + subIdx * 40;
-    return { x, y, r: 10.5 };
+    const isTrueOpt = String(optionKey).toUpperCase() === "T" || String(optionKey).toUpperCase() === "Đ";
+    return { x: boxX + (isTrueOpt ? 118 : 186), y: 868 + subIdx * 40, r: 10.5 };
   }
 
-  // Phần III: 6 câu trả lời ngắn
   const qIdx = Math.min(5, Math.max(0, localNum - 1));
   const boxX = 88 + qIdx * 174;
   const cIdx = Math.min(3, Math.max(0, colIndex ?? 0));
-  const x = boxX + 32 + cIdx * 36;
-
   const cleanKey = String(optionKey).trim();
   let rowIdx = 2;
-  if (cleanKey === "-") {
-    rowIdx = 0;
-  } else if (cleanKey === "," || cleanKey === ".") {
-    rowIdx = 1;
-  } else {
+  if (cleanKey === "-") rowIdx = 0;
+  else if (cleanKey === "," || cleanKey === ".") rowIdx = 1;
+  else {
     const num = parseInt(cleanKey, 10);
     rowIdx = !isNaN(num) ? 2 + num : 2;
   }
-  const y = 1190 + rowIdx * 32;
-  return { x, y, r: 9.5 };
+  return { x: boxX + 32 + cIdx * 36, y: 1190 + rowIdx * 32, r: 9.5 };
 }
 
 const INTERNAL_META_KEYS = new Set([
@@ -1055,6 +1102,7 @@ function buildFullOMRQuestionsReview(
   enrichedBubbleCoordinates: any[];
 } {
   const rawQuizObj = resolveCompleteQuizObject(attempt, rawQuizObjInput, cachedExamsMap);
+  const blueprint = buildDynamicOMRBlueprint(rawQuizObj);
   const answersMap = extractFlexibleStudentAnswersMap(attempt);
 
   const meta =
@@ -1220,8 +1268,14 @@ function buildFullOMRQuestionsReview(
       orderedEntries.push({ qObj: q, partNum: 3, localNum: idx + 1 })
     );
   } else {
-    // Khung cấu trúc 22 câu chuẩn (12 câu Phần I, 4 câu Phần II, 6 câu Phần III)
-    for (let i = 0; i < 22; i++) {
+    // Lấy đúng số câu thực tế từ blueprint của đề thi (chẳng hạn 5 câu P1, 2 câu P2, 2 câu P3)
+    const p1Count = blueprint.part1TotalQuestions ?? 12;
+    const p2Count = blueprint.part2TotalQuestions ?? 4;
+    const p3Count = blueprint.part3TotalQuestions ?? 6;
+    for (let i = 1; i <= p1Count; i++) orderedEntries.push({ qObj: null, partNum: 1, localNum: i });
+    for (let i = 1; i <= p2Count; i++) orderedEntries.push({ qObj: null, partNum: 2, localNum: i });
+    for (let i = 1; i <= p3Count; i++) orderedEntries.push({ qObj: null, partNum: 3, localNum: i });
+  }
       if (i < 12) {
         orderedEntries.push({ qObj: null, partNum: 1, localNum: i + 1 });
       } else if (i < 16) {
@@ -1739,7 +1793,7 @@ function buildFullOMRQuestionsReview(
             (b: any) => String(b.optionKey || "").toUpperCase() === p1CorrectKey
           )
         ) {
-          const pos = getCanonicalBubblePosition(1, localNum, p1CorrectKey);
+          const pos = getCanonicalBubblePosition(1, localNum, p1CorrectKey, undefined, undefined, blueprint);
           clonedCoords.push({
             id: `p1_q${localNum}_expected_${p1CorrectKey}`,
             section: "part1",
@@ -1775,7 +1829,7 @@ function buildFullOMRQuestionsReview(
               (b: any) => String(b.optionKey || "").toUpperCase() === expectedOptKey
             )
           ) {
-            const pos = getCanonicalBubblePosition(2, localNum, expectedOptKey, sk);
+            const pos = getCanonicalBubblePosition(2, localNum, expectedOptKey, sk, undefined, blueprint);
             clonedCoords.push({
               id: `p2_q${localNum}_${sk}_expected_${expectedOptKey}`,
               section: "part2",
@@ -1816,7 +1870,7 @@ function buildFullOMRQuestionsReview(
             stuCh !== corCh &&
             !colCoords.some((b: any) => String(b.optionKey || "").trim() === corCh)
           ) {
-            const pos = getCanonicalBubblePosition(3, localNum, corCh, undefined, c);
+            const pos = getCanonicalBubblePosition(3, localNum, corCh, undefined, c, blueprint);
             clonedCoords.push({
               id: `p3_q${localNum}_c${c}_expected_${corCh}`,
               section: "part3",
@@ -1883,6 +1937,9 @@ function buildFullOMRQuestionsReview(
 /**
  * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY / PHIẾU SCAN MỜ THÀNH "PHIẾU OMR CANVAS AI" CHUẨN TCT (1200 x 1700 px)
  */
+/**
+ * TỰ ĐỘNG VẼ PHIẾU OMR CANVAS THEO ĐÚNG DẠNG ĐỀ VÀ SỐ CÂU CỦA BÀI KIỂM TRA
+ */
 export function generateVirtualOMRSheet(
   attempt: any,
   rawQuizObj: any,
@@ -1904,6 +1961,9 @@ export function generateVirtualOMRSheet(
     cachedExamsMap
   );
 
+  const resolvedQuiz = resolveCompleteQuizObject(attempt, rawQuizObj, cachedExamsMap);
+  const blueprint = buildDynamicOMRBlueprint(resolvedQuiz);
+
   const cleanSbd = String(sbd || "000001")
     .replace(/\D/g, "")
     .padStart(6, "0")
@@ -1915,6 +1975,7 @@ export function generateVirtualOMRSheet(
   const titleText = examTitle || attempt?.exam_title || attempt?.examTitle || "Kiểm tra định kỳ";
 
   const cacheSignature = JSON.stringify({
+    templateId: blueprint.templateId,
     sbd: cleanSbd,
     code: cleanCode,
     stu: studentName,
@@ -1941,12 +2002,12 @@ export function generateVirtualOMRSheet(
   const W = OMR_CANONICAL_WIDTH; // 1200
   const H = OMR_CANONICAL_HEIGHT; // 1700
 
-  // 1. Tạo tọa độ SBD (6 cột)
-  const sbdStartX = 772;
-  const sbdColStep = 34;
-  const sbdBubbleStartY = 148;
-  const sbdRowStep = 24;
-  for (let col = 0; col < 6; col++) {
+  // 1. Tọa độ SBD
+  const sbdStartX = blueprint.sbd.startX;
+  const sbdColStep = blueprint.sbd.colStep;
+  const sbdBubbleStartY = blueprint.sbd.startY;
+  const sbdRowStep = blueprint.sbd.rowStep;
+  for (let col = 0; col < blueprint.sbd.cols; col++) {
     const pickedDigit = parseInt(cleanSbd[col], 10);
     const cx = sbdStartX + col * sbdColStep;
     for (let d = 0; d <= 9; d++) {
@@ -1957,7 +2018,7 @@ export function generateVirtualOMRSheet(
           section: "sbd",
           x: cx,
           y: cy,
-          r: 8.5,
+          r: blueprint.sbd.radius,
           isSelected: true,
           status: "detected"
         });
@@ -1965,20 +2026,23 @@ export function generateVirtualOMRSheet(
     }
   }
 
-  // 2. Tạo tọa độ Mã đề (3 cột)
-  const codeStartX = 1004;
-  for (let col = 0; col < 3; col++) {
+  // 2. Tọa độ Mã đề
+  const codeStartX = blueprint.examCode.startX;
+  const codeColStep = blueprint.examCode.colStep;
+  const codeBubbleStartY = blueprint.examCode.startY;
+  const codeRowStep = blueprint.examCode.rowStep;
+  for (let col = 0; col < blueprint.examCode.cols; col++) {
     const pickedDigit = parseInt(cleanCode[col], 10);
-    const cx = codeStartX + col * sbdColStep;
+    const cx = codeStartX + col * codeColStep;
     for (let d = 0; d <= 9; d++) {
-      const cy = sbdBubbleStartY + d * sbdRowStep;
+      const cy = codeBubbleStartY + d * codeRowStep;
       if (d === pickedDigit) {
         bubbleCoordinates.push({
           id: `code_col${col}_${d}`,
           section: "exam_code",
           x: cx,
           y: cy,
-          r: 8.5,
+          r: blueprint.examCode.radius,
           isSelected: true,
           status: "detected"
         });
@@ -1986,13 +2050,13 @@ export function generateVirtualOMRSheet(
     }
   }
 
-  // 3. Tạo tọa độ cho Phần I, Phần II, Phần III kèm `expected_missed`
+  // 3. Tọa độ Phần I, Phần II, Phần III gắn theo Blueprint động
   reviewData.parsedMetaList.forEach((qMeta) => {
     if (qMeta.partNum === 1) {
       const stuKey = qMeta.p1StudentKey || "";
       const corKey = qMeta.p1CorrectKey || "";
       ["A", "B", "C", "D"].forEach((optKey) => {
-        const pos = getCanonicalBubblePosition(1, qMeta.localNum, optKey);
+        const pos = getCanonicalBubblePosition(1, qMeta.localNum, optKey, undefined, undefined, blueprint);
         if (stuKey && optKey === stuKey) {
           bubbleCoordinates.push({
             id: `p1_q${qMeta.localNum}_${optKey}`,
@@ -2024,12 +2088,11 @@ export function generateVirtualOMRSheet(
         const stuSub = qMeta.p2StudentSubMap?.[sk] || "-";
         const corSub = qMeta.p2CorrectSubMap?.[sk] || "Đ";
         const isSubRight = qMeta.isCorrect ? true : stuSub === corSub;
-
         const pickedOptKey = stuSub === "Đ" ? "T" : stuSub === "S" ? "F" : "";
         const expectedOptKey = corSub === "Đ" ? "T" : "F";
 
         (["T", "F"] as const).forEach((optK) => {
-          const pos = getCanonicalBubblePosition(2, qMeta.localNum, optK, sk);
+          const pos = getCanonicalBubblePosition(2, qMeta.localNum, optK, sk, undefined, blueprint);
           if (pickedOptKey && optK === pickedOptKey) {
             bubbleCoordinates.push({
               id: `p2_q${qMeta.localNum}_${sk}_${optK}`,
@@ -2060,7 +2123,6 @@ export function generateVirtualOMRSheet(
         });
       });
     } else if (qMeta.partNum === 3) {
-      // Nếu lỗi sai quy cách form OMR (> 4 ký tự), để trống các ô tròn tô chì
       const stuChars = qMeta.isOmrFormatError ? [] : qMeta.p3StudentChars || [];
       const corChars = qMeta.p3CorrectChars || [];
       for (let c = 0; c < 4; c++) {
@@ -2069,7 +2131,7 @@ export function generateVirtualOMRSheet(
         const isColRight = Boolean(stuCh) && (qMeta.isCorrect || stuCh === corCh);
 
         if (stuCh) {
-          const pos = getCanonicalBubblePosition(3, qMeta.localNum, stuCh, undefined, c);
+          const pos = getCanonicalBubblePosition(3, qMeta.localNum, stuCh, undefined, c, blueprint);
           bubbleCoordinates.push({
             id: `p3_q${qMeta.localNum}_c${c}_${stuCh}`,
             section: "part3",
@@ -2085,7 +2147,7 @@ export function generateVirtualOMRSheet(
         }
 
         if (!qMeta.isCorrect && corCh && stuCh !== corCh) {
-          const pos = getCanonicalBubblePosition(3, qMeta.localNum, corCh, undefined, c);
+          const pos = getCanonicalBubblePosition(3, qMeta.localNum, corCh, undefined, c, blueprint);
           bubbleCoordinates.push({
             id: `p3_q${qMeta.localNum}_c${c}_expected_${corCh}`,
             section: "part3",
@@ -2107,7 +2169,7 @@ export function generateVirtualOMRSheet(
     return { dataUrl: "", bubbleCoordinates, reviewData };
   }
 
-  // 4. Vẽ phôi phiếu A4 chuẩn TCT (1200 x 1700) và vết chấm chì mô phỏng lên Canvas
+  // 4. Vẽ phôi Canvas thích ứng chính xác theo số câu của đề
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
@@ -2119,145 +2181,125 @@ export function generateVirtualOMRSheet(
   const FONT_SERIF = "'Times New Roman', Times, serif";
   const PENCIL_FILL = "rgba(45, 45, 45, 0.85)";
 
-  // Nền giấy trắng hơi ngà tự nhiên
   ctx.fillStyle = "#FCFDFE";
   ctx.fillRect(0, 0, W, H);
 
-  // Viền ngoài trang phiếu
-  ctx.strokeStyle = "#94A3B8";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(24, 24, W - 48, H - 48);
+  // 4 Mốc vuông đen góc chuẩn
+  const markerSize = 30;
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(42 - markerSize / 2, 42 - markerSize / 2, markerSize, markerSize);
+  ctx.fillRect(1158 - markerSize / 2, 42 - markerSize / 2, markerSize, markerSize);
+  ctx.fillRect(1158 - markerSize / 2, 1658 - markerSize / 2, markerSize, markerSize);
+  ctx.fillRect(42 - markerSize / 2, 1658 - markerSize / 2, markerSize, markerSize);
 
-  // 4 Mốc vuông đen định vị ở 4 góc
-  const markerSize = 34;
-  ctx.fillStyle = "#0F172A";
-  ctx.fillRect(36, 36, markerSize, markerSize);
-  ctx.fillRect(W - 36 - markerSize, 36, markerSize, markerSize);
-  ctx.fillRect(36, H - 36 - markerSize, markerSize, markerSize);
-  ctx.fillRect(W - 36 - markerSize, H - 36 - markerSize, markerSize, markerSize);
+  // Vạch định thời bên phải
+  for (let ty = 232; ty <= 466; ty += 26) {
+    ctx.fillRect(1146, ty - 3.5, 16, 7);
+  }
 
-  // KHỐI HEADER TRÁI: THÔNG TIN KỲ THI & THÍ SINH
-  drawRoundedRect(ctx, 84, 52, 636, 350, 8, "#FFFFFF", "#475569", 1.8);
+  // Khung thông tin học sinh
+  drawRoundedRect(ctx, 65, 156, 710, 330, 0, "#FFFFFF", "#BE185D", 1);
+  ctx.strokeStyle = "#BE185D";
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(255, 156);
+  ctx.lineTo(255, 486);
+  ctx.moveTo(65, 321);
+  ctx.lineTo(255, 321);
+  ctx.stroke();
 
-  // Logo TCT
-  drawRoundedRect(ctx, 102, 66, 110, 46, 6, "#003399");
-  ctx.fillStyle = "#FFFFFF";
-  ctx.font = "bold 24px " + FONT_SERIF;
   ctx.textAlign = "center";
-  ctx.fillText("TCT", 157, 94);
-  ctx.font = "bold 9px " + FONT_SERIF;
-  ctx.fillText("TÂM CHÍ TÀI", 157, 107);
+  ctx.fillStyle = "#111827";
+  ctx.font = "bold 23px " + FONT_SERIF;
+  ctx.fillText("PHIẾU TRẢ LỜI TRẮC NGHIỆM", 420, 114);
+  ctx.font = "bold 15.5px " + FONT_SERIF;
+  ctx.fillText(`Kỳ thi: ${String(titleText).slice(0, 52)}`, 420, 140);
 
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#003399";
-  ctx.font = "bold italic 16px " + FONT_SERIF;
-  ctx.fillText("Chuyên luyện thi vào 10, HSA, TSA và THPT", 226, 84);
-  ctx.fillStyle = "#334155";
   ctx.font = "bold 13px " + FONT_SERIF;
-  ctx.fillText("CHUYÊN TOÁN TƯ DUY - TRẮC NGHIỆM TIA CHỚP", 226, 105);
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#0F172A";
-  ctx.font = "bold 22px " + FONT_SERIF;
-  ctx.fillText("PHIẾU TRẢ LỜI TRẮC NGHIỆM", 402, 148);
-  ctx.fillStyle = "#1E293B";
-  ctx.font = "bold 14.5px " + FONT_SERIF;
-  ctx.fillText(`Chuyên đề: ${String(titleText).slice(0, 52)}`, 402, 173);
+  ctx.fillText("Họ tên, chữ ký Giám thị 1", 160, 180);
+  ctx.fillText("Họ tên, chữ ký Giám thị 2", 160, 345);
 
   ctx.textAlign = "left";
-  const infoLines = [
-    { label: "1. Hội đồng thi:", val: "Trung tâm Toán Tâm Chí Tài (TCT)" },
-    { label: "2. Điểm thi:", val: "Cơ sở Số 10 Tạ Quang Bửu - Bách Khoa - Hà Nội" },
-    { label: "3. Họ và tên thí sinh:", val: studentName, highlight: true },
-    {
-      label: "4. Hình thức bài làm:",
-      val: "Hệ thống đồng bộ tự động (Phiếu đối soát OMR)"
-    },
-    {
-      label: "5. Kết quả chấm:",
-      val: `Đúng ${reviewData.correctCount}/${reviewData.totalQuestions} câu`
-    }
-  ];
-
-  infoLines.forEach((line, idx) => {
-    const ly = 212 + idx * 34;
-    ctx.fillStyle = "#334155";
-    ctx.font = "14.5px " + FONT_SERIF;
-    ctx.fillText(line.label, 108, ly);
-
-    ctx.fillStyle = line.highlight ? "#003399" : "#0F172A";
-    ctx.font = (line.highlight ? "bold 17px " : "bold 14.5px ") + FONT_SERIF;
-    ctx.fillText(line.val, 260, ly);
-
-    ctx.strokeStyle = "#CBD5E1";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(255, ly + 6);
-    ctx.lineTo(695, ly + 6);
-    ctx.stroke();
-  });
-
-  // KHỐI HEADER PHẢI: SỐ BÁO DANH & MÃ ĐỀ THI
-  drawRoundedRect(ctx, 736, 52, 380, 350, 8, "#FFFFFF", "#475569", 1.8);
+  ctx.font = "14px " + FONT_SERIF;
+  ctx.fillText("1. Hội đồng thi: Trung tâm Toán Tâm Chí Tài (TCT)", 272, 195);
+  ctx.fillText("2. Điểm thi: Số 10 Tạ Quang Bửu, Bách Khoa, Hà Nội", 272, 242);
+  ctx.fillText("3. Phòng thi số: 01", 272, 289);
+  ctx.fillText(`4. Họ và tên thí sinh: ${studentName}`, 272, 336);
+  ctx.fillText("5. Ngày sinh: ........../........../20........   (Nam / Nữ)", 272, 383);
+  ctx.fillText(`6. Kết quả chấm: Đúng ${reviewData.correctCount}/${reviewData.totalQuestions} câu`, 272, 430);
 
   ctx.textAlign = "center";
-  ctx.fillStyle = "#003399";
-  ctx.font = "bold 13.5px " + FONT_SERIF;
-  ctx.fillText("7. SỐ BÁO DANH", 856, 76);
-  ctx.fillText("8. MÃ ĐỀ THI", 1038, 76);
+  ctx.font = "bold italic 13px " + FONT_SERIF;
+  ctx.fillText("Chú ý: Giữ cho phiếu phẳng, không bôi bẩn, không làm rách. Tô kín ô tròn bằng bút chì đen.", 420, 510);
 
-  // Vẽ 6 cột SBD
-  for (let col = 0; col < 6; col++) {
-    const cx = sbdStartX + col * sbdColStep;
-    drawRoundedRect(ctx, cx - 14, 86, 28, 32, 3, "#F8FAFC", "#475569", 1.2);
-    ctx.fillStyle = "#003399";
-    ctx.font = "bold 17px " + FONT_SERIF;
-    ctx.fillText(cleanSbd[col], cx, 108);
+  // Khung SBD
+  const sbdLeft = blueprint.sbd.startX - 14;
+  const sbdWidth = blueprint.sbd.cols * blueprint.sbd.colStep;
+  const sbdGridTop = blueprint.sbd.startY - 13;
+  const sbdGridHeight = 10 * blueprint.sbd.rowStep;
+  ctx.font = "bold 14px " + FONT_SERIF;
+  ctx.fillText("7. Số báo danh", sbdLeft + sbdWidth / 2, 148);
+  ctx.strokeRect(sbdLeft, 156, sbdWidth, 34);
+  ctx.strokeRect(sbdLeft, sbdGridTop, sbdWidth, sbdGridHeight);
 
-    const pickedDigit = parseInt(cleanSbd[col], 10);
+  for (let c = 0; c < blueprint.sbd.cols; c++) {
+    const cx = blueprint.sbd.startX + c * blueprint.sbd.colStep;
+    const pickedDigit = parseInt(cleanSbd[c], 10);
+    ctx.font = "bold 16px " + FONT_SERIF;
+    ctx.fillText(cleanSbd[c], cx, 179);
+
     for (let d = 0; d <= 9; d++) {
-      const cy = sbdBubbleStartY + d * sbdRowStep;
+      const cy = blueprint.sbd.startY + d * blueprint.sbd.rowStep;
       ctx.beginPath();
-      ctx.arc(cx, cy, 8.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, blueprint.sbd.radius, 0, Math.PI * 2);
       if (d === pickedDigit) {
         ctx.fillStyle = PENCIL_FILL;
         ctx.fill();
       } else {
         ctx.fillStyle = "#FFFFFF";
         ctx.fill();
-        ctx.strokeStyle = "#64748B";
-        ctx.lineWidth = 1.1;
+        ctx.strokeStyle = "#BE185D";
+        ctx.lineWidth = 0.9;
         ctx.stroke();
-        ctx.fillStyle = "#475569";
+        ctx.fillStyle = "#BE185D";
         ctx.font = "bold 10px " + FONT_SERIF;
         ctx.fillText(String(d), cx, cy + 3.5);
       }
     }
   }
 
-  // Vẽ 3 cột Mã đề
-  for (let col = 0; col < 3; col++) {
-    const cx = codeStartX + col * sbdColStep;
-    drawRoundedRect(ctx, cx - 14, 86, 28, 32, 3, "#F8FAFC", "#475569", 1.2);
-    ctx.fillStyle = "#003399";
-    ctx.font = "bold 17px " + FONT_SERIF;
-    ctx.fillText(cleanCode[col], cx, 108);
+  // Khung Mã đề
+  const codeLeft = blueprint.examCode.startX - 14;
+  const codeWidth = blueprint.examCode.cols * blueprint.examCode.colStep;
+  const codeGridTop = blueprint.examCode.startY - 13;
+  const codeGridHeight = 10 * blueprint.examCode.rowStep;
+  ctx.fillStyle = "#111827";
+  ctx.font = "bold 14px " + FONT_SERIF;
+  ctx.fillText("8. Mã đề thi", codeLeft + codeWidth / 2, 148);
+  ctx.strokeStyle = "#BE185D";
+  ctx.strokeRect(codeLeft, 156, codeWidth, 34);
+  ctx.strokeRect(codeLeft, codeGridTop, codeWidth, codeGridHeight);
 
-    const pickedDigit = parseInt(cleanCode[col], 10);
+  for (let c = 0; c < blueprint.examCode.cols; c++) {
+    const cx = blueprint.examCode.startX + c * blueprint.examCode.colStep;
+    const pickedDigit = parseInt(cleanCode[c], 10);
+    ctx.font = "bold 16px " + FONT_SERIF;
+    ctx.fillText(cleanCode[c], cx, 179);
+
     for (let d = 0; d <= 9; d++) {
-      const cy = sbdBubbleStartY + d * sbdRowStep;
+      const cy = blueprint.examCode.startY + d * blueprint.examCode.rowStep;
       ctx.beginPath();
-      ctx.arc(cx, cy, 8.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, blueprint.examCode.radius, 0, Math.PI * 2);
       if (d === pickedDigit) {
         ctx.fillStyle = PENCIL_FILL;
         ctx.fill();
       } else {
         ctx.fillStyle = "#FFFFFF";
         ctx.fill();
-        ctx.strokeStyle = "#64748B";
-        ctx.lineWidth = 1.1;
+        ctx.strokeStyle = "#BE185D";
+        ctx.lineWidth = 0.9;
         ctx.stroke();
-        ctx.fillStyle = "#475569";
+        ctx.fillStyle = "#BE185D";
         ctx.font = "bold 10px " + FONT_SERIF;
         ctx.fillText(String(d), cx, cy + 3.5);
       }
@@ -2265,238 +2307,285 @@ export function generateVirtualOMRSheet(
   }
 
   // =========================================================================
-  // PHẦN I: TRẮC NGHIỆM NHIỀU PHƯƠNG ÁN LỰA CHỌN (A, B, C, D)
+  // VẼ PHẦN I THEO BLUEPRINT ĐỘNG
   // =========================================================================
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#003399";
-  ctx.font = "bold 15.5px " + FONT_SERIF;
-  ctx.fillText(
-    "PHẦN I. Thí sinh trả lời từ câu 1 đến câu 12 (Mỗi câu chỉ tô một phương án A, B, C hoặc D)",
-    84,
-    436
-  );
-
-  drawRoundedRect(ctx, 84, 448, 1032, 290, 8, "#FFFFFF", "#475569", 1.6);
-
-  const p1Metas = reviewData.parsedMetaList.filter((m) => m.partNum === 1);
-  const p1MaxQ = Math.max(12, p1Metas.length);
-
-  for (let colGroup = 0; colGroup < 3; colGroup++) {
-    const baseGroupX = 115 + colGroup * 340;
-    ["A", "B", "C", "D"].forEach((optK, oIdx) => {
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#003399";
-      ctx.font = "bold 14px " + FONT_SERIF;
-      ctx.fillText(optK, baseGroupX + 58 + oIdx * 56, 478);
-    });
-  }
-
-  for (let q = 1; q <= Math.min(18, p1MaxQ); q++) {
-    const colGroup = Math.floor((q - 1) / 6);
-    const rowInCol = (q - 1) % 6;
-    const baseGroupX = 115 + colGroup * 340;
-    const cy = 515 + rowInCol * 38;
-
-    ctx.textAlign = "right";
-    ctx.fillStyle = "#0F172A";
-    ctx.font = "bold 14.5px " + FONT_SERIF;
-    ctx.fillText(String(q), baseGroupX + 22, cy + 5);
-
-    const qMeta = p1Metas.find((m) => m.localNum === q);
-    const stuKey = qMeta?.p1StudentKey || "";
-
-    ["A", "B", "C", "D"].forEach((optK) => {
-      const pos = getCanonicalBubblePosition(1, q, optK);
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, pos.r, 0, Math.PI * 2);
-      if (stuKey === optK) {
-        ctx.fillStyle = PENCIL_FILL;
-        ctx.fill();
-      } else {
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fill();
-        ctx.strokeStyle = "#64748B";
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-        ctx.textAlign = "center";
-        ctx.fillStyle = "#475569";
-        ctx.font = "bold 11.5px " + FONT_SERIF;
-        ctx.fillText(optK, pos.x, pos.y + 4);
-      }
-    });
-  }
-
-  // =========================================================================
-  // PHẦN II: TRẮC NGHIỆM ĐÚNG / SAI (4 CÂU x 4 MỆNH ĐỀ a, b, c, d)
-  // =========================================================================
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#003399";
-  ctx.font = "bold 15.5px " + FONT_SERIF;
-  ctx.fillText(
-    "PHẦN II. Thí sinh trả lời từ câu 1 đến câu 4. Trong mỗi ý a), b), c), d) thí sinh chọn Đúng hoặc Sai",
-    84,
-    774
-  );
-
-  drawRoundedRect(ctx, 84, 786, 1032, 240, 8, "#FFFFFF", "#475569", 1.6);
-
-  const p2Metas = reviewData.parsedMetaList.filter((m) => m.partNum === 2);
-
-  for (let q = 1; q <= 4; q++) {
-    const boxX = 95 + (q - 1) * 260;
-    drawRoundedRect(ctx, boxX, 800, 232, 212, 6, "#F8FAFC", "#94A3B8", 1.2);
-
+  const p1Blocks = (blueprint.part1?.blocks || []).filter((b: any) => (b.pageIndex || 1) === 1);
+  const p1Total = blueprint.part1TotalQuestions ?? 0;
+  if (p1Total > 0 && p1Blocks.length > 0) {
+    const firstTopY = p1Blocks[0].startY - 42;
     ctx.textAlign = "left";
-    ctx.fillStyle = "#003399";
-    ctx.font = "bold 15px " + FONT_SERIF;
-    ctx.fillText(`Câu ${q}`, boxX + 18, 828);
+    ctx.fillStyle = "#111827";
+    ctx.font = "bold 15.5px " + FONT_SERIF;
+    ctx.fillText(`PHẦN I. Thí sinh trả lời từ câu 1 đến câu ${p1Total} (Mỗi câu chỉ tô một phương án A, B, C hoặc D)`, 65, firstTopY - 10);
 
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#1E293B";
-    ctx.font = "bold 13px " + FONT_SERIF;
-    ctx.fillText("Đúng", boxX + 118, 830);
-    ctx.fillText("Sai", boxX + 186, 830);
+    p1Blocks.forEach((b: any) => {
+      const boxLeft = b.startX - 48;
+      const boxTop = b.startY - 42;
+      const numRows = b.endQuestion - b.startQuestion + 1;
+      const boxH = Math.max(66, numRows * b.rowStepY + 34);
 
-    const qMeta = p2Metas.find((m) => m.localNum === q);
+      ctx.strokeStyle = "#BE185D";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(boxLeft, boxTop, 232, boxH);
 
-    (["a", "b", "c", "d"] as const).forEach((sk, sIdx) => {
-      const cy = 868 + sIdx * 40;
+      ["A", "B", "C", "D"].forEach((k, idx) => {
+        const ox = b.startX + idx * b.optionStepX;
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#111827";
+        ctx.font = "bold 13.5px " + FONT_SERIF;
+        ctx.fillText(k, ox, b.startY - 20);
+      });
+
+      for (let q = b.startQuestion; q <= b.endQuestion; q++) {
+        const rIdx = q - b.startQuestion;
+        const cy = b.startY + rIdx * b.rowStepY;
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#111827";
+        ctx.font = "bold 13px " + FONT_SERIF;
+        ctx.fillText(String(q), b.startX - 28, cy + 4.5);
+
+        const qMeta = reviewData.parsedMetaList.find((m) => m.partNum === 1 && m.localNum === q);
+        const stuKey = qMeta?.p1StudentKey || "";
+
+        ["A", "B", "C", "D"].forEach((optK, idx) => {
+          const cx = b.startX + idx * b.optionStepX;
+          ctx.beginPath();
+          ctx.arc(cx, cy, b.radius, 0, Math.PI * 2);
+          if (stuKey === optK) {
+            ctx.fillStyle = PENCIL_FILL;
+            ctx.fill();
+          } else {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fill();
+            ctx.strokeStyle = "#BE185D";
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+            ctx.fillStyle = "#BE185D";
+            ctx.font = "8.5px " + FONT_SERIF;
+            ctx.fillText(optK, cx, cy + 3.2);
+          }
+        });
+      }
+    });
+  }
+
+  // =========================================================================
+  // VẼ PHẦN II THEO BLUEPRINT ĐỘNG
+  // =========================================================================
+  const p2Blocks = (blueprint.part2?.blocks || []).filter((b: any) => (b.pageIndex || 1) === 1);
+  const p2Total = blueprint.part2TotalQuestions ?? 0;
+  if (p2Total > 0 && p2Blocks.length > 0) {
+    const firstTopY = p2Blocks[0].startY - 48;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#111827";
+    ctx.font = "bold 15.5px " + FONT_SERIF;
+    ctx.fillText(`PHẦN II. Thí sinh trả lời từ câu 1 đến câu ${p2Total}. Trong mỗi ý a), b), c), d) thí sinh chọn Đúng hoặc Sai`, 65, firstTopY - 10);
+
+    const subKeys = ["a", "b", "c", "d"] as const;
+    const rowYSet = Array.from(new Set(p2Blocks.map((b: any) => b.startY)));
+
+    rowYSet.forEach((rowStartY: any) => {
+      const blocksInRow = p2Blocks.filter((b: any) => b.startY === rowStartY);
+      for (let i = 0; i < blocksInRow.length; i += 2) {
+        const leftBlock = blocksInRow[i];
+        const rightBlock = blocksInRow[i + 1];
+
+        const pairBoxLeft = leftBlock.trueX - 53;
+        const pairBoxTop = rowStartY - 48;
+        const pairBoxWidth = rightBlock ? 214 : 118;
+        const pairBoxHeight = 160;
+        const dividerX = pairBoxLeft + 118;
+
+        ctx.strokeStyle = "#BE185D";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(pairBoxLeft, pairBoxTop, pairBoxWidth, pairBoxHeight);
+        if (rightBlock) {
+          ctx.beginPath();
+          ctx.moveTo(dividerX, pairBoxTop);
+          ctx.lineTo(dividerX, pairBoxTop + pairBoxHeight);
+          ctx.stroke();
+        }
+
+        const renderSingleP2Block = (blk: any) => {
+          const q = blk.questionNumber;
+          const qCenter = (blk.trueX + blk.falseX) / 2;
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#111827";
+          ctx.font = "bold 13.5px " + FONT_SERIF;
+          ctx.fillText(`Câu ${q}`, qCenter, pairBoxTop + 19);
+          ctx.font = "11.5px " + FONT_SERIF;
+          ctx.fillText("Đúng", blk.trueX, pairBoxTop + 37);
+          ctx.fillText("Sai", blk.falseX, pairBoxTop + 37);
+
+          const qMeta = reviewData.parsedMetaList.find((m) => m.partNum === 2 && m.localNum === q);
+
+          subKeys.forEach((sk, sIdx) => {
+            const cy = rowStartY + sIdx * blk.rowStepY;
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#111827";
+            ctx.font = "bold 13.5px " + FONT_SERIF;
+            ctx.fillText(`${sk})`, blk.trueX - 31, cy + 4.5);
+
+            const stuSub = qMeta?.p2StudentSubMap?.[sk] || "-";
+            const pickedOptKey = stuSub === "Đ" ? "T" : stuSub === "S" ? "F" : "";
+
+            (["T", "F"] as const).forEach((optK) => {
+              const cx = optK === "T" ? blk.trueX : blk.falseX;
+              ctx.beginPath();
+              ctx.arc(cx, cy, blk.radius, 0, Math.PI * 2);
+              if (pickedOptKey === optK) {
+                ctx.fillStyle = PENCIL_FILL;
+                ctx.fill();
+              } else {
+                ctx.fillStyle = "#FFFFFF";
+                ctx.fill();
+                ctx.strokeStyle = "#BE185D";
+                ctx.lineWidth = 0.9;
+                ctx.stroke();
+              }
+            });
+          });
+        };
+
+        renderSingleP2Block(leftBlock);
+        if (rightBlock) renderSingleP2Block(rightBlock);
+      }
+    });
+  }
+
+  // =========================================================================
+  // VẼ PHẦN III THEO BLUEPRINT ĐỘNG
+  // =========================================================================
+  const p3Blocks = (blueprint.part3?.blocks || []).filter((b: any) => (b.pageIndex || 1) === 1);
+  const p3Total = blueprint.part3TotalQuestions ?? 0;
+  if (p3Total > 0 && p3Blocks.length > 0) {
+    const rowMinusYSet = Array.from(new Set(p3Blocks.map((b: any) => b.minusY)));
+
+    rowMinusYSet.forEach((rMinusY: any) => {
+      const blocksInRow = p3Blocks.filter((b: any) => b.minusY === rMinusY);
+      const boxTop = rMinusY - 76;
+      const boxHeight = 382;
+      const cellW = blocksInRow[0]?.boxWidth || 178;
+      const totalRowW = cellW * blocksInRow.length;
+
       ctx.textAlign = "left";
-      ctx.fillStyle = "#0F172A";
-      ctx.font = "bold 15px " + FONT_SERIF;
-      ctx.fillText(`${sk})`, boxX + 24, cy + 5);
+      ctx.fillStyle = "#111827";
+      ctx.font = "bold 15.5px " + FONT_SERIF;
+      ctx.fillText(`PHẦN III. Thí sinh trả lời từ câu 1 đến câu ${p3Total} (Ghi và tô kết quả số vào các ô tương ứng)`, 65, boxTop - 10);
 
-      const stuSub = qMeta?.p2StudentSubMap?.[sk] || "-";
-      const pickedOptKey = stuSub === "Đ" ? "T" : stuSub === "S" ? "F" : "";
+      ctx.strokeStyle = "#BE185D";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(65, boxTop, totalRowW, boxHeight);
 
-      (["T", "F"] as const).forEach((optK) => {
-        const pos = getCanonicalBubblePosition(2, q, optK, sk);
+      blocksInRow.forEach((b: any, idxInRow: number) => {
+        const cellLeft = 65 + idxInRow * cellW;
+        if (idxInRow > 0) {
+          ctx.beginPath();
+          ctx.moveTo(cellLeft, boxTop);
+          ctx.lineTo(cellLeft, boxTop + boxHeight);
+          ctx.stroke();
+        }
+
+        const q = b.questionNumber;
+        const qMeta = reviewData.parsedMetaList.find((m) => m.partNum === 3 && m.localNum === q);
+        const isFormatError = Boolean(qMeta?.isOmrFormatError);
+        const stuChars = isFormatError ? [] : qMeta?.p3StudentChars || [];
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#111827";
+        ctx.font = "bold 13.5px " + FONT_SERIF;
+        ctx.fillText(`Câu ${q}`, cellLeft + 18, boxTop + 21);
+
+        const writeBoxTop = boxTop + 30;
+        const writeBoxH = 25;
+        const writeCellW = b.colStepX;
+        const writeBoxLeft = b.startX - writeCellW / 2;
+        const writeBoxTotalW = writeCellW * 4;
+
+        ctx.strokeRect(writeBoxLeft, writeBoxTop, writeBoxTotalW, writeBoxH);
+        for (let c = 1; c < 4; c++) {
+          const vx = writeBoxLeft + c * writeCellW;
+          ctx.beginPath();
+          ctx.moveTo(vx, writeBoxTop);
+          ctx.lineTo(vx, writeBoxTop + writeBoxH);
+          ctx.stroke();
+        }
+
+        for (let c = 0; c < 4; c++) {
+          const cx = b.startX + c * b.colStepX;
+          if (stuChars[c]) {
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#111827";
+            ctx.font = "bold 15px " + FONT_SERIF;
+            ctx.fillText(stuChars[c], cx, writeBoxTop + 18);
+          }
+        }
+
+        // Hàng dấu −
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#111827";
+        ctx.font = "bold 15px " + FONT_SERIF;
+        ctx.fillText("−", b.startX - 20, b.minusY + 4);
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, pos.r, 0, Math.PI * 2);
-        if (pickedOptKey === optK) {
+        ctx.arc(b.startX, b.minusY, b.radius, 0, Math.PI * 2);
+        if (stuChars[0] === "-") {
           ctx.fillStyle = PENCIL_FILL;
           ctx.fill();
         } else {
           ctx.fillStyle = "#FFFFFF";
           ctx.fill();
-          ctx.strokeStyle = "#64748B";
-          ctx.lineWidth = 1.2;
+          ctx.strokeStyle = "#BE185D";
+          ctx.lineWidth = 0.9;
           ctx.stroke();
-          ctx.textAlign = "center";
-          ctx.fillStyle = "#64748B";
-          ctx.font = "bold 11px " + FONT_SERIF;
-          ctx.fillText(optK === "T" ? "Đ" : "S", pos.x, pos.y + 4);
+        }
+
+        // Hàng dấu ,
+        ctx.fillStyle = "#111827";
+        ctx.fillText(",", b.startX - 20, b.commaY + 4);
+        [1, 2].forEach((c) => {
+          const cx = b.startX + c * b.colStepX;
+          ctx.beginPath();
+          ctx.arc(cx, b.commaY, b.radius, 0, Math.PI * 2);
+          if (stuChars[c] === "," || stuChars[c] === ".") {
+            ctx.fillStyle = PENCIL_FILL;
+            ctx.fill();
+          } else {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fill();
+            ctx.strokeStyle = "#BE185D";
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+          }
+        });
+
+        // Hàng số 0..9
+        for (let d = 0; d <= 9; d++) {
+          const cy = b.digit0Y + d * b.rowStepY;
+          ctx.fillStyle = "#111827";
+          ctx.font = "bold 12.5px " + FONT_SERIF;
+          ctx.fillText(String(d), b.startX - 20, cy + 4);
+
+          for (let c = 0; c < 4; c++) {
+            const cx = b.startX + c * b.colStepX;
+            ctx.beginPath();
+            ctx.arc(cx, cy, b.radius, 0, Math.PI * 2);
+            if (stuChars[c] === String(d)) {
+              ctx.fillStyle = PENCIL_FILL;
+              ctx.fill();
+            } else {
+              ctx.fillStyle = "#FFFFFF";
+              ctx.fill();
+              ctx.strokeStyle = "#BE185D";
+              ctx.lineWidth = 0.85;
+              ctx.stroke();
+            }
+          }
         }
       });
     });
   }
 
-  // =========================================================================
-  // PHẦN III: TRẢ LỜI NGẮN — ĐIỀN ĐÁP SỐ (6 CÂU)
-  // =========================================================================
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#003399";
-  ctx.font = "bold 15.5px " + FONT_SERIF;
-  ctx.fillText(
-    "PHẦN III. Thí sinh trả lời từ câu 1 đến câu 6 (Ghi và tô kết quả số vào các ô tương ứng)",
-    84,
-    1062
-  );
-
-  drawRoundedRect(ctx, 84, 1074, 1032, 526, 8, "#FFFFFF", "#475569", 1.6);
-
-  const p3Metas = reviewData.parsedMetaList.filter((m) => m.partNum === 3);
-
-  for (let q = 1; q <= 6; q++) {
-    const boxX = 88 + (q - 1) * 174;
-    drawRoundedRect(ctx, boxX + 4, 1086, 162, 502, 6, "#F8FAFC", "#94A3B8", 1.2);
-
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#003399";
-    ctx.font = "bold 15px " + FONT_SERIF;
-    ctx.fillText(`Câu ${q}`, boxX + 85, 1110);
-
-    const qMeta = p3Metas.find((m) => m.localNum === q);
-    const isFormatError = Boolean(qMeta?.isOmrFormatError);
-    const stuChars = isFormatError ? [] : qMeta?.p3StudentChars || [];
-
-    // 4 ô viết tay đáp số ở đỉnh mỗi cột câu
-    for (let c = 0; c < 4; c++) {
-      const cx = boxX + 32 + c * 36;
-      drawRoundedRect(
-        ctx,
-        cx - 15,
-        1120,
-        30,
-        32,
-        3,
-        isFormatError ? "#FEF2F2" : "#FFFFFF",
-        isFormatError ? "#DC2626" : "#475569",
-        isFormatError ? 1.8 : 1.2
-      );
-      if (stuChars[c]) {
-        ctx.fillStyle = "#003399";
-        ctx.font = "bold 17px " + FONT_SERIF;
-        ctx.fillText(stuChars[c], cx, 1143);
-      }
-    }
-
-    // Cảnh báo gạch chéo đỏ phía trên ô viết tay khi học sinh điền vượt quá 4 ký tự (> 4 ô)
-    if (isFormatError) {
-      const leftBoxEdge = boxX + 32 - 15;
-      const rightBoxEdge = boxX + 32 + 3 * 36 + 15;
-      ctx.save();
-      ctx.strokeStyle = "#DC2626";
-      ctx.lineWidth = 2.6;
-      ctx.beginPath();
-      ctx.moveTo(leftBoxEdge, 1118);
-      ctx.lineTo(rightBoxEdge, 1154);
-      ctx.moveTo(rightBoxEdge, 1118);
-      ctx.lineTo(leftBoxEdge, 1154);
-      ctx.stroke();
-
-      ctx.fillStyle = "#DC2626";
-      ctx.font = "bold 10.5px " + FONT_SERIF;
-      ctx.textAlign = "center";
-      ctx.fillText("SAI QUY CÁCH (>4 Ô)", boxX + 85, 1168);
-      ctx.restore();
-    }
-
-    // Các hàng tô dấu (-), dấu (,) và các chữ số 0..9
-    const rowSymbols = ["-", ",", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
-    rowSymbols.forEach((sym, rIdx) => {
-      const cy = 1190 + rIdx * 32;
-      for (let c = 0; c < 4; c++) {
-        // Dấu (-) chỉ ở cột đầu, dấu (,) ở cột 2 & 3
-        if (sym === "-" && c > 0) continue;
-        if (sym === "," && (c === 0 || c === 3)) continue;
-
-        const cx = boxX + 32 + c * 36;
-        const isPicked =
-          !isFormatError &&
-          (stuChars[c] === sym || (sym === "," && stuChars[c] === "."));
-
-        ctx.beginPath();
-        ctx.arc(cx, cy, 9.5, 0, Math.PI * 2);
-        if (isPicked) {
-          ctx.fillStyle = PENCIL_FILL;
-          ctx.fill();
-        } else {
-          ctx.fillStyle = "#FFFFFF";
-          ctx.fill();
-          ctx.strokeStyle = "#64748B";
-          ctx.lineWidth = 1.1;
-          ctx.stroke();
-          ctx.textAlign = "center";
-          ctx.fillStyle = "#475569";
-          ctx.font = "bold 10.5px " + FONT_SERIF;
-          ctx.fillText(sym, cx, cy + 3.5);
-        }
-      }
-    });
-  }
-
-  // 6. BRANDING FOOTER CHUẨN HÓA TRÊN PHIẾU OMR
+  // Footer thương hiệu
   ctx.textAlign = "center";
   ctx.fillStyle = "#334155";
   ctx.font = "bold 13.5px " + FONT_SERIF;
