@@ -1253,7 +1253,7 @@ function buildFullOMRQuestionsReview(
 
   const orderedEntries: { qObj: any; partNum: 1 | 2 | 3; localNum: number }[] = [];
 
-  if (
+if (
     part1Questions.length > 0 ||
     part2Questions.length > 0 ||
     part3Questions.length > 0
@@ -1268,22 +1268,12 @@ function buildFullOMRQuestionsReview(
       orderedEntries.push({ qObj: q, partNum: 3, localNum: idx + 1 })
     );
   } else {
-    // Lấy đúng số câu thực tế từ blueprint của đề thi (chẳng hạn 5 câu P1, 2 câu P2, 2 câu P3)
     const p1Count = blueprint.part1TotalQuestions ?? 12;
     const p2Count = blueprint.part2TotalQuestions ?? 4;
     const p3Count = blueprint.part3TotalQuestions ?? 6;
     for (let i = 1; i <= p1Count; i++) orderedEntries.push({ qObj: null, partNum: 1, localNum: i });
     for (let i = 1; i <= p2Count; i++) orderedEntries.push({ qObj: null, partNum: 2, localNum: i });
     for (let i = 1; i <= p3Count; i++) orderedEntries.push({ qObj: null, partNum: 3, localNum: i });
-  }
-      if (i < 12) {
-        orderedEntries.push({ qObj: null, partNum: 1, localNum: i + 1 });
-      } else if (i < 16) {
-        orderedEntries.push({ qObj: null, partNum: 2, localNum: i - 11 });
-      } else {
-        orderedEntries.push({ qObj: null, partNum: 3, localNum: i - 15 });
-      }
-    }
   }
 
   let gradedDetails: any[] = [];
