@@ -960,8 +960,9 @@ export function AdminBulkOMRScannerModal({
         const relLeft = guideElRect.left - videoElRect.left + offsetX;
         const relTop = guideElRect.top - videoElRect.top + offsetY;
 
-        const padW = guideElRect.width * 0.05;
-        const padH = guideElRect.height * 0.05;
+      // Nâng lề an toàn lên 12% để trên điện thoại không bao giờ bị cắt lẹm 2 mốc đen bên phải
+        const padW = guideElRect.width * 0.12;
+        const padH = guideElRect.height * 0.12;
 
         const sx = Math.max(0, ((relLeft - padW) / renderW) * vW);
         const sy = Math.max(0, ((relTop - padH) / renderH) * vH);
