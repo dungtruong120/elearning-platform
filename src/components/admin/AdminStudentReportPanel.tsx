@@ -50,6 +50,7 @@ import {
   openPrintOrDownloadClassReport,
   FullQuestionReviewRow
 } from "@/lib/reportPdfGenerator";
+
 // KHỞI TẠO CLIENT SUPABASE AN TOÀN TRÁNH LỖI RUNTIME "supabase is not defined"
 function getSupabaseClientSafe() {
   if (typeof window !== "undefined") {
@@ -59,6 +60,7 @@ function getSupabaseClientSafe() {
   }
   return null;
 }
+
 export type ExtendedAttendanceStatus =
   | "present"
   | "makeup_done"
@@ -173,7 +175,7 @@ interface FlattenedLessonEntry {
   testTitles: Set<string>;
 }
 
-interface ParsedQuestionEvaluationMeta {
+export interface ParsedQuestionEvaluationMeta {
   questionOrder: number;
   partNum: 1 | 2 | 3;
   localNum: number;
@@ -192,6 +194,21 @@ interface ParsedQuestionEvaluationMeta {
   p3StudentChars?: string[];
   p3CorrectChars?: string[];
 }
+
+export type ComputedStudentDailyRecord = StudentDailyScoreData & {
+  allQuestionsReviewList?: FullQuestionReviewRow[];
+  parsedQuestionMetaList?: ParsedQuestionEvaluationMeta[];
+  homeworkQuizTitle?: string;
+  attendanceStatus?: ExtendedAttendanceStatus;
+  attendanceNote?: string;
+  makeupSessions?: MakeupSupportSessionItem[];
+  availableTestAttempts?: CandidateAttemptOption[];
+  activeAttemptId?: string | null;
+  activeQuizId?: string;
+  activeQuizTitle?: string;
+  hasResolvedQuizDefinition?: boolean;
+  exportPages?: 1 | 2;
+};
 
 // Bộ nhớ đệm cho Phiếu OMR ảo giúp tối ưu hiệu năng render
 const virtualOMRCache = new Map<
@@ -318,10 +335,7 @@ function formatCategoryWithSubmissionMode(
 }
 
 /**
- * TÍNH TOÁN TỌA ĐỘ CHUẨN TRÊN KHUNG 1200x1700 CHO TỪNG Ô TRÒN OMR (DÙNG CHO CẢ PHIẾU ẢO & BỔ SUNG VÒNG TRÒN VÀNG NÉT ĐỨT)
- */
-/**
- * TÍNH TOÁN TỌA ĐỘ CHUẨN CHO TỪNG Ô TRÒN DỰA THEO BLUEPRINT ĐỘNG CỦA ĐỀ THI
+ * KỊCH BẢN 5: TÍNH TOÁN TỌA ĐỘ CHUẨN CHO TỪNG Ô TRÒN DỰA THEO BLUEPRINT ĐỘNG CỦA ĐỀ THI
  */
 function getCanonicalBubblePosition(
   partNum: 1 | 2 | 3,
@@ -351,7 +365,8 @@ function getCanonicalBubblePosition(
       const b = blueprint.part2.blocks.find((blk: any) => blk.questionNumber === localNum);
       if (b) {
         const subIdx = Math.max(0, ["a", "b", "c", "d"].indexOf(subKey || "a"));
-        const isTrueOpt = String(optionKey).toUpperCase() === "T" || String(optionKey).toUpperCase() === "Đ";
+        const isTrueOpt =
+          String(optionKey).toUpperCase() === "T" || String(optionKey).toUpperCase() === "Đ";
         return {
           x: isTrueOpt ? b.trueX : b.falseX,
           y: b.startY + subIdx * b.rowStepY,
@@ -395,7 +410,8 @@ function getCanonicalBubblePosition(
     const boxIdx = Math.min(3, Math.max(0, localNum - 1));
     const boxX = 95 + boxIdx * 260;
     const subIdx = Math.max(0, ["a", "b", "c", "d"].indexOf(subKey || "a"));
-    const isTrueOpt = String(optionKey).toUpperCase() === "T" || String(optionKey).toUpperCase() === "Đ";
+    const isTrueOpt =
+      String(optionKey).toUpperCase() === "T" || String(optionKey).toUpperCase() === "Đ";
     return { x: boxX + (isTrueOpt ? 118 : 186), y: 868 + subIdx * 40, r: 10.5 };
   }
 
@@ -426,11 +442,12 @@ const INTERNAL_META_KEYS = new Set([
 ]);
 
 /**
- * 4. NÂNG CẤP HÀM `extractFlexibleStudentAnswersMap`:
+ * KỊCH BẢN 1: HÀM `extractFlexibleStudentAnswersMap` CHUẨN XÁC 100% DỮ LIỆU THẬT
  * - Đảm bảo trích xuất toàn bộ các định dạng key câu trả lời:
  *   + Key ID: `sec-0-q-1-mleye7`, `sec-1-q-13-abc`, `q-1`, `q_1`, `cau_1`
  *   + Key số nguyên: `'1'`, `'2'`, `'13'`, `'19'`
  * - Tự động đối chiếu và bồi đắp từ `localStorage.getItem("edunexus_attempts")` nếu attempt từ server bị thiếu `answers`.
+ * - TUYỆT ĐỐI KHÔNG tự sinh đáp án ảo (Không tạo A/B, Đ/S, 10 giả lập khi thiếu answers).
  */
 function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
   const merged: Record<string, any> = {};
@@ -769,41 +786,9 @@ function extractFlexibleStudentAnswersMap(attempt: any): Record<string, any> {
       // Bỏ qua lỗi đọc localStorage nếu không khả dụng
     }
   }
-// CƠ CHẾ TỰ ĐỘNG TÁI LẬP BÀI LÀM TỪ ĐIỂM SỐ (DÀNH CHO HỌC SINH NỘP TỪ MÁY KHÁC BỊ THIẾU ANSWERS)
-  const validKeyCount = Object.keys(merged).filter(
-    (k) => !k.startsWith("__") && !INTERNAL_META_KEYS.has(k)
-  ).length;
 
-  if (validKeyCount === 0 && attempt) {
-    const rawScore = Number(attempt.score ?? attempt.points ?? 0);
-    if (!isNaN(rawScore) && rawScore > 0) {
-      // Dựa vào điểm số để tính số câu đúng (Ví dụ: 8.4 điểm -> tương ứng đúng 18 câu)
-      const targetRightCount = Math.min(22, Math.max(1, Math.round((rawScore / 10) * 22)));
-      
-      for (let q = 1; q <= 22; q++) {
-        const isCorrectSimulated = q <= targetRightCount;
-        const qStr = String(q);
-        if (q <= 12) {
-          // Phần I: 12 câu trắc nghiệm đơn
-          merged[qStr] = isCorrectSimulated ? "A" : "B";
-          merged[`q-${qStr}`] = merged[qStr];
-        } else if (q <= 16) {
-          // Phần II: 4 câu Đúng / Sai (a, b, c, d)
-          merged[qStr] = {
-            a: isCorrectSimulated ? "Đ" : "S",
-            b: isCorrectSimulated ? "S" : "Đ",
-            c: isCorrectSimulated ? "Đ" : "S",
-            d: isCorrectSimulated ? "S" : "Đ"
-          };
-          merged[`q-${qStr}`] = merged[qStr];
-        } else {
-          // Phần III: 6 câu điền số
-          merged[qStr] = isCorrectSimulated ? "10" : "";
-          merged[`q-${qStr}`] = merged[qStr];
-        }
-      }
-    }
-  }
+  // KỊCH BẢN 1: ĐÃ XÓA BỎ HOÀN TOÀN ĐOẠN CODE TỰ SINH ĐÁP ÁN ẢO (validKeyCount === 0).
+  // Nếu không có chi tiết câu trả lời, trả về `merged` trung thực (rỗng).
   return merged;
 }
 
@@ -832,7 +817,7 @@ function hasValidQuestionsOrSections(obj: any): boolean {
 }
 
 /**
- * 2. HÀM ĐỒNG BỘ ĐỀ THI GỐC TỪ MEMORY CACHE, PROPS HOẶC LOCALSTORAGE (`edunexus_practice_exams` / `edunexus_course_data`)
+ * HÀM ĐỒNG BỘ ĐỀ THI GỐC TỪ MEMORY CACHE, PROPS HOẶC LOCALSTORAGE (`edunexus_practice_exams` / `edunexus_course_data`)
  */
 function resolveCompleteQuizObject(
   attempt: any,
@@ -1083,7 +1068,7 @@ function extractPart2CorrectSubMap(
 }
 
 /**
- * GIẢI MÃ TOÀN BỘ DANH SÁCH 22 CÂU HỎI CHUẨN TỪ SECTIONS (KHÔNG DÙNG DỮ LIỆU GIẢ / KHÔNG ÉP ĐIỂM)
+ * GIẢI MÃ TOÀN BỘ DANH SÁCH CÂU HỎI CHUẨN TỪ SECTIONS & BLUEPRINT (KHÔNG DÙNG DỮ LIỆU GIẢ / KHÔNG ÉP ĐIỂM)
  */
 function buildFullOMRQuestionsReview(
   attempt: any,
@@ -1253,7 +1238,7 @@ function buildFullOMRQuestionsReview(
 
   const orderedEntries: { qObj: any; partNum: 1 | 2 | 3; localNum: number }[] = [];
 
-if (
+  if (
     part1Questions.length > 0 ||
     part2Questions.length > 0 ||
     part3Questions.length > 0
@@ -1645,7 +1630,7 @@ if (
         rawStudentStr = "";
       }
 
-     const rawCorP3 =
+      const rawCorP3 =
         qObj?.correctAnswer ??
         qObj?.shortAnswer ??
         qObj?.short_answer ??
@@ -1653,7 +1638,9 @@ if (
         qObj?.correct_answer ??
         qObj?.value ??
         qObj?.result ??
-        (Array.isArray(qObj?.options) ? (qObj.options[0]?.text ?? qObj.options[0]?.content ?? qObj.options[0]) : "") ??
+        (Array.isArray(qObj?.options)
+          ? qObj.options[0]?.text ?? qObj.options[0]?.content ?? qObj.options[0]
+          : "") ??
         gDetail?.correctAnswerDisplay ??
         "";
 
@@ -1731,7 +1718,9 @@ if (
       studentAnswer: isSkipped ? "Trống" : studentDisplay,
       correctAnswer: correctDisplay || "--",
       isCorrect: finalIsCorrect,
-      isSkipped
+      isSkipped,
+      isOmrFormatError,
+      resultStatusText
     });
 
     parsedMetaList.push({
@@ -1925,10 +1914,7 @@ if (
 }
 
 /**
- * HÀM TIỆN ÍCH CANVAS: TỰ ĐỘNG QUY ĐỔI BÀI THI TRÊN WEB / ĐIỂM CHẤM TAY / PHIẾU SCAN MỜ THÀNH "PHIẾU OMR CANVAS AI" CHUẨN TCT (1200 x 1700 px)
- */
-/**
- * TỰ ĐỘNG VẼ PHIẾU OMR CANVAS THEO ĐÚNG DẠNG ĐỀ VÀ SỐ CÂU CỦA BÀI KIỂM TRA
+ * KỊCH BẢN 5: TỰ ĐỘNG VẼ PHIẾU OMR CANVAS THEO ĐÚNG DẠNG ĐỀ VÀ SỐ CÂU CỦA BÀI KIỂM TRA (`buildDynamicOMRBlueprint`)
  */
 export function generateVirtualOMRSheet(
   attempt: any,
@@ -2046,7 +2032,14 @@ export function generateVirtualOMRSheet(
       const stuKey = qMeta.p1StudentKey || "";
       const corKey = qMeta.p1CorrectKey || "";
       ["A", "B", "C", "D"].forEach((optKey) => {
-        const pos = getCanonicalBubblePosition(1, qMeta.localNum, optKey, undefined, undefined, blueprint);
+        const pos = getCanonicalBubblePosition(
+          1,
+          qMeta.localNum,
+          optKey,
+          undefined,
+          undefined,
+          blueprint
+        );
         if (stuKey && optKey === stuKey) {
           bubbleCoordinates.push({
             id: `p1_q${qMeta.localNum}_${optKey}`,
@@ -2082,7 +2075,14 @@ export function generateVirtualOMRSheet(
         const expectedOptKey = corSub === "Đ" ? "T" : "F";
 
         (["T", "F"] as const).forEach((optK) => {
-          const pos = getCanonicalBubblePosition(2, qMeta.localNum, optK, sk, undefined, blueprint);
+          const pos = getCanonicalBubblePosition(
+            2,
+            qMeta.localNum,
+            optK,
+            sk,
+            undefined,
+            blueprint
+          );
           if (pickedOptKey && optK === pickedOptKey) {
             bubbleCoordinates.push({
               id: `p2_q${qMeta.localNum}_${sk}_${optK}`,
@@ -2306,7 +2306,11 @@ export function generateVirtualOMRSheet(
     ctx.textAlign = "left";
     ctx.fillStyle = "#111827";
     ctx.font = "bold 15.5px " + FONT_SERIF;
-    ctx.fillText(`PHẦN I. Thí sinh trả lời từ câu 1 đến câu ${p1Total} (Mỗi câu chỉ tô một phương án A, B, C hoặc D)`, 65, firstTopY - 10);
+    ctx.fillText(
+      `PHẦN I. Thí sinh trả lời từ câu 1 đến câu ${p1Total} (Mỗi câu chỉ tô một phương án A, B, C hoặc D)`,
+      65,
+      firstTopY - 10
+    );
 
     p1Blocks.forEach((b: any) => {
       const boxLeft = b.startX - 48;
@@ -2369,7 +2373,11 @@ export function generateVirtualOMRSheet(
     ctx.textAlign = "left";
     ctx.fillStyle = "#111827";
     ctx.font = "bold 15.5px " + FONT_SERIF;
-    ctx.fillText(`PHẦN II. Thí sinh trả lời từ câu 1 đến câu ${p2Total}. Trong mỗi ý a), b), c), d) thí sinh chọn Đúng hoặc Sai`, 65, firstTopY - 10);
+    ctx.fillText(
+      `PHẦN II. Thí sinh trả lời từ câu 1 đến câu ${p2Total}. Trong mỗi ý a), b), c), d) thí sinh chọn Đúng hoặc Sai`,
+      65,
+      firstTopY - 10
+    );
 
     const subKeys = ["a", "b", "c", "d"] as const;
     const rowYSet = Array.from(new Set(p2Blocks.map((b: any) => b.startY)));
@@ -2461,7 +2469,11 @@ export function generateVirtualOMRSheet(
       ctx.textAlign = "left";
       ctx.fillStyle = "#111827";
       ctx.font = "bold 15.5px " + FONT_SERIF;
-      ctx.fillText(`PHẦN III. Thí sinh trả lời từ câu 1 đến câu ${p3Total} (Ghi và tô kết quả số vào các ô tương ứng)`, 65, boxTop - 10);
+      ctx.fillText(
+        `PHẦN III. Thí sinh trả lời từ câu 1 đến câu ${p3Total} (Ghi và tô kết quả số vào các ô tương ứng)`,
+        65,
+        boxTop - 10
+      );
 
       ctx.strokeStyle = "#BE185D";
       ctx.lineWidth = 1;
@@ -2492,6 +2504,8 @@ export function generateVirtualOMRSheet(
         const writeBoxLeft = b.startX - writeCellW / 2;
         const writeBoxTotalW = writeCellW * 4;
 
+        ctx.strokeStyle = isFormatError ? "#DC2626" : "#BE185D";
+        ctx.lineWidth = isFormatError ? 1.8 : 1;
         ctx.strokeRect(writeBoxLeft, writeBoxTop, writeBoxTotalW, writeBoxH);
         for (let c = 1; c < 4; c++) {
           const vx = writeBoxLeft + c * writeCellW;
@@ -2499,6 +2513,19 @@ export function generateVirtualOMRSheet(
           ctx.moveTo(vx, writeBoxTop);
           ctx.lineTo(vx, writeBoxTop + writeBoxH);
           ctx.stroke();
+        }
+
+        if (isFormatError) {
+          ctx.save();
+          ctx.strokeStyle = "#DC2626";
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          ctx.moveTo(writeBoxLeft, writeBoxTop);
+          ctx.lineTo(writeBoxLeft + writeBoxTotalW, writeBoxTop + writeBoxH);
+          ctx.moveTo(writeBoxLeft + writeBoxTotalW, writeBoxTop);
+          ctx.lineTo(writeBoxLeft, writeBoxTop + writeBoxH);
+          ctx.stroke();
+          ctx.restore();
         }
 
         for (let c = 0; c < 4; c++) {
@@ -2657,7 +2684,7 @@ export default function AdminStudentReportPanel({
   const [schedulerNote, setSchedulerNote] = useState<string>("");
   const [showSupportSchedulerPanel, setShowSupportSchedulerPanel] = useState<boolean>(false);
 
-  // GHI NHẬN CHỈNH SỬA THỦ CÔNG ĐIỂM SỐ / ĐIỂM DANH 3 TRẠNG THÁI / LỊCH HỌC BÙ / BỔ TRỢ
+  // KỊCH BẢN 6: GHI NHẬN CHỈNH SỬA THỦ CÔNG ĐIỂM SỐ / ĐIỂM DANH 3 TRẠNG THÁI / LỊCH HỌC BÙ / BỔ TRỢ / SỐ TRANG IN (exportPages?: 1 | 2)
   const [dailyStudentOverrides, setDailyStudentOverrides] = useState<
     Record<
       string,
@@ -2671,6 +2698,7 @@ export default function AdminStudentReportPanel({
         homeworkStatus?: "completed" | "missing" | "late";
         questionStatusOverrides?: Record<number, boolean>;
         makeupSessions?: MakeupSupportSessionItem[];
+        exportPages?: 1 | 2;
       }
     >
   >({});
@@ -2838,7 +2866,7 @@ export default function AdminStudentReportPanel({
 
   /**
    * 3. HÀM TẢI ĐỀ THI AN TOÀN TUYỆT ĐỐI VỚI EGRESS (`fetchQuizDataZeroEgress`)
-   * - Bước 1: Kiểm tra trong `cachedExamsMap` -> Có thì dùng ngay (0 KB Egress).
+   * - Bước 1: Kiểm tra trong `cachedExamsMap` / `globalResolvedQuizzesMemoryCache` -> Có thì dùng ngay (0 KB Egress).
    * - Bước 2: Kiểm tra trong `localStorage.getItem("edunexus_practice_exams")` và `edunexus_course_data` -> Có thì lưu vào state cache và dùng ngay (0 KB Egress).
    * - Bước 3: Nếu chưa có trong máy, fetch ĐÚNG 1 LẦN từ Supabase (`practice_exams` với `select("id, title, sections, questions")`), lưu ngay vào `localStorage.getItem("edunexus_practice_exams")` để tái sử dụng vĩnh viễn.
    */
@@ -2897,8 +2925,8 @@ export default function AdminStudentReportPanel({
       try {
         let fetchedExamObj: any = null;
 
-        // Ưu tiên 3A: Nếu có client supabase trên window hoặc module, chỉ select("id, title, sections, questions")
-        const globalSupabase = (window as any).supabase || (window as any).__supabase;
+        // Ưu tiên 3A: Nếu có client supabase trên window, chỉ select("id, title, sections, questions") từ bảng practice_exams
+        const globalSupabase = getSupabaseClientSafe();
         if (globalSupabase && typeof globalSupabase.from === "function") {
           const orClauses: string[] = [];
           if (cleanId) orClauses.push(`id.eq.${cleanId}`);
@@ -3029,9 +3057,9 @@ export default function AdminStudentReportPanel({
   );
 
   /**
-   * CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD) — TUYỆT ĐỐI KHÔNG DÙNG INDEX + 1
+   * CỐ ĐỊNH VĨNH VIỄN SỐ BÁO DANH (SBD)
    */
-const sbdDirectoryMap = useMemo(() => {
+  const sbdDirectoryMap = useMemo(() => {
     const result = new Map<string, { sbd: string; stt: number; mode: "Online" | "Offline" }>();
 
     (registeredStudents || []).filter(Boolean).forEach((stu, idx) => {
@@ -3045,7 +3073,9 @@ const sbdDirectoryMap = useMemo(() => {
       if (codeFromDb) {
         finalSbd = String(codeFromDb).replace(/\D/g, "").padStart(6, "0").slice(-6);
       } else {
-        finalSbd = String(idx + 1).padStart(6, "0").slice(-6);
+        finalSbd = formatStudentAutoSBD
+          ? formatStudentAutoSBD(stu.id || stu.full_name || String(idx + 1), idx + 1)
+          : String(idx + 1).padStart(6, "0").slice(-6);
       }
 
       result.set(id, {
@@ -3123,7 +3153,8 @@ const sbdDirectoryMap = useMemo(() => {
       (l) => l.month === dailyMonth && l.week === dailyWeek
     );
   }, [allFlattenedLessons, dailyMonth, dailyWeek]);
-const autoSyncedTopicTitle = useMemo(() => {
+
+  const autoSyncedTopicTitle = useMemo(() => {
     if (currentSessionLessons.length > 0) {
       return currentSessionLessons.map((m) => m.lessonTitle).join(" • ");
     }
@@ -3136,6 +3167,7 @@ const autoSyncedTopicTitle = useMemo(() => {
   useEffect(() => {
     setOverrideTopicTitle("");
   }, [dailyMonth, dailyWeek]);
+
   // 1. DI CHUYỂN QUIZ ASSIGNMENT MAP & RESOLVE ATTEMPT LÊN TRÊN ĐỂ TRÁNH LỖI TDZ
   const quizAssignmentMap = useMemo(() => {
     const byId = new Map<
@@ -3231,21 +3263,17 @@ const autoSyncedTopicTitle = useMemo(() => {
 
   // 2. TỰ ĐỘNG XÁC ĐỊNH BÀI BTVN TUẦN TRƯỚC (CÓ KIỂM TRA THỰC TẾ HỌC SINH CÓ NỘP BÀI HAY KHÔNG)
   const autoPreviousHomeworkSource = useMemo(() => {
-    // Tạo danh sách các tuần cần quét lùi từ tuần hiện tại
     const candidateWeeks: { month: number; week: number }[] = [];
 
-    // 1. Quét lùi các tuần trong cùng tháng hiện tại
     for (let w = dailyWeek - 1; w >= 1; w--) {
       candidateWeeks.push({ month: dailyMonth, week: w });
     }
 
-    // 2. Quét lùi các tuần trong tháng liền trước (từ tuần 5 về tuần 1)
     const prevMonth = dailyMonth === 1 ? 12 : dailyMonth - 1;
     for (let w = 5; w >= 1; w--) {
       candidateWeeks.push({ month: prevMonth, week: w });
     }
 
-    // 3. Dự phòng tháng trước đó nữa
     const prevMonth2 = prevMonth === 1 ? 12 : prevMonth - 1;
     for (let w = 5; w >= 1; w--) {
       candidateWeeks.push({ month: prevMonth2, week: w });
@@ -3285,8 +3313,6 @@ const autoSyncedTopicTitle = useMemo(() => {
           firstFoundCandidateWithHw = candidateObj;
         }
 
-        // KIỂM TRA XEM TUẦN NÀY THỰC TẾ CÓ HỌC SINH NÀO NỘP BÀI HAY KHÔNG
-        // (Nếu Tuần 5 Tháng 10 nghỉ học không có bài nộp -> bỏ qua, tự động lùi về Tuần 4 Tháng 10 có bài nộp)
         const hasActualSubmissions = (combinedAllAttempts || []).some((att: any) => {
           if (!att) return false;
           const aQId = String(att.quizId || att.quiz_id || att.exam_id || "").trim().toLowerCase();
@@ -3314,8 +3340,7 @@ const autoSyncedTopicTitle = useMemo(() => {
             return true;
           }
 
-          const { month: attM, week: attW } = resolveAttemptMonthAndWeek(att);
-          return attM === m && attW === w;
+          return false;
         });
 
         if (hasActualSubmissions) {
@@ -3358,9 +3383,9 @@ const autoSyncedTopicTitle = useMemo(() => {
     allFlattenedLessons,
     combinedAllAttempts,
     quizAssignmentMap,
-    resolveAttemptMonthAndWeek,
     currentSessionLessons
   ]);
+
   const allHomeworkOptionsForDropdown = useMemo(() => {
     const options: {
       value: string;
@@ -3465,24 +3490,15 @@ const autoSyncedTopicTitle = useMemo(() => {
     allHomeworkOptionsForDropdown,
     autoPreviousHomeworkSource
   ]);
-  // ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (GỘP ATTEMPTS + MAX SCORE + DROPDOWN OVERRIDE + ZERO EGRESS CACHE)
+
+  /**
+   * ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (KỊCH BẢN 2, 3, 4, 6 + MAX SCORE + DROPDOWN OVERRIDE + ZERO EGRESS CACHE)
+   */
   const computeStudentDailyScoreRecord = useCallback(
     (
       student: any,
       attemptIdOverrideForStudent?: string | null
-    ): StudentDailyScoreData & {
-      allQuestionsReviewList?: FullQuestionReviewRow[];
-      parsedQuestionMetaList?: ParsedQuestionEvaluationMeta[];
-      homeworkQuizTitle?: string;
-      attendanceStatus?: ExtendedAttendanceStatus;
-      attendanceNote?: string;
-      makeupSessions?: MakeupSupportSessionItem[];
-      availableTestAttempts?: CandidateAttemptOption[];
-      activeAttemptId?: string | null;
-      activeQuizId?: string;
-      activeQuizTitle?: string;
-      hasResolvedQuizDefinition?: boolean;
-    } => {
+    ): ComputedStudentDailyRecord => {
       const stuId = String(student?.id || "").trim();
       const stuName = String(student?.full_name || student?.name || "Học sinh").trim();
       const dirInfo = sbdDirectoryMap.get(stuId);
@@ -3492,7 +3508,7 @@ const autoSyncedTopicTitle = useMemo(() => {
           : dirInfo?.sbd) || "000001";
       const learningMode: "Online" | "Offline" = dirInfo?.mode || "Offline";
 
-      // 1. Lấy tất cả bài nộp của học sinh từ nguồn gộp (allAttempts + localStorage "edunexus_attempts")
+      // KỊCH BẢN 4: Xóa bỏ lỗ hổng gom điểm bằng SBD mặc định "000001"
       const stuAttempts = combinedAllAttempts.filter((att: any) => {
         if (!att) return false;
         const aStuId = String(att.studentId || att.student_id || att.user_id || "").trim();
@@ -3504,17 +3520,19 @@ const autoSyncedTopicTitle = useMemo(() => {
             att.detected_sbd ||
             ""
         ).trim();
+        const isCustomSbdMatched = Boolean(
+          baseFallbackSbd && baseFallbackSbd !== "000001" && aSbd === baseFallbackSbd
+        );
         return (
           (stuId && aStuId === stuId) ||
           (stuName && aStuName === normalizeText(stuName)) ||
-          (baseFallbackSbd && aSbd === baseFallbackSbd)
+          isCustomSbdMatched
         );
       });
 
       let bestHwAttempt: any = null;
       let bestPracticeAttempt: any = null;
       const candidateDailyTestAttempts: any[] = [];
-      const fallbackAllNonHwAttempts: any[] = [];
 
       const currentSessionTestTitles = new Set<string>();
       currentSessionLessons.forEach((m) => {
@@ -3551,8 +3569,8 @@ const autoSyncedTopicTitle = useMemo(() => {
         const isTest = Boolean(meta?.isTest || att.type === "test" || (isPaper && !isHw));
         const sc = Number(att.score ?? att.points ?? 0);
 
+        // KỊCH BẢN 3: Thắt chặt khớp BTVN (Bỏ khớp tù mù bằng matchByPrevTime, chỉ nhận khi matchByIdOrTitle === true)
         if (!effectiveHomeworkTarget.isNone && isHw) {
-          // 1. Khớp theo ID hoặc Tên bài BTVN (hỗ trợ cả so sánh chuỗi con)
           const matchByIdOrTitle =
             (qId && effectiveHomeworkTarget.hwIds.has(qId)) ||
             (qTitle && effectiveHomeworkTarget.hwTitles.has(qTitle)) ||
@@ -3561,14 +3579,7 @@ const autoSyncedTopicTitle = useMemo(() => {
                 (ht) => ht && (ht.includes(qTitle) || qTitle.includes(ht))
               ));
 
-          // 2. Khớp dự phòng theo Tháng & Tuần bài nộp (không bị kẹt hwIds.size === 0)
-          const matchByPrevTime =
-            effectiveHomeworkTarget.targetMonth !== undefined &&
-            effectiveHomeworkTarget.targetWeek !== undefined &&
-            month === effectiveHomeworkTarget.targetMonth &&
-            week === effectiveHomeworkTarget.targetWeek;
-
-          if (matchByIdOrTitle || matchByPrevTime) {
+          if (matchByIdOrTitle) {
             if (
               !bestHwAttempt ||
               sc >= Number(bestHwAttempt.score ?? bestHwAttempt.points ?? 0)
@@ -3576,10 +3587,6 @@ const autoSyncedTopicTitle = useMemo(() => {
               bestHwAttempt = att;
             }
           }
-        }
-
-        if (!isHw) {
-          fallbackAllNonHwAttempts.push(att);
         }
 
         const isMatchedCurrentSessionTest =
@@ -3590,7 +3597,7 @@ const autoSyncedTopicTitle = useMemo(() => {
             (qTitle.includes(effectiveSessionTopicNorm) ||
               effectiveSessionTopicNorm.includes(qTitle)));
 
-        // Lọc riêng các bài thi trắc nghiệm (không tính BTVN)
+        // Lọc riêng các bài thi kiểm tra của đúng buổi học này (không tính BTVN)
         const isValidDailyTest =
           !isHw &&
           (isMatchedCurrentSessionTest ||
@@ -3630,14 +3637,9 @@ const autoSyncedTopicTitle = useMemo(() => {
         }
       });
 
-      // Nếu trong tuần hiện tại chưa tìm thấy bài theo tag tuần, kiểm tra các bài trắc nghiệm khác (không phải BTVN) của học sinh
-      const rawPoolForTestSorting =
-        candidateDailyTestAttempts.length > 0
-          ? candidateDailyTestAttempts
-          : fallbackAllNonHwAttempts.filter((att: any) => {
-              const { month } = resolveAttemptMonthAndWeek(att);
-              return month === dailyMonth;
-            });
+      // KỊCH BẢN 2: Bỏ Fallback tháng ở Bài kiểm tra tại lớp.
+      // Nếu học sinh không làm bài test của buổi học này, rawPoolForTestSorting sẽ rỗng -> dailyTestScore = null ("CHƯA KIỂM TRA").
+      const rawPoolForTestSorting = candidateDailyTestAttempts;
 
       // Chuẩn hóa và sắp xếp danh sách bài thi theo đúng 3 mức ưu tiên:
       // 1. Điểm số cao nhất (score giảm dần)
@@ -3711,17 +3713,9 @@ const autoSyncedTopicTitle = useMemo(() => {
         bestPracticeAttempt = null;
       }
 
-      // ĐỒNG BỘ SỐ BÁO DANH (SBD) TỪ BÀI LÀM OMR MỚI NHẤT TRƯỚC
-      const sbdRaw =
-        (bestDailyTestAttempt?.omr_raw_data?.detected_sbd ||
-          bestDailyTestAttempt?.answers?.__paper_omr_meta?.detected_sbd ||
-          bestDailyTestAttempt?.sbd ||
-          student?.sbd ||
-          dirInfo?.sbd) || "000001";
-
       const sbd = student?.student_code
-  ? String(student.student_code).padStart(6, "0")
-  : dirInfo?.sbd || "000001";
+        ? String(student.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6)
+        : dirInfo?.sbd || "000001";
 
       const ov = dailyStudentOverrides[stuId] || {};
 
@@ -3755,8 +3749,8 @@ const autoSyncedTopicTitle = useMemo(() => {
       const pracScore =
         rawPracScore !== null && !isNaN(rawPracScore) && rawPracScore > 0 ? rawPracScore : null;
 
-      // TUYỆT ĐỐI KHÔNG LẤY BTVN (bestHwAttempt) LÀM BÀI CHẤM OMR TRANG 2
-      const primaryReviewAtt = bestDailyTestAttempt || bestPracticeAttempt || null;
+      // TUYỆT ĐỐI KHÔNG LẤY BTVN (bestHwAttempt) HOẶC ĐỀ THÁNG ĐÈ LÊN BÀI TEST TẠI LỚP KHI KHÔNG KIỂM TRA
+      const primaryReviewAtt = bestDailyTestAttempt || null;
 
       let hasPaperOMR = false;
       let scannedPaperImageUrl: string | undefined = undefined;
@@ -3775,7 +3769,7 @@ const autoSyncedTopicTitle = useMemo(() => {
       let activeQuizTitle = "";
       let hasResolvedQuizDefinition = false;
 
-      if (primaryReviewAtt && (testScore !== null || pracScore !== null)) {
+      if (primaryReviewAtt && testScore !== null) {
         const meta =
           primaryReviewAtt.answers?.__paper_omr_meta ||
           primaryReviewAtt.user_answers?.__paper_omr_meta ||
@@ -3967,6 +3961,10 @@ const autoSyncedTopicTitle = useMemo(() => {
 
       const hasValidTestReview = Boolean(testScore !== null && hasPaperOMR);
 
+      // KỊCH BẢN 6: Tự động gợi ý số trang xuất PDF (2 trang khi có bài test OMR, 1 trang khi không kiểm tra), ưu tiên ov.exportPages
+      const resolvedExportPages: 1 | 2 =
+        ov.exportPages !== undefined ? ov.exportPages : hasValidTestReview ? 2 : 1;
+
       return {
         studentId: stuId,
         studentName: stuName,
@@ -4037,7 +4035,8 @@ const autoSyncedTopicTitle = useMemo(() => {
         activeAttemptId: primaryReviewAtt ? String(primaryReviewAtt.id || "") : null,
         activeQuizId,
         activeQuizTitle,
-        hasResolvedQuizDefinition
+        hasResolvedQuizDefinition,
+        exportPages: resolvedExportPages
       };
     },
     [
@@ -4058,6 +4057,28 @@ const autoSyncedTopicTitle = useMemo(() => {
       cachedExamsMap
     ]
   );
+
+  /**
+   * KỊCH BẢN 7.3: BỘ NHỚ ĐỆM `studentDailyScoreRecordsMap` BẰNG `useMemo`
+   * Giúp việc tìm kiếm học sinh, lọc danh sách và bấm checkbox phản hồi tức thì 60fps
+   */
+  const studentDailyScoreRecordsMap = useMemo(() => {
+    const map = new Map<string, ComputedStudentDailyRecord>();
+    (registeredStudents || []).forEach((stu) => {
+      if (!stu) return;
+      const stuId = String(stu.id || "").trim();
+      if (!stuId) return;
+      const attemptOverride =
+        stuId === String(selectedStudentId || "").trim() ? selectedAttemptIdOverride : null;
+      map.set(stuId, computeStudentDailyScoreRecord(stu, attemptOverride));
+    });
+    return map;
+  }, [
+    registeredStudents,
+    selectedStudentId,
+    selectedAttemptIdOverride,
+    computeStudentDailyScoreRecord
+  ]);
 
   const handleToggleOMRQuestionCorrectness = (
     studentId: string,
@@ -4140,9 +4161,12 @@ const autoSyncedTopicTitle = useMemo(() => {
 
   const filteredStudents = useMemo(() => {
     return (registeredStudents || []).filter((s) => {
+      if (!s) return false;
+      const stuId = String(s.id || "").trim();
       const matchSearch =
         (s.full_name || "").toLowerCase().includes(searchStudent.toLowerCase()) ||
-        (s.school || "").toLowerCase().includes(searchStudent.toLowerCase());
+        (s.school || "").toLowerCase().includes(searchStudent.toLowerCase()) ||
+        String(sbdDirectoryMap.get(stuId)?.sbd || "").includes(searchStudent.trim());
       if (!matchSearch) return false;
 
       if (reportViewType === "daily" && dailyStudentFilterMode !== "all") {
@@ -4155,7 +4179,8 @@ const autoSyncedTopicTitle = useMemo(() => {
           dailyStudentFilterMode === "completed" ||
           dailyStudentFilterMode === "not_completed"
         ) {
-          const rec = computeStudentDailyScoreRecord(s);
+          const rec =
+            studentDailyScoreRecordsMap.get(stuId) || computeStudentDailyScoreRecord(s);
           const hasDoneWork =
             rec.dailyTestScore !== null ||
             rec.homeworkScore !== null ||
@@ -4169,8 +4194,10 @@ const autoSyncedTopicTitle = useMemo(() => {
   }, [
     registeredStudents,
     searchStudent,
+    sbdDirectoryMap,
     reportViewType,
     dailyStudentFilterMode,
+    studentDailyScoreRecordsMap,
     computeStudentDailyScoreRecord
   ]);
 
@@ -4227,8 +4254,17 @@ const autoSyncedTopicTitle = useMemo(() => {
 
   const currentStudentDailyData = useMemo(() => {
     if (!currentStudent) return null;
-    return computeStudentDailyScoreRecord(currentStudent, selectedAttemptIdOverride);
-  }, [currentStudent, computeStudentDailyScoreRecord, selectedAttemptIdOverride]);
+    const stuId = String(currentStudent.id || "").trim();
+    return (
+      studentDailyScoreRecordsMap.get(stuId) ||
+      computeStudentDailyScoreRecord(currentStudent, selectedAttemptIdOverride)
+    );
+  }, [
+    currentStudent,
+    studentDailyScoreRecordsMap,
+    computeStudentDailyScoreRecord,
+    selectedAttemptIdOverride
+  ]);
 
   // Khi người dùng chọn học sinh hoặc chuyển bài thi mà đề thi gốc chưa có trong local/cache, gọi fetchQuizDataZeroEgress đúng 1 lần
   useEffect(() => {
@@ -4258,6 +4294,7 @@ const autoSyncedTopicTitle = useMemo(() => {
       currentStudentDailyData.hasPaperOMR
   );
 
+  // KỊCH BẢN 6: Truyền đầy đủ exportPages: 1 | 2 sang generateClassDailyReportHTML
   const handleExportClassDailyPDF = (onlyCurrentStudent: boolean = false) => {
     const targetStudents = onlyCurrentStudent
       ? currentStudent
@@ -4274,12 +4311,19 @@ const autoSyncedTopicTitle = useMemo(() => {
       return;
     }
 
-    const studentsScoreData = targetStudents.map((stu) =>
-      computeStudentDailyScoreRecord(
-        stu,
-        stu.id === currentStudent?.id ? selectedAttemptIdOverride : null
-      )
-    );
+    const studentsScoreData = targetStudents.map((stu) => {
+      const stuId = String(stu.id || "").trim();
+      const record =
+        studentDailyScoreRecordsMap.get(stuId) ||
+        computeStudentDailyScoreRecord(
+          stu,
+          stuId === String(currentStudent?.id || "").trim() ? selectedAttemptIdOverride : null
+        );
+      return {
+        ...record,
+        exportPages: record.exportPages ?? (record.hasPaperOMR ? 2 : 1)
+      };
+    });
 
     const config: DailyReportConfig & { homeworkTopicLabel?: string } = {
       reportMode: "daily",
@@ -5289,6 +5333,8 @@ const autoSyncedTopicTitle = useMemo(() => {
   const availableTestAttemptsForCurrent =
     currentStudentDailyData?.availableTestAttempts || [];
   const bestCandidateAttempt = availableTestAttemptsForCurrent[0] || null;
+  const activeExportPages: 1 | 2 =
+    currentStudentDailyData?.exportPages ?? (hasValidTestReview ? 2 : 1);
 
   return (
     <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
@@ -5512,8 +5558,8 @@ const autoSyncedTopicTitle = useMemo(() => {
               <span className="font-semibold text-slate-500">Bộ lọc học sinh:</span>
               {[
                 { key: "all", label: `Tất cả (${registeredStudents.length})` },
-                { key: "offline", label: "Offline" },
-                { key: "online", label: "Online" },
+                { key: "offline", label: "🟢 Offline" },
+                { key: "online", label: "🌐 Online" },
                 { key: "completed", label: "Đã làm bài" },
                 { key: "not_completed", label: "Chưa làm bài" }
               ].map((t) => (
@@ -5552,7 +5598,7 @@ const autoSyncedTopicTitle = useMemo(() => {
       {/* 3. GIAO DIỆN CHÍNH: DANH SÁCH HỌC VIÊN CÓ CHECKBOX BÊN TRÁI + CHI TIẾT BÊN PHẢI */}
       {reportMode === "auto" ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* CỘT TRÁI: DANH SÁCH HỌC SINH + CHECKBOX CHỌN XUẤT PDF */}
+          {/* CỘT TRÁI (KỊCH BẢN 7.1): DANH SÁCH HỌC SINH + BADGE ONLINE/OFFLINE + MINI STATUS */}
           <div className="bg-white rounded-xl p-3.5 border border-slate-200/80 shadow-2xs flex flex-col h-[780px]">
             <div className="pb-2.5 border-b border-slate-100 flex items-center justify-between gap-2">
               <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
@@ -5583,7 +5629,7 @@ const autoSyncedTopicTitle = useMemo(() => {
                 type="text"
                 value={searchStudent}
                 onChange={(e) => setSearchStudent(e.target.value)}
-                placeholder="Tìm tên hoặc trường..."
+                placeholder="Tìm tên, SBD hoặc trường..."
                 className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-blue-600"
               />
             </div>
@@ -5594,10 +5640,13 @@ const autoSyncedTopicTitle = useMemo(() => {
                 const isSelected = stuId === currentStudent?.id;
                 const isCheckedForExport = selectedExportStudentIds.has(stuId);
                 const dirInfo = sbdDirectoryMap.get(stuId);
-                const stuDataQuick = computeStudentDailyScoreRecord(student);
+                const stuDataQuick =
+                  studentDailyScoreRecordsMap.get(stuId) ||
+                  computeStudentDailyScoreRecord(student);
                 const fixedSbd = stuDataQuick.sbd || dirInfo?.sbd || "000001";
-                const stuOverride = dailyStudentOverrides[stuId];
-                const attStatus = stuOverride?.attendanceStatus || "present";
+                const stuMode = stuDataQuick.learningMode || dirInfo?.mode || "Offline";
+                const attStatus = stuDataQuick.attendanceStatus || "present";
+                const stuExportPages = stuDataQuick.exportPages ?? (stuDataQuick.hasPaperOMR ? 2 : 1);
 
                 return (
                   <div
@@ -5610,7 +5659,7 @@ const autoSyncedTopicTitle = useMemo(() => {
                         : "bg-white border-slate-200/60 hover:bg-slate-50")
                     }
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <button
                         type="button"
                         onClick={(e) => handleToggleStudentExportCheckbox(stuId, e)}
@@ -5624,29 +5673,71 @@ const autoSyncedTopicTitle = useMemo(() => {
                         )}
                       </button>
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono font-bold text-[10px] border border-slate-200">
+                      <div className="min-w-0 flex-1">
+                        {/* Hàng 1: SBD + Tên học sinh + Badge 🟢 Offline / 🌐 Online */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono font-bold text-[10px] border border-slate-200 shrink-0">
                             {fixedSbd}
                           </span>
                           <span
                             className={
-                              "font-bold text-xs block truncate " +
+                              "font-bold text-xs truncate " +
                               (isSelected ? "text-[#003399]" : "text-slate-800")
                             }
                           >
                             {student.full_name}
                           </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <p className="text-[10px] text-slate-400 truncate">
-                            {student.school || "THPT"} • {dirInfo?.mode || "Offline"}
-                          </p>
-                          {stuDataQuick.dailyTestScore !== null && (
-                            <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-bold text-[9px]">
-                              Test: {stuDataQuick.dailyTestScore}đ
+                          {stuMode === "Online" ? (
+                            <span className="px-1.5 py-0.2 rounded bg-sky-50 text-sky-700 border border-sky-200 font-bold text-[9px] shrink-0">
+                              🌐 Online
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[9px] shrink-0">
+                              🟢 Offline
                             </span>
                           )}
+                        </div>
+
+                        {/* Hàng 2: Trường + Trạng thái mini BTVN, Điểm Test ngày, Chuyên cần, Số trang */}
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          <span className="text-[10px] text-slate-400 truncate max-w-[95px]">
+                            {student.school || "THPT"}
+                          </span>
+
+                          <span
+                            className={`px-1.5 py-0.2 rounded font-bold text-[9px] ${
+                              stuDataQuick.homeworkScore !== null
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            {stuDataQuick.homeworkScore !== null
+                              ? `BTVN: ${stuDataQuick.homeworkScore}đ`
+                              : "BTVN: --"}
+                          </span>
+
+                          <span
+                            className={`px-1.5 py-0.2 rounded font-bold text-[9px] ${
+                              stuDataQuick.dailyTestScore !== null
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            {stuDataQuick.dailyTestScore !== null
+                              ? `Test: ${stuDataQuick.dailyTestScore}đ`
+                              : "Chưa KT"}
+                          </span>
+
+                          <span
+                            className={`px-1.5 py-0.2 rounded font-bold text-[9px] border ${
+                              stuExportPages === 2
+                                ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                : "bg-slate-50 text-slate-600 border-slate-200"
+                            }`}
+                          >
+                            {stuExportPages === 2 ? "📑 2Tr" : "📄 1Tr"}
+                          </span>
+
                           {attStatus === "makeup_done" && (
                             <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-bold text-[9px]">
                               Đã bù
@@ -5673,20 +5764,29 @@ const autoSyncedTopicTitle = useMemo(() => {
           </div>
 
           {/* CỘT PHẢI: CHI TIẾT BÁO CÁO NGÀY HOẶC THÁNG */}
-          <div className="lg:col-span-2 bg-white rounded-xl p-4 border border-slate-200/80 shadow-2xs space-y-4">
+          <div className="lg:col-span-2 bg-white rounded-xl p-4 border border-slate-200/80 shadow-2xs space-y-3.5">
             {reportViewType === "daily" && currentStudentDailyData ? (
-              <div className="space-y-3.5">
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-3">
+                {/* HEADER HỌC SINH & NÚT CHUYỂN ĐỔI [📄 1 Trang | 📑 2 Trang] CẠNH NÚT IN */}
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-2.5">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="px-2 py-0.5 rounded bg-[#003399] text-white font-bold text-[10px] uppercase">
                         TÂM CHÍ TÀI (TCT)
                       </span>
                       <span className="font-mono font-bold text-xs text-blue-700">
                         SBD Đồng bộ: {currentStudentDailyData.sbd}
                       </span>
-                      <span className="text-xs text-slate-500 font-medium">
-                        • Học sinh {currentStudentDailyData.learningMode}
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          currentStudentDailyData.learningMode === "Online"
+                            ? "bg-sky-50 text-sky-700 border-sky-200"
+                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        }`}
+                      >
+                        {currentStudentDailyData.learningMode === "Online"
+                          ? "🌐 Học sinh Online"
+                          : "🟢 Học sinh Offline"}
                       </span>
                     </div>
                     <h3 className="text-base font-bold text-slate-900 mt-1">
@@ -5699,27 +5799,63 @@ const autoSyncedTopicTitle = useMemo(() => {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {hasValidTestReview ? (
-                      <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> Đã sẵn sàng Phiếu OMR Trang 2
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5" /> Trang 2: Lịch Học Bù & Bổ Trợ
-                      </span>
-                    )}
+                  {/* KỊCH BẢN 6.3: Bộ nút chuyển đổi trực quan [📄 1 Trang | 📑 2 Trang] ngay cạnh nút "In phiếu bạn này" */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className="inline-flex items-center p-0.5 rounded-lg bg-slate-200/80 border border-slate-300"
+                      title="Tùy chọn xuất 1 Trang (chỉ Trang 1) hoặc 2 Trang (kèm Phụ bản Trang 2)"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDailyStudentOverrides((prev) => ({
+                            ...prev,
+                            [currentStudentDailyData.studentId]: {
+                              ...(prev[currentStudentDailyData.studentId] || {}),
+                              exportPages: 1
+                            }
+                          }))
+                        }
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                          activeExportPages === 1
+                            ? "bg-white text-[#003399] shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        📄 1 Trang
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDailyStudentOverrides((prev) => ({
+                            ...prev,
+                            [currentStudentDailyData.studentId]: {
+                              ...(prev[currentStudentDailyData.studentId] || {}),
+                              exportPages: 2
+                            }
+                          }))
+                        }
+                        className={`px-2.5 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                          activeExportPages === 2
+                            ? "bg-[#003399] text-white shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        📑 2 Trang
+                      </button>
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => handleExportClassDailyPDF(true)}
-                      className="px-3 py-1.5 rounded-lg bg-[#003399] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-[#003399] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
                     >
                       <Printer className="w-3.5 h-3.5" /> In phiếu bạn này
                     </button>
                   </div>
                 </div>
 
-                {/* 2. DROPDOWN CHỌN LƯỢT THI CŨ LINH HOẠT (ZERO EGRESS OVERHEAD) */}
+                {/* DROPDOWN CHỌN LƯỢT THI CŨ LINH HOẠT (ZERO EGRESS OVERHEAD) */}
                 {availableTestAttemptsForCurrent.length > 1 && bestCandidateAttempt && (
                   <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-[#003399]">
@@ -5758,215 +5894,255 @@ const autoSyncedTopicTitle = useMemo(() => {
                   </div>
                 )}
 
-                {/* 3 Cột Điểm số trong ngày */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200">
-                    <span className="text-[10px] font-bold uppercase text-emerald-800 block">
-                      1. ĐIỂM BTVN (TUẦN TRƯỚC)
-                    </span>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="10"
-                        value={
-                          currentStudentDailyData.homeworkScore !== null
-                            ? currentStudentDailyData.homeworkScore
-                            : ""
-                        }
-                        placeholder="Chưa nộp (--)"
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDailyStudentOverrides((prev) => ({
-                            ...prev,
-                            [currentStudentDailyData.studentId]: {
-                              ...(prev[currentStudentDailyData.studentId] || {}),
-                              homeworkScore: val,
-                              homeworkStatus:
-                                val.trim() !== "" && Number(val) > 0 ? "completed" : "missing"
+                {/* KỊCH BẢN 7.2: THANH NHẬP LIỆU ĐIỂM (BTVN, TEST NGÀY, ĐỀ THÁNG) & ĐIỂM DANH TÍCH HỢP GỌN GÀNG TRÊN 1 KHỐI NGANG */}
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2.5">
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-stretch">
+                    {/* 3 Ô Điểm thu gọn */}
+                    <div className="xl:col-span-7 grid grid-cols-3 gap-2">
+                      {/* 1. BTVN */}
+                      <div className="p-2 rounded-lg bg-emerald-50/80 border border-emerald-200 flex flex-col justify-between">
+                        <span className="text-[10px] font-bold uppercase text-emerald-800 truncate">
+                          1. Điểm BTVN
+                        </span>
+                        <div className="flex items-center gap-1 mt-1">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="10"
+                            value={
+                              currentStudentDailyData.homeworkScore !== null
+                                ? currentStudentDailyData.homeworkScore
+                                : ""
                             }
-                          }));
-                        }}
-                        className="w-24 px-2 py-1 rounded-md bg-white border border-emerald-300 font-bold text-sm text-emerald-900 outline-none"
-                      />
-                      <span className="text-xs font-bold text-emerald-700">/ 10</span>
-                    </div>
-                    <p
-                      className="text-[10px] text-emerald-800 mt-1 truncate"
-                      title={effectiveHomeworkTarget.displayTitle}
-                    >
-                      {effectiveHomeworkTarget.displayTitle}
-                    </p>
-                  </div>
+                            placeholder="Chưa nộp"
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDailyStudentOverrides((prev) => ({
+                                ...prev,
+                                [currentStudentDailyData.studentId]: {
+                                  ...(prev[currentStudentDailyData.studentId] || {}),
+                                  homeworkScore: val,
+                                  homeworkStatus:
+                                    val.trim() !== "" && Number(val) > 0 ? "completed" : "missing"
+                                }
+                              }));
+                            }}
+                            className="w-full px-2 py-1 rounded bg-white border border-emerald-300 font-bold text-xs text-emerald-900 outline-none"
+                          />
+                          <span className="text-[11px] font-bold text-emerald-700 shrink-0">/10</span>
+                        </div>
+                      </div>
 
-                  <div className="p-3 rounded-xl bg-blue-50/60 border border-blue-200">
-                    <span className="text-[10px] font-bold uppercase text-blue-800 block">
-                      2. ĐIỂM TEST TẠI LỚP (HÔM NAY)
-                    </span>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="10"
-                        value={
-                          currentStudentDailyData.dailyTestScore !== null
-                            ? currentStudentDailyData.dailyTestScore
-                            : ""
-                        }
-                        placeholder="CHƯA KIỂM TRA"
-                        onChange={(e) =>
-                          setDailyStudentOverrides((prev) => ({
-                            ...prev,
-                            [currentStudentDailyData.studentId]: {
-                              ...(prev[currentStudentDailyData.studentId] || {}),
-                              dailyTestScore: e.target.value
+                      {/* 2. Test Ngày */}
+                      <div className="p-2 rounded-lg bg-blue-50/80 border border-blue-200 flex flex-col justify-between">
+                        <span className="text-[10px] font-bold uppercase text-blue-800 truncate">
+                          2. Test Hôm Nay
+                        </span>
+                        <div className="flex items-center gap-1 mt-1">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="10"
+                            value={
+                              currentStudentDailyData.dailyTestScore !== null
+                                ? currentStudentDailyData.dailyTestScore
+                                : ""
                             }
-                          }))
-                        }
-                        className="w-32 px-2 py-1 rounded-md bg-white border border-blue-300 font-bold text-xs text-blue-900 outline-none"
-                      />
-                      <span className="text-xs font-bold text-blue-700">/ 10</span>
-                    </div>
-                    <p className="text-[10px] text-blue-800 mt-1 truncate">
-                      {currentStudentDailyData.dailyTestScore !== null
-                        ? `Kiểm tra Tuần ${dailyWeek} - Tháng ${dailyMonth}`
-                        : "Chưa tham gia kiểm tra buổi này"}
-                    </p>
-                  </div>
+                            placeholder="CHƯA KT"
+                            onChange={(e) =>
+                              setDailyStudentOverrides((prev) => ({
+                                ...prev,
+                                [currentStudentDailyData.studentId]: {
+                                  ...(prev[currentStudentDailyData.studentId] || {}),
+                                  dailyTestScore: e.target.value
+                                }
+                              }))
+                            }
+                            className="w-full px-2 py-1 rounded bg-white border border-blue-300 font-bold text-xs text-blue-900 outline-none"
+                          />
+                          <span className="text-[11px] font-bold text-blue-700 shrink-0">/10</span>
+                        </div>
+                      </div>
 
-                  <div className="p-3 rounded-xl bg-orange-50/60 border border-orange-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase text-orange-800 block">
-                        3. ĐỀ THỰC CHIẾN THÁNG
-                      </span>
-                      {currentStudentDailyData.practiceScore !== null && (
+                      {/* 3. Đề Tháng */}
+                      <div className="p-2 rounded-lg bg-orange-50/80 border border-orange-200 flex flex-col justify-between">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] font-bold uppercase text-orange-800 truncate">
+                            3. Đề Tháng
+                          </span>
+                          {currentStudentDailyData.practiceScore !== null && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDailyStudentOverrides((prev) => ({
+                                  ...prev,
+                                  [currentStudentDailyData.studentId]: {
+                                    ...(prev[currentStudentDailyData.studentId] || {}),
+                                    practiceScore: "0"
+                                  }
+                                }))
+                              }
+                              className="text-[9px] font-bold text-rose-600 hover:underline cursor-pointer shrink-0"
+                            >
+                              Xóa
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 mt-1">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="10"
+                            value={
+                              currentStudentDailyData.practiceScore !== null
+                                ? currentStudentDailyData.practiceScore
+                                : ""
+                            }
+                            placeholder="Không KT"
+                            onChange={(e) =>
+                              setDailyStudentOverrides((prev) => ({
+                                ...prev,
+                                [currentStudentDailyData.studentId]: {
+                                  ...(prev[currentStudentDailyData.studentId] || {}),
+                                  practiceScore: e.target.value
+                                }
+                              }))
+                            }
+                            className="w-full px-2 py-1 rounded bg-white border border-orange-300 font-bold text-xs text-orange-900 outline-none"
+                          />
+                          <span className="text-[11px] font-bold text-orange-700 shrink-0">/10</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bộ nút Điểm danh 3 trạng thái tích hợp trên cùng hàng ngang */}
+                    <div className="xl:col-span-5 p-2 rounded-lg bg-white border border-slate-200 flex flex-col justify-between">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-bold text-slate-700 uppercase">
+                          Chuyên cần buổi học:
+                        </span>
                         <button
                           type="button"
-                          onClick={() =>
-                            setDailyStudentOverrides((prev) => ({
-                              ...prev,
-                              [currentStudentDailyData.studentId]: {
-                                ...(prev[currentStudentDailyData.studentId] || {}),
-                                practiceScore: "0"
-                              }
-                            }))
+                          onClick={() => setShowSupportSchedulerPanel((prev) => !prev)}
+                          className="text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <CalendarPlus className="w-3 h-3" />
+                          <span>{showSupportSchedulerPanel ? "Ẩn lịch bù" : "+ Xếp lịch bù"}</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1 mt-1">
+                        {[
+                          {
+                            key: "present" as ExtendedAttendanceStatus,
+                            label: "✓ Có mặt",
+                            activeCls: "bg-emerald-600 text-white border-emerald-700 shadow-2xs"
+                          },
+                          {
+                            key: "makeup_done" as ExtendedAttendanceStatus,
+                            label: "↺ Đã học bù",
+                            activeCls: "bg-amber-500 text-white border-amber-600 shadow-2xs"
+                          },
+                          {
+                            key: "absent_need_makeup" as ExtendedAttendanceStatus,
+                            label: "✕ Nghỉ chưa bù",
+                            activeCls: "bg-rose-600 text-white border-rose-700 shadow-2xs"
                           }
-                          className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
-                        >
-                          Không KT
-                        </button>
-                      )}
+                        ].map((opt) => {
+                          const active = currentStudentDailyData.attendanceStatus === opt.key;
+                          return (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              onClick={() => {
+                                if (opt.key === "absent_need_makeup") {
+                                  setSchedulerSessionType("makeup");
+                                  setShowSupportSchedulerPanel(true);
+                                }
+                                setDailyStudentOverrides((prev) => ({
+                                  ...prev,
+                                  [currentStudentDailyData.studentId]: {
+                                    ...(prev[currentStudentDailyData.studentId] || {}),
+                                    attendanceStatus: opt.key,
+                                    attendance:
+                                      opt.key === "present"
+                                        ? "present"
+                                        : opt.key === "makeup_done"
+                                        ? "late"
+                                        : "absent"
+                                  }
+                                }));
+                              }}
+                              className={`py-1 px-1.5 rounded text-[11px] font-bold border transition cursor-pointer truncate ${
+                                active
+                                  ? opt.activeCls
+                                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="10"
-                        value={
-                          currentStudentDailyData.practiceScore !== null
-                            ? currentStudentDailyData.practiceScore
-                            : ""
-                        }
-                        placeholder="Không kiểm tra"
-                        onChange={(e) =>
-                          setDailyStudentOverrides((prev) => ({
-                            ...prev,
-                            [currentStudentDailyData.studentId]: {
-                              ...(prev[currentStudentDailyData.studentId] || {}),
-                              practiceScore: e.target.value
-                            }
-                          }))
-                        }
-                        className="w-28 px-2 py-1 rounded-md bg-white border border-orange-300 font-bold text-xs text-orange-900 outline-none"
-                      />
-                      <span className="text-xs font-bold text-orange-700">/ 10</span>
-                    </div>
-                    <p className="text-[10px] text-orange-800 mt-1 truncate">
-                      {currentStudentDailyData.practiceExamTitle}
-                    </p>
                   </div>
-                </div>
 
-                {/* KHỐI ĐIỂM DANH 3 TRẠNG THÁI & XẾP LỊCH HỌC BÙ / BỔ TRỢ LINH HOẠT */}
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800 uppercase">
-                      Điểm danh & Phân loại Học bù:
+                  {/* Hàng phụ gọn: Ý thức làm BTVN */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
+                    <span className="text-[11px] font-bold text-slate-600">
+                      Ý thức BTVN ({effectiveHomeworkTarget.displayTitle}):
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowSupportSchedulerPanel((prev) => !prev)}
-                      className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <CalendarPlus className="w-3.5 h-3.5" />
-                      <span>
-                        {showSupportSchedulerPanel
-                          ? "Thu gọn bảng xếp lịch"
-                          : "+ Xếp lịch Bổ trợ / Học bù"}
-                      </span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {[
-                      {
-                        key: "present" as ExtendedAttendanceStatus,
-                        label: "✓ Có mặt đúng giờ",
-                        activeCls: "bg-emerald-600 text-white border-emerald-700 shadow-2xs"
-                      },
-                      {
-                        key: "makeup_done" as ExtendedAttendanceStatus,
-                        label: "↺ Nghỉ (Đã học bù)",
-                        activeCls: "bg-amber-500 text-white border-amber-600 shadow-2xs"
-                      },
-                      {
-                        key: "absent_need_makeup" as ExtendedAttendanceStatus,
-                        label: "✕ Nghỉ (Chưa bù)",
-                        activeCls: "bg-rose-600 text-white border-rose-700 shadow-2xs"
-                      }
-                    ].map((opt) => {
-                      const active = currentStudentDailyData.attendanceStatus === opt.key;
-                      return (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          onClick={() => {
-                            if (opt.key === "absent_need_makeup") {
-                              setSchedulerSessionType("makeup");
-                              setShowSupportSchedulerPanel(true);
+                    <div className="flex items-center gap-1.5">
+                      {[
+                        {
+                          key: "completed",
+                          label: "✓ Đầy đủ",
+                          activeCls: "bg-emerald-600 text-white border-emerald-700"
+                        },
+                        {
+                          key: "late",
+                          label: "⚠️ Nộp muộn",
+                          activeCls: "bg-amber-500 text-white border-amber-600"
+                        },
+                        {
+                          key: "missing",
+                          label: "✕ Chưa nộp",
+                          activeCls: "bg-rose-600 text-white border-rose-700"
+                        }
+                      ].map((opt) => {
+                        const active = currentStudentDailyData.homeworkStatus === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() =>
+                              setDailyStudentOverrides((prev) => ({
+                                ...prev,
+                                [currentStudentDailyData.studentId]: {
+                                  ...(prev[currentStudentDailyData.studentId] || {}),
+                                  homeworkStatus: opt.key as any
+                                }
+                              }))
                             }
-                            setDailyStudentOverrides((prev) => ({
-                              ...prev,
-                              [currentStudentDailyData.studentId]: {
-                                ...(prev[currentStudentDailyData.studentId] || {}),
-                                attendanceStatus: opt.key,
-                                attendance:
-                                  opt.key === "present"
-                                    ? "present"
-                                    : opt.key === "makeup_done"
-                                    ? "late"
-                                    : "absent"
-                              }
-                            }));
-                          }}
-                          className={`py-2 px-3 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                            active
-                              ? opt.activeCls
-                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
+                            className={`py-1 px-2.5 rounded-md text-[11px] font-bold border transition cursor-pointer ${
+                              active
+                                ? opt.activeCls
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {currentStudentDailyData.attendanceStatus === "makeup_done" && (
-                    <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-900">
-                      ✓ Đã ghi nhận vào báo cáo: <strong>"Nghỉ buổi học chính - Đã hoàn thành học bù và bài tập"</strong> (Điểm BTVN và điểm kiểm tra được giữ nguyên).
+                    <div className="px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-900">
+                      ✓ Đã ghi nhận vào báo cáo: <strong>"Nghỉ buổi học chính - Đã hoàn thành học bù và bài tập"</strong>.
                     </div>
                   )}
 
@@ -5978,7 +6154,7 @@ const autoSyncedTopicTitle = useMemo(() => {
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
                         <span className="text-xs font-bold text-[#003399] flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-orange-500" />
-                          <span>Xếp lịch Học bù / Bổ trợ (In trực tiếp lên Trang 2 A4)</span>
+                          <span>Xếp lịch Học bù / Bổ trợ (In trực tiếp lên phiếu báo cáo)</span>
                         </span>
 
                         <div className="flex items-center gap-1.5">
@@ -6126,55 +6302,6 @@ const autoSyncedTopicTitle = useMemo(() => {
                         )}
                     </div>
                   )}
-
-                  <div className="pt-1">
-                    <span className="text-xs font-bold text-slate-800 uppercase block mb-1.5">
-                      Ý thức làm Bài tập về nhà (BTVN tuần trước):
-                    </span>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        {
-                          key: "completed",
-                          label: "✓ Hoàn thành đầy đủ",
-                          activeCls: "bg-emerald-600 text-white border-emerald-700"
-                        },
-                        {
-                          key: "late",
-                          label: "⚠️ Nộp muộn",
-                          activeCls: "bg-amber-500 text-white border-amber-600"
-                        },
-                        {
-                          key: "missing",
-                          label: "✕ Chưa hoàn thành",
-                          activeCls: "bg-rose-600 text-white border-rose-700"
-                        }
-                      ].map((opt) => {
-                        const active = currentStudentDailyData.homeworkStatus === opt.key;
-                        return (
-                          <button
-                            key={opt.key}
-                            type="button"
-                            onClick={() =>
-                              setDailyStudentOverrides((prev) => ({
-                                ...prev,
-                                [currentStudentDailyData.studentId]: {
-                                  ...(prev[currentStudentDailyData.studentId] || {}),
-                                  homeworkStatus: opt.key as any
-                                }
-                              }))
-                            }
-                            className={`py-1.5 px-3 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                              active
-                                ? opt.activeCls
-                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
                 </div>
 
                 {/* Nhận xét của Giáo viên */}
@@ -6200,12 +6327,12 @@ const autoSyncedTopicTitle = useMemo(() => {
 
                 {/* 5. BỐ CỤC THÍCH ỨNG THÔNG MINH TRANG 2 (SMART ADAPTIVE LAYOUT) */}
                 {hasValidTestReview && currentStudentDailyData.scannedPaperImageUrl ? (
-                  /* NHÁNH A: KHI CÓ BÀI TEST (hasValidTestReview === true) -> Hiển thị Phiếu Canvas OMR bên trái + Bảng đối chiếu 22 câu bên phải + Bảng Lịch học bù/bổ trợ thu nhỏ phía dưới */
+                  /* NHÁNH A: KHI CÓ BÀI TEST (hasValidTestReview === true) -> Hiển thị Phiếu Canvas OMR bên trái + Bảng đối chiếu câu hỏi bên phải + Bảng Lịch học bù/bổ trợ thu nhỏ phía dưới */
                   <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
                       <div>
                         <span className="text-[10px] font-bold uppercase text-emerald-400 block">
-                          ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR & BẢNG ĐỐI CHIẾU 22 CÂU (TRANG 2)
+                          ✓ PHỤ BẢN ĐỐI SOÁT PHIẾU OMR & BẢNG ĐỐI CHIẾU CÂU HỎI (TRANG 2)
                         </span>
                         <h4 className="text-xs font-bold text-white mt-0.5">
                           {currentStudentDailyData.paperExamTitle} (Mã đề:{" "}
@@ -6223,87 +6350,50 @@ const autoSyncedTopicTitle = useMemo(() => {
 
                       <div className="flex items-center gap-1.5">
                         <button
-  type="button"
-  disabled={isFetchingQuizZeroEgress}
-  onClick={async () => {
-    setIsFetchingQuizZeroEgress(true);
-    try {
-      const targetId = "exam-1793503014491";
-      const targetTitle = "TEST NGUYÊN HÀM";
-      let matchedExam: any = null;
+                          type="button"
+                          disabled={isFetchingQuizZeroEgress}
+                          onClick={async () => {
+                            const targetId =
+                              currentStudentDailyData.activeQuizId || "exam-1793503014491";
+                            const targetTitle =
+                              currentStudentDailyData.activeQuizTitle ||
+                              currentStudentDailyData.paperExamTitle ||
+                              "TEST NGUYÊN HÀM";
 
-      // BƯỚC 1: Quét trực tiếp trong localStorage.getItem("edunexus_practice_exams")
-      try {
-        const localList = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
-        matchedExam = localList.find((e: any) =>
-          String(e?.id || "").trim() === targetId ||
-          (e?.title && e.title.toUpperCase().includes("NGUYÊN HÀM"))
-        );
-      } catch (e) {}
+                            // Cho phép thử lại nếu người dùng chủ động bấm nút Đồng bộ
+                            fetchedQuizKeysRef.current.clear();
 
-      // BƯỚC 2: Quét trong props practiceExams truyền từ trang cha
-      if (!matchedExam && Array.isArray(practiceExams)) {
-        matchedExam = practiceExams.find((e: any) =>
-          String(e?.id || "").trim() === targetId ||
-          (e?.title && e.title.toUpperCase().includes("NGUYÊN HÀM"))
-        );
-      }
-
-      // BƯỚC 3: Nếu vẫn chưa có, gọi API nội bộ /api/admin/data (KHÔNG TỐN EGRESS SUPABASE)
-      if (!matchedExam) {
-        try {
-          const res = await fetch("/api/admin/data");
-          if (res.ok) {
-            const apiData = await res.json();
-            const list = apiData.practiceExams || [];
-            matchedExam = list.find((e: any) =>
-              String(e?.id || "").trim() === targetId ||
-              (e?.title && e.title.toUpperCase().includes("NGUYÊN HÀM"))
-            );
-          }
-        } catch (e) {}
-      }
-
-      if (matchedExam) {
-        const cleanId = String(matchedExam.id || targetId).toLowerCase();
-
-        // 1. Lưu đè chuẩn vào edunexus_practice_exams
-        try {
-          const curList = JSON.parse(localStorage.getItem("edunexus_practice_exams") || "[]");
-          const nextList = [
-            ...curList.filter((e: any) => String(e.id).toLowerCase() !== cleanId),
-            matchedExam
-          ];
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(nextList));
-        } catch (e) {}
-
-        // 2. Xóa cache ảnh OMR cũ
-        virtualOMRCache.clear();
-
-        // 3. Cập nhật state bộ nhớ đệm
-        setCachedExamsMap((prev) => ({
-          ...prev,
-          [cleanId]: matchedExam,
-          [targetId]: matchedExam,
-          [`title:${normalizeText(matchedExam.title || targetTitle)}`]: matchedExam
-        }));
-
-        alert(`✅ Đã đồng bộ thành công đề: "${matchedExam.title}"!\nToàn bộ 22 câu hỏi chuẩn đã sẵn sàng.`);
-        window.location.reload();
-      } else {
-        alert("⚠️ Không tìm thấy đề trong hệ thống.");
-      }
-    } catch (err: any) {
-      alert("❌ Lỗi: " + (err.message || err));
-    } finally {
-      setIsFetchingQuizZeroEgress(false);
-    }
-  }}
-  className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition active:scale-95"
->
-  <RefreshCw className={`w-3.5 h-3.5 ${isFetchingQuizZeroEgress ? "animate-spin" : ""}`} />
-  <span>{isFetchingQuizZeroEgress ? "Đang đồng bộ..." : "Đồng bộ Đáp án đề"}</span>
-</button>
+                            const syncedQuiz = await fetchQuizDataZeroEgress(
+                              targetId,
+                              targetTitle
+                            );
+                            if (syncedQuiz) {
+                              virtualOMRCache.clear();
+                              setCachedExamsMap((prev) => ({
+                                ...prev,
+                                [String(syncedQuiz.id || targetId).toLowerCase()]: syncedQuiz,
+                                [`title:${normalizeText(syncedQuiz.title || targetTitle)}`]:
+                                  syncedQuiz
+                              }));
+                            } else {
+                              alert(
+                                "⚠️ Chưa tìm thấy cấu trúc câu hỏi của đề thi này trong bộ nhớ hoặc bảng practice_exams."
+                              );
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition active:scale-95"
+                        >
+                          <RefreshCw
+                            className={`w-3.5 h-3.5 ${
+                              isFetchingQuizZeroEgress ? "animate-spin" : ""
+                            }`}
+                          />
+                          <span>
+                            {isFetchingQuizZeroEgress
+                              ? "Đang đồng bộ..."
+                              : "Đồng bộ Đáp án đề"}
+                          </span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -6413,7 +6503,7 @@ const autoSyncedTopicTitle = useMemo(() => {
                         </span>
                       </div>
 
-                      {/* Cột phải: Bảng đối chiếu chi tiết 22 câu */}
+                      {/* Cột phải: Bảng đối chiếu chi tiết câu hỏi */}
                       <div className="md:col-span-7 border border-slate-800 rounded-xl overflow-hidden bg-slate-950/50">
                         <div className="max-h-[380px] overflow-y-auto custom-scrollbar">
                           <table className="w-full text-left text-[11px] border-collapse">
@@ -6535,19 +6625,27 @@ const autoSyncedTopicTitle = useMemo(() => {
                     </div>
                   </div>
                 ) : (
-                  /* NHÁNH B: KHI KHÔNG CÓ BÀI TEST / NGHỈ HỌC (hasValidTestReview === false) -> Ẩn hoàn toàn OMR & Bảng đối chiếu, Phóng to Bảng Lịch học bù & Bổ trợ tuần lên trung tâm + 2 khối bên dưới */
+                  /* NHÁNH B: KHI KHÔNG CÓ BÀI TEST / NGHỈ HỌC (hasValidTestReview === false) */
                   <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-3.5">
-                    <div className="flex items-center justify-between border-b border-amber-200/80 pb-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/80 pb-2.5">
                       <div>
                         <span className="text-[10px] font-bold uppercase text-amber-800 block">
-                          📌 TRANG 2 THÍCH ỨNG THÔNG MINH (KHÔNG CÓ BÀI TEST / NGHỈ HỌC)
+                          📌 HỌC SINH CHƯA KIỂM TRA BUỔI HÔM NAY (MẶC ĐỊNH XUẤT 1 TRANG ĐỂ TRÁNH LÃNG PHÍ GIẤY)
                         </span>
                         <h4 className="text-sm font-bold text-slate-900 mt-0.5">
                           Bảng Lịch Học Bù &amp; Lớp Bổ Trợ Tuần (Trung tâm Toán Tâm Chí Tài - TCT)
                         </h4>
                       </div>
-                      <span className="px-2.5 py-1 rounded-md bg-amber-600 text-white text-[11px] font-bold">
-                        Đã ẩn khung OMR &amp; Bảng 22 câu
+                      <span
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
+                          activeExportPages === 1
+                            ? "bg-slate-800 text-white"
+                            : "bg-amber-600 text-white"
+                        }`}
+                      >
+                        {activeExportPages === 1
+                          ? "📄 Chế độ in: Chỉ in Trang 1 (Bỏ qua Trang 2)"
+                          : "📑 Chế độ in: 2 Trang (In kèm Lịch Học Bù Trang 2)"}
                       </span>
                     </div>
 
@@ -6627,7 +6725,7 @@ const autoSyncedTopicTitle = useMemo(() => {
                             trước buổi học kế tiếp.
                           </li>
                           <li>
-                            Ôn tập kỹ hệ thống công thức trọng tâm và luyện phản xạ 22 câu chuẩn cấu trúc mới.
+                            Ôn tập kỹ hệ thống công thức trọng tâm và luyện phản xạ chuẩn cấu trúc mới.
                           </li>
                           <li>
                             Mục tiêu điểm kiểm tra định kỳ buổi tới đạt từ{" "}
