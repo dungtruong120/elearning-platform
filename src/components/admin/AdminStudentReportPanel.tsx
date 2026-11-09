@@ -3073,9 +3073,7 @@ export default function AdminStudentReportPanel({
       if (codeFromDb) {
         finalSbd = String(codeFromDb).replace(/\D/g, "").padStart(6, "0").slice(-6);
       } else {
-        finalSbd = formatStudentAutoSBD
-          ? formatStudentAutoSBD(stu.id || stu.full_name || String(idx + 1), idx + 1)
-          : String(idx + 1).padStart(6, "0").slice(-6);
+        finalSbd = String(idx + 1).padStart(6, "0").slice(-6);
       }
 
       result.set(id, {
