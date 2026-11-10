@@ -593,9 +593,15 @@ export default function PaperExamManagerTab({
   );
 
   // 3. HÀM NẠP DỮ LIỆU BÀI THI GIẤY TỪ SUPABASE
+ // 3. HÀM NẠP DỮ LIỆU BÀI THI GIẤY (CHỈ CHỌN CỘT NHẸ, KHÔNG SELECT *)
+  const isFetchingRef = useRef<boolean>(false);
+
   const fetchPaperSubmissions = useCallback(
     async (showNotification: boolean = false) => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
       setIsSyncingFromSupabase(true);
+
       try {
         const delIds =
           typeof window !== "undefined"
@@ -604,133 +610,51 @@ export default function PaperExamManagerTab({
               )
             : new Set<string>();
 
-        const collected: any[] = [];
-
+        // 🟢 CHỈ CHỌN CỘT NHẸ (BỎ QUA CÁC CỘT ẢNH BASE64 NẶNG)
         const { data: sbAttempts, error: sbErr } = await supabase
           .from("exam_attempts")
-          .select("*")
+          .select("id, exam_id, quiz_id, student_id, student_name, exam_title, score, points, correct_count, total_questions, submission_type, created_at")
           .order("created_at", { ascending: false })
-          .limit(200);
+          .limit(100);
 
         if (!sbErr && Array.isArray(sbAttempts)) {
-          collected.push(...sbAttempts);
-        }
+          const freshPaperList = sbAttempts
+            .filter((row: any) => {
+              const uniqueKey = String(row.id || "");
+              return !delIds.has(uniqueKey);
+            })
+            .map((row: any) => ({
+              ...row,
+              quizId: row.exam_id || row.quiz_id,
+              studentId: row.student_id,
+              studentDisplayName: row.student_name || "Học sinh",
+              examDisplayTitle: row.exam_title || "Bài thi giấy",
+              scoreVal: Number(row.score ?? row.points ?? 0),
+              correctVal: Number(row.correct_count ?? 0),
+              totalQVal: Number(row.total_questions ?? 0),
+              dateFormatted: row.created_at ? new Date(row.created_at).toLocaleString("vi-VN") : ""
+            }));
 
-        const paperMap = new Map<string, any>();
+          setSupabasePaperAttempts(freshPaperList);
 
-        collected.forEach((row: any) => {
-          if (!row) return;
-          const meta = row.answers?.__paper_omr_meta || row.user_answers?.__paper_omr_meta || null;
-          const isPaperRow =
-            row.submission_type === "paper" ||
-            row.submission_type === "digital_sheet" ||
-            Boolean(row.scanned_image_url) ||
-            Boolean(row.paper_scan_url) ||
-            Boolean(row.omr_raw_data) ||
-            Boolean(meta) ||
-            String(row.id || "").startsWith("paper_") ||
-            String(row.id || "").startsWith("att-paper-");
-
-          if (!isPaperRow) return;
-
-          const quizId = String(row.exam_id || row.quiz_id || row.quizId || "").trim();
-          const studentId = String(row.student_id || row.studentId || row.user_id || "").trim();
-          const uniqueKey = String(row.id || `paper_${quizId}_${studentId}`);
-          if (delIds.has(uniqueKey)) return;
-
-          const matchedStu = sbdToStudentMap.get(studentId.toLowerCase());
-          const normalizedRow = {
-            ...row,
-            id: uniqueKey,
-            quiz_id: quizId,
-            quizId: quizId,
-            exam_id: quizId,
-            student_id: studentId,
-            studentId: studentId,
-            student_name:
-              row.student_name ||
-              row.studentName ||
-              meta?.student_name ||
-              matchedStu?.full_name ||
-              "Học sinh",
-            studentName:
-              row.student_name ||
-              row.studentName ||
-              meta?.student_name ||
-              matchedStu?.full_name ||
-              "Học sinh",
-            exam_title: row.exam_title || row.examTitle || row.quiz_title || meta?.exam_title || "",
-            examTitle: row.exam_title || row.examTitle || row.quiz_title || meta?.exam_title || "",
-            score: Number(row.score ?? row.points ?? 0),
-            points: Number(row.score ?? row.points ?? 0),
-            correct_count: Number(
-              row.correct_answers_count ?? row.correct_count ?? row.correctCount ?? 0
-            ),
-            correctCount: Number(
-              row.correct_answers_count ?? row.correct_count ?? row.correctCount ?? 0
-            ),
-            total_questions: Number(row.total_questions ?? row.totalQuestions ?? 0),
-            totalQuestions: Number(row.total_questions ?? row.totalQuestions ?? 0),
-            submission_type: "paper",
-            paper_scan_url:
-              row.scanned_image_url ||
-              row.paper_scan_url ||
-              meta?.scanned_image_url ||
-              row.omr_raw_data?.warped_image_data_url ||
-              "",
-            omr_raw_data: row.omr_raw_data || {
-              detected_sbd: meta?.detected_sbd || matchedStu?.sbd || "",
-              detected_exam_code: meta?.detected_exam_code || "",
-              flagged_questions: meta?.flagged_questions || [],
-              bubble_coordinates: meta?.bubble_coordinates || [],
-              confidence: meta?.confidence || 98
-            },
-            created_at: row.created_at || row.createdAt || new Date().toISOString(),
-            createdAt: row.created_at || row.createdAt || new Date().toISOString()
-          };
-
-          paperMap.set(uniqueKey, normalizedRow);
-        });
-
-        const freshPaperList = Array.from(paperMap.values());
-        setSupabasePaperAttempts(freshPaperList);
-
-        if (freshPaperList.length > 0) {
-          const freshIds = new Set(freshPaperList.map((x) => String(x.id)));
-          const mergedGlobal = [
-            ...freshPaperList,
-            ...(Array.isArray(propAttempts) && propAttempts.length > 0
-              ? propAttempts
-              : localAttempts
-            ).filter((a: any) => !freshIds.has(String(a?.id)))
-          ];
-
-          setLocalAttempts(mergedGlobal);
-          if (typeof setAllAttempts === "function") {
-            (setAllAttempts as any)(mergedGlobal);
+          if (showNotification && showToast) {
+            showToast(
+              `Đã đồng bộ ${freshPaperList.length} bài thi giấy từ Supabase!`,
+              "success"
+            );
           }
-          if (typeof window !== "undefined") {
-            try {
-              localStorage.setItem("edunexus_attempts", JSON.stringify(mergedGlobal));
-            } catch {}
-          }
-        }
-
-        if (showNotification && showToast) {
-          showToast(
-            `Đã đồng bộ ${freshPaperList.length} bài thi giấy mới nhất từ Supabase!`,
-            "success"
-          );
         }
       } catch (err) {
         console.warn("Lỗi fetchPaperSubmissions:", err);
       } finally {
+        isFetchingRef.current = false;
         setIsSyncingFromSupabase(false);
       }
     },
-    [sbdToStudentMap, propAttempts, localAttempts, setAllAttempts, showToast]
+    [showToast] // 🟢 Chỉ phụ thuộc showToast, TUYỆT ĐỐI không nhét attempts vào đây!
   );
 
+  // Chỉ kích hoạt khi mở trang hoặc khi có Realtime Event
   useEffect(() => {
     fetchPaperSubmissions(false);
 
@@ -748,7 +672,6 @@ export default function PaperExamManagerTab({
       supabase.removeChannel(channel);
     };
   }, [fetchPaperSubmissions]);
-
   const effectiveAttempts = useMemo(() => {
     const map = new Map<string, any>();
     (Array.isArray(propAttempts) && propAttempts.length > 0 ? propAttempts : localAttempts).forEach(
@@ -1709,11 +1632,34 @@ export default function PaperExamManagerTab({
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => {
-                              setZoomScale(1);
-                              setEditScoreInput(item.scoreVal.toFixed(2));
-                              setInspectingAttempt(item);
-                            }}
+                            onClick={async () => {
+  setZoomScale(1);
+  setEditScoreInput(item.scoreVal.toFixed(2));
+  setInspectingAttempt(item);
+
+  // Nếu bài chưa có link ảnh scan thì mới fetch đúng 1 ảnh này từ Supabase
+  if (!item.paperScanUrl && !item.scanned_image_url) {
+    try {
+      const { data } = await supabase
+        .from("exam_attempts")
+        .select("scanned_image_url, paper_scan_url, omr_raw_data, answers")
+        .eq("id", item.id)
+        .maybeSingle();
+
+      if (data) {
+        setInspectingAttempt((prev: any) =>
+          prev && prev.id === item.id
+            ? {
+                ...prev,
+                paperScanUrl: data.scanned_image_url || data.paper_scan_url,
+                omr_raw_data: data.omr_raw_data || prev.omr_raw_data
+              }
+            : prev
+        );
+      }
+    } catch (e) {}
+  }
+}}
                             className="px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
                           >
                             <Eye className="w-3.5 h-3.5 text-slate-500" />
