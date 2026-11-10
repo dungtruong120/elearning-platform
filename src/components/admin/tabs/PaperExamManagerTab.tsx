@@ -1641,40 +1641,41 @@ useEffect(() => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                           onClick={async () => {
-  setZoomScale(1);
-  setEditScoreInput(item.scoreVal.toFixed(2));
-  setInspectingAttempt(item);
+                        <button
+  type="button"
+  onClick={async () => {
+    setZoomScale(1);
+    setEditScoreInput(item.scoreVal.toFixed(2));
+    setInspectingAttempt(item);
 
-  // Chỉ tải ảnh của đúng 1 bài này nếu chưa có
-  if (!item.paperScanUrl) {
-    const { data } = await supabase
-      .from("exam_attempts")
-      .select("scanned_image_url, paper_scan_url, omr_raw_data, answers")
-      .eq("id", item.id)
-      .maybeSingle();
+    if (!item.paperScanUrl) {
+      try {
+        const { data } = await supabase
+          .from("exam_attempts")
+          .select("scanned_image_url, paper_scan_url, omr_raw_data, answers")
+          .eq("id", item.id)
+          .maybeSingle();
 
-    if (data) {
-      setInspectingAttempt((prev: any) =>
-        prev && prev.id === item.id
-          ? {
-              ...prev,
-              paperScanUrl: data.scanned_image_url || data.paper_scan_url,
-              omr_raw_data: data.omr_raw_data || prev.omr_raw_data,
-              answers: data.answers || prev.answers
-            }
-          : prev
-      );
+        if (data) {
+          setInspectingAttempt((prev: any) =>
+            prev && prev.id === item.id
+              ? {
+                  ...prev,
+                  paperScanUrl: data.scanned_image_url || data.paper_scan_url,
+                  omr_raw_data: data.omr_raw_data || prev.omr_raw_data,
+                  answers: data.answers || prev.answers
+                }
+              : prev
+          );
+        }
+      } catch (e) {}
     }
-  }
-}}
-                            className="px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Xem & Sửa</span>
-                          </button>
+  }}
+  className="..."
+>
+  <Eye className="w-3.5 h-3.5 text-slate-500" />
+  <span>Xem & Sửa</span>
+</button>
                           <button
                             type="button"
                             onClick={() => handleDeletePaperAttempt(item)}
