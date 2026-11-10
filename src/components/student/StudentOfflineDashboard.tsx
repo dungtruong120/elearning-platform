@@ -354,16 +354,38 @@ const [examRoom, setExamRoom] = useState<any | null>(() => {
   // 3. ĐỒNG BỘ NỀN TỪ SUPABASE
  const fetchAuthAndData = useCallback(async () => {
     // 0. TỰ ĐỘNG ĐỒNG BỘ PROFILE MỚI NHẤT TỪ SUPABASE
-    if (profile?.id) {
+   if (profile?.id) {
       try {
         const { data: freshProfile } = await supabase
           .from("profiles")
-          .select("id, student_code, full_name, email, phone, school, grade, role, learning_mode")
+          .select("id, student_code, full_name, email, phone, school, grade, role, learning_mode, status, approval_status, is_approved")
           .eq("id", profile.id)
           .maybeSingle();
 
         if (freshProfile) {
-          const cleanCode = freshProfile.student_code ? String(freshProfile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6) : "";
+          // 🚨 NẾU TÀI KHOẢN ĐANG Ở TRẠNG THÁI BỊ KHÓA / TỪ CHỐI
+          const isLocked =
+            freshProfile.status === "rejected" ||
+            freshProfile.status === "locked" ||
+            freshProfile.approval_status === "rejected" ||
+            freshProfile.is_approved === false;
+
+          if (isLocked) {
+            localStorage.removeItem("tct_current_user");
+            localStorage.removeItem("edunexus_current_user");
+            sessionStorage.clear();
+            alert("⚠️ Quyền truy cập của bạn đã bị khóa bởi Ban quản trị. Vui lòng liên hệ trung tâm để được hỗ trợ!");
+            if (onLogout) {
+              onLogout();
+            } else {
+              window.location.href = "/";
+            }
+            return;
+          }
+
+          const cleanCode = freshProfile.student_code
+            ? String(freshProfile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6)
+            : "";
 
           setProfile((prev: any) => {
             const updated = {
@@ -575,7 +597,39 @@ const channelCourses = supabase
         fetchAuthAndData()
       )
       .subscribe();
+// Kênh bắt sự kiện Khóa tài khoản Realtime
+    const channelSecurity = supabase
+      .channel(`security-guard-${profile?.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${profile?.id}`
+        },
+        (payload: any) => {
+          const updated = payload.new;
+          const isLocked =
+            updated?.status === "rejected" ||
+            updated?.status === "locked" ||
+            updated?.approval_status === "rejected" ||
+            updated?.is_approved === false;
 
+          if (isLocked) {
+            localStorage.removeItem("tct_current_user");
+            localStorage.removeItem("edunexus_current_user");
+            sessionStorage.clear();
+            alert("🔒 Tài khoản của bạn vừa bị tạm khóa bởi Ban quản trị.");
+            if (onLogout) {
+              onLogout();
+            } else {
+              window.location.href = "/";
+            }
+          }
+        }
+      )
+      .subscribe();
     const channelSessions = supabase
       .channel("realtime-student-offline-sessions")
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () =>
