@@ -1354,7 +1354,7 @@ supabase
           supabase
             .from("sessions")
             .select("id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at")
-            .order("created_at", { ascending: false }),
+            .order("created_at", { ascending: false })
             .limit(50),
           supabase
             .from("system_notifications")
