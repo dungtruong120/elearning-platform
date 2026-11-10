@@ -656,9 +656,7 @@ const { data: sbAttempts, error: sbErr } = await supabase
   );
 
   // Chỉ kích hoạt khi mở trang hoặc khi có Realtime Event
-  useEffect(() => {
-   // ✅ SỬA THÀNH:
-const hasFetchedOnceRef = useRef(false);
+  const hasFetchedOnceRef = useRef(false);
 
   useEffect(() => {
     if (!hasFetchedOnceRef.current) {
@@ -669,12 +667,16 @@ const hasFetchedOnceRef = useRef(false);
     let timer: any = null;
     const channel = supabase
       .channel("paper-exams-realtime-sync")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "exam_attempts" }, () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          fetchPaperSubmissions(false);
-        }, 3000);
-      })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "exam_attempts" },
+        () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            fetchPaperSubmissions(false);
+          }, 3000);
+        }
+      )
       .subscribe();
 
     return () => {
