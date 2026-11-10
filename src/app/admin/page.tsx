@@ -1350,16 +1350,16 @@ function AdminDashboardContent() {
 supabase
   .from("lessons")
   .select("id, chapter_id, title, description, duration, format, target_mode, assigned_month, assigned_week, created_at")
-  .order("created_at", { ascending: false })
+  .order("created_at", { ascending: false }),
           supabase
             .from("sessions")
             .select("id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at")
-            .order("created_at", { ascending: false })
+            .order("created_at", { ascending: false }),
             .limit(50),
           supabase
             .from("system_notifications")
             .select("id, title, content, type, createdAt, created_at")
-            .order("created_at", { ascending: false })
+            .order("created_at", { ascending: false }),
             .limit(50),
           supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
         ]);
