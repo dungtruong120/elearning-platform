@@ -1851,24 +1851,43 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
-  const handleUpdateStudentStatus = async (
-    studentId: string,
-    status: "approved" | "rejected"
-  ) => {
-    const isApproved = status === "approved";
+const handleUpdateStudentStatus = async (studentId: string, newStatus: "approved" | "rejected") => {
+  try {
+    const isApprovedFlag = newStatus === "approved";
+    
+    // 1. Cập nhật trạng thái trên bảng profiles của Supabase
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        status: newStatus,
+        approval_status: newStatus,
+        is_approved: isApprovedFlag,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", studentId);
 
-    setRegisteredStudents((prev) =>
+    if (error) {
+      alert("Lỗi cập nhật trạng thái: " + error.message);
+      return;
+    }
+
+    // 2. Cập nhật state danh sách học sinh ngay trên giao diện Admin
+    setRegisteredStudents((prev: any[]) =>
       prev.map((s) =>
         s.id === studentId
           ? {
               ...s,
-              approval_status: status,
-              status: status,
-              is_approved: isApproved,
+              status: newStatus,
+              approval_status: newStatus,
+              is_approved: isApprovedFlag
             }
           : s
       )
     );
+  } catch (err: any) {
+    alert("Có lỗi xảy ra: " + (err.message || err));
+  }
+};
 
     if (typeof window !== "undefined") {
       try {
