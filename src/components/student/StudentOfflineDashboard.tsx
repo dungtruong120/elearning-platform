@@ -1222,42 +1222,41 @@ const offlineChapters = useMemo(() => {
   );
 
 const handleOpenLesson = async (les: any) => {
-    // CHẶN XEM NẾU BÀI ĐANG KHÓA
-    if (les?.is_locked) {
-      setOfflineToast("🔒 Bài học chưa diễn ra, tài liệu và BTVN sẽ mở sau buổi học!");
-      setTimeout(() => setOfflineToast(""), 3500);
-      return;
+  if (les?.is_locked) {
+    setOfflineToast("🔒 Bài học chưa diễn ra, tài liệu và BTVN sẽ mở sau buổi học!");
+    setTimeout(() => setOfflineToast(""), 3500);
+    return;
+  }
+
+  try {
+    // 1. Tải tài liệu bài giảng (bỏ các cột bị lỗi 400 nếu bảng lessons không có)
+    const { data: lessonData } = await supabase
+      .from("lessons")
+      .select("lecture_files, handwritten_notes, test_quizzes, extra_resources, description")
+      .eq("id", les.id)
+      .maybeSingle();
+
+    // 2. Kéo danh sách BTVN SIÊU NHẸ: BỎ HẲN 'data' và 'sections' (Chỉ tốn ~1KB thay vì 3MB)
+    const { data: hwData } = await supabase
+      .from("homeworks")
+      .select("id, lesson_id, title, duration_minutes, is_quiz")
+      .eq("lesson_id", les.id);
+
+    const fullLesson = {
+      ...les,
+      ...(lessonData || {}),
+      homework_files: hwData || []
+    };
+
+    setSelectedLesson(fullLesson);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("tct_active_lesson", JSON.stringify(fullLesson));
     }
-
-    try {
-      // 1. Tải tài liệu bài giảng từ bảng lessons
-      const { data: lessonData } = await supabase
-        .from("lessons")
-        .select("video_list, lecture_files, handwritten_notes, test_quizzes, extra_resources, description")
-        .eq("id", les.id)
-        .maybeSingle();
-
-      // 2. Kéo danh sách BTVN từ bảng homeworks (BAO GỒM DATA & SECTIONS CÂU HỎI)
-      const { data: hwData } = await supabase
-        .from("homeworks")
-        .select("id, lesson_id, title, duration_minutes, is_quiz, data, sections")
-        .eq("lesson_id", les.id);
-
-      const fullLesson = {
-        ...les,
-        ...(lessonData || {}),
-        homework_files: hwData || []
-      };
-
-      setSelectedLesson(fullLesson);
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("tct_active_lesson", JSON.stringify(fullLesson));
-      }
-    } catch (err) {
-      console.error("Lỗi tải bài học:", err);
-      setSelectedLesson(les);
-    }
-  };
+  } catch (err) {
+    console.error("Lỗi tải bài học:", err);
+    setSelectedLesson(les);
+  }
+};
   const handlePreviewExamWithDetail = async (exam: any) => {
     if (exam.data && exam.data.length > 0) {
       setPreviewExam(exam);
@@ -1442,12 +1441,12 @@ if (examRoom) {
               }
 
               // 2. Query trực tiếp bảng homeworks từ Supabase nếu chưa nạp đủ câu hỏi
-              if (!hasQuestions(targetExam) && isHomework) {
-                const { data: dbHw } = await supabase
-                  .from("homeworks")
-                  .select("id, title, data, sections, media_map, duration_minutes")
-                  .eq("id", qId)
-                  .maybeSingle();
+             if (!hasQuestions(targetExam) && isHomework) {
+  const { data: dbHw } = await supabase
+    .from("homeworks")
+    .select("id, title, data, sections, media_map, duration_minutes")
+    .eq("id", qId)
+    .maybeSingle();
 
                 if (dbHw && hasQuestions(dbHw)) {
                   targetExam = dbHw;
