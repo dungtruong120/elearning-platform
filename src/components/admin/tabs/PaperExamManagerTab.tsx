@@ -660,29 +660,28 @@ const { data: sbAttempts, error: sbErr } = await supabase
    // ✅ SỬA THÀNH:
 const hasFetchedOnceRef = useRef(false);
 
-useEffect(() => {
-  if (!hasFetchedOnceRef.current) {
-    hasFetchedOnceRef.current = true;
-    fetchPaperSubmissions(false);
-  }
+  useEffect(() => {
+    if (!hasFetchedOnceRef.current) {
+      hasFetchedOnceRef.current = true;
+      fetchPaperSubmissions(false);
+    }
 
-  // Lắng nghe sự kiện nộp bài mới nhưng giới hạn thời gian (Debounce)
-  let timer: any = null;
-  const channel = supabase
-    .channel("paper-exams-realtime-sync")
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "exam_attempts" }, () => {
+    let timer: any = null;
+    const channel = supabase
+      .channel("paper-exams-realtime-sync")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "exam_attempts" }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          fetchPaperSubmissions(false);
+        }, 3000);
+      })
+      .subscribe();
+
+    return () => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        fetchPaperSubmissions(false);
-      }, 3000); // Đợi 3 giây sau mới fetch, tránh bị spam
-    })
-    .subscribe();
-
-  return () => {
-    clearTimeout(timer);
-    supabase.removeChannel(channel);
-  };
-}, []); // 👈 Để mảng rỗng [] để không bao giờ bị re-run vô tận!
+      supabase.removeChannel(channel);
+    };
+  }, [fetchPaperSubmissions]);
   const effectiveAttempts = useMemo(() => {
     const map = new Map<string, any>();
     (Array.isArray(propAttempts) && propAttempts.length > 0 ? propAttempts : localAttempts).forEach(
@@ -1641,7 +1640,7 @@ useEffect(() => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="inline-flex items-center gap-1.5">
-                        <button
+                      <button
   type="button"
   onClick={async () => {
     setZoomScale(1);
@@ -1671,7 +1670,7 @@ useEffect(() => {
       } catch (e) {}
     }
   }}
-  className="..."
+  className="px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
 >
   <Eye className="w-3.5 h-3.5 text-slate-500" />
   <span>Xem & Sửa</span>
