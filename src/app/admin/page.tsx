@@ -1851,77 +1851,65 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin tài liệu!", "success");
   };
 
-const handleUpdateStudentStatus = async (studentId: string, newStatus: "approved" | "rejected") => {
-  try {
-    const isApprovedFlag = newStatus === "approved";
-    
-    // 1. Cập nhật trạng thái trên bảng profiles của Supabase
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        status: newStatus,
-        approval_status: newStatus,
-        is_approved: isApprovedFlag,
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", studentId);
-
-    if (error) {
-      alert("Lỗi cập nhật trạng thái: " + error.message);
-      return;
-    }
-
-    // 2. Cập nhật state danh sách học sinh ngay trên giao diện Admin
-    setRegisteredStudents((prev: any[]) =>
-      prev.map((s) =>
-        s.id === studentId
-          ? {
-              ...s,
-              status: newStatus,
-              approval_status: newStatus,
-              is_approved: isApprovedFlag
-            }
-          : s
-      )
-    );
-  } catch (err: any) {
-    alert("Có lỗi xảy ra: " + (err.message || err));
-  }
-};
-
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("edunexus_registered_students");
-        if (saved) {
-          const list = JSON.parse(saved);
-          const updated = list.map((s: any) =>
-            s.id === studentId
-              ? {
-                  ...s,
-                  approval_status: status,
-                  status: status,
-                  is_approved: isApproved,
-                }
-              : s
-          );
-          localStorage.setItem("edunexus_registered_students", JSON.stringify(updated));
-        }
-      } catch (e) {}
-    }
-
+const handleUpdateStudentStatus = async (
+    studentId: string,
+    newStatus: "approved" | "rejected"
+  ) => {
     try {
-      const res = await fetch("/api/admin/data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update_status", studentId, status }),
-      });
-      const resData = await res.json();
-      if (!res.ok || !resData.success) {
-        throw new Error(resData.error || "Lỗi cập nhật từ API");
+      const isApprovedFlag = newStatus === "approved";
+
+      // 1. Cập nhật trực tiếp lên bảng profiles của Supabase
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          status: newStatus,
+          approval_status: newStatus,
+          is_approved: isApprovedFlag,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", studentId);
+
+      if (error) {
+        showToast("Lỗi Supabase: " + error.message, "error");
+        return;
       }
-      showToast("Đã " + (isApproved ? "duyệt" : "khóa") + " học sinh thành công!", "success");
+
+      // 2. Bắn tín hiệu Realtime qua WebSocket để đá văng học sinh ngay lập tức
+      if (newStatus === "rejected") {
+        await supabase.channel("system-security-channel").send({
+          type: "broadcast",
+          event: "force_kick_student",
+          payload: { studentId }
+        });
+      }
+
+      // 3. Cập nhật state nội bộ Admin
+      setRegisteredStudents((prev: any[]) => {
+        const next = (prev || []).map((s) =>
+          s.id === studentId
+            ? {
+                ...s,
+                status: newStatus,
+                approval_status: newStatus,
+                is_approved: isApprovedFlag
+              }
+            : s
+        );
+
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("edunexus_registered_students", JSON.stringify(next));
+          } catch (e) {}
+        }
+        return next;
+      });
+
+      showToast(
+        `Đã ${isApprovedFlag ? "duyệt" : "khóa"} học sinh thành công!`,
+        "success"
+      );
     } catch (err: any) {
-      showToast("Lỗi cập nhật lên cơ sở dữ liệu: " + err.message, "error");
+      showToast("Có lỗi xảy ra: " + (err.message || err), "error");
     }
   };
 
@@ -2216,7 +2204,14 @@ const handleUpdateStudentStatus = async (studentId: string, newStatus: "approved
     });
     return Array.from(recoveredMap.values());
   }, [registeredStudents, allAttempts]);
-
+// Chỉ lấy những học sinh đã được duyệt hợp lệ (LOẠI BỎ HỌC SINH BỊ KHÓA)
+  const activeRegisteredStudents = useMemo(() => {
+    return (effectiveStudentsWithRecovery || []).filter((s) => {
+      if (!s) return false;
+      const st = s.approval_status || s.status || (s.is_approved ? "approved" : "pending");
+      return st === "approved" || s.is_approved === true;
+    });
+  }, [effectiveStudentsWithRecovery]);
   const analyticsData = useMemo(() => {
     const profileMap = new Map<string, any>();
     (effectiveStudentsWithRecovery || []).forEach((s) => {
@@ -2952,39 +2947,38 @@ const handleUpdateStudentStatus = async (studentId: string, newStatus: "approved
           )}
 
           {activeTab === "paper-exams" && (
-            <PaperExamManagerTab
-              chapters={chapters || []}
-              practiceExams={practiceExams || []}
-              registeredStudents={effectiveStudentsWithRecovery || []}
-              allAttempts={allAttempts || []}
-              setAllAttempts={setAllAttempts}
-              showToast={showToast}
-              onOpenBulkScannerModal={(selectedQuiz) => {
-                setBulkOmrScannerQuiz(selectedQuiz || null);
-                setIsBulkOmrScannerOpen(true);
-              }}
-            />
-          )}
+  <PaperExamManagerTab
+    chapters={chapters || []}
+    practiceExams={practiceExams || []}
+    registeredStudents={activeRegisteredStudents} // 👈 Đổi sang activeRegisteredStudents
+    allAttempts={allAttempts || []}
+    setAllAttempts={setAllAttempts}
+    showToast={showToast}
+    onOpenBulkScannerModal={(selectedQuiz) => {
+      setBulkOmrScannerQuiz(selectedQuiz || null);
+      setIsBulkOmrScannerOpen(true);
+    }}
+  />
+)}
 
-          {activeTab === "analytics" && (
-            <AnalyticsTab
-              analyticsData={analyticsData || []}
-              analyticsModeFilter={analyticsModeFilter}
-              setAnalyticsModeFilter={setAnalyticsModeFilter}
-              rankingScope={rankingScope}
-              setRankingScope={setRankingScope}
-              selectedChapterId={selectedChapterId}
-              setSelectedChapterId={setSelectedChapterId}
-              selectedLessonId={selectedLessonId}
-              setSelectedLessonId={setSelectedLessonId}
-              chapters={chapters || []}
-              isLoadingAnalytics={isLoadingAnalytics}
-              allAttempts={allAttempts || []}
-              registeredStudents={effectiveStudentsWithRecovery || []}
-              practiceExams={practiceExams || []}
-            />
-          )}
-
+        {activeTab === "analytics" && (
+  <AnalyticsTab
+    analyticsData={analyticsData || []}
+    analyticsModeFilter={analyticsModeFilter}
+    setAnalyticsModeFilter={setAnalyticsModeFilter}
+    rankingScope={rankingScope}
+    setRankingScope={setRankingScope}
+    selectedChapterId={selectedChapterId}
+    setSelectedChapterId={setSelectedChapterId}
+    selectedLessonId={selectedLessonId}
+    setSelectedLessonId={setSelectedLessonId}
+    chapters={chapters || []}
+    isLoadingAnalytics={isLoadingAnalytics}
+    allAttempts={allAttempts || []}
+    registeredStudents={activeRegisteredStudents} // 👈 Đổi sang activeRegisteredStudents
+    practiceExams={practiceExams || []}
+  />
+)}
           {activeTab === "notifications" && (
             <NotificationsTab
               notifTitle={notifTitle}
@@ -3036,14 +3030,14 @@ const handleUpdateStudentStatus = async (studentId: string, newStatus: "approved
           )}
 
           {activeTab === "reports" && (
-            <AdminStudentReportPanel
-              registeredStudents={effectiveStudentsWithRecovery || []}
-              allAttempts={allAttempts || []}
-              chapters={chapters || []}
-              practiceExams={practiceExams || []}
-              attendanceRecords={attendanceRecords || []}
-            />
-          )}
+  <AdminStudentReportPanel
+    registeredStudents={activeRegisteredStudents} // 👈 Đổi từ effectiveStudentsWithRecovery sang activeRegisteredStudents
+    allAttempts={allAttempts || []}
+    chapters={chapters || []}
+    practiceExams={practiceExams || []}
+    attendanceRecords={attendanceRecords || []}
+  />
+)}
         </div>
       </main>
 
