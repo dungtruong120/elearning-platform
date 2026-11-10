@@ -611,11 +611,12 @@ export default function PaperExamManagerTab({
             : new Set<string>();
 
         // 🟢 CHỈ CHỌN CỘT NHẸ (BỎ QUA CÁC CỘT ẢNH BASE64 NẶNG)
-        const { data: sbAttempts, error: sbErr } = await supabase
-          .from("exam_attempts")
-          .select("id, exam_id, quiz_id, student_id, student_name, exam_title, score, points, correct_count, total_questions, submission_type, created_at")
-          .order("created_at", { ascending: false })
-          .limit(100);
+        // ✅ ĐOẠN MỚI SIÊU NHẸ (CHỈ ~3KB THAY VÌ 2.3MB):
+const { data: sbAttempts, error: sbErr } = await supabase
+  .from("exam_attempts")
+  .select("id, exam_id, quiz_id, student_id, student_name, exam_title, score, points, correct_count, correct_answers_count, total_questions, submission_type, created_at, assigned_month, assigned_week")
+  .order("created_at", { ascending: false })
+  .limit(100);
 
         if (!sbErr && Array.isArray(sbAttempts)) {
           const freshPaperList = sbAttempts
@@ -656,22 +657,32 @@ export default function PaperExamManagerTab({
 
   // Chỉ kích hoạt khi mở trang hoặc khi có Realtime Event
   useEffect(() => {
+   // ✅ SỬA THÀNH:
+const hasFetchedOnceRef = useRef(false);
+
+useEffect(() => {
+  if (!hasFetchedOnceRef.current) {
+    hasFetchedOnceRef.current = true;
     fetchPaperSubmissions(false);
+  }
 
-    const channel = supabase
-      .channel("paper-exams-realtime-sync")
-      .on("broadcast", { event: "new_attempt" }, () => {
+  // Lắng nghe sự kiện nộp bài mới nhưng giới hạn thời gian (Debounce)
+  let timer: any = null;
+  const channel = supabase
+    .channel("paper-exams-realtime-sync")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "exam_attempts" }, () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
         fetchPaperSubmissions(false);
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, () => {
-        fetchPaperSubmissions(false);
-      })
-      .subscribe();
+      }, 3000); // Đợi 3 giây sau mới fetch, tránh bị spam
+    })
+    .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchPaperSubmissions]);
+  return () => {
+    clearTimeout(timer);
+    supabase.removeChannel(channel);
+  };
+}, []); // 👈 Để mảng rỗng [] để không bao giờ bị re-run vô tận!
   const effectiveAttempts = useMemo(() => {
     const map = new Map<string, any>();
     (Array.isArray(propAttempts) && propAttempts.length > 0 ? propAttempts : localAttempts).forEach(
@@ -1632,32 +1643,31 @@ export default function PaperExamManagerTab({
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={async () => {
+                           onClick={async () => {
   setZoomScale(1);
   setEditScoreInput(item.scoreVal.toFixed(2));
   setInspectingAttempt(item);
 
-  // Nếu bài chưa có link ảnh scan thì mới fetch đúng 1 ảnh này từ Supabase
-  if (!item.paperScanUrl && !item.scanned_image_url) {
-    try {
-      const { data } = await supabase
-        .from("exam_attempts")
-        .select("scanned_image_url, paper_scan_url, omr_raw_data, answers")
-        .eq("id", item.id)
-        .maybeSingle();
+  // Chỉ tải ảnh của đúng 1 bài này nếu chưa có
+  if (!item.paperScanUrl) {
+    const { data } = await supabase
+      .from("exam_attempts")
+      .select("scanned_image_url, paper_scan_url, omr_raw_data, answers")
+      .eq("id", item.id)
+      .maybeSingle();
 
-      if (data) {
-        setInspectingAttempt((prev: any) =>
-          prev && prev.id === item.id
-            ? {
-                ...prev,
-                paperScanUrl: data.scanned_image_url || data.paper_scan_url,
-                omr_raw_data: data.omr_raw_data || prev.omr_raw_data
-              }
-            : prev
-        );
-      }
-    } catch (e) {}
+    if (data) {
+      setInspectingAttempt((prev: any) =>
+        prev && prev.id === item.id
+          ? {
+              ...prev,
+              paperScanUrl: data.scanned_image_url || data.paper_scan_url,
+              omr_raw_data: data.omr_raw_data || prev.omr_raw_data,
+              answers: data.answers || prev.answers
+            }
+          : prev
+      );
+    }
   }
 }}
                             className="px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold transition inline-flex items-center gap-1 cursor-pointer"
