@@ -1349,7 +1349,7 @@ function AdminDashboardContent() {
          // Kiểm tra và rút gọn select của lessons:
 supabase
   .from("lessons")
-  .select("id, chapter_id, title, description, duration, format, target_mode, assigned_month, assigned_week, created_at")
+  .select("id, chapter_id, title, description, duration, target_mode, assigned_month, assigned_week, created_at")
   .order("created_at", { ascending: false }),
           supabase
             .from("sessions")
