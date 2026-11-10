@@ -1359,7 +1359,7 @@ supabase
           supabase
             .from("system_notifications")
             .select("id, title, content, type, createdAt, created_at")
-            .order("created_at", { ascending: false }),
+            .order("created_at", { ascending: false })
             .limit(50),
           supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
         ]);
