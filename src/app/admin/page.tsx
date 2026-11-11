@@ -1383,22 +1383,25 @@ supabase
             title: chap.title,
             target_mode: chap.target_mode || "all",
             lessons: dbLessons
-              .filter((l: any) => l.chapter_id === chap.id)
-              .map((l: any) => ({
-                id: l.id,
-                chapter_id: chap.id,
-                title: l.title,
-                description: l.description || "",
-                duration: l.duration || 45,
-                format: l.format || "Zoom",
-                target_mode: l.target_mode || "all",
-                video_list: l.video_list || [],
-                lecture_files: l.lecture_files || [],
-                // ĐỌC BTVN TỪ BẢNG RIÊNG VÀ GHÉP VÀO:
-                homework_files: allHomeworks.filter((h: any) => h.lesson_id === l.id),
-                test_quizzes: l.test_quizzes || []
-              }))
-          }));
+  .filter((l: any) => l.chapter_id === chap.id)
+  .map((l: any) => ({
+    id: l.id,
+    chapter_id: chap.id,
+    title: l.title,
+    description: l.description || "",
+    duration: l.duration || 45,
+    format: "Zoom",
+    target_mode: l.target_mode || "all",
+    // ⚠️ ĐẢM BẢO CÓ ĐẦY ĐỦ 3 DÒNG NÀY (NẾU THIẾU SẼ BỊ CỨNG Ở TUẦN 1 THÁNG 10):
+    assigned_month: Number(l.assigned_month) || 10,
+    assigned_week: Number(l.assigned_week) || 1,
+    study_date: l.study_date || "",
+    is_locked: Boolean(l.is_locked),
+    video_list: l.video_list || [],
+    lecture_files: l.lecture_files || [],
+    homework_files: allHomeworks.filter((h: any) => h.lesson_id === l.id),
+    test_quizzes: l.test_quizzes || []
+  }))
 
           setChapters(assembled);
           latestChaptersRef.current = assembled;
