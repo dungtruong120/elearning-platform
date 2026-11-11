@@ -106,7 +106,26 @@ interface LessonsTabProps {
   };
   [key: string]: any;
 }
+function formatDateToInput(dStr: string): string {
+  if (!dStr) return "";
+  if (dStr.includes("-")) return dStr;
+  const parts = dStr.split("/");
+  if (parts.length === 3) {
+    const [d, m, y] = parts;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return "";
+}
 
+function formatInputToDisplay(isoStr: string): string {
+  if (!isoStr) return "";
+  const parts = isoStr.split("-");
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    return `${d}/${m}/${y}`;
+  }
+  return isoStr;
+}
 export default function LessonsTab({
   chapters,
   setChapters,
@@ -143,7 +162,7 @@ export default function LessonsTab({
     }, 0);
   }, [chapters]);
 
-  // SẮP XẾP BÀI MỚI TẠO LÊN TRÊN ĐẦU
+ // SẮP XẾP BÀI MỚI NHẤT (THÁNG CAO HƠN, TUẦN CAO HƠN) LÊN TRÊN ĐẦU
   const computedFlattenedLessons = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return [];
     const list: any[] = [];
@@ -160,12 +179,8 @@ export default function LessonsTab({
           return;
         }
 
-      const lesMonth = les?.assigned_month !== undefined && les?.assigned_month !== null && Number(les.assigned_month) > 0 
-  ? Number(les.assigned_month) 
-  : 10;
-const lesWeek = les?.assigned_week !== undefined && les?.assigned_week !== null && Number(les.assigned_week) > 0 
-  ? Number(les.assigned_week) 
-  : 1;
+        const lesMonth = Number(les?.assigned_month) > 0 ? Number(les.assigned_month) : 10;
+        const lesWeek = Number(les?.assigned_week) > 0 ? Number(les.assigned_week) : 1;
 
         if (selectedMonthFilter !== "all" && lesMonth !== Number(selectedMonthFilter)) {
           return;
@@ -185,7 +200,17 @@ const lesWeek = les?.assigned_week !== undefined && les?.assigned_week !== null 
       });
     });
 
+    // 🟢 SẮP XẾP: Tháng lớn hơn lên trước -> Tuần lớn hơn lên trước -> Ngày tạo mới hơn lên trước
     list.sort((a, b) => {
+      // 1. So sánh Tháng (Tháng 11 trước Tháng 10)
+      if (b.assigned_month !== a.assigned_month) {
+        return b.assigned_month - a.assigned_month;
+      }
+      // 2. Cùng tháng thì so sánh Tuần (Tuần 3 trước Tuần 2, Tuần 1)
+      if (b.assigned_week !== a.assigned_week) {
+        return b.assigned_week - a.assigned_week;
+      }
+      // 3. Cùng tuần thì bài tạo mới nhất lên trước
       if (b.createdAtTime && a.createdAtTime && b.createdAtTime !== a.createdAtTime) {
         return b.createdAtTime - a.createdAtTime;
       }
@@ -758,67 +783,72 @@ const lesWeek = les?.assigned_week !== undefined && les?.assigned_week !== null 
         </td>
 
         {/* Cột Tuần / Tháng / Ngày */}
-        <td className="py-3.5 px-3 text-center border-r border-slate-100">
-          <div className="flex flex-col items-center gap-1.5">
-            <div className="flex items-center justify-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/90 w-full">
-              <select
-                value={lesWeek}
-                onChange={(e) =>
-                  handleQuickChangeLessonSchedule(
-                    les.chapterId,
-                    les.id,
-                    lesMonth,
-                    Number(e.target.value)
-                  )
-                }
-                className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-emerald-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
-              >
-                {[1, 2, 3, 4, 5].map((w) => (
-                  <option key={w} value={w}>
-                    Tuần {w}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={lesMonth}
-                onChange={(e) =>
-                  handleQuickChangeLessonSchedule(
-                    les.chapterId,
-                    les.id,
-                    Number(e.target.value),
-                    lesWeek
-                  )
-                }
-                className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-[#1D4ED8] outline-none focus:border-[#1D4ED8] cursor-pointer"
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                  <option key={m} value={m}>
-                    Th.{m < 10 ? "0" + m : m}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <input
-              type="text"
-              value={studyDate}
-              placeholder="Ngày: 08/11/2026"
-              onChange={(e) => {
-                const val = e.target.value;
-                const updated = (chapters || []).map((c: any) => ({
-                  ...c,
-                  lessons: (c.lessons || []).map((l: any) =>
-                    l.id === les.id ? { ...l, study_date: val } : l
-                  )
-                }));
-                if (typeof setChapters === "function") setChapters(updated);
-              }}
-              onBlur={(e) =>
-                handleChangeStudyDate(les.chapterId, les.id, e.target.value.trim())
-              }
-              className="w-full text-center text-[10px] font-bold bg-white border border-slate-200 rounded-lg px-1.5 py-0.5 outline-none focus:border-[#1D4ED8]"
-            />
-          </div>
-        </td>
+       {/* ✅ ĐOẠN MỚI THAY THẾ: */}
+<td className="py-3.5 px-3 text-center border-r border-slate-100">
+  <div className="flex flex-col items-center gap-1.5">
+    <div className="flex items-center justify-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/90 w-full">
+      <select
+        value={lesWeek}
+        onChange={(e) =>
+          handleQuickChangeLessonSchedule(
+            les.chapterId,
+            les.id,
+            lesMonth,
+            Number(e.target.value)
+          )
+        }
+        title="Chọn Tuần"
+        className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-emerald-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
+      >
+        {[1, 2, 3, 4, 5].map((w) => (
+          <option key={w} value={w}>
+            Tuần {w}
+          </option>
+        ))}
+      </select>
+      <select
+        value={lesMonth}
+        onChange={(e) =>
+          handleQuickChangeLessonSchedule(
+            les.chapterId,
+            les.id,
+            Number(e.target.value),
+            lesWeek
+          )
+        }
+        title="Chọn Tháng"
+        className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-[#1D4ED8] outline-none focus:border-[#1D4ED8] cursor-pointer"
+      >
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+          <option key={m} value={m}>
+            Th.{m < 10 ? "0" + m : m}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    {/* 🟢 INPUT DATE CHỌN LỊCH TRỰC TIẾP TẠI ĐÂY */}
+    <input
+      type="date"
+      value={formatDateToInput(studyDate)}
+      onChange={async (e) => {
+        const isoVal = e.target.value;
+        const displayVal = formatInputToDisplay(isoVal);
+
+        const updated = (chapters || []).map((c: any) => ({
+          ...c,
+          lessons: (c.lessons || []).map((l: any) =>
+            l.id === les.id ? { ...l, study_date: displayVal } : l
+          ),
+        }));
+        if (typeof setChapters === "function") setChapters(updated);
+
+        await handleChangeStudyDate(les.chapterId, les.id, displayVal);
+      }}
+      className="w-full text-center text-[11px] font-bold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-[#1D4ED8] cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs"
+    />
+  </div>
+</td>
 
         {/* Các cột còn lại (Chương, Phân luồng, Hình thức, MatrixCell...) giữ nguyên */}
             
