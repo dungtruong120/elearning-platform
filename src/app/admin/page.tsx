@@ -1402,7 +1402,7 @@ supabase
     homework_files: allHomeworks.filter((h: any) => h.lesson_id === l.id),
     test_quizzes: l.test_quizzes || []
   }))
-
+}));
           setChapters(assembled);
           latestChaptersRef.current = assembled;
         }
