@@ -310,10 +310,10 @@ export default function LessonsTab({
   };
 
   // 2. NHẬP NGÀY HỌC VÀ LƯU THẲNG LÊN SUPABASE
-  const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
+const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
     const cleanDate = newDateStr.trim();
 
-    // Cập nhật state giao diện
+    // 1. Cập nhật state UI
     const updatedChapters = (chapters || []).map((chap: any) => {
       if (chap?.id !== chapterId) return chap;
       return {
@@ -326,7 +326,7 @@ export default function LessonsTab({
     });
     if (typeof setChapters === "function") setChapters(updatedChapters);
 
-    // GHI TRỰC TIẾP VÀO BẢNG LESSONS TRÊN SUPABASE
+    // 2. Ghi trực tiếp vào Supabase
     try {
       const { error } = await supabase
         .from("lessons")
@@ -334,12 +334,13 @@ export default function LessonsTab({
         .eq("id", lessonId);
 
       if (error) {
-        console.error("Lỗi cập nhật study_date lên Supabase:", error);
+        console.error("Lỗi cập nhật study_date:", error.message);
       }
     } catch (err) {
-      console.error("Lỗi ghi Supabase:", err);
+      console.error("Lỗi kết nối Supabase:", err);
     }
 
+    // 3. Đồng bộ vào LocalStorage/Context
     if (typeof onUpdateChapters === "function") {
       await onUpdateChapters(updatedChapters, `ngày học ${cleanDate}`);
     } else if (typeof saveToStorage === "function") {
