@@ -246,7 +246,7 @@ const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
       setIsResolvingExam(true);
 
       // 1. Bảng HOMEWORKS (cột thật: id, title, data, sections, media_map, duration_minutes)
-      if (targetId && isUuid(targetId)) {
+      if (targetId) {
         const { data: dbHw } = await supabase
           .from("homeworks")
           .select("id, title, data, sections, media_map, duration_minutes")
@@ -322,7 +322,7 @@ const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
       }
 
       // 3. Bảng PRACTICE_EXAMS (cột thật: id, title, data, media_map, duration_minutes)
-      if (targetId && isUuid(targetId)) {
+     if (targetId) {
         const { data: byIdPrac } = await supabase
           .from("practice_exams")
           .select("id, title, data, media_map, duration_minutes")
