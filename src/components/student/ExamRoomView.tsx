@@ -758,48 +758,83 @@ export function ExamRoomView({
       } catch {}
     }
 
-  // ƯU TIÊN 2: Nếu bộ nhớ máy chưa có, query lần lượt homeworks rồi practice_exams
+  // ƯU TIÊN 2: Truy vấn tách biệt theo ID trước, sau đó theo Title (tránh lỗi cú pháp .or() khi có dấu cách)
     if (!dbExam) {
-      const { data: hwData } = await supabase
-        .from("homeworks")
-        .select("id, title, data, sections, media_map, duration_minutes")
-        .or(`id.eq.${quizId},title.eq.${quizTitle}`)
-        .limit(1)
-        .maybeSingle();
-
-      if (hwData && (hwData.data || hwData.sections)) {
-        dbExam = hwData;
-      } else {
-        const { data: pracData } = await supabase
-          .from("practice_exams")
-          .select("id, title, data, media_map, duration_minutes")
-          .or(`id.eq.${quizId},title.eq.${quizTitle}`)
+      // 2A. Tìm trong bảng homeworks
+      if (quizId) {
+        const { data: hwById } = await supabase
+          .from("homeworks")
+          .select("id, title, data, sections, media_map, duration_minutes")
+          .eq("id", quizId)
+          .maybeSingle();
+        if (hwById) dbExam = hwById;
+      }
+      if (!dbExam && quizTitle) {
+        const { data: hwByTitle } = await supabase
+          .from("homeworks")
+          .select("id, title, data, sections, media_map, duration_minutes")
+          .ilike("title", quizTitle.trim())
           .limit(1)
           .maybeSingle();
-        if (pracData) dbExam = pracData;
+        if (hwByTitle) dbExam = hwByTitle;
+      }
+
+      // 2B. Nếu không có trong homeworks -> tìm trong practice_exams
+      if (!dbExam && quizId) {
+        const { data: pracById } = await supabase
+          .from("practice_exams")
+          .select("id, title, data, media_map, duration_minutes")
+          .eq("id", quizId)
+          .maybeSingle();
+        if (pracById) dbExam = pracById;
+      }
+      if (!dbExam && quizTitle) {
+        const { data: pracByTitle } = await supabase
+          .from("practice_exams")
+          .select("id, title, data, media_map, duration_minutes")
+          .ilike("title", quizTitle.trim())
+          .limit(1)
+          .maybeSingle();
+        if (pracByTitle) dbExam = pracByTitle;
       }
     }
-let targetExam = dbExam;
-    
 
-        // 3. Fallback đọc localStorage
-        if (!targetExam && typeof window !== "undefined") {
-          try {
-            const saved = localStorage.getItem("edunexus_practice_exams");
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              const list = Array.isArray(parsed) ? parsed : parsed?.exams || [];
-              targetExam = list.find((e: any) => e.id === quizId || e.title === quizTitle);
-            }
-          } catch (e) {}
+    let targetExam = dbExam;
+
+    // 3. Fallback đọc localStorage
+    if (!targetExam && typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("edunexus_practice_exams");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const list = Array.isArray(parsed) ? parsed : parsed?.exams || [];
+          targetExam = list.find((e: any) => e.id === quizId || e.title === quizTitle);
         }
+      } catch (e) {}
+    }
 
-        if (targetExam) {
-          if (targetExam.media_map && typeof targetExam.media_map === "object") {
-            Object.assign(mappedImages, targetExam.media_map);
+    if (targetExam) {
+      if (targetExam.media_map && typeof targetExam.media_map === "object") {
+        Object.assign(mappedImages, targetExam.media_map);
+      }
+
+      // Đọc đủ cả 3 cột data, sections, questions (ưu tiên mảng không rỗng)
+      const pickValidArray = (...candidates: any[]) => {
+        for (const c of candidates) {
+          if (!c) continue;
+          if (typeof c === "string") {
+            try {
+              const p = JSON.parse(c);
+              if (Array.isArray(p) && p.length > 0) return p;
+            } catch {}
+          } else if (Array.isArray(c) && c.length > 0) {
+            return c;
           }
+        }
+        return [];
+      };
 
-          let rawData = targetExam.data ?? targetExam.questions;
+      let rawData = pickValidArray(targetExam.data, targetExam.sections, targetExam.questions);
           if (typeof rawData === "string") {
             try {
               rawData = JSON.parse(rawData);
