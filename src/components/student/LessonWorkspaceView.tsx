@@ -245,20 +245,20 @@ useEffect(() => {
     try {
       setIsResolvingExam(true);
 
-      // 1. Bảng HOMEWORKS (chỉ select cột thực tế: id, title, data, media_map, duration_minutes)
+      // 1. Bảng HOMEWORKS (cột thật: id, title, data, sections, media_map, duration_minutes)
       if (targetId) {
         const { data: dbHw } = await supabase
           .from("homeworks")
-          .select("id, title, data, media_map, duration_minutes")
+          .select("id, title, data, sections, media_map, duration_minutes")
           .eq("id", targetId)
           .maybeSingle();
 
-        if (dbHw && Array.isArray(dbHw.data) && dbHw.data.length > 0) {
+        if (dbHw && ((Array.isArray(dbHw.data) && dbHw.data.length > 0) || (Array.isArray(dbHw.sections) && dbHw.sections.length > 0))) {
           return {
             ...rawQuizItem,
             ...dbHw,
-            data: dbHw.data,
-            sections: dbHw.data,
+            data: dbHw.data || dbHw.sections,
+            sections: dbHw.sections || dbHw.data,
             is_homework: isHw
           };
         }
@@ -267,35 +267,36 @@ useEffect(() => {
       if (targetTitle) {
         const { data: dbHwTitle } = await supabase
           .from("homeworks")
-          .select("id, title, data, media_map, duration_minutes")
+          .select("id, title, data, sections, media_map, duration_minutes")
           .ilike("title", targetTitle)
           .limit(1)
           .maybeSingle();
 
-        if (dbHwTitle && Array.isArray(dbHwTitle.data) && dbHwTitle.data.length > 0) {
+        if (dbHwTitle && ((Array.isArray(dbHwTitle.data) && dbHwTitle.data.length > 0) || (Array.isArray(dbHwTitle.sections) && dbHwTitle.sections.length > 0))) {
           return {
             ...rawQuizItem,
             ...dbHwTitle,
-            data: dbHwTitle.data,
-            sections: dbHwTitle.data,
+            data: dbHwTitle.data || dbHwTitle.sections,
+            sections: dbHwTitle.sections || dbHwTitle.data,
             is_homework: isHw
           };
         }
       }
 
-      // 2. Bảng QUIZZES (câu hỏi nằm ở cột 'questions', không có cột 'data')
+      // 2. Bảng QUIZZES (cột thật: id, title, questions_data)
       if (targetId) {
         const { data: byIdQuiz } = await supabase
           .from("quizzes")
-          .select("id, title, questions")
+          .select("id, title, questions_data")
           .eq("id", targetId)
           .maybeSingle();
 
-        if (byIdQuiz && byIdQuiz.questions) {
+        if (byIdQuiz && byIdQuiz.questions_data) {
           return {
             ...byIdQuiz,
             ...rawQuizItem,
-            questions: byIdQuiz.questions,
+            data: byIdQuiz.questions_data,
+            questions: byIdQuiz.questions_data,
             is_homework: isHw
           };
         }
@@ -304,22 +305,23 @@ useEffect(() => {
       if (targetTitle) {
         const { data: byTitleQuiz } = await supabase
           .from("quizzes")
-          .select("id, title, questions")
+          .select("id, title, questions_data")
           .ilike("title", targetTitle)
           .limit(1)
           .maybeSingle();
 
-        if (byTitleQuiz && byTitleQuiz.questions) {
+        if (byTitleQuiz && byTitleQuiz.questions_data) {
           return {
             ...byTitleQuiz,
             ...rawQuizItem,
-            questions: byTitleQuiz.questions,
+            data: byTitleQuiz.questions_data,
+            questions: byTitleQuiz.questions_data,
             is_homework: isHw
           };
         }
       }
 
-      // 3. Bảng PRACTICE_EXAMS (câu hỏi nằm ở cột 'data', không có 'questions' hay 'sections')
+      // 3. Bảng PRACTICE_EXAMS (cột thật: id, title, data, media_map, duration_minutes)
       if (targetId) {
         const { data: byIdPrac } = await supabase
           .from("practice_exams")
@@ -365,7 +367,6 @@ useEffect(() => {
       is_homework: isHw
     };
   }, []);
-
   const handleOpenExamEntry = async (quizItem: any, isHomeworkFlag: boolean) => {
     const resolved = await resolveFullExamData(quizItem, isHomeworkFlag);
     setSelectedQuizForEntry(resolved);
