@@ -31,7 +31,7 @@ import { DigitalAnswerSheetView } from "@/components/student/paper/DigitalAnswer
 import { PaperScanModal } from "@/components/student/paper/PaperScanModal";
 import { PaperReviewView } from "@/components/student/paper/PaperReviewView";
 import { supabase } from "@/lib/supabaseClient";
-
+import AiTutorWidget from "@/components/ai-tutor/AiTutorWidget";
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
 
 interface LessonWorkspaceViewProps {
@@ -556,7 +556,28 @@ useEffect(() => {
                 </div>
               )}
             </div>
-
+{/* TRỢ GIẢNG AI HỎI ĐÁP TRONG LÚC XEM VIDEO (SIÊU NHẸ - KHÔNG TẢI FILE VIDEO) */}
+<div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-2xs">
+  <div className="flex items-center justify-between gap-2 mb-1">
+    <span className="text-xs font-extrabold text-indigo-900">
+      💡 Chưa hiểu đoạn nào trong video? Chụp nhanh màn hình hoặc đặt câu hỏi cho Trợ giảng AI:
+    </span>
+  </div>
+  <AiTutorWidget
+    key={`ai-video-${lesson?.id}-${videoTab}-${currentPlayingVideo?.id || 0}`}
+    mode="VIDEO_QA"
+    questionKey={`video_${lesson?.id || "les"}_${videoTab}`}
+    lessonTitle={`${lesson?.title || "Bài giảng"} (${
+      videoTab === "lecture" ? "Video Lý thuyết" : "Video Chữa BTVN"
+    })`}
+    questionType="video"
+    questionText={`Học sinh đang xem ${
+      videoTab === "lecture" ? "Video bài giảng lý thuyết" : "Video chữa chi tiết BTVN"
+    }: "${currentPlayingVideo?.title || lesson?.title || ""}". Mô tả bài học: ${
+      lesson?.description || "Chuyên đề Toán THPT"
+    }`}
+  />
+</div>
             {activeTabVideos.length > 1 && (
               <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
                 <h4 className="text-[11px] font-semibold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
