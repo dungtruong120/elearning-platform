@@ -1811,35 +1811,37 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                           </div>
                         </div>
                       )}
-                        {/* TRỢ GIẢNG AI: Tự ẩn khi đang thi Test, Gợi ý khi làm BTVN, Giải thích lỗi sai khi Review */}
-<AiTutorWidget
-  key={`ai-single-${currentQ.id}-${isReviewMode}`}
-  mode={
-    isReviewMode || isSubmitted
-      ? "REVIEW_SOCRATIC"
-      : isHomework
-      ? "HOMEWORK_HINT"
-      : "HIDDEN"
-  }
-  questionKey={`${quizId}_${currentQ.id}`}
-  lessonTitle={quizTitle}
-  questionType={
-    isQuestionTrueFalse(currentQ)
-      ? "true_false"
-      : isQuestionShortAnswer(currentQ)
-      ? "short_answer"
-      : "multiple_choice"
-  }
-  questionText={currentQ.prompt}
-  options={(currentQ.options || []).map((o) => `${o.key}. ${o.text}`)}
-  studentAnswer={
-    typeof userAnswers[currentQ.id] === "object"
-      ? JSON.stringify(userAnswers[currentQ.id])
-      : String(userAnswers[currentQ.id] || "")
-  }
-  correctAnswer={currentQ.correctAnswer}
-  officialSolution={currentQ.explanation}
-/>
+                       {/* BONG BÓNG GIA SƯ AI GÓC DƯỚI BÊN PHẢI (TỰ ĐỘNG THEO CÂU ĐANG XEM) */}
+      {currentQ && (
+        <AiTutorWidget
+          key={`ai-floating-${currentQ.id}-${isReviewMode}`}
+          mode={
+            isReviewMode || isSubmitted
+              ? "REVIEW_SOCRATIC"
+              : isHomework
+              ? "HOMEWORK_HINT"
+              : "HIDDEN"
+          }
+          questionKey={`${quizId}_${currentQ.id}`}
+          lessonTitle={`${quizTitle} - Câu ${currentIdx + 1}`}
+          questionType={
+            isQuestionTrueFalse(currentQ)
+              ? "true_false"
+              : isQuestionShortAnswer(currentQ)
+              ? "short_answer"
+              : "multiple_choice"
+          }
+          questionText={currentQ.prompt}
+          options={(currentQ.options || []).map((o) => `${o.key}. ${o.text}`)}
+          studentAnswer={
+            typeof userAnswers[currentQ.id] === "object"
+              ? JSON.stringify(userAnswers[currentQ.id])
+              : String(userAnswers[currentQ.id] || "")
+          }
+          correctAnswer={currentQ.correctAnswer}
+          officialSolution={currentQ.explanation}
+        />
+      )}
                     </div>
                   );
                 })()
