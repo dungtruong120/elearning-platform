@@ -758,13 +758,12 @@ export function ExamRoomView({
       } catch {}
     }
 
-  // ƯU TIÊN 2: Truy vấn tách biệt theo ID trước, sau đó theo Title (tránh lỗi cú pháp .or() khi có dấu cách)
+// ƯU TIÊN 2: Truy vấn tách biệt theo ID và Title (chỉ select các cột thực tế có trên DB)
     if (!dbExam) {
-      // 2A. Tìm trong bảng homeworks
       if (quizId) {
         const { data: hwById } = await supabase
           .from("homeworks")
-          .select("id, title, data, sections, media_map, duration_minutes")
+          .select("id, title, data, media_map, duration_minutes")
           .eq("id", quizId)
           .maybeSingle();
         if (hwById) dbExam = hwById;
@@ -772,14 +771,13 @@ export function ExamRoomView({
       if (!dbExam && quizTitle) {
         const { data: hwByTitle } = await supabase
           .from("homeworks")
-          .select("id, title, data, sections, media_map, duration_minutes")
+          .select("id, title, data, media_map, duration_minutes")
           .ilike("title", quizTitle.trim())
           .limit(1)
           .maybeSingle();
         if (hwByTitle) dbExam = hwByTitle;
       }
 
-      // 2B. Nếu không có trong homeworks -> tìm trong practice_exams
       if (!dbExam && quizId) {
         const { data: pracById } = await supabase
           .from("practice_exams")
