@@ -268,63 +268,65 @@ export default function AiTutorWidget({
           "Kiểm tra giúp em ảnh nháp này sai ở đâu",
         ];
 
-  return (
-    <div className="mt-3 font-sans text-left">
+return (
+    <div className="fixed bottom-16 lg:bottom-6 right-4 sm:right-6 z-[150] font-sans text-left">
       {!isOpen ? (
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 text-xs font-bold transition cursor-pointer shadow-2xs"
+          className="group flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-lg shadow-indigo-500/30 border border-white/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
         >
-          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-          <span>
+          <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+          <span className="text-xs font-extrabold tracking-tight">
             {mode === "REVIEW_SOCRATIC"
-              ? "Hỏi AI giải thích lỗi sai"
+              ? "Hỏi AI câu này"
               : mode === "VIDEO_QA"
-              ? "Hỏi AI đoạn video này"
-              : "Hỏi gợi ý Gia sư AI"}
+              ? "Hỏi AI bài giảng"
+              : "Gia sư AI"}
           </span>
         </button>
       ) : (
-        <div className="rounded-2xl border border-indigo-200 bg-white shadow-md overflow-hidden animate-in fade-in duration-150">
-          {/* Header */}
+        <div className="w-[330px] sm:w-[370px] rounded-2xl border border-indigo-200 bg-white shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          {/* Header khung chat mini */}
           <div className="px-3.5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <Bot className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-extrabold tracking-tight">
-                Trợ giảng AI •{" "}
+              <span className="text-xs font-extrabold tracking-tight truncate">
                 {mode === "REVIEW_SOCRATIC"
-                  ? "Phân tích lỗi sai từng bước"
-                  : "Gợi ý tư duy (Khóa đáp án)"}
+                  ? "Gia sư AI • Chữa lỗi sai"
+                  : mode === "VIDEO_QA"
+                  ? "Gia sư AI • Hỏi bài giảng"
+                  : "Gia sư AI • Gợi ý hướng làm"}
               </span>
             </div>
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="p-1 rounded-lg hover:bg-white/20 text-white transition cursor-pointer"
+              className="p-1 rounded-lg hover:bg-white/20 text-white transition cursor-pointer shrink-0"
+              title="Thu gọn"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Nội dung hội thoại */}
-          <div className="p-3.5 max-h-80 overflow-y-auto space-y-3 bg-slate-50/60 custom-scrollbar">
+          <div className="p-3 max-h-72 overflow-y-auto space-y-2.5 bg-slate-50/70 custom-scrollbar">
             {messages.length === 0 ? (
-              <div className="space-y-2.5">
-                <p className="text-xs text-slate-600">
+              <div className="space-y-2">
+                <p className="text-[11.5px] text-slate-600 leading-relaxed">
                   {mode === "REVIEW_SOCRATIC"
-                    ? "Thầy/cô AI sẽ chỉ ra chỗ em bị bẫy và dẫn dắt từng bước tới biểu thức bấm máy nhé!"
-                    : "Chào em! Hãy chọn gợi ý nhanh bên dưới, nhập câu hỏi hoặc chụp ảnh bài nháp để thầy/cô AI hướng dẫn hướng làm nhé."}
+                    ? "Thầy/cô AI đã nắm được đáp án em chọn. Bấm gợi ý nhanh bên dưới hoặc hỏi bước em chưa rõ nhé:"
+                    : "Em đang vướng ở bước nào? Bấm chọn gợi ý hoặc gửi ảnh nháp để thầy/cô AI hướng dẫn nhé:"}
                 </p>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-col gap-1.5">
                   {quickPrompts.map((q, idx) => (
                     <button
                       key={idx}
                       type="button"
                       onClick={() => handleSendMessage(q)}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-semibold transition cursor-pointer text-left"
+                      className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[11px] font-semibold transition cursor-pointer text-left"
                     >
-                      + {q}
+                      ✨ {q}
                     </button>
                   ))}
                 </div>
@@ -338,7 +340,7 @@ export default function AiTutorWidget({
                   }`}
                 >
                   <div
-                    className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs shadow-2xs ${
+                    className={`max-w-[90%] rounded-2xl px-3 py-2 text-xs shadow-2xs ${
                       msg.role === "user"
                         ? "bg-blue-600 text-white rounded-br-xs"
                         : "bg-white border border-slate-200 text-slate-800 rounded-bl-xs"
@@ -348,7 +350,7 @@ export default function AiTutorWidget({
                       <img
                         src={msg.imagePreview}
                         alt="Ảnh đính kèm"
-                        className="max-h-40 rounded-lg mb-2 border border-white/20 object-contain"
+                        className="max-h-36 rounded-lg mb-1.5 border border-white/20 object-contain"
                       />
                     )}
                     {msg.role === "user" ? (
@@ -357,47 +359,45 @@ export default function AiTutorWidget({
                       <>
                         <MathTextRenderer content={msg.text} />
 
-                        {/* Thanh phản hồi 1 chạm & Chuyển Trợ giảng */}
-                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[10px]">
-                          <div className="flex items-center gap-1.5">
+                        <div className="mt-2 pt-1.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
+                          <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => handleFeedback(idx, "like")}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border transition cursor-pointer ${
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border transition cursor-pointer ${
                                 msg.feedback === "like"
                                   ? "bg-emerald-50 border-emerald-300 text-emerald-700 font-bold"
                                   : "bg-slate-50 border-slate-200 text-slate-500 hover:text-emerald-700"
                               }`}
                             >
-                              <ThumbsUp className="w-3 h-3" /> Đã hiểu
+                              <ThumbsUp className="w-2.5 h-2.5" /> Hiểu rồi
                             </button>
                             <button
                               type="button"
                               disabled={isLoading || cooldownSec > 0}
                               onClick={() => handleFeedback(idx, "dislike")}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border transition cursor-pointer ${
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border transition cursor-pointer ${
                                 msg.feedback === "dislike"
                                   ? "bg-amber-50 border-amber-300 text-amber-700 font-bold"
                                   : "bg-slate-50 border-slate-200 text-slate-500 hover:text-amber-700"
                               }`}
                             >
-                              <ThumbsDown className="w-3 h-3" /> Giải cách khác
+                              <ThumbsDown className="w-2.5 h-2.5" /> Cách khác
                             </button>
                           </div>
 
                           <button
                             type="button"
                             onClick={() => handleCopyForHumanTutor(idx)}
-                            title="Copy câu hỏi & lời giải để nhắn hỏi Trợ giảng"
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold transition cursor-pointer"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold transition cursor-pointer"
                           >
                             {copiedIdx === idx ? (
                               <>
-                                <Check className="w-3 h-3 text-emerald-600" /> Đã copy gửi Trợ giảng
+                                <Check className="w-2.5 h-2.5 text-emerald-600" /> Đã copy
                               </>
                             ) : (
                               <>
-                                <Copy className="w-3 h-3" /> Hỏi Trợ giảng thật
+                                <Copy className="w-2.5 h-2.5" /> Hỏi Trợ giảng
                               </>
                             )}
                           </button>
@@ -412,37 +412,34 @@ export default function AiTutorWidget({
             {isLoading && (
               <div className="flex items-center gap-2 text-xs text-indigo-600 font-semibold py-1">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Trợ giảng AI đang phân tích bài toán...</span>
+                <span>Trợ giảng AI đang phân tích...</span>
               </div>
             )}
 
             {errorMsg && (
-              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold flex items-start gap-1.5">
-                <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold flex items-start gap-1.5">
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 <span>{errorMsg}</span>
               </div>
             )}
           </div>
 
-          {/* Preview ảnh đính kèm */}
           {selectedImage && (
-            <div className="px-3.5 py-2 bg-indigo-50/70 border-t border-indigo-100 flex items-center justify-between">
+            <div className="px-3 py-1.5 bg-indigo-50/80 border-t border-indigo-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <img
                   src={selectedImage}
                   alt="Preview"
-                  className="w-10 h-10 rounded object-cover border border-indigo-200"
+                  className="w-8 h-8 rounded object-cover border border-indigo-200"
                 />
-                <span className="text-[11px] font-bold text-indigo-800">
-                  Đã nén & đính kèm ảnh bài làm
-                </span>
+                <span className="text-[11px] font-bold text-indigo-800">Đã đính kèm ảnh</span>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedImage(null)}
                 className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
@@ -453,7 +450,7 @@ export default function AiTutorWidget({
               e.preventDefault();
               handleSendMessage();
             }}
-            className="p-2.5 bg-white border-t border-slate-200 flex items-center gap-1.5"
+            className="p-2 bg-white border-t border-slate-200 flex items-center gap-1.5"
           >
             <input
               ref={fileInputRef}
@@ -465,16 +462,16 @@ export default function AiTutorWidget({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              title="Tải ảnh bài nháp từ máy"
-              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer shrink-0"
+              title="Gửi ảnh bài nháp"
+              className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer shrink-0"
             >
               <ImagePlus className="w-4 h-4" />
             </button>
             <button
               type="button"
               onClick={handleScreenSnip}
-              title="Chụp nhanh màn hình hiện tại"
-              className="hidden sm:flex p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer shrink-0"
+              title="Chụp màn hình"
+              className="hidden sm:flex p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer shrink-0"
             >
               <Camera className="w-4 h-4" />
             </button>
@@ -482,17 +479,13 @@ export default function AiTutorWidget({
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder={
-                cooldownSec > 0
-                  ? `Đợi ${cooldownSec}s để hỏi tiếp...`
-                  : "Nhập thắc mắc của em..."
-              }
-              className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-500"
+              placeholder={cooldownSec > 0 ? `Đợi ${cooldownSec}s...` : "Hỏi về câu này..."}
+              className="flex-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-indigo-500"
             />
             <button
               type="submit"
               disabled={isLoading || cooldownSec > 0 || (!inputText.trim() && !selectedImage)}
-              className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white transition cursor-pointer shrink-0"
+              className="p-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white transition cursor-pointer shrink-0"
             >
               <Send className="w-4 h-4" />
             </button>
