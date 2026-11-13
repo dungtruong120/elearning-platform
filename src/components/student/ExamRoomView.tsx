@@ -1834,9 +1834,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                           </div>
                         </div>
                       )}
-                    </div>
-                  );
-                  {/* TRỢ GIẢNG AI: Tự ẩn khi đang thi Test, Gợi ý khi làm BTVN, Giải thích lỗi sai khi Review */}
+                        {/* TRỢ GIẢNG AI: Tự ẩn khi đang thi Test, Gợi ý khi làm BTVN, Giải thích lỗi sai khi Review */}
 <AiTutorWidget
   key={`ai-single-${currentQ.id}-${isReviewMode}`}
   mode={
@@ -1865,6 +1863,8 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
   correctAnswer={currentQ.correctAnswer}
   officialSolution={currentQ.explanation}
 />
+                    </div>
+                  );
                 })()
               ) : (
                 <div className="space-y-3.5 pb-16">
