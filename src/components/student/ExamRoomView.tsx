@@ -757,13 +757,13 @@ export function ExamRoomView({
         }
       } catch {}
     }
-// ƯU TIÊN 2: Truy vấn lần lượt homeworks -> quizzes -> practice_exams (chỉ .eq("id") khi là UUID hợp lệ)
+// ƯU TIÊN 2: Truy vấn homeworks -> practice_exams -> quizzes
     if (!dbExam) {
       const isUuid = (str: string) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || "").trim());
 
-      // 2A. Bảng homeworks
-      if (quizId && isUuid(quizId)) {
+      // 2A. Bảng homeworks (cột id là TEXT -> tìm được cả theo ID lẫn Title có %...%)
+      if (quizId) {
         const { data: hwById } = await supabase
           .from("homeworks")
           .select("id, title, data, sections, media_map, duration_minutes")
@@ -775,13 +775,32 @@ export function ExamRoomView({
         const { data: hwByTitle } = await supabase
           .from("homeworks")
           .select("id, title, data, sections, media_map, duration_minutes")
-          .ilike("title", quizTitle.trim())
+          .ilike("title", `%${quizTitle.trim()}%`)
           .limit(1)
           .maybeSingle();
         if (hwByTitle) dbExam = hwByTitle;
       }
 
-      // 2B. Bảng quizzes
+      // 2B. Bảng practice_exams (cột id là TEXT -> tìm được cả theo ID lẫn Title có %...%)
+      if (!dbExam && quizId) {
+        const { data: pracById } = await supabase
+          .from("practice_exams")
+          .select("id, title, data, media_map, duration_minutes")
+          .eq("id", quizId)
+          .maybeSingle();
+        if (pracById) dbExam = pracById;
+      }
+      if (!dbExam && quizTitle) {
+        const { data: pracByTitle } = await supabase
+          .from("practice_exams")
+          .select("id, title, data, media_map, duration_minutes")
+          .ilike("title", `%${quizTitle.trim()}%`)
+          .limit(1)
+          .maybeSingle();
+        if (pracByTitle) dbExam = pracByTitle;
+      }
+
+      // 2C. Bảng quizzes (cột id là UUID -> chỉ .eq("id") khi là UUID, còn lại tìm theo Title)
       if (!dbExam && quizId && isUuid(quizId)) {
         const { data: qzById } = await supabase
           .from("quizzes")
@@ -796,13 +815,14 @@ export function ExamRoomView({
         const { data: qzByTitle } = await supabase
           .from("quizzes")
           .select("id, title, questions_data")
-          .ilike("title", quizTitle.trim())
+          .ilike("title", `%${quizTitle.trim()}%`)
           .limit(1)
           .maybeSingle();
         if (qzByTitle && qzByTitle.questions_data) {
           dbExam = { ...qzByTitle, data: qzByTitle.questions_data };
         }
       }
+    }
 
       // 2C. Bảng practice_exams
       if (!dbExam && quizId && isUuid(quizId)) {
