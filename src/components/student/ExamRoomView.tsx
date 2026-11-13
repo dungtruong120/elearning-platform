@@ -824,25 +824,7 @@ export function ExamRoomView({
       }
     }
 
-      // 2C. Bảng practice_exams
-      if (!dbExam && quizId && isUuid(quizId)) {
-        const { data: pracById } = await supabase
-          .from("practice_exams")
-          .select("id, title, data, media_map, duration_minutes")
-          .eq("id", quizId)
-          .maybeSingle();
-        if (pracById) dbExam = pracById;
-      }
-      if (!dbExam && quizTitle) {
-        const { data: pracByTitle } = await supabase
-          .from("practice_exams")
-          .select("id, title, data, media_map, duration_minutes")
-          .ilike("title", quizTitle.trim())
-          .limit(1)
-          .maybeSingle();
-        if (pracByTitle) dbExam = pracByTitle;
-      }
-    }
+    
     let targetExam = dbExam;
 
     // 3. Fallback đọc localStorage
