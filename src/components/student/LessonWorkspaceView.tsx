@@ -989,36 +989,36 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
         studentSbd={studentAutoSbd}
         studentName={fallbackProfile.full_name || "Học sinh"}
        onSelectWeb={() => {
-       if (!selectedQuizForEntry) return;
-       const qId = String(
-         selectedQuizForEntry.quiz_id ||
-           selectedQuizForEntry.exam_id ||
-           selectedQuizForEntry.id ||
-           ""
-       );
-       const qTitle =
-         selectedQuizForEntry.title ||
-         (isEntryHomework ? "Bài tập về nhà" : "Đề kiểm tra");
-       const qDuration = Number(
-         selectedQuizForEntry.duration_minutes || selectedQuizForEntry.duration || 45
-       );
+          if (!selectedQuizForEntry) return;
+          const qId = String(
+            selectedQuizForEntry.quiz_id ||
+              selectedQuizForEntry.exam_id ||
+              selectedQuizForEntry.id ||
+              ""
+          );
+          const qTitle =
+            selectedQuizForEntry.title ||
+            (isEntryHomework ? "Bài tập về nhà" : "Đề kiểm tra");
+          const qDuration = Number(
+            selectedQuizForEntry.duration_minutes || selectedQuizForEntry.duration || 45
+          );
 
-       // Đẩy toàn bộ dữ liệu đề đã giải mã sang sessionStorage để ExamRoomView đọc ngay (0ms)
-       if (typeof window !== "undefined") {
-         try {
-           sessionStorage.setItem(
-             "tct_active_exam_room",
-             JSON.stringify({
-               ...selectedQuizForEntry,
-               id: qId,
-               title: qTitle,
-             })
-           );
-         } catch {}
-       }
+          // Lưu trọn vẹn object bài tập (lấy từ lessons.homework_files) vào sessionStorage
+          if (typeof window !== "undefined") {
+            try {
+              sessionStorage.setItem(
+                "tct_active_exam_room",
+                JSON.stringify({
+                  ...selectedQuizForEntry,
+                  id: qId,
+                  title: qTitle,
+                })
+              );
+            } catch {}
+          }
 
-       (onStartQuiz as any)(qId, qTitle, isEntryHomework, qDuration, selectedQuizForEntry);
-     }}
+          (onStartQuiz as any)(qId, qTitle, isEntryHomework, qDuration, selectedQuizForEntry);
+        }}
         onSelectPaperScan={() => {
           if (!selectedQuizForEntry) return;
           setActivePaperScanExam(selectedQuizForEntry);
