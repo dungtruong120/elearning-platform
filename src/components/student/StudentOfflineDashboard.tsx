@@ -1270,7 +1270,7 @@ const handleOpenLesson = async (les: any) => {
         .eq("id", exam.id)
         .maybeSingle();
 
-      setPreviewExam({ ...exam, data: data?.data || data?.sections || [] });
+     setPreviewExam({ ...exam, data: data?.data || [] });
     } catch {
       setPreviewExam(exam);
     }
