@@ -757,74 +757,43 @@ export function ExamRoomView({
         }
       } catch {}
     }
-// ƯU TIÊN 2: Truy vấn homeworks -> practice_exams -> quizzes
+// ƯU TIÊN 2: Truy vấn đúng 1 bảng theo chế độ (Tiết kiệm tối đa Egress)
     if (!dbExam) {
-      const isUuid = (str: string) =>
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || "").trim());
+      const targetTable = isHomework ? "homeworks" : "practice_exams";
+      const selectCols = isHomework
+        ? "id, lesson_id, title, data, sections, media_map, duration_minutes"
+        : "id, title, data, media_map, duration_minutes";
 
-      // 2A. Bảng homeworks (cột id là TEXT -> tìm được cả theo ID lẫn Title có %...%)
+      // 1. Tìm đồng thời theo cả id và lesson_id trong 1 request duy nhất
       if (quizId) {
-        const { data: hwById } = await supabase
-          .from("homeworks")
-          .select("id, title, data, sections, media_map, duration_minutes")
-          .eq("id", quizId)
-          .maybeSingle();
-        if (hwById) dbExam = hwById;
-      }
-      if (!dbExam && quizTitle) {
-        const { data: hwByTitle } = await supabase
-          .from("homeworks")
-          .select("id, title, data, sections, media_map, duration_minutes")
-          .ilike("title", `%${quizTitle.trim()}%`)
+        const cleanId = String(quizId).trim();
+        const filterQuery = isHomework
+          ? `id.eq.${cleanId},lesson_id.eq.${cleanId}`
+          : `id.eq.${cleanId}`;
+
+        const { data: byId } = await supabase
+          .from(targetTable)
+          .select(selectCols)
+          .or(filterQuery)
           .limit(1)
           .maybeSingle();
-        if (hwByTitle) dbExam = hwByTitle;
+
+        if (byId) dbExam = byId;
       }
 
-      // 2B. Bảng practice_exams (cột id là TEXT -> tìm được cả theo ID lẫn Title có %...%)
-      if (!dbExam && quizId) {
-        const { data: pracById } = await supabase
-          .from("practice_exams")
-          .select("id, title, data, media_map, duration_minutes")
-          .eq("id", quizId)
-          .maybeSingle();
-        if (pracById) dbExam = pracById;
-      }
+      // 2. Chỉ fallback tìm theo title nếu tìm theo ID chưa có
       if (!dbExam && quizTitle) {
-        const { data: pracByTitle } = await supabase
-          .from("practice_exams")
-          .select("id, title, data, media_map, duration_minutes")
+        const { data: byTitle } = await supabase
+          .from(targetTable)
+          .select(selectCols)
           .ilike("title", `%${quizTitle.trim()}%`)
           .limit(1)
           .maybeSingle();
-        if (pracByTitle) dbExam = pracByTitle;
-      }
 
-      // 2C. Bảng quizzes (cột id là UUID -> chỉ .eq("id") khi là UUID, còn lại tìm theo Title)
-      if (!dbExam && quizId && isUuid(quizId)) {
-        const { data: qzById } = await supabase
-          .from("quizzes")
-          .select("id, title, questions_data")
-          .eq("id", quizId)
-          .maybeSingle();
-        if (qzById && qzById.questions_data) {
-          dbExam = { ...qzById, data: qzById.questions_data };
-        }
-      }
-      if (!dbExam && quizTitle) {
-        const { data: qzByTitle } = await supabase
-          .from("quizzes")
-          .select("id, title, questions_data")
-          .ilike("title", `%${quizTitle.trim()}%`)
-          .limit(1)
-          .maybeSingle();
-        if (qzByTitle && qzByTitle.questions_data) {
-          dbExam = { ...qzByTitle, data: qzByTitle.questions_data };
-        }
+        if (byTitle) dbExam = byTitle;
       }
     }
 
-    
     let targetExam = dbExam;
 
     // 3. Fallback đọc localStorage
@@ -834,7 +803,9 @@ export function ExamRoomView({
         if (saved) {
           const parsed = JSON.parse(saved);
           const list = Array.isArray(parsed) ? parsed : parsed?.exams || [];
-          targetExam = list.find((e: any) => e.id === quizId || e.title === quizTitle);
+          targetExam = list.find(
+            (e: any) => e.id === quizId || e.lesson_id === quizId || e.title === quizTitle
+          );
         }
       } catch (e) {}
     }
@@ -844,23 +815,21 @@ export function ExamRoomView({
         Object.assign(mappedImages, targetExam.media_map);
       }
 
-      // Đọc đủ cả 3 cột data, sections, questions (ưu tiên mảng không rỗng)
-      const pickValidArray = (...candidates: any[]) => {
+      // Lấy mảng không rỗng giữa data và sections (ưu tiên mảng nào có phần tử)
+      const pickNonEmptyArray = (...candidates: any[]) => {
         for (const c of candidates) {
-          if (!c) continue;
+          if (Array.isArray(c) && c.length > 0) return c;
           if (typeof c === "string") {
             try {
-              const p = JSON.parse(c);
-              if (Array.isArray(p) && p.length > 0) return p;
+              const parsed = JSON.parse(c);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
             } catch {}
-          } else if (Array.isArray(c) && c.length > 0) {
-            return c;
           }
         }
         return [];
       };
 
-      let rawData = pickValidArray(targetExam.data, targetExam.sections, targetExam.questions);
+      const rawData = pickNonEmptyArray(targetExam.sections, targetExam.data);
           if (typeof rawData === "string") {
             try {
               rawData = JSON.parse(rawData);
