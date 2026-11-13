@@ -815,78 +815,120 @@ export function ExamRoomView({
         Object.assign(mappedImages, targetExam.media_map);
       }
 
-      // Lấy mảng không rỗng giữa data và sections (ưu tiên mảng nào có phần tử)
-      const pickNonEmptyArray = (...candidates: any[]) => {
-        for (const c of candidates) {
-          if (Array.isArray(c) && c.length > 0) return c;
+      // Hàm chuẩn hóa mọi cấu trúc JSON (Array sections, Array câu hỏi phẳng, hoặc Object bọc ngoài)
+      const extractAllQuestionsFromPayload = (...candidates: any[]): any[] => {
+        for (let c of candidates) {
+          if (!c) continue;
           if (typeof c === "string") {
             try {
-              const parsed = JSON.parse(c);
-              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-            } catch {}
+              c = JSON.parse(c);
+            } catch {
+              continue;
+            }
+          }
+          // Nếu c là Object bọc ngoài (vd: { sections: [...] } hoặc { questions: [...] } hoặc { data: [...] })
+          if (c && typeof c === "object" && !Array.isArray(c)) {
+            if (c.media_map && typeof c.media_map === "object") {
+              Object.assign(mappedImages, c.media_map);
+            }
+            const inner = c.sections || c.questions || c.data || c.items;
+            if (Array.isArray(inner) && inner.length > 0) {
+              c = inner;
+            }
+          }
+          if (Array.isArray(c) && c.length > 0) {
+            return c;
           }
         }
         return [];
       };
 
-      let rawData = pickNonEmptyArray(targetExam.sections, targetExam.data);
-          if (typeof rawData === "string") {
-            try {
-              rawData = JSON.parse(rawData);
-            } catch (e) {
-              console.error("Lỗi parse JSON:", e);
-            }
+      const rawData = extractAllQuestionsFromPayload(
+        targetExam.sections,
+        targetExam.data,
+        targetExam.questions_data,
+        targetExam.questions
+      );
+
+      if (Array.isArray(rawData) && rawData.length > 0) {
+        let qIdx = 1;
+
+        rawData.forEach((item: any) => {
+          if (!item) return;
+          if (item.media_map && typeof item.media_map === "object") {
+            Object.assign(mappedImages, item.media_map);
           }
 
-          if (Array.isArray(rawData)) {
-            let qIdx = 1;
+          // TRƯỜNG HỢP A: item là một Section chứa mảng item.questions
+          if (Array.isArray(item.questions) && item.questions.length > 0) {
+            const secType =
+              item.section_type ||
+              item.type ||
+              (item.section_title && /đúng\s*sai/i.test(item.section_title)
+                ? "true_false"
+                : item.section_title && /trả\s*lời\s*ngắn|điền/i.test(item.section_title)
+                ? "short_answer"
+                : "multiple_choice");
 
-            rawData.forEach((sec: any) => {
-              if (sec.media_map && typeof sec.media_map === "object") {
-                Object.assign(mappedImages, sec.media_map);
+            item.questions.forEach((q: any) => {
+              const qType = q.type || secType || "multiple_choice";
+              const promptStr = q.prompt_html || q.prompt || q.question || q.content || "";
+              const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
+
+              if (q.media_map && typeof q.media_map === "object") {
+                Object.assign(mappedImages, q.media_map);
               }
 
-              const secType = sec.section_type || sec.type || (
-                sec.section_title && /đúng\s*sai/i.test(sec.section_title)
-                  ? "true_false"
-                  : sec.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
-                  ? "short_answer"
-                  : "multiple_choice"
-              );
+              loaded.push({
+                id: q.id || `q-${qIdx}`,
+                order: qIdx++,
+                type: qType,
+                prompt: promptStr,
+                options: (q.options || []).map((opt: any) => ({
+                  key: opt.key,
+                  text: opt.text_html || opt.text || ""
+                })),
+                correctAnswer: q.correct_answer || q.correctAnswer || "A",
+                explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
+                image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
+                mediaMap: mappedImages
+              });
+            });
+          } else if (item.prompt_html || item.prompt || item.question || item.content || Array.isArray(item)) {
+            // TRƯỜNG HỢP B: item chính là một Câu hỏi phẳng (hoặc mảng câu hỏi)
+            const flatList = Array.isArray(item) ? item : [item];
+            flatList.forEach((q: any) => {
+              const promptStr = q.prompt_html || q.prompt || q.question || q.content || "";
+              if (!promptStr) return;
+              const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
 
-              const secQuestions = sec.questions || (Array.isArray(sec) ? sec : []);
+              if (q.media_map && typeof q.media_map === "object") {
+                Object.assign(mappedImages, q.media_map);
+              }
 
-              secQuestions.forEach((q: any) => {
-                const qType = q.type || secType || "multiple_choice";
-                const promptStr = q.prompt_html || q.prompt || "";
-                const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
-
-                if (q.media_map && typeof q.media_map === "object") {
-                  Object.assign(mappedImages, q.media_map);
-                }
-
-                loaded.push({
-                  id: q.id || `q-${qIdx}`,
-                  order: qIdx++,
-                  type: qType,
-                  prompt: promptStr,
-                  options: (q.options || []).map((opt: any) => ({
-                    key: opt.key,
-                    text: opt.text_html || opt.text || ""
-                  })),
-                  correctAnswer: q.correct_answer || q.correctAnswer || "A",
-                  explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
-                  image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
-                  mediaMap: mappedImages
-                });
+              loaded.push({
+                id: q.id || `q-${qIdx}`,
+                order: qIdx++,
+                type: q.type || "multiple_choice",
+                prompt: promptStr,
+                options: (q.options || []).map((opt: any) => ({
+                  key: opt.key,
+                  text: opt.text_html || opt.text || ""
+                })),
+                correctAnswer: q.correct_answer || q.correctAnswer || "A",
+                explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
+                image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
+                mediaMap: mappedImages
               });
             });
           }
+        });
+      }
 
-          if (loaded.length > 0) {
-            setQuestions(loaded);
-            setMediaMap(mappedImages);
-          }
+      if (loaded.length > 0) {
+        setQuestions(loaded);
+        setMediaMap(mappedImages);
+      }
         }
       } catch (err) {
         console.error("Lỗi khi nạp dữ liệu đề thi:", err);
@@ -1981,7 +2023,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
 
                         {/* TRỢ GIẢNG AI CHO TỪNG CÂU TRONG DANH SÁCH CUỘN */}
                         <AiTutorWidget
-                          key={`ai-scroll-${q.id}-${isReviewMode}`}
+                         
                           mode={
                             isReviewMode || isSubmitted
                               ? "REVIEW_SOCRATIC"
@@ -2136,6 +2178,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                     <button
                       type="button"
                       key={q.id}
+                      onClick={() => setCurrentIdx(qIndex)}
                       onClick={() => {
                         setCurrentIdx(idx);
                         if (layoutMode === "scroll") {
