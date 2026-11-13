@@ -1969,43 +1969,43 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                             </div>
                           </div>
                         )}
+
+                        {/* TRỢ GIẢNG AI CHO TỪNG CÂU TRONG DANH SÁCH CUỘN */}
+                        <AiTutorWidget
+                          key={`ai-scroll-${q.id}-${isReviewMode}`}
+                          mode={
+                            isReviewMode || isSubmitted
+                              ? "REVIEW_SOCRATIC"
+                              : isHomework
+                              ? "HOMEWORK_HINT"
+                              : "HIDDEN"
+                          }
+                          questionKey={`${quizId}_${q.id}`}
+                          lessonTitle={quizTitle}
+                          questionType={
+                            isQuestionTrueFalse(q)
+                              ? "true_false"
+                              : isQuestionShortAnswer(q)
+                              ? "short_answer"
+                              : "multiple_choice"
+                          }
+                          questionText={q.prompt}
+                          options={(q.options || []).map((o) => `${o.key}. ${o.text}`)}
+                          studentAnswer={
+                            typeof userAnswers[q.id] === "object"
+                              ? JSON.stringify(userAnswers[q.id])
+                              : String(userAnswers[q.id] || "")
+                          }
+                          correctAnswer={q.correctAnswer}
+                          officialSolution={q.explanation}
+                        />
                       </div>
                     );
                   })}
                 </div>
               )}
-              {/* TRỢ GIẢNG AI CHO TỪNG CÂU TRONG DANH SÁCH CUỘN */}
-<AiTutorWidget
-  key={`ai-scroll-${q.id}-${isReviewMode}`}
-  mode={
-    isReviewMode || isSubmitted
-      ? "REVIEW_SOCRATIC"
-      : isHomework
-      ? "HOMEWORK_HINT"
-      : "HIDDEN"
-  }
-  questionKey={`${quizId}_${q.id}`}
-  lessonTitle={quizTitle}
-  questionType={
-    isQuestionTrueFalse(q)
-      ? "true_false"
-      : isQuestionShortAnswer(q)
-      ? "short_answer"
-      : "multiple_choice"
-  }
-  questionText={q.prompt}
-  options={(q.options || []).map((o) => `${o.key}. ${o.text}`)}
-  studentAnswer={
-    typeof userAnswers[q.id] === "object"
-      ? JSON.stringify(userAnswers[q.id])
-      : String(userAnswers[q.id] || "")
-  }
-  correctAnswer={q.correctAnswer}
-  officialSolution={q.explanation}
-/>
             </div>
           </div>
-
           {layoutMode === "single" && (
             <div className="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200/80 py-2.5 px-4 flex items-center justify-center gap-3 sm:gap-4 shadow-sm">
               <button
