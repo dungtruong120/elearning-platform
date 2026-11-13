@@ -541,20 +541,21 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
       💡 Chưa hiểu đoạn nào trong video? Chụp nhanh màn hình hoặc đặt câu hỏi cho Trợ giảng AI:
     </span>
   </div>
- <AiTutorWidget
-        key={`ai-video-${lesson?.id}-${videoTab}-${currentPlayingVideo?.id || 0}`}
-        mode="VIDEO_QA"
-        questionKey={`video_${lesson?.id || "les"}_${videoTab}`}
-        lessonTitle={`${lesson?.title || "Bài giảng"} (${
-          videoTab === "lecture" ? "Video Lý thuyết" : "Video Chữa BTVN"
-        })`}
-        questionType="video"
-        questionText={`Học sinh đang xem ${
-          videoTab === "lecture" ? "Video bài giảng lý thuyết" : "Video chữa chi tiết BTVN"
-        }: "${currentPlayingVideo?.title || lesson?.title || ""}". Mô tả bài học: ${
-          lesson?.description || "Chuyên đề Toán THPT"
-    }`}
-  />
+{/* BONG BÓNG TRỢ GIẢNG AI GÓC DƯỚI BÊN PHẢI */}
+         <AiTutorWidget
+           key={`ai-video-${lesson?.id}-${videoTab}-${currentPlayingVideo?.id || 0}`}
+           mode="VIDEO_QA"
+           questionKey={`video_${lesson?.id || "les"}_${videoTab}`}
+           lessonTitle={`${lesson?.title || "Bài giảng"} (${
+             videoTab === "lecture" ? "Video Lý thuyết" : "Video Chữa BTVN"
+           })`}
+           questionType="video"
+           questionText={`Học sinh đang xem ${
+             videoTab === "lecture" ? "Video bài giảng lý thuyết" : "Video chữa chi tiết BTVN"
+           }: "${currentPlayingVideo?.title || lesson?.title || ""}". Mô tả bài học: ${
+             lesson?.description || "Chuyên đề Toán THPT"
+           }`}
+         />
 </div>
             {activeTabVideos.length > 1 && (
               <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
@@ -987,23 +988,37 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
         isHomework={isEntryHomework}
         studentSbd={studentAutoSbd}
         studentName={fallbackProfile.full_name || "Học sinh"}
-        onSelectWeb={() => {
-          if (!selectedQuizForEntry) return;
-          const qId = String(
-            selectedQuizForEntry.quiz_id ||
-              selectedQuizForEntry.exam_id ||
-              selectedQuizForEntry.id ||
-              ""
-          );
-          const qTitle =
-            selectedQuizForEntry.title ||
-            (isEntryHomework ? "Bài tập về nhà" : "Đề kiểm tra");
-          const qDuration = Number(
-            selectedQuizForEntry.duration_minutes || selectedQuizForEntry.duration || 45
-          );
-          // Truyền cả selectedQuizForEntry sang file cha
-          (onStartQuiz as any)(qId, qTitle, isEntryHomework, qDuration, selectedQuizForEntry);
-        }}
+       onSelectWeb={() => {
+       if (!selectedQuizForEntry) return;
+       const qId = String(
+         selectedQuizForEntry.quiz_id ||
+           selectedQuizForEntry.exam_id ||
+           selectedQuizForEntry.id ||
+           ""
+       );
+       const qTitle =
+         selectedQuizForEntry.title ||
+         (isEntryHomework ? "Bài tập về nhà" : "Đề kiểm tra");
+       const qDuration = Number(
+         selectedQuizForEntry.duration_minutes || selectedQuizForEntry.duration || 45
+       );
+
+       // Đẩy toàn bộ dữ liệu đề đã giải mã sang sessionStorage để ExamRoomView đọc ngay (0ms)
+       if (typeof window !== "undefined") {
+         try {
+           sessionStorage.setItem(
+             "tct_active_exam_room",
+             JSON.stringify({
+               ...selectedQuizForEntry,
+               id: qId,
+               title: qTitle,
+             })
+           );
+         } catch {}
+       }
+
+       (onStartQuiz as any)(qId, qTitle, isEntryHomework, qDuration, selectedQuizForEntry);
+     }}
         onSelectPaperScan={() => {
           if (!selectedQuizForEntry) return;
           setActivePaperScanExam(selectedQuizForEntry);
