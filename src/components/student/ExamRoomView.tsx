@@ -1925,6 +1925,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                       <div
                         key={q.id}
                         id={"question-card-" + q.id}
+                        onClick={() => setCurrentIdx(qIndex)}
                         className={`bg-white rounded-2xl p-4 sm:p-5 border shadow-2xs space-y-2.5 text-left relative ${
                           isReviewMode
                             ? qStatus === "correct"
@@ -2178,7 +2179,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                     <button
                       type="button"
                       key={q.id}
-                      onClick={() => setCurrentIdx(qIndex)}
+                    
                       onClick={() => {
                         setCurrentIdx(idx);
                         if (layoutMode === "scroll") {
