@@ -13,7 +13,7 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import { Profile } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
-
+import AiTutorWidget from "@/components/ai-tutor/AiTutorWidget";
 interface QuestionOption {
   key: string;
   text: string;
@@ -1836,6 +1836,35 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                       )}
                     </div>
                   );
+                  {/* TRỢ GIẢNG AI: Tự ẩn khi đang thi Test, Gợi ý khi làm BTVN, Giải thích lỗi sai khi Review */}
+<AiTutorWidget
+  key={`ai-single-${currentQ.id}-${isReviewMode}`}
+  mode={
+    isReviewMode || isSubmitted
+      ? "REVIEW_SOCRATIC"
+      : isHomework
+      ? "HOMEWORK_HINT"
+      : "HIDDEN"
+  }
+  questionKey={`${quizId}_${currentQ.id}`}
+  lessonTitle={quizTitle}
+  questionType={
+    isQuestionTrueFalse(currentQ)
+      ? "true_false"
+      : isQuestionShortAnswer(currentQ)
+      ? "short_answer"
+      : "multiple_choice"
+  }
+  questionText={currentQ.prompt}
+  options={(currentQ.options || []).map((o) => `${o.key}. ${o.text}`)}
+  studentAnswer={
+    typeof userAnswers[currentQ.id] === "object"
+      ? JSON.stringify(userAnswers[currentQ.id])
+      : String(userAnswers[currentQ.id] || "")
+  }
+  correctAnswer={currentQ.correctAnswer}
+  officialSolution={currentQ.explanation}
+/>
                 })()
               ) : (
                 <div className="space-y-3.5 pb-16">
@@ -1945,6 +1974,35 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   })}
                 </div>
               )}
+              {/* TRỢ GIẢNG AI CHO TỪNG CÂU TRONG DANH SÁCH CUỘN */}
+<AiTutorWidget
+  key={`ai-scroll-${q.id}-${isReviewMode}`}
+  mode={
+    isReviewMode || isSubmitted
+      ? "REVIEW_SOCRATIC"
+      : isHomework
+      ? "HOMEWORK_HINT"
+      : "HIDDEN"
+  }
+  questionKey={`${quizId}_${q.id}`}
+  lessonTitle={quizTitle}
+  questionType={
+    isQuestionTrueFalse(q)
+      ? "true_false"
+      : isQuestionShortAnswer(q)
+      ? "short_answer"
+      : "multiple_choice"
+  }
+  questionText={q.prompt}
+  options={(q.options || []).map((o) => `${o.key}. ${o.text}`)}
+  studentAnswer={
+    typeof userAnswers[q.id] === "object"
+      ? JSON.stringify(userAnswers[q.id])
+      : String(userAnswers[q.id] || "")
+  }
+  correctAnswer={q.correctAnswer}
+  officialSolution={q.explanation}
+/>
             </div>
           </div>
 
