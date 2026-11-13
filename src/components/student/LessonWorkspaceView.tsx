@@ -246,7 +246,7 @@ const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
       setIsResolvingExam(true);
 
       // 1. Bảng HOMEWORKS (cột thật: id, title, data, sections, media_map, duration_minutes)
-      if (targetId) {
+      if (targetId && isUuid(targetId)) {
         const { data: dbHw } = await supabase
           .from("homeworks")
           .select("id, title, data, sections, media_map, duration_minutes")
@@ -284,7 +284,7 @@ const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
       }
 
       // 2. Bảng QUIZZES (cột thật: id, title, questions_data)
-      if (targetId) {
+      if (targetId && isUuid(targetId)) {
         const { data: byIdQuiz } = await supabase
           .from("quizzes")
           .select("id, title, questions_data")
@@ -322,7 +322,7 @@ const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
       }
 
       // 3. Bảng PRACTICE_EXAMS (cột thật: id, title, data, media_map, duration_minutes)
-      if (targetId) {
+      if (targetId && isUuid(targetId)) {
         const { data: byIdPrac } = await supabase
           .from("practice_exams")
           .select("id, title, data, media_map, duration_minutes")
@@ -591,18 +591,18 @@ const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
       💡 Chưa hiểu đoạn nào trong video? Chụp nhanh màn hình hoặc đặt câu hỏi cho Trợ giảng AI:
     </span>
   </div>
-  <AiTutorWidget
-    key={`ai-video-${lesson?.id}-${videoTab}-${currentPlayingVideo?.id || 0}`}
-    mode="VIDEO_QA"
-    questionKey={`video_${lesson?.id || "les"}_${videoTab}`}
-    lessonTitle={`${lesson?.title || "Bài giảng"} (${
-      videoTab === "lecture" ? "Video Lý thuyết" : "Video Chữa BTVN"
-    })`}
-    questionType="video"
-    questionText={`Học sinh đang xem ${
-      videoTab === "lecture" ? "Video bài giảng lý thuyết" : "Video chữa chi tiết BTVN"
-    }: "${currentPlayingVideo?.title || lesson?.title || ""}". Mô tả bài học: ${
-      lesson?.description || "Chuyên đề Toán THPT"
+ <AiTutorWidget
+        key={`ai-video-${lesson?.id}-${videoTab}-${currentPlayingVideo?.id || 0}`}
+        mode="VIDEO_QA"
+        questionKey={`video_${lesson?.id || "les"}_${videoTab}`}
+        lessonTitle={`${lesson?.title || "Bài giảng"} (${
+          videoTab === "lecture" ? "Video Lý thuyết" : "Video Chữa BTVN"
+        })`}
+        questionType="video"
+        questionText={`Học sinh đang xem ${
+          videoTab === "lecture" ? "Video bài giảng lý thuyết" : "Video chữa chi tiết BTVN"
+        }: "${currentPlayingVideo?.title || lesson?.title || ""}". Mô tả bài học: ${
+          lesson?.description || "Chuyên đề Toán THPT"
     }`}
   />
 </div>
