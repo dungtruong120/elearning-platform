@@ -829,7 +829,7 @@ export function ExamRoomView({
         return [];
       };
 
-      const rawData = pickNonEmptyArray(targetExam.sections, targetExam.data);
+      let rawData = pickNonEmptyArray(targetExam.sections, targetExam.data);
           if (typeof rawData === "string") {
             try {
               rawData = JSON.parse(rawData);
