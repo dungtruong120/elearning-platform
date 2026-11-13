@@ -221,18 +221,33 @@ useEffect(() => {
    * Nạp đầy đủ dữ liệu câu hỏi của đề thi / BTVN từ localStorage hoặc Supabase
    * ĐÃ TỐI ƯU: Chỉ kéo các trường cần thiết, tuyệt đối không dùng select("*") để triệt tiêu cục 13 MB
    */
- const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
+const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
     if (!rawQuizItem) return null;
 
-    const localResolved = resolveCompleteExamObject(rawQuizItem);
-    const hasQuestionsLocal =
-      (Array.isArray(localResolved?.data) && localResolved.data.length > 0) ||
-      (Array.isArray(localResolved?.sections) && localResolved.sections.length > 0) ||
-      (Array.isArray(localResolved?.questions) && localResolved.questions.length > 0);
+    // Hàm chọn mảng không rỗng (tránh lỗi [] || sections trong JS)
+    const pickNonEmpty = (...cands: any[]) => {
+      for (let c of cands) {
+        if (!c) continue;
+        if (typeof c === "string") {
+          try { c = JSON.parse(c); } catch { continue; }
+        }
+        if (Array.isArray(c) && c.length > 0) return c;
+      }
+      return [];
+    };
 
-    if (hasQuestionsLocal) {
+    const localResolved = resolveCompleteExamObject(rawQuizItem);
+    const localQuestions = pickNonEmpty(
+      localResolved?.sections,
+      localResolved?.data,
+      localResolved?.questions
+    );
+
+    if (localQuestions.length > 0) {
       return {
         ...localResolved,
+        data: localQuestions,
+        sections: localQuestions,
         is_homework: isHw
       };
     }
@@ -241,120 +256,55 @@ useEffect(() => {
       rawQuizItem.quiz_id || rawQuizItem.exam_id || rawQuizItem.id || ""
     ).trim();
     const targetTitle = String(rawQuizItem.title || "").trim();
-const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || "").trim());
+
     try {
       setIsResolvingExam(true);
 
-      // 1. Bảng HOMEWORKS (cột thật: id, title, data, sections, media_map, duration_minutes)
+      // Phân luồng đúng 1 bảng duy nhất theo isHw để giảm 70% Egress
+      const targetTable = isHw ? "homeworks" : "practice_exams";
+      const selectCols = isHw
+        ? "id, lesson_id, title, data, sections, media_map, duration_minutes"
+        : "id, title, data, media_map, duration_minutes";
+
+      let dbRecord: any = null;
+
+      // 1. Tìm theo ID (và lesson_id nếu là BTVN) trong 1 request duy nhất
       if (targetId) {
-        const { data: dbHw } = await supabase
-          .from("homeworks")
-          .select("id, title, data, sections, media_map, duration_minutes")
-          .eq("id", targetId)
-          .maybeSingle();
+        const filterStr = isHw
+          ? `id.eq.${targetId},lesson_id.eq.${targetId}`
+          : `id.eq.${targetId}`;
 
-        if (dbHw && ((Array.isArray(dbHw.data) && dbHw.data.length > 0) || (Array.isArray(dbHw.sections) && dbHw.sections.length > 0))) {
-          return {
-            ...rawQuizItem,
-            ...dbHw,
-            data: dbHw.data || dbHw.sections,
-            sections: dbHw.sections || dbHw.data,
-            is_homework: isHw
-          };
-        }
-      }
-
-      if (targetTitle) {
-        const { data: dbHwTitle } = await supabase
-          .from("homeworks")
-          .select("id, title, data, sections, media_map, duration_minutes")
-          .ilike("title", targetTitle)
+        const { data: byId } = await supabase
+          .from(targetTable)
+          .select(selectCols)
+          .or(filterStr)
           .limit(1)
           .maybeSingle();
 
-        if (dbHwTitle && ((Array.isArray(dbHwTitle.data) && dbHwTitle.data.length > 0) || (Array.isArray(dbHwTitle.sections) && dbHwTitle.sections.length > 0))) {
-          return {
-            ...rawQuizItem,
-            ...dbHwTitle,
-            data: dbHwTitle.data || dbHwTitle.sections,
-            sections: dbHwTitle.sections || dbHwTitle.data,
-            is_homework: isHw
-          };
-        }
+        if (byId) dbRecord = byId;
       }
 
-      // 2. Bảng QUIZZES (cột thật: id, title, questions_data)
-      if (targetId && isUuid(targetId)) {
-        const { data: byIdQuiz } = await supabase
-          .from("quizzes")
-          .select("id, title, questions_data")
-          .eq("id", targetId)
-          .maybeSingle();
-
-        if (byIdQuiz && byIdQuiz.questions_data) {
-          return {
-            ...byIdQuiz,
-            ...rawQuizItem,
-            data: byIdQuiz.questions_data,
-            questions: byIdQuiz.questions_data,
-            is_homework: isHw
-          };
-        }
-      }
-
-      if (targetTitle) {
-        const { data: byTitleQuiz } = await supabase
-          .from("quizzes")
-          .select("id, title, questions_data")
-          .ilike("title", targetTitle)
+      // 2. Fallback tìm theo Title nếu chưa khớp ID
+      if (!dbRecord && targetTitle) {
+        const { data: byTitle } = await supabase
+          .from(targetTable)
+          .select(selectCols)
+          .ilike("title", `%${targetTitle}%`)
           .limit(1)
           .maybeSingle();
 
-        if (byTitleQuiz && byTitleQuiz.questions_data) {
-          return {
-            ...byTitleQuiz,
-            ...rawQuizItem,
-            data: byTitleQuiz.questions_data,
-            questions: byTitleQuiz.questions_data,
-            is_homework: isHw
-          };
-        }
+        if (byTitle) dbRecord = byTitle;
       }
 
-      // 3. Bảng PRACTICE_EXAMS (cột thật: id, title, data, media_map, duration_minutes)
-     if (targetId) {
-        const { data: byIdPrac } = await supabase
-          .from("practice_exams")
-          .select("id, title, data, media_map, duration_minutes")
-          .eq("id", targetId)
-          .maybeSingle();
-
-        if (byIdPrac && byIdPrac.data) {
-          return {
-            ...byIdPrac,
-            ...rawQuizItem,
-            data: byIdPrac.data,
-            is_homework: isHw
-          };
-        }
-      }
-
-      if (targetTitle) {
-        const { data: byTitlePrac } = await supabase
-          .from("practice_exams")
-          .select("id, title, data, media_map, duration_minutes")
-          .ilike("title", targetTitle)
-          .limit(1)
-          .maybeSingle();
-
-        if (byTitlePrac && byTitlePrac.data) {
-          return {
-            ...byTitlePrac,
-            ...rawQuizItem,
-            data: byTitlePrac.data,
-            is_homework: isHw
-          };
-        }
+      if (dbRecord) {
+        const validSections = pickNonEmpty(dbRecord.sections, dbRecord.data);
+        return {
+          ...rawQuizItem,
+          ...dbRecord,
+          data: validSections,
+          sections: validSections,
+          is_homework: isHw
+        };
       }
     } catch (err) {
       console.warn("Lỗi nạp dữ liệu đề thi:", err);
