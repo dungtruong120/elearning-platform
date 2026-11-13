@@ -241,7 +241,7 @@ useEffect(() => {
       rawQuizItem.quiz_id || rawQuizItem.exam_id || rawQuizItem.id || ""
     ).trim();
     const targetTitle = String(rawQuizItem.title || "").trim();
-
+const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || "").trim());
     try {
       setIsResolvingExam(true);
 
