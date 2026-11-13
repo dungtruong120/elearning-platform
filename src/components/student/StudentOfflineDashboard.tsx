@@ -1266,7 +1266,7 @@ const handleOpenLesson = async (les: any) => {
     try {
       const { data } = await supabase
         .from("practice_exams")
-        .select("data, sections")
+        .select("data")
         .eq("id", exam.id)
         .maybeSingle();
 
@@ -1467,7 +1467,7 @@ if (examRoom) {
               if (!hasQuestions(targetExam)) {
                 const { data: dbExam } = await supabase
                   .from("practice_exams")
-                  .select("id, title, data, sections, duration_minutes")
+                  .select("id, title, data,duration_minutes")
                   .eq("id", qId)
                   .maybeSingle();
                 if (dbExam && hasQuestions(dbExam)) {
