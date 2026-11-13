@@ -757,13 +757,13 @@ export function ExamRoomView({
         }
       } catch {}
     }
-
-// ƯU TIÊN 2: Truy vấn tách biệt theo ID và Title (chỉ select các cột thực tế có trên DB)
+// ƯU TIÊN 2: Truy vấn lần lượt homeworks -> quizzes -> practice_exams theo đúng cột thật
     if (!dbExam) {
+      // 2A. Bảng homeworks (id, title, data, sections, media_map, duration_minutes)
       if (quizId) {
         const { data: hwById } = await supabase
           .from("homeworks")
-          .select("id, title, data, media_map, duration_minutes")
+          .select("id, title, data, sections, media_map, duration_minutes")
           .eq("id", quizId)
           .maybeSingle();
         if (hwById) dbExam = hwById;
@@ -771,13 +771,37 @@ export function ExamRoomView({
       if (!dbExam && quizTitle) {
         const { data: hwByTitle } = await supabase
           .from("homeworks")
-          .select("id, title, data, media_map, duration_minutes")
+          .select("id, title, data, sections, media_map, duration_minutes")
           .ilike("title", quizTitle.trim())
           .limit(1)
           .maybeSingle();
         if (hwByTitle) dbExam = hwByTitle;
       }
 
+      // 2B. Bảng quizzes (id, title, questions_data)
+      if (!dbExam && quizId) {
+        const { data: qzById } = await supabase
+          .from("quizzes")
+          .select("id, title, questions_data")
+          .eq("id", quizId)
+          .maybeSingle();
+        if (qzById && qzById.questions_data) {
+          dbExam = { ...qzById, data: qzById.questions_data };
+        }
+      }
+      if (!dbExam && quizTitle) {
+        const { data: qzByTitle } = await supabase
+          .from("quizzes")
+          .select("id, title, questions_data")
+          .ilike("title", quizTitle.trim())
+          .limit(1)
+          .maybeSingle();
+        if (qzByTitle && qzByTitle.questions_data) {
+          dbExam = { ...qzByTitle, data: qzByTitle.questions_data };
+        }
+      }
+
+      // 2C. Bảng practice_exams (id, title, data, media_map, duration_minutes)
       if (!dbExam && quizId) {
         const { data: pracById } = await supabase
           .from("practice_exams")
