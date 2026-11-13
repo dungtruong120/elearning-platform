@@ -757,13 +757,13 @@ export function ExamRoomView({
         }
       } catch {}
     }
-// ƯU TIÊN 2: Truy vấn lần lượt homeworks -> quizzes -> practice_exams (kiểm tra UUID trước khi .eq("id"))
+// ƯU TIÊN 2: Truy vấn lần lượt homeworks -> quizzes -> practice_exams (chỉ .eq("id") khi là UUID hợp lệ)
     if (!dbExam) {
       const isUuid = (str: string) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || "").trim());
 
-      // 2A. Bảng homeworks (cột id thường là text nên query trực tiếp được)
-      if (quizId) {
+      // 2A. Bảng homeworks
+      if (quizId && isUuid(quizId)) {
         const { data: hwById } = await supabase
           .from("homeworks")
           .select("id, title, data, sections, media_map, duration_minutes")
@@ -781,7 +781,7 @@ export function ExamRoomView({
         if (hwByTitle) dbExam = hwByTitle;
       }
 
-      // 2B. Bảng quizzes (cột id kiểu UUID -> chỉ .eq("id") nếu quizId là UUID)
+      // 2B. Bảng quizzes
       if (!dbExam && quizId && isUuid(quizId)) {
         const { data: qzById } = await supabase
           .from("quizzes")
@@ -804,7 +804,7 @@ export function ExamRoomView({
         }
       }
 
-      // 2C. Bảng practice_exams (chỉ .eq("id") nếu quizId là UUID)
+      // 2C. Bảng practice_exams
       if (!dbExam && quizId && isUuid(quizId)) {
         const { data: pracById } = await supabase
           .from("practice_exams")
