@@ -779,7 +779,7 @@ export function ExamRoomView({
         if (pracData) dbExam = pracData;
       }
     }
-
+let targetExam = dbExam;
     
 
         // 3. Fallback đọc localStorage
