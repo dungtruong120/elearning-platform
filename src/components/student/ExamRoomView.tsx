@@ -757,14 +757,13 @@ export function ExamRoomView({
         }
       } catch {}
     }
-// ƯU TIÊN 2: Truy vấn đúng 1 bảng theo chế độ (Tiết kiệm tối đa Egress)
+// ƯU TIÊN 2: Truy vấn DB (Tìm trong homeworks/practice_exams trước, sau đó tìm thẳng trong bảng lessons)
     if (!dbExam) {
       const targetTable = isHomework ? "homeworks" : "practice_exams";
       const selectCols = isHomework
         ? "id, lesson_id, title, data, sections, media_map, duration_minutes"
         : "id, title, data, media_map, duration_minutes";
 
-      // 1. Tìm đồng thời theo cả id và lesson_id trong 1 request duy nhất
       if (quizId) {
         const cleanId = String(quizId).trim();
         const filterQuery = isHomework
@@ -781,7 +780,6 @@ export function ExamRoomView({
         if (byId) dbExam = byId;
       }
 
-      // 2. Chỉ fallback tìm theo title nếu tìm theo ID chưa có
       if (!dbExam && quizTitle) {
         const { data: byTitle } = await supabase
           .from(targetTable)
@@ -791,6 +789,40 @@ export function ExamRoomView({
           .maybeSingle();
 
         if (byTitle) dbExam = byTitle;
+      }
+
+      // 2B. NGUỒN GỐC CHÍNH: Tìm thẳng trong cột homework_files và test_quizzes của bảng lessons
+      if (!dbExam) {
+        const { data: allLessons } = await supabase
+          .from("lessons")
+          .select("id, title, homework_files, test_quizzes");
+
+        if (Array.isArray(allLessons)) {
+          const normTargetId = String(quizId || "").trim().toLowerCase();
+          const normTargetTitle = normalizeTextKey(quizTitle);
+
+          for (const les of allLessons) {
+            const pool = [
+              ...(Array.isArray(les.homework_files) ? les.homework_files : []),
+              ...(Array.isArray(les.test_quizzes) ? les.test_quizzes : []),
+            ];
+
+            const matched = pool.find((item: any) => {
+              if (!item) return false;
+              const iId = String(item.id || item.quiz_id || item.exam_id || "").trim().toLowerCase();
+              const iTitle = normalizeTextKey(item.title || "");
+              return (
+                (normTargetId && iId === normTargetId) ||
+                (normTargetTitle && (iTitle === normTargetTitle || iTitle.includes(normTargetTitle)))
+              );
+            });
+
+            if (matched) {
+              dbExam = matched;
+              break;
+            }
+          }
+        }
       }
     }
 
