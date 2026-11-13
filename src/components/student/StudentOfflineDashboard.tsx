@@ -1444,7 +1444,7 @@ if (examRoom) {
              if (!hasQuestions(targetExam) && isHomework) {
   const { data: dbHw } = await supabase
     .from("homeworks")
-    .select("id, title, data, sections, media_map, duration_minutes")
+    .select("id, title, data,  media_map, duration_minutes")
     .eq("id", qId)
     .maybeSingle();
 
