@@ -189,7 +189,7 @@ async function sanitizeAndUploadAllMediaRecursively(
 ): Promise<any> {
   if (!target) return target;
 
-  // 1. Gom toàn bộ chuỗi base64 duy nhất trong object trước
+  // 1. Gom toàn bộ chuỗi base64 duy nhất trong object
   const uniqueB64Set = new Set<string>();
   const collectBase64 = (node: any) => {
     if (!node) return;
@@ -206,17 +206,21 @@ async function sanitizeAndUploadAllMediaRecursively(
       return;
     }
     if (Array.isArray(node)) {
-      node.forEach(collectBase64);
+      for (const item of node) {
+        collectBase64(item);
+      }
       return;
     }
     if (typeof node === "object") {
-      Object.values(node).forEach(collectBase64);
+      for (const val of Object.values(node)) {
+        collectBase64(val);
+      }
     }
   };
 
   collectBase64(target);
 
-  // 2. Upload song song theo từng lô 10 ảnh lên Storage (102 ảnh chỉ mất ~2 giây)
+  // 2. Upload song song theo từng lô 10 ảnh lên Storage
   const b64List = Array.from(uniqueB64Set);
   const BATCH_SIZE = 10;
   for (let i = 0; i < b64List.length; i += BATCH_SIZE) {
@@ -230,8 +234,8 @@ async function sanitizeAndUploadAllMediaRecursively(
     );
   }
 
-  // 3. Thay thế toàn bộ chuỗi base64 bằng link URL Storage siêu nhẹ
-  const replaceBase64 = (node: any): any => {
+  // 3. Thay thế toàn bộ chuỗi base64 bằng link URL Storage siêu nhẹ (Dùng vòng lặp chuẩn, không dùng callback map/forEach)
+  async function replaceBase64Async(node: any): Promise<any> {
     if (!node) return node;
     if (typeof node === "string") {
       if (node.startsWith("data:image")) {
@@ -239,24 +243,36 @@ async function sanitizeAndUploadAllMediaRecursively(
       }
       if (node.includes("data:image/")) {
         const regex = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=\r\n]+/g;
-        return node.replace(regex, (m) => urlMap.get(m) || m);
+        let updatedString = node;
+        const matches = node.match(regex) || [];
+        for (const m of matches) {
+          const replacement = urlMap.get(m);
+          if (replacement) {
+            updatedString = updatedString.split(m).join(replacement);
+          }
+        }
+        return updatedString;
       }
       return node;
     }
     if (Array.isArray(node)) {
-      return node.map(replaceBase64);
+      const newArr = [];
+      for (const item of node) {
+        newArr.push(await replaceBase64Async(item));
+      }
+      return newArr;
     }
     if (typeof node === "object") {
-      const out: Record<string, any> = {};
+      const newObj: Record<string, any> = {};
       for (const [k, v] of Object.entries(node)) {
-        out[k] = replaceBase64(v);
+        newObj[k] = await replaceBase64Async(v);
       }
-      return out;
+      return newObj;
     }
     return node;
-  };
+  }
 
-  return replaceBase64(target);
+  return await replaceBase64Async(target);
 }
   if (Array.isArray(target)) {
     const newArr = [];
