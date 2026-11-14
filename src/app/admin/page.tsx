@@ -776,7 +776,6 @@ function AdminDashboardContent() {
          const nowIso = new Date().toISOString();
 
           // 1. Lưu từng chương vào bảng chapters
-         // 1. Lưu từng chương vào bảng chapters
           for (const chap of cleanCoursesData) {
             await supabase.from("chapters").upsert({
               id: String(chap.id),
@@ -787,7 +786,6 @@ function AdminDashboardContent() {
             // 2. Lưu từng bài học con vào bảng lessons (chỉ giữ thông tin cơ bản)
             if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
               for (const les of chap.lessons) {
-                // 2. Lưu từng bài học con vào bảng lessons
                 await supabase.from("lessons").upsert({
                   id: String(les.id),
                   chapter_id: String(chap.id),
@@ -795,36 +793,71 @@ function AdminDashboardContent() {
                   description: les.description || "",
                   target_mode: les.target_mode || "all",
                   duration: Number(les.duration) || 45,
-                  assigned_month: Number(les.assigned_month) || 10, // 👈 THÊM DÒNG NÀY
-                  assigned_week: Number(les.assigned_week) || 1,    // 👈 THÊM DÒNG NÀY
+                  assigned_month: Number(les.assigned_month) || 10,
+                  assigned_week: Number(les.assigned_week) || 1,
                   video_list: les.video_list || [],
                   lecture_files: les.lecture_files || []
                 });
 
-                // 2.1 LƯU BTVN VÀO BẢNG RIÊNG homeworks
+                // 2.1 CHỈ LƯU VÀO BẢNG homeworks KHI CÓ DỮ LIỆU CÂU HỎI THẬT (CHỐNG GHI ĐÈ RỖNG [])
                 if (Array.isArray(les.homework_files) && les.homework_files.length > 0) {
                   for (const hw of les.homework_files) {
-                    await supabase.from("homeworks").upsert({
-                      id: String(hw.id || `hw-${Date.now()}`),
-                      lesson_id: String(les.id),
-                      title: hw.title || "Bài tập về nhà",
-                      duration_minutes: Number(hw.duration_minutes) || 45,
-                      is_quiz: hw.is_quiz !== false,
-                      data: hw.data || hw.sections || [],
-                      sections: hw.sections || hw.data || [],
-                      media_map: hw.media_map || hw.mediaMap || {},
-                      updated_at: nowIso
-                    });
+                    if (hw?.is_drive_file) continue;
+                    const hwData = Array.isArray(hw.data) && hw.data.length > 0
+                      ? hw.data
+                      : Array.isArray(hw.sections) && hw.sections.length > 0
+                      ? hw.sections
+                      : null;
+
+                    if (hwData) {
+                      // Có ruột câu hỏi mới -> Upsert đầy đủ
+                      await supabase.from("homeworks").upsert({
+                        id: String(hw.id || `exam-${Date.now()}`),
+                        lesson_id: String(les.id),
+                        title: hw.title || "Bài tập về nhà",
+                        duration_minutes: Number(hw.duration_minutes) || 0,
+                        is_quiz: hw.is_quiz !== false,
+                        data: hwData,
+                        sections: hwData,
+                        media_map: hw.media_map || hw.mediaMap || {},
+                        updated_at: nowIso
+                      });
+                    } else if (hw?.id) {
+                      // Chỉ có vỏ metadata -> Chỉ cập nhật tiêu đề/thời gian, KHÔNG ĐỤNG vào data/sections
+                      await supabase
+                        .from("homeworks")
+                        .update({
+                          title: hw.title || "Bài tập về nhà",
+                          duration_minutes: Number(hw.duration_minutes) || 0,
+                          updated_at: nowIso
+                        })
+                        .eq("id", String(hw.id));
+                    }
                   }
                 }
               }
             }
           }
 
-          // 3. Lưu 1 bản sao dự phòng vào curriculum_data để an toàn tuyệt đối
+          // 3. Lưu bản sao nhẹ (chỉ vỏ metadata, bỏ ruột câu hỏi nặng) vào curriculum_data để tiết kiệm Egress
+          const lightweightCurriculum = cleanCoursesData.map((chap: any) => ({
+            ...chap,
+            lessons: (chap.lessons || []).map((les: any) => ({
+              ...les,
+              homework_files: (les.homework_files || []).map((hw: any) => ({
+                id: hw.id,
+                title: hw.title,
+                url: hw.url,
+                duration_minutes: hw.duration_minutes,
+                is_quiz: hw.is_quiz,
+                is_drive_file: hw.is_drive_file
+              }))
+            }))
+          }));
+
           await supabase.from("curriculum_data").upsert({
             id: "main_curriculum",
-            chapters: cleanCoursesData,
+            chapters: lightweightCurriculum,
             updated_at: nowIso
           });
 
@@ -2650,7 +2683,7 @@ const handleUpdateStudentStatus = async (
         });
         showToast("Lỗi khi lưu đề thi: " + err.message, "error");
       }
-    } else {
+   } else {
       if (!azotaTarget) return;
       const isHw = azotaTarget.type === "homework_files";
       const targetLessonId = azotaTarget.lessonId;
@@ -2660,34 +2693,106 @@ const handleUpdateStudentStatus = async (
       setEditingExamData(null);
       setAzotaTarget(null);
 
-      const newExam = {
-        id: "exam-" + Date.now(),
-        title: examData.title || (isHw ? "Bài BTVN" : "Kiểm tra"),
-        isHomework: isHw,
-        duration_minutes: isHw ? 0 : examData.duration_minutes || 45,
-        is_quiz: true,
-        data: examData.sections || examData.data || [],
-        sections: examData.sections || examData.data || [],
-        mediaMap: examData.mediaMap || examData.media_map || {},
-        media_map: examData.mediaMap || examData.media_map || {},
-        created_at: new Date().toISOString()
-      };
+      try {
+        setSyncStatus({
+          isSyncing: true,
+          progress: 30,
+          message: "Đang tải ảnh đề BTVN lên Storage...",
+          type: "loading",
+        });
 
-      const newChapters = (latestChaptersRef.current || []).map((chap) => ({
-        ...chap,
-        lessons: (chap?.lessons || []).map((les: any) => {
-          if (les?.id === targetLessonId) {
-            return { ...les, [targetType]: [newExam, ...(les[targetType] || [])] };
+        // 1. Upload ảnh Base64 lên Storage để giảm 99% Egress
+        const urlMap = new Map<string, string>();
+        const cleanedSections = await sanitizeAndUploadAllMediaRecursively(
+          examData.sections || examData.data || [],
+          supabase,
+          urlMap,
+          "courses_media"
+        );
+        const cleanedMediaMap = await sanitizeAndUploadAllMediaRecursively(
+          examData.mediaMap || examData.media_map || {},
+          supabase,
+          urlMap,
+          "courses_media"
+        );
+
+        // 2. Kiểm tra xem bài học này đã có BTVN nào trùng tên không -> Giữ nguyên ID cũ để bảo toàn 100% điểm học sinh!
+        const incomingTitle = (examData.title || (isHw ? "Bài BTVN" : "Kiểm tra")).trim();
+        let reusedExamId = "exam-" + Date.now();
+        let isReplacingExisting = false;
+
+        for (const chap of latestChaptersRef.current || []) {
+          const foundLes = (chap?.lessons || []).find((l: any) => l?.id === targetLessonId);
+          if (foundLes && Array.isArray(foundLes[targetType])) {
+            const existingItem = foundLes[targetType].find(
+              (item: any) => normalizeText(item?.title) === normalizeText(incomingTitle)
+            );
+            if (existingItem?.id) {
+              reusedExamId = String(existingItem.id);
+              isReplacingExisting = true;
+            }
           }
-          return les;
-        })
-      }));
+        }
 
-      await syncCoursesToSupabase(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
-      showToast("Đã nạp đề vào bài học thành công!", "success");
+        const nowIso = new Date().toISOString();
+        const newExam = {
+          id: reusedExamId,
+          lesson_id: targetLessonId,
+          title: incomingTitle,
+          isHomework: isHw,
+          duration_minutes: isHw ? 0 : Number(examData.duration_minutes) || 45,
+          is_quiz: true,
+          data: cleanedSections,
+          sections: cleanedSections,
+          mediaMap: cleanedMediaMap,
+          media_map: cleanedMediaMap,
+          created_at: nowIso,
+          updated_at: nowIso
+        };
+
+        // 3. Đẩy thẳng trực tiếp vào bảng homeworks trên Supabase
+        if (isHw) {
+          const { error: hwErr } = await supabase.from("homeworks").upsert({
+            id: reusedExamId,
+            lesson_id: targetLessonId,
+            title: incomingTitle,
+            duration_minutes: 0,
+            is_quiz: true,
+            data: cleanedSections,
+            sections: cleanedSections,
+            media_map: cleanedMediaMap,
+            updated_at: nowIso
+          });
+          if (hwErr) throw hwErr;
+        }
+
+        // 4. Cập nhật state giao diện Admin (Nếu trùng tên thì thay thế item cũ, không tạo dòng trùng)
+        const newChapters = (latestChaptersRef.current || []).map((chap) => ({
+          ...chap,
+          lessons: (chap?.lessons || []).map((les: any) => {
+            if (les?.id === targetLessonId) {
+              const currentList = les[targetType] || [];
+              const nextList = isReplacingExisting
+                ? currentList.map((item: any) => (item?.id === reusedExamId ? newExam : item))
+                : [newExam, ...currentList];
+              return { ...les, [targetType]: nextList };
+            }
+            return les;
+          })
+        }));
+
+        await syncCoursesToSupabase(newChapters, isHw ? "bài tập về nhà" : "đề kiểm tra");
+        showToast(
+          isReplacingExisting
+            ? "Đã cập nhật lại đề (giữ nguyên ID & toàn bộ điểm học sinh)!"
+            : "Đã nạp đề vào bài học thành công!",
+          "success"
+        );
+      } catch (err: any) {
+        console.error("Lỗi lưu BTVN:", err);
+        showToast("Lỗi khi lưu BTVN: " + (err?.message || "Thử lại"), "error");
+      }
     }
-  };
-
   if (!mounted) {
     return (
       <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative">
