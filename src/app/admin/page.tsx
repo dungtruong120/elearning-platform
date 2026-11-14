@@ -272,40 +272,6 @@ async function sanitizeAndUploadAllMediaRecursively(
     return node;
   }
 
-  return await replaceBase64Async(target);
-}
-  if (Array.isArray(target)) {
-    const newArr = [];
-    for (const item of target) {
-      newArr.push(
-        await sanitizeAndUploadAllMediaRecursively(
-          item,
-          supabaseClient,
-          urlMap,
-          folder,
-          onUploadedOne
-        )
-      );
-    }
-    return newArr;
-  }
-
-  if (typeof target === "object") {
-    const newObj: Record<string, any> = {};
-    for (const [k, v] of Object.entries(target)) {
-      newObj[k] = await sanitizeAndUploadAllMediaRecursively(
-        v,
-        supabaseClient,
-        urlMap,
-        folder,
-        onUploadedOne
-      );
-    }
-    return newObj;
-  }
-
-  return target;
-}
 
 function safeSavePracticeExamsToStorage(examsList: any[]) {
   if (typeof window === "undefined" || !Array.isArray(examsList) || examsList.length === 0) {
