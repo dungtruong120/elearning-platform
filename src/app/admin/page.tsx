@@ -1837,7 +1837,9 @@ supabase
 
   const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
-
+if (resType === "homework_files" && resId) {
+      await supabase.from("homeworks").delete().eq("id", String(resId));
+    }
     if (
       viewResourcesModal &&
       viewResourcesModal.lessonId === lessonId &&
