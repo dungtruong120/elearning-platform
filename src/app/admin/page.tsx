@@ -271,7 +271,8 @@ async function sanitizeAndUploadAllMediaRecursively(
     }
     return node;
   }
-
+return await replaceBase64Async(target);
+}
 
 function safeSavePracticeExamsToStorage(examsList: any[]) {
   if (typeof window === "undefined" || !Array.isArray(examsList) || examsList.length === 0) {
