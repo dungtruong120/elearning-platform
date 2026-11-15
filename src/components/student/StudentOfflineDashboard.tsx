@@ -57,10 +57,90 @@ import {
   Printer,
   PenTool,
   Camera,
-  Lock
+  Lock,
+  Calculator,
+  Compass,
+  Zap
 } from "lucide-react";
 
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
+
+export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong";
+
+export const SUBJECT_CATEGORY_CONFIG: Record<
+  SubjectCategoryKey,
+  {
+    label: string;
+    shortLabel: string;
+    badgeClass: string;
+    activeTabClass: string;
+    dotClass: string;
+  }
+> = {
+  dai: {
+    label: "Đại số & Giải tích",
+    shortLabel: "Đại số",
+    badgeClass: "bg-blue-50 text-[#1D4ED8] border-blue-200",
+    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-2xs",
+    dotClass: "bg-[#1D4ED8]"
+  },
+  hinh: {
+    label: "Hình học & Oxyz",
+    shortLabel: "Hình học",
+    badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    activeTabClass: "bg-emerald-600 text-white border-emerald-600 shadow-2xs",
+    dotClass: "bg-emerald-600"
+  },
+  tong_on: {
+    label: "Tổng ôn toàn diện",
+    shortLabel: "Tổng ôn",
+    badgeClass: "bg-purple-50 text-purple-700 border-purple-200",
+    activeTabClass: "bg-purple-600 text-white border-purple-600 shadow-2xs",
+    dotClass: "bg-purple-600"
+  },
+  tang_cuong: {
+    label: "Tăng cường & Bổ trợ",
+    shortLabel: "Tăng cường",
+    badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
+    activeTabClass: "bg-amber-500 text-white border-amber-500 shadow-2xs",
+    dotClass: "bg-amber-500"
+  }
+};
+
+export function normalizeSubjectCategory(
+  rawCat?: string | null,
+  fallbackTitle?: string
+): SubjectCategoryKey {
+  const clean = String(rawCat || "").trim().toLowerCase();
+  if (clean === "dai" || clean === "algebra" || clean === "dai_so") return "dai";
+  if (clean === "hinh" || clean === "geometry" || clean === "hinh_hoc") return "hinh";
+  if (clean === "tong_on" || clean === "review" || clean === "tongon") return "tong_on";
+  if (clean === "tang_cuong" || clean === "boost" || clean === "tangcuong") return "tang_cuong";
+
+  const titleLower = String(fallbackTitle || "").toLowerCase();
+  if (
+    titleLower.includes("hình học") ||
+    titleLower.includes("hình-") ||
+    titleLower.includes("oxyz") ||
+    titleLower.includes("khối đa diện") ||
+    titleLower.includes("mặt cầu") ||
+    titleLower.includes("mặt phẳng") ||
+    titleLower.includes("đường thẳng") ||
+    titleLower.includes("vectơ") ||
+    titleLower.includes("vector") ||
+    titleLower.includes("góc") ||
+    titleLower.includes("khoảng cách")
+  ) {
+    return "hinh";
+  }
+  if (titleLower.includes("tổng ôn") || titleLower.includes("luyện đề")) {
+    return "tong_on";
+  }
+  if (titleLower.includes("tăng cường") || titleLower.includes("bổ trợ")) {
+    return "tang_cuong";
+  }
+  return "dai";
+}
 
 const MOTIVATIONAL_QUOTES = [
   "Học tập không phải là con đường duy nhất để thành công, nhưng là con đường ngắn nhất để chinh phục tri thức.",
@@ -73,6 +153,7 @@ const DEFAULT_CHAPTERS = [
   {
     id: "chap-1",
     title: "Chương 1: Ứng dụng đạo hàm để khảo sát hàm số",
+    category: "dai",
     lessons: [
       {
         id: "les-1",
@@ -81,6 +162,7 @@ const DEFAULT_CHAPTERS = [
         duration: 45,
         format: "Zoom",
         target_mode: "all",
+        category: "dai",
         lecture_files: [],
         homework_files: [],
         handwritten_notes: [],
@@ -200,6 +282,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // STATE LỌC PHÂN MÔN TOÁN THPT: 'all' | 'dai' | 'hinh' | 'tong_on' | 'tang_cuong'
+  const [selectedSubjectCategory, setSelectedSubjectCategory] = useState<"all" | SubjectCategoryKey>("all");
 
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
@@ -420,13 +505,26 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         .select("*")
         .order("created_at", { ascending: true });
 
-      // Bổ sung lấy thêm cột test_quizzes
-      const { data: dbLessons } = await supabase
+      // Lấy các cột của lessons (kèm fallback nếu DB chưa có cột category)
+      let dbLessons: any[] | null = null;
+      const { data: lessonsWithCat, error: lesCatErr } = await supabase
         .from("lessons")
         .select(
-          "id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
+          "id, chapter_id, title, target_mode, category, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
         )
         .order("created_at", { ascending: false });
+
+      if (!lesCatErr && lessonsWithCat) {
+        dbLessons = lessonsWithCat;
+      } else {
+        const { data: lessonsFallback } = await supabase
+          .from("lessons")
+          .select(
+            "id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
+          )
+          .order("created_at", { ascending: false });
+        dbLessons = lessonsFallback;
+      }
 
       // Kéo toàn bộ danh sách BTVN từ bảng homeworks
       const { data: dbHomeworks } = await supabase
@@ -434,16 +532,59 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         .select("id, lesson_id, title, duration_minutes, is_quiz");
 
       if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
-        const formattedChapters = dbChapters.map((chap: any) => ({
-          ...chap,
-          lessons: (dbLessons || [])
-            .filter((les: any) => les.chapter_id === chap.id)
-            .map((les: any) => ({
-              ...les,
-              test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
-              homework_files: (dbHomeworks || []).filter((hw: any) => hw.lesson_id === les.id)
-            }))
-        }));
+        // Giữ lại category đã lưu trong localStorage nếu DB chưa có cột category
+        let localCatMap = new Map<string, string>();
+        if (typeof window !== "undefined") {
+          try {
+            const rawSaved = localStorage.getItem("edunexus_course_data");
+            if (rawSaved) {
+              const parsedSaved = JSON.parse(rawSaved);
+              if (Array.isArray(parsedSaved)) {
+                parsedSaved.forEach((c: any) => {
+                  if (c?.id && (c?.category || c?.subject_category)) {
+                    localCatMap.set(String(c.id), c.category || c.subject_category);
+                  }
+                  (c?.lessons || []).forEach((l: any) => {
+                    if (l?.id && (l?.category || l?.subject_category)) {
+                      localCatMap.set(String(l.id), l.category || l.subject_category);
+                    }
+                  });
+                });
+              }
+            }
+          } catch {}
+        }
+
+        const formattedChapters = dbChapters.map((chap: any) => {
+          const chapCat = normalizeSubjectCategory(
+            chap?.category || chap?.subject_category || localCatMap.get(String(chap.id)),
+            chap?.title
+          );
+          return {
+            ...chap,
+            category: chapCat,
+            subject_category: chapCat,
+            lessons: (dbLessons || [])
+              .filter((les: any) => les.chapter_id === chap.id)
+              .map((les: any) => {
+                const lesCat = normalizeSubjectCategory(
+                  les?.category ||
+                    les?.subject_category ||
+                    localCatMap.get(String(les.id)) ||
+                    chap?.category ||
+                    chap?.subject_category,
+                  les?.title || chap?.title
+                );
+                return {
+                  ...les,
+                  category: lesCat,
+                  subject_category: lesCat,
+                  test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
+                  homework_files: (dbHomeworks || []).filter((hw: any) => hw.lesson_id === les.id)
+                };
+              })
+          };
+        });
 
         setChapters(formattedChapters);
         if (typeof window !== "undefined") {
@@ -910,40 +1051,65 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     };
 
     return (chapters || [])
-      .map((chap: any) => ({
-        ...chap,
-        lessons: (chap.lessons || [])
-          .filter(
-            (les: any) =>
-              !les?.target_mode || les?.target_mode === "offline" || les?.target_mode === "all"
-          )
-          .sort((a: any, b: any) => {
-            // TIÊU CHÍ 1: So sánh theo Ngày học thực tế (ngày mới hơn/gần nhất lên đầu)
-            const dateA = parseDateStrToTimestamp(a?.study_date);
-            const dateB = parseDateStrToTimestamp(b?.study_date);
-            if (dateA && dateB && dateA !== dateB) return dateB - dateA;
+      .map((chap: any) => {
+        const chapCat = normalizeSubjectCategory(
+          chap?.category || chap?.subject_category || chap?.subject_type,
+          chap?.title
+        );
 
-            // TIÊU CHÍ 2: So sánh theo Tháng học giảm dần (Tháng 11 > Tháng 10)
-            const mA = Number(a?.assigned_month) || 10;
-            const mB = Number(b?.assigned_month) || 10;
-            if (mA !== mB) return mB - mA;
+        return {
+          ...chap,
+          category: chapCat,
+          subject_category: chapCat,
+          lessons: (chap.lessons || [])
+            .filter(
+              (les: any) =>
+                !les?.target_mode || les?.target_mode === "offline" || les?.target_mode === "all"
+            )
+            .map((les: any) => {
+              const resolvedLesCat = normalizeSubjectCategory(
+                les?.category ||
+                  les?.subject_category ||
+                  les?.subject_type ||
+                  chap?.category ||
+                  chap?.subject_category ||
+                  chap?.subject_type,
+                les?.title || chap?.title
+              );
+              return {
+                ...les,
+                category: resolvedLesCat,
+                subject_category: resolvedLesCat
+              };
+            })
+            .sort((a: any, b: any) => {
+              // TIÊU CHÍ 1: So sánh theo Ngày học thực tế (ngày mới hơn/gần nhất lên đầu)
+              const dateA = parseDateStrToTimestamp(a?.study_date);
+              const dateB = parseDateStrToTimestamp(b?.study_date);
+              if (dateA && dateB && dateA !== dateB) return dateB - dateA;
 
-            // TIÊU CHÍ 3: So sánh theo Tuần học giảm dần (Tuần 2 > Tuần 1)
-            const wA = Number(a?.assigned_week) || 1;
-            const wB = Number(b?.assigned_week) || 1;
-            if (wA !== wB) return wB - wA;
+              // TIÊU CHÍ 2: So sánh theo Tháng học giảm dần (Tháng 11 > Tháng 10)
+              const mA = Number(a?.assigned_month) || 10;
+              const mB = Number(b?.assigned_month) || 10;
+              if (mA !== mB) return mB - mA;
 
-            // TIÊU CHÍ 4: So sánh theo số bài (Bài 8 > Bài 5, Buổi 4 > Buổi 3)
-            const numA = extractLessonNum(a?.title);
-            const numB = extractLessonNum(b?.title);
-            if (numA && numB && numA !== numB) return numB - numA;
+              // TIÊU CHÍ 3: So sánh theo Tuần học giảm dần (Tuần 2 > Tuần 1)
+              const wA = Number(a?.assigned_week) || 1;
+              const wB = Number(b?.assigned_week) || 1;
+              if (wA !== wB) return wB - wA;
 
-            // TIÊU CHÍ 5: Dự phòng theo độ mới khi up lên (timestamp lớn hơn đứng trước)
-            const timeA = getLessonTimestamp(a);
-            const timeB = getLessonTimestamp(b);
-            return timeB - timeA;
-          })
-      }))
+              // TIÊU CHÍ 4: So sánh theo số bài (Bài 8 > Bài 5, Buổi 4 > Buổi 3)
+              const numA = extractLessonNum(a?.title);
+              const numB = extractLessonNum(b?.title);
+              if (numA && numB && numA !== numB) return numB - numA;
+
+              // TIÊU CHÍ 5: Dự phòng theo độ mới khi up lên (timestamp lớn hơn đứng trước)
+              const timeA = getLessonTimestamp(a);
+              const timeB = getLessonTimestamp(b);
+              return timeB - timeA;
+            })
+        };
+      })
       // SẮP XẾP CHƯƠNG: Chương số to hơn (Chương 2, Chương 3...) luôn đẩy lên trên đầu
       .sort((chapA: any, chapB: any) => {
         const cNumA = extractChapterNum(chapA?.title);
@@ -956,6 +1122,73 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       })
       .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
   }, [chapters]);
+
+  // ĐẾM SỐ LƯỢNG BÀI HỌC THEO TỪNG PHÂN MÔN CHO HỌC SINH
+  const subjectCategoryCounts = useMemo(() => {
+    const counts: Record<"all" | SubjectCategoryKey, number> = {
+      all: 0,
+      dai: 0,
+      hinh: 0,
+      tong_on: 0,
+      tang_cuong: 0
+    };
+
+    offlineChapters.forEach((chap: any) => {
+      (chap.lessons || []).forEach((les: any) => {
+        if (
+          searchQuery.trim() !== "" &&
+          !String(les?.title || "")
+            .toLowerCase()
+            .includes(searchQuery.trim().toLowerCase()) &&
+          !String(chap?.title || "")
+            .toLowerCase()
+            .includes(searchQuery.trim().toLowerCase())
+        ) {
+          return;
+        }
+
+        const cat = normalizeSubjectCategory(
+          les?.category || les?.subject_category || chap?.category || chap?.subject_category,
+          les?.title || chap?.title
+        );
+        counts.all += 1;
+        counts[cat] += 1;
+      });
+    });
+
+    return counts;
+  }, [offlineChapters, searchQuery]);
+
+  // DANH SÁCH CHƯƠNG & BÀI HỌC ĐÃ LỌC THEO PHÂN MÔN ĐANG CHỌN + TỪ KHÓA TÌM KIẾM
+  const filteredOfflineChapters = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+
+    return offlineChapters
+      .map((chap: any, originalChapIdx: number) => {
+        const matchingLessons = (chap.lessons || []).filter((les: any) => {
+          const lesCat = normalizeSubjectCategory(
+            les?.category || les?.subject_category || chap?.category || chap?.subject_category,
+            les?.title || chap?.title
+          );
+          if (selectedSubjectCategory !== "all" && lesCat !== selectedSubjectCategory) {
+            return false;
+          }
+          if (q) {
+            const matchLes = String(les?.title || "").toLowerCase().includes(q);
+            const matchChap = String(chap?.title || "").toLowerCase().includes(q);
+            if (!matchLes && !matchChap) return false;
+          }
+          return true;
+        });
+
+        return {
+          ...chap,
+          originalChapNumber: originalChapIdx + 1,
+          lessons: matchingLessons
+        };
+      })
+      .filter((chap: any) => chap.lessons && chap.lessons.length > 0);
+  }, [offlineChapters, selectedSubjectCategory, searchQuery]);
 
   const parseTimeSlotMinutes = (
     timeSlot?: string
@@ -1293,6 +1526,151 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       setPreviewExam(exam);
     }
   };
+
+  // RENDER THANH TAB LỌC 4 PHÂN MÔN DÙNG CHUNG CHO OVERVIEW & COURSES
+  const renderSubjectCategoryFilterBar = () => (
+    <div className="bg-white rounded-xl p-2.5 sm:px-4 sm:py-3 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-0.5 sm:pb-0 -mx-0.5 px-0.5">
+        <button
+          type="button"
+          onClick={() => setSelectedSubjectCategory("all")}
+          className={
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            (selectedSubjectCategory === "all"
+              ? "bg-slate-900 text-white border-slate-900 shadow-2xs"
+              : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100")
+          }
+        >
+          <Layers className="w-3.5 h-3.5 shrink-0" />
+          <span>Tất cả</span>
+          <span
+            className={
+              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              (selectedSubjectCategory === "all"
+                ? "bg-white/20 text-white"
+                : "bg-slate-200/80 text-slate-700")
+            }
+          >
+            {subjectCategoryCounts.all}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSelectedSubjectCategory("dai")}
+          className={
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            (selectedSubjectCategory === "dai"
+              ? SUBJECT_CATEGORY_CONFIG.dai.activeTabClass
+              : "bg-blue-50/60 text-[#1D4ED8] border-blue-200/80 hover:bg-blue-100/70")
+          }
+        >
+          <Calculator className="w-3.5 h-3.5 shrink-0" />
+          <span>Đại số</span>
+          <span
+            className={
+              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              (selectedSubjectCategory === "dai"
+                ? "bg-white/20 text-white"
+                : "bg-blue-100 text-[#1D4ED8]")
+            }
+          >
+            {subjectCategoryCounts.dai}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSelectedSubjectCategory("hinh")}
+          className={
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            (selectedSubjectCategory === "hinh"
+              ? SUBJECT_CATEGORY_CONFIG.hinh.activeTabClass
+              : "bg-emerald-50/60 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100/70")
+          }
+        >
+          <Compass className="w-3.5 h-3.5 shrink-0" />
+          <span>Hình học</span>
+          <span
+            className={
+              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              (selectedSubjectCategory === "hinh"
+                ? "bg-white/20 text-white"
+                : "bg-emerald-100 text-emerald-800")
+            }
+          >
+            {subjectCategoryCounts.hinh}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSelectedSubjectCategory("tong_on")}
+          className={
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            (selectedSubjectCategory === "tong_on"
+              ? SUBJECT_CATEGORY_CONFIG.tong_on.activeTabClass
+              : "bg-purple-50/60 text-purple-700 border-purple-200/80 hover:bg-purple-100/70")
+          }
+        >
+          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+          <span>Tổng ôn</span>
+          <span
+            className={
+              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              (selectedSubjectCategory === "tong_on"
+                ? "bg-white/20 text-white"
+                : "bg-purple-100 text-purple-800")
+            }
+          >
+            {subjectCategoryCounts.tong_on}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSelectedSubjectCategory("tang_cuong")}
+          className={
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            (selectedSubjectCategory === "tang_cuong"
+              ? SUBJECT_CATEGORY_CONFIG.tang_cuong.activeTabClass
+              : "bg-amber-50/60 text-amber-700 border-amber-200/80 hover:bg-amber-100/70")
+          }
+        >
+          <Zap className="w-3.5 h-3.5 shrink-0" />
+          <span>Tăng cường</span>
+          <span
+            className={
+              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              (selectedSubjectCategory === "tang_cuong"
+                ? "bg-white/20 text-white"
+                : "bg-amber-100 text-amber-800")
+            }
+          >
+            {subjectCategoryCounts.tang_cuong}
+          </span>
+        </button>
+      </div>
+
+      {selectedSubjectCategory !== "all" && (
+        <div className="flex items-center justify-between sm:justify-end gap-2 text-[11px] text-slate-500 shrink-0">
+          <span>
+            Đang lọc:{" "}
+            <strong className="text-slate-800">
+              {SUBJECT_CATEGORY_CONFIG[selectedSubjectCategory].label}
+            </strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedSubjectCategory("all")}
+            className="text-blue-600 hover:underline font-bold cursor-pointer"
+          >
+            Bỏ lọc
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   if (paperReviewAttemptState) {
     return (
@@ -1770,96 +2148,138 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                       </div>
                     </div>
 
+                    {/* THANH TAB LỌC NHANH 4 PHÂN MÔN TOÁN THPT */}
+                    {renderSubjectCategoryFilterBar()}
+
                     <div className="space-y-3.5">
-                      {offlineChapters.map((chap, idx) => (
-                        <div
-                          key={chap.id || idx}
-                          className="bg-white p-3.5 sm:p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5"
-                        >
-                          <div className="flex items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                            <h3 className="font-semibold text-slate-900 text-sm sm:text-[14.5px] flex flex-wrap items-center gap-2 min-w-0">
-                              <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100 shrink-0">
-                                Chương {idx + 1}
-                              </span>
-                              <span className="break-words">{chap.title}</span>
-                            </h3>
-                            <span className="text-xs font-semibold text-slate-400 shrink-0 whitespace-nowrap">
-                              {chap.lessons?.length || 0} bài học
-                            </span>
-                          </div>
-
-                          <div className="flex flex-col space-y-2 pt-1">
-                            {(chap.lessons || []).map((les: any) => {
-                              const isLocked = Boolean(les.is_locked);
-                              const lesMonth = Number(les.assigned_month) || 10;
-                              const lesWeek = Number(les.assigned_week) || 1;
-                              const studyDate = les.study_date ? String(les.study_date).trim() : "";
-
-                              return (
-                                <div
-                                  key={les.id}
-                                  onClick={() => handleOpenLesson(les)}
-                                  className={`py-3 px-3 sm:px-4 rounded-xl border transition-all flex items-center justify-between gap-2.5 sm:gap-3 cursor-pointer group ${
-                                    isLocked
-                                      ? "border-slate-200 bg-slate-50/70 opacity-80"
-                                      : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/30"
-                                  }`}
-                                >
-                                  <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-                                    <div
-                                      className={`w-2 h-2 rounded-full shrink-0 mt-1.5 sm:mt-0 ${
-                                        isLocked ? "bg-slate-400" : "bg-emerald-500"
-                                      }`}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
-                                          📅{" "}
-                                          {studyDate
-                                            ? studyDate
-                                            : `Tuần ${lesWeek} - Th.${
-                                                lesMonth < 10 ? "0" + lesMonth : lesMonth
-                                              }`}
-                                        </span>
-                                        {studyDate && (
-                                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                            T{lesWeek}.Th{lesMonth}
-                                          </span>
-                                        )}
-                                        {isLocked && (
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
-                                            <Lock className="w-2.5 h-2.5" /> Chưa mở
-                                          </span>
-                                        )}
-                                      </div>
-                                      <span
-                                        className={`text-[13.5px] sm:text-sm font-semibold line-clamp-2 sm:truncate block break-words ${
-                                          isLocked
-                                            ? "text-slate-500"
-                                            : "text-slate-800 group-hover:text-blue-700"
-                                        }`}
-                                      >
-                                        {les.title}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <div className="shrink-0 flex items-center">
-                                    {isLocked ? (
-                                      <div className="p-1.5 rounded-lg bg-slate-200/60 text-slate-500 flex items-center gap-1 text-[11px] font-bold">
-                                        <Lock className="w-3.5 h-3.5" />
-                                        <span className="hidden sm:inline">Khóa</span>
-                                      </div>
-                                    ) : (
-                                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                      {filteredOfflineChapters.length === 0 ? (
+                        <div className="bg-white p-8 rounded-xl border border-slate-200/80 text-center text-slate-400 text-xs font-semibold italic">
+                          Chưa có bài học nào thuộc phân môn{" "}
+                          <strong>
+                            {selectedSubjectCategory === "all"
+                              ? "này"
+                              : SUBJECT_CATEGORY_CONFIG[selectedSubjectCategory].label}
+                          </strong>
+                          .
                         </div>
-                      ))}
+                      ) : (
+                        filteredOfflineChapters.map((chap: any, idx: number) => {
+                          const chapCat = normalizeSubjectCategory(
+                            chap?.category || chap?.subject_category,
+                            chap?.title
+                          );
+                          const chapCatCfg = SUBJECT_CATEGORY_CONFIG[chapCat];
+
+                          return (
+                            <div
+                              key={chap.id || idx}
+                              className="bg-white p-3.5 sm:p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5"
+                            >
+                              <div className="flex items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                                <h3 className="font-semibold text-slate-900 text-sm sm:text-[14.5px] flex flex-wrap items-center gap-2 min-w-0">
+                                  <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100 shrink-0">
+                                    Chương {chap.originalChapNumber || idx + 1}
+                                  </span>
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold uppercase rounded border shrink-0 ${chapCatCfg.badgeClass}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${chapCatCfg.dotClass}`} />
+                                    {chapCatCfg.shortLabel}
+                                  </span>
+                                  <span className="break-words">{chap.title}</span>
+                                </h3>
+                                <span className="text-xs font-semibold text-slate-400 shrink-0 whitespace-nowrap">
+                                  {chap.lessons?.length || 0} bài học
+                                </span>
+                              </div>
+
+                              <div className="flex flex-col space-y-2 pt-1">
+                                {(chap.lessons || []).map((les: any) => {
+                                  const isLocked = Boolean(les.is_locked);
+                                  const lesMonth = Number(les.assigned_month) || 10;
+                                  const lesWeek = Number(les.assigned_week) || 1;
+                                  const studyDate = les.study_date ? String(les.study_date).trim() : "";
+                                  const lesCat = normalizeSubjectCategory(
+                                    les?.category || les?.subject_category || chapCat,
+                                    les?.title
+                                  );
+                                  const lesCatCfg = SUBJECT_CATEGORY_CONFIG[lesCat];
+
+                                  return (
+                                    <div
+                                      key={les.id}
+                                      onClick={() => handleOpenLesson(les)}
+                                      className={`py-3 px-3 sm:px-4 rounded-xl border transition-all flex items-center justify-between gap-2.5 sm:gap-3 cursor-pointer group ${
+                                        isLocked
+                                          ? "border-slate-200 bg-slate-50/70 opacity-80"
+                                          : "border-slate-100 hover:border-blue-200 hover:bg-blue-50/30"
+                                      }`}
+                                    >
+                                      <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                                        <div
+                                          className={`w-2 h-2 rounded-full shrink-0 mt-1.5 sm:mt-0 ${
+                                            isLocked ? "bg-slate-400" : "bg-emerald-500"
+                                          }`}
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                            {/* Nhãn phân môn của từng bài học */}
+                                            <span
+                                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border ${lesCatCfg.badgeClass}`}
+                                            >
+                                              <span className={`w-1.5 h-1.5 rounded-full ${lesCatCfg.dotClass}`} />
+                                              {lesCatCfg.shortLabel}
+                                            </span>
+
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                                              📅{" "}
+                                              {studyDate
+                                                ? studyDate
+                                                : `Tuần ${lesWeek} - Th.${
+                                                    lesMonth < 10 ? "0" + lesMonth : lesMonth
+                                                  }`}
+                                            </span>
+                                            {studyDate && (
+                                              <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                                T{lesWeek}.Th{lesMonth}
+                                              </span>
+                                            )}
+                                            {isLocked && (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
+                                                <Lock className="w-2.5 h-2.5" /> Chưa mở
+                                              </span>
+                                            )}
+                                          </div>
+                                          <span
+                                            className={`text-[13.5px] sm:text-sm font-semibold line-clamp-2 sm:truncate block break-words ${
+                                              isLocked
+                                                ? "text-slate-500"
+                                                : "text-slate-800 group-hover:text-blue-700"
+                                            }`}
+                                          >
+                                            {les.title}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div className="shrink-0 flex items-center">
+                                        {isLocked ? (
+                                          <div className="p-1.5 rounded-lg bg-slate-200/60 text-slate-500 flex items-center gap-1 text-[11px] font-bold">
+                                            <Lock className="w-3.5 h-3.5" />
+                                            <span className="hidden sm:inline">Khóa</span>
+                                          </div>
+                                        ) : (
+                                          <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
@@ -1923,157 +2343,196 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                       </p>
                     </div>
 
+                    {/* THANH TAB LỌC NHANH 4 PHÂN MÔN TOÁN THPT */}
+                    {renderSubjectCategoryFilterBar()}
+
                     <div className="space-y-3.5 pt-1">
-                      {offlineChapters.map((chap, idx) => {
-                        const isCollapsed = Boolean(collapsedChapters[chap.id]);
-                        const lessonCount = chap.lessons?.length || 0;
+                      {filteredOfflineChapters.length === 0 ? (
+                        <div className="bg-white p-8 rounded-xl border border-slate-200/80 text-center text-slate-400 text-xs font-semibold italic">
+                          Chưa có bài học nào thuộc phân môn{" "}
+                          <strong>
+                            {selectedSubjectCategory === "all"
+                              ? "này"
+                              : SUBJECT_CATEGORY_CONFIG[selectedSubjectCategory].label}
+                          </strong>
+                          .
+                        </div>
+                      ) : (
+                        filteredOfflineChapters.map((chap: any, idx: number) => {
+                          const isCollapsed = Boolean(collapsedChapters[chap.id]);
+                          const lessonCount = chap.lessons?.length || 0;
+                          const chapCat = normalizeSubjectCategory(
+                            chap?.category || chap?.subject_category,
+                            chap?.title
+                          );
+                          const chapCatCfg = SUBJECT_CATEGORY_CONFIG[chapCat];
 
-                        return (
-                          <div
-                            key={chap.id || idx}
-                            className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => toggleChapterCollapse(chap.id)}
-                              className="w-full px-3.5 sm:px-4.5 py-3 sm:py-3.5 bg-slate-50/70 hover:bg-slate-50 border-b border-slate-100 flex items-start sm:items-center justify-between gap-2 text-left transition cursor-pointer"
+                          return (
+                            <div
+                              key={chap.id || idx}
+                              className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden"
                             >
-                              <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
-                                <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100 shrink-0">
-                                  Chương {idx + 1}
-                                </span>
-                                <h3 className="font-semibold text-slate-900 text-[13.5px] sm:text-sm break-words">
-                                  {chap.title}
-                                </h3>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toggleChapterCollapse(chap.id)}
+                                className="w-full px-3.5 sm:px-4.5 py-3 sm:py-3.5 bg-slate-50/70 hover:bg-slate-50 border-b border-slate-100 flex items-start sm:items-center justify-between gap-2 text-left transition cursor-pointer"
+                              >
+                                <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+                                  <span className="text-blue-700 font-semibold uppercase text-[10px] tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100 shrink-0">
+                                    Chương {chap.originalChapNumber || idx + 1}
+                                  </span>
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold uppercase rounded border shrink-0 ${chapCatCfg.badgeClass}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${chapCatCfg.dotClass}`} />
+                                    {chapCatCfg.shortLabel}
+                                  </span>
+                                  <h3 className="font-semibold text-slate-900 text-[13.5px] sm:text-sm break-words">
+                                    {chap.title}
+                                  </h3>
+                                </div>
 
-                              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                                <span className="text-xs font-semibold text-slate-400 whitespace-nowrap">
-                                  {lessonCount} bài học
-                                </span>
-                                {isCollapsed ? (
-                                  <ChevronDown className="w-4 h-4 text-slate-400" />
-                                ) : (
-                                  <ChevronUp className="w-4 h-4 text-slate-400" />
-                                )}
-                              </div>
-                            </button>
+                                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                                  <span className="text-xs font-semibold text-slate-400 whitespace-nowrap">
+                                    {lessonCount} bài học
+                                  </span>
+                                  {isCollapsed ? (
+                                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                                  ) : (
+                                    <ChevronUp className="w-4 h-4 text-slate-400" />
+                                  )}
+                                </div>
+                              </button>
 
-                            {!isCollapsed && (
-                              <div className="divide-y divide-slate-100">
-                                {(chap.lessons || []).map((les: any, lIdx: number) => {
-                                  const status = getLessonCompletionStatus(les);
-                                  const docCount =
-                                    (les.lecture_files?.length || 0) +
-                                    (les.homework_files?.length || 0);
-                                  const isLocked = Boolean(les.is_locked);
-                                  const lesMonth = Number(les.assigned_month) || 10;
-                                  const lesWeek = Number(les.assigned_week) || 1;
-                                  const studyDate = les.study_date
-                                    ? String(les.study_date).trim()
-                                    : "";
+                              {!isCollapsed && (
+                                <div className="divide-y divide-slate-100">
+                                  {(chap.lessons || []).map((les: any, lIdx: number) => {
+                                    const status = getLessonCompletionStatus(les);
+                                    const docCount =
+                                      (les.lecture_files?.length || 0) +
+                                      (les.homework_files?.length || 0);
+                                    const isLocked = Boolean(les.is_locked);
+                                    const lesMonth = Number(les.assigned_month) || 10;
+                                    const lesWeek = Number(les.assigned_week) || 1;
+                                    const studyDate = les.study_date
+                                      ? String(les.study_date).trim()
+                                      : "";
+                                    const lesCat = normalizeSubjectCategory(
+                                      les?.category || les?.subject_category || chapCat,
+                                      les?.title
+                                    );
+                                    const lesCatCfg = SUBJECT_CATEGORY_CONFIG[lesCat];
 
-                                  return (
-                                    <div
-                                      key={les.id || lIdx}
-                                      className={`p-3.5 sm:p-4 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left ${
-                                        isLocked
-                                          ? "bg-slate-50/70 opacity-80"
-                                          : "hover:bg-slate-50/60"
-                                      }`}
-                                    >
-                                      <div className="min-w-0 space-y-1.5 flex-1">
-                                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
-                                            📅{" "}
-                                            {studyDate
-                                              ? studyDate
-                                              : `Tuần ${lesWeek} - Th.${
-                                                  lesMonth < 10 ? "0" + lesMonth : lesMonth
-                                                }`}
-                                          </span>
-                                          {studyDate && (
-                                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                              T{lesWeek}.Th{lesMonth}
+                                    return (
+                                      <div
+                                        key={les.id || lIdx}
+                                        className={`p-3.5 sm:p-4 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left ${
+                                          isLocked
+                                            ? "bg-slate-50/70 opacity-80"
+                                            : "hover:bg-slate-50/60"
+                                        }`}
+                                      >
+                                        <div className="min-w-0 space-y-1.5 flex-1">
+                                          <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                            {/* Nhãn phân môn bài học */}
+                                            <span
+                                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border ${lesCatCfg.badgeClass}`}
+                                            >
+                                              <span className={`w-1.5 h-1.5 rounded-full ${lesCatCfg.dotClass}`} />
+                                              {lesCatCfg.shortLabel}
                                             </span>
-                                          )}
-                                          {isLocked && (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
-                                              <Lock className="w-2.5 h-2.5" /> Chưa mở
+
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">
+                                              📅{" "}
+                                              {studyDate
+                                                ? studyDate
+                                                : `Tuần ${lesWeek} - Th.${
+                                                    lesMonth < 10 ? "0" + lesMonth : lesMonth
+                                                  }`}
                                             </span>
-                                          )}
+                                            {studyDate && (
+                                              <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                                T{lesWeek}.Th{lesMonth}
+                                              </span>
+                                            )}
+                                            {isLocked && (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">
+                                                <Lock className="w-2.5 h-2.5" /> Chưa mở
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <h4
+                                              className={`text-[14px] sm:text-[15.5px] font-semibold line-clamp-2 sm:truncate break-words ${
+                                                isLocked
+                                                  ? "text-slate-500 line-through"
+                                                  : "text-slate-800"
+                                              }`}
+                                            >
+                                              {les.title}
+                                            </h4>
+
+                                            {status === "completed" ? (
+                                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
+                                                <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
+                                              </span>
+                                            ) : status === "in_progress" ? (
+                                              <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
+                                                Đang học
+                                              </span>
+                                            ) : (
+                                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
+                                                Chưa học
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-normal">
+                                            <span className="flex items-center gap-1.5">
+                                              <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />{" "}
+                                              {les.duration || 45} phút
+                                            </span>
+                                            <span>•</span>
+                                            <span className="flex items-center gap-1.5">
+                                              <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />{" "}
+                                              {docCount} tài liệu & BTVN
+                                            </span>
+                                          </div>
                                         </div>
 
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <h4
-                                            className={`text-[14px] sm:text-[15.5px] font-semibold line-clamp-2 sm:truncate break-words ${
+                                        <div className="shrink-0 w-full sm:w-auto flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOpenLesson(les)}
+                                            className={`w-full sm:w-auto justify-center min-h-[38px] px-5 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer ${
                                               isLocked
-                                                ? "text-slate-500 line-through"
-                                                : "text-slate-800"
+                                                ? "bg-slate-200 hover:bg-slate-300 text-slate-600"
+                                                : "bg-blue-600 hover:bg-blue-700 text-white"
                                             }`}
                                           >
-                                            {les.title}
-                                          </h4>
-
-                                          {status === "completed" ? (
-                                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-semibold border border-emerald-200 shrink-0 flex items-center gap-1">
-                                              <Check className="w-2.5 h-2.5 stroke-[3]" /> Đã hoàn thành
-                                            </span>
-                                          ) : status === "in_progress" ? (
-                                            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold border border-amber-200 shrink-0">
-                                              Đang học
-                                            </span>
-                                          ) : (
-                                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium shrink-0">
-                                              Chưa học
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-normal">
-                                          <span className="flex items-center gap-1.5">
-                                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />{" "}
-                                            {les.duration || 45} phút
-                                          </span>
-                                          <span>•</span>
-                                          <span className="flex items-center gap-1.5">
-                                            <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />{" "}
-                                            {docCount} tài liệu & BTVN
-                                          </span>
+                                            {isLocked ? (
+                                              <>
+                                                <Lock className="w-3.5 h-3.5" />
+                                                <span>Chưa mở</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <span>Vào học</span>
+                                                <ArrowRight className="w-3.5 h-3.5" />
+                                              </>
+                                            )}
+                                          </button>
                                         </div>
                                       </div>
-
-                                      <div className="shrink-0 w-full sm:w-auto flex items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenLesson(les)}
-                                          className={`w-full sm:w-auto justify-center min-h-[38px] px-5 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-[13px] shadow-2xs transition flex items-center gap-1.5 cursor-pointer ${
-                                            isLocked
-                                              ? "bg-slate-200 hover:bg-slate-300 text-slate-600"
-                                              : "bg-blue-600 hover:bg-blue-700 text-white"
-                                          }`}
-                                        >
-                                          {isLocked ? (
-                                            <>
-                                              <Lock className="w-3.5 h-3.5" />
-                                              <span>Chưa mở</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <span>Vào học</span>
-                                              <ArrowRight className="w-3.5 h-3.5" />
-                                            </>
-                                          )}
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
@@ -2404,94 +2863,122 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                       </div>
                     </div>
 
+                    {/* THANH LỌC PHÂN MÔN CHO TAB TIẾN ĐỘ */}
+                    {renderSubjectCategoryFilterBar()}
+
                     <div className="space-y-3.5">
-                      {offlineChapters.map((chap, cIdx) => (
-                        <div
-                          key={chap.id || cIdx}
-                          className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden"
-                        >
-                          <div className="px-3.5 sm:px-4.5 py-3 bg-slate-50/70 border-b border-slate-100 flex items-center gap-2">
-                            <Layers className="w-4 h-4 text-blue-700 shrink-0" />
-                            <h4 className="font-semibold text-slate-800 text-xs sm:text-[13px] break-words">
-                              {chap.title}
-                            </h4>
-                          </div>
+                      {filteredOfflineChapters.map((chap: any, cIdx: number) => {
+                        const chapCat = normalizeSubjectCategory(
+                          chap?.category || chap?.subject_category,
+                          chap?.title
+                        );
+                        const chapCatCfg = SUBJECT_CATEGORY_CONFIG[chapCat];
 
-                          <div className="divide-y divide-slate-100">
-                            {(chap.lessons || []).map((les: any, lIdx: number) => {
-                              const hwList = les.homework_files || [];
-                              const testList = les.test_quizzes || [];
+                        return (
+                          <div
+                            key={chap.id || cIdx}
+                            className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden"
+                          >
+                            <div className="px-3.5 sm:px-4.5 py-3 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center gap-2">
+                              <Layers className="w-4 h-4 text-blue-700 shrink-0" />
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold uppercase rounded border shrink-0 ${chapCatCfg.badgeClass}`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${chapCatCfg.dotClass}`} />
+                                {chapCatCfg.shortLabel}
+                              </span>
+                              <h4 className="font-semibold text-slate-800 text-xs sm:text-[13px] break-words">
+                                {chap.title}
+                              </h4>
+                            </div>
 
-                              const hw = hwList[0];
-                              const testQuiz = testList[0];
+                            <div className="divide-y divide-slate-100">
+                              {(chap.lessons || []).map((les: any, lIdx: number) => {
+                                const hwList = les.homework_files || [];
+                                const testList = les.test_quizzes || [];
 
-                              const hwAttempt = findAttemptForLesson(hw, les.title, true);
-                              const testAttempt = findAttemptForLesson(testQuiz, les.title, false);
+                                const hw = hwList[0];
+                                const testQuiz = testList[0];
 
-                              return (
-                                <div
-                                  key={les.id || lIdx}
-                                  className="py-3 px-3.5 sm:px-4.5 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-left"
-                                >
-                                  <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
-                                    <BookOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5 sm:mt-0" />
-                                    <span className="text-sm font-semibold text-slate-800 line-clamp-2 sm:truncate break-words">
-                                      {les.title}
-                                    </span>
-                                  </div>
+                                const hwAttempt = findAttemptForLesson(hw, les.title, true);
+                                const testAttempt = findAttemptForLesson(testQuiz, les.title, false);
 
-                                  {/* Bỏ w-36 cứng, chuyển thành grid 2 cột trên mobile và flex gọn trên tablet/PC */}
-                                  <div className="grid grid-cols-2 sm:flex w-full sm:w-auto gap-2 sm:gap-4 shrink-0 text-xs">
-                                    <div className="flex items-center sm:w-40 justify-start sm:justify-end">
-                                      {hwList.length > 0 ? (
-                                        hwAttempt ? (
-                                          <span className="w-full sm:w-auto justify-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
-                                            <Check className="w-3 h-3 stroke-[3] shrink-0" /> Đã nộp (
-                                            {Number(
-                                              hwAttempt.score ?? hwAttempt.points ?? 0
-                                            ).toFixed(1)}
-                                            đ)
-                                          </span>
-                                        ) : (
-                                          <span className="w-full sm:w-auto text-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
-                                            Chưa làm BTVN
-                                          </span>
-                                        )
-                                      ) : (
-                                        <span className="w-full sm:w-auto text-center sm:text-right px-2 py-1 rounded-lg bg-slate-50 sm:bg-transparent text-slate-400 text-xs italic">
-                                          Không có BTVN
-                                        </span>
-                                      )}
+                                const lesCat = normalizeSubjectCategory(
+                                  les?.category || les?.subject_category || chapCat,
+                                  les?.title
+                                );
+                                const lesCatCfg = SUBJECT_CATEGORY_CONFIG[lesCat];
+
+                                return (
+                                  <div
+                                    key={les.id || lIdx}
+                                    className="py-3 px-3.5 sm:px-4.5 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-left"
+                                  >
+                                    <div className="flex items-start sm:items-center gap-2 min-w-0 flex-1 flex-wrap">
+                                      <BookOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5 sm:mt-0" />
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border shrink-0 ${lesCatCfg.badgeClass}`}
+                                      >
+                                        {lesCatCfg.shortLabel}
+                                      </span>
+                                      <span className="text-sm font-semibold text-slate-800 line-clamp-2 sm:truncate break-words">
+                                        {les.title}
+                                      </span>
                                     </div>
 
-                                    <div className="flex items-center sm:w-40 justify-start sm:justify-end">
-                                      {testList.length > 0 ? (
-                                        testAttempt ? (
-                                          <span className="w-full sm:w-auto justify-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
-                                            <Check className="w-3 h-3 stroke-[3] shrink-0" /> Đã thi (
-                                            {Number(
-                                              testAttempt.score ?? testAttempt.points ?? 0
-                                            ).toFixed(1)}
-                                            đ)
-                                          </span>
+                                    {/* Bỏ w-36 cứng, chuyển thành grid 2 cột trên mobile và flex gọn trên tablet/PC */}
+                                    <div className="grid grid-cols-2 sm:flex w-full sm:w-auto gap-2 sm:gap-4 shrink-0 text-xs">
+                                      <div className="flex items-center sm:w-40 justify-start sm:justify-end">
+                                        {hwList.length > 0 ? (
+                                          hwAttempt ? (
+                                            <span className="w-full sm:w-auto justify-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
+                                              <Check className="w-3 h-3 stroke-[3] shrink-0" /> Đã nộp (
+                                              {Number(
+                                                hwAttempt.score ?? hwAttempt.points ?? 0
+                                              ).toFixed(1)}
+                                              đ)
+                                            </span>
+                                          ) : (
+                                            <span className="w-full sm:w-auto text-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
+                                              Chưa làm BTVN
+                                            </span>
+                                          )
                                         ) : (
-                                          <span className="w-full sm:w-auto text-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
-                                            Chưa thi
+                                          <span className="w-full sm:w-auto text-center sm:text-right px-2 py-1 rounded-lg bg-slate-50 sm:bg-transparent text-slate-400 text-xs italic">
+                                            Không có BTVN
                                           </span>
-                                        )
-                                      ) : (
-                                        <span className="w-full sm:w-auto text-center sm:text-right px-2 py-1 rounded-lg bg-slate-50 sm:bg-transparent text-slate-400 text-xs italic">
-                                          Không có bài KT
-                                        </span>
-                                      )}
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-center sm:w-40 justify-start sm:justify-end">
+                                        {testList.length > 0 ? (
+                                          testAttempt ? (
+                                            <span className="w-full sm:w-auto justify-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-xs flex items-center gap-1">
+                                              <Check className="w-3 h-3 stroke-[3] shrink-0" /> Đã thi (
+                                              {Number(
+                                                testAttempt.score ?? testAttempt.points ?? 0
+                                              ).toFixed(1)}
+                                              đ)
+                                            </span>
+                                          ) : (
+                                            <span className="w-full sm:w-auto text-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 font-medium text-xs border border-slate-200">
+                                              Chưa thi
+                                            </span>
+                                          )
+                                        ) : (
+                                          <span className="w-full sm:w-auto text-center sm:text-right px-2 py-1 rounded-lg bg-slate-50 sm:bg-transparent text-slate-400 text-xs italic">
+                                            Không có bài KT
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -2797,7 +3284,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
             title: ex.title || "Đề thi",
             duration: ex.duration_minutes || ex.duration || 45,
             isHomework: entryModalState.isHomework,
-            ...ex // 👈 Bổ sung ...ex để giữ nguyên data câu hỏi
+            ...ex
           };
           setExamRoom(payload);
           if (typeof window !== "undefined") {
