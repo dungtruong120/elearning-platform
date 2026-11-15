@@ -1516,7 +1516,7 @@ export default function HsaExamRoomView({
             {/* Dark Green Header Strip */}
             <div className="bg-emerald-800 px-6 py-4 text-white">
               <p className="text-xs font-medium uppercase tracking-wider text-emerald-100">
-                Hệ thống luyện thi TCT Study · Chuẩn ĐHQGHN
+                LUYỆN THI HSA-TCT STUDY
               </p>
               <h2 className="mt-0.5 text-lg font-bold uppercase tracking-wide">
                 Phiếu báo điểm kỳ thi Đánh giá năng lực (HSA)
