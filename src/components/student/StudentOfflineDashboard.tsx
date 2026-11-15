@@ -57,11 +57,9 @@ import {
   Printer,
   PenTool,
   Camera,
-  Lock,
-  Calculator,
-  Compass,
-  Zap
+  Lock
 } from "lucide-react";
+
 
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
 
@@ -77,37 +75,35 @@ export const SUBJECT_CATEGORY_CONFIG: Record<
     dotClass: string;
   }
 > = {
- 
   dai: {
     label: "Đại số & Giải tích",
     shortLabel: "Đại số",
-    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
-    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
-    dotClass: "bg-slate-600"
+    badgeClass: "bg-white text-blue-700 border-blue-200/80 hover:bg-blue-50/60",
+    activeTabClass: "bg-blue-600 text-white border-blue-600 shadow-2xs",
+    dotClass: "bg-blue-500",
   },
   hinh: {
     label: "Hình học & Oxyz",
     shortLabel: "Hình học",
-    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
-    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
-    dotClass: "bg-slate-600"
+    badgeClass: "bg-white text-emerald-700 border-emerald-200/80 hover:bg-emerald-50/60",
+    activeTabClass: "bg-emerald-600 text-white border-emerald-600 shadow-2xs",
+    dotClass: "bg-emerald-500",
   },
   tong_on: {
     label: "Tổng ôn toàn diện",
     shortLabel: "Tổng ôn",
-    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
-    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
-    dotClass: "bg-slate-600"
+    badgeClass: "bg-white text-violet-700 border-violet-200/80 hover:bg-violet-50/60",
+    activeTabClass: "bg-violet-600 text-white border-violet-600 shadow-2xs",
+    dotClass: "bg-violet-500",
   },
   tang_cuong: {
     label: "Tăng cường & Bổ trợ",
     shortLabel: "Tăng cường",
-    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
-    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
-    dotClass: "bg-slate-600"
+    badgeClass: "bg-white text-amber-700 border-amber-200/80 hover:bg-amber-50/60",
+    activeTabClass: "bg-amber-600 text-white border-amber-600 shadow-2xs",
+    dotClass: "bg-amber-500",
   }
 };
-
 export function normalizeSubjectCategory(
   rawCat?: string | null,
   fallbackTitle?: string
@@ -1528,7 +1524,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
   };
 
-  // RENDER THANH TAB LỌC 4 PHÂN MÔN DÙNG CHUNG CHO OVERVIEW & COURSES
+ // RENDER THANH TAB LỌC 4 PHÂN MÔN DÙNG CHUNG CHO OVERVIEW & COURSES
   const renderSubjectCategoryFilterBar = () => (
     <div className="bg-white rounded-xl p-2.5 sm:px-4 sm:py-3 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
       <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-0.5 sm:pb-0 -mx-0.5 px-0.5">
@@ -1536,20 +1532,19 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           type="button"
           onClick={() => setSelectedSubjectCategory("all")}
           className={
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
             (selectedSubjectCategory === "all"
               ? "bg-slate-900 text-white border-slate-900 shadow-2xs"
-              : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100")
+              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
           }
         >
-          <Layers className="w-3.5 h-3.5 shrink-0" />
           <span>Tất cả</span>
           <span
             className={
-              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              "px-1.5 py-0.2 rounded text-[10px] font-bold " +
               (selectedSubjectCategory === "all"
                 ? "bg-white/20 text-white"
-                : "bg-slate-200/80 text-slate-700")
+                : "bg-slate-100 text-slate-600")
             }
           >
             {subjectCategoryCounts.all}
@@ -1560,20 +1555,19 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           type="button"
           onClick={() => setSelectedSubjectCategory("dai")}
           className={
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
             (selectedSubjectCategory === "dai"
               ? SUBJECT_CATEGORY_CONFIG.dai.activeTabClass
-              : "bg-blue-50/60 text-[#1D4ED8] border-blue-200/80 hover:bg-blue-100/70")
+              : SUBJECT_CATEGORY_CONFIG.dai.badgeClass)
           }
         >
-          <Calculator className="w-3.5 h-3.5 shrink-0" />
           <span>Đại số</span>
           <span
             className={
-              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              "px-1.5 py-0.2 rounded text-[10px] font-bold " +
               (selectedSubjectCategory === "dai"
                 ? "bg-white/20 text-white"
-                : "bg-blue-100 text-[#1D4ED8]")
+                : "bg-blue-50 text-blue-700")
             }
           >
             {subjectCategoryCounts.dai}
@@ -1584,20 +1578,19 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           type="button"
           onClick={() => setSelectedSubjectCategory("hinh")}
           className={
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
             (selectedSubjectCategory === "hinh"
               ? SUBJECT_CATEGORY_CONFIG.hinh.activeTabClass
-              : "bg-emerald-50/60 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100/70")
+              : SUBJECT_CATEGORY_CONFIG.hinh.badgeClass)
           }
         >
-          <Compass className="w-3.5 h-3.5 shrink-0" />
           <span>Hình học</span>
           <span
             className={
-              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              "px-1.5 py-0.2 rounded text-[10px] font-bold " +
               (selectedSubjectCategory === "hinh"
                 ? "bg-white/20 text-white"
-                : "bg-emerald-100 text-emerald-800")
+                : "bg-emerald-50 text-emerald-700")
             }
           >
             {subjectCategoryCounts.hinh}
@@ -1608,20 +1601,19 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           type="button"
           onClick={() => setSelectedSubjectCategory("tong_on")}
           className={
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
             (selectedSubjectCategory === "tong_on"
               ? SUBJECT_CATEGORY_CONFIG.tong_on.activeTabClass
-              : "bg-purple-50/60 text-purple-700 border-purple-200/80 hover:bg-purple-100/70")
+              : SUBJECT_CATEGORY_CONFIG.tong_on.badgeClass)
           }
         >
-          <Sparkles className="w-3.5 h-3.5 shrink-0" />
           <span>Tổng ôn</span>
           <span
             className={
-              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              "px-1.5 py-0.2 rounded text-[10px] font-bold " +
               (selectedSubjectCategory === "tong_on"
                 ? "bg-white/20 text-white"
-                : "bg-purple-100 text-purple-800")
+                : "bg-violet-50 text-violet-700")
             }
           >
             {subjectCategoryCounts.tong_on}
@@ -1632,20 +1624,19 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           type="button"
           onClick={() => setSelectedSubjectCategory("tang_cuong")}
           className={
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all whitespace-nowrap shrink-0 cursor-pointer " +
             (selectedSubjectCategory === "tang_cuong"
               ? SUBJECT_CATEGORY_CONFIG.tang_cuong.activeTabClass
-              : "bg-amber-50/60 text-amber-700 border-amber-200/80 hover:bg-amber-100/70")
+              : SUBJECT_CATEGORY_CONFIG.tang_cuong.badgeClass)
           }
         >
-          <Zap className="w-3.5 h-3.5 shrink-0" />
           <span>Tăng cường</span>
           <span
             className={
-              "px-1.5 py-0.2 rounded text-[10px] font-black " +
+              "px-1.5 py-0.2 rounded text-[10px] font-bold " +
               (selectedSubjectCategory === "tang_cuong"
                 ? "bg-white/20 text-white"
-                : "bg-amber-100 text-amber-800")
+                : "bg-amber-50 text-amber-700")
             }
           >
             {subjectCategoryCounts.tang_cuong}
