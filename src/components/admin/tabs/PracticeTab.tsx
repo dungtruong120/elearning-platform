@@ -27,7 +27,7 @@ import {
   openPrintableDynamicAnswerSheet
 } from "@/lib/omrEngine";
 import { AdminBulkOMRScannerModal } from "@/components/admin/paper/AdminBulkOMRScannerModal";
-import { AzotaExamConfigModal } from "@/components/admin/AzotaExamConfigModal";
+import { AzotaExamConfigModal } from "@/app/admin/AzotaExamConfigModal";
 
 // DANH MỤC ĐẦY ĐỦ KHÔI PHỤC TẤT CẢ PHÂN LOẠI ĐỀ
 export const PRACTICE_CATEGORIES = [
