@@ -1926,7 +1926,35 @@ const handleDeleteResource = async (lessonId: string, resType: string, resId: st
     await syncCoursesToSupabase(newChapters, "tài nguyên");
     showToast("Đã xóa tài nguyên vĩnh viễn!", "success");
   };
-
+const handleEditResourceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editResourceModal || !editResourceForm.title.trim()) return;
+    const newChapters = (chapters || []).map((chap) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === editResourceModal.lessonId) {
+          return {
+            ...les,
+            [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) =>
+              r?.id === editResourceModal.item.id
+                ? {
+                    ...r,
+                    title: editResourceForm.title,
+                    url: editResourceForm.url || r.url,
+                    type:
+                      editResourceModal.type === "video_list" ? editResourceForm.type : r.type,
+                  }
+                : r
+            )
+          };
+        }
+        return les;
+      }),
+    }));
+    syncCoursesToSupabase(newChapters, "tài liệu");
+    setEditResourceModal(null);
+    showToast("Đã cập nhật thông tin tài liệu!", "success");
+  };
 const handleUpdateStudentStatus = async (
     studentId: string,
     newStatus: "approved" | "rejected"
