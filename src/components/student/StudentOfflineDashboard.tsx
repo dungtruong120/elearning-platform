@@ -77,33 +77,34 @@ export const SUBJECT_CATEGORY_CONFIG: Record<
     dotClass: string;
   }
 > = {
+ const SUBJECT_CONFIG = {
   dai: {
     label: "Đại số & Giải tích",
     shortLabel: "Đại số",
-    badgeClass: "bg-blue-50 text-[#1D4ED8] border-blue-200",
-    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-2xs",
-    dotClass: "bg-[#1D4ED8]"
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
+    dotClass: "bg-slate-600"
   },
   hinh: {
     label: "Hình học & Oxyz",
     shortLabel: "Hình học",
-    badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    activeTabClass: "bg-emerald-600 text-white border-emerald-600 shadow-2xs",
-    dotClass: "bg-emerald-600"
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
+    dotClass: "bg-slate-600"
   },
   tong_on: {
     label: "Tổng ôn toàn diện",
     shortLabel: "Tổng ôn",
-    badgeClass: "bg-purple-50 text-purple-700 border-purple-200",
-    activeTabClass: "bg-purple-600 text-white border-purple-600 shadow-2xs",
-    dotClass: "bg-purple-600"
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
+    dotClass: "bg-slate-600"
   },
   tang_cuong: {
     label: "Tăng cường & Bổ trợ",
     shortLabel: "Tăng cường",
-    badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
-    activeTabClass: "bg-amber-500 text-white border-amber-500 shadow-2xs",
-    dotClass: "bg-amber-500"
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-2xs",
+    dotClass: "bg-slate-600"
   }
 };
 
