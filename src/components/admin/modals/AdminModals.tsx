@@ -13,6 +13,8 @@ import dynamic from "next/dynamic";
 import katex from "katex";
 import { STANDARD_SHIFTS } from "@/types";
 
+export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong";
+
 // DYNAMIC IMPORT MODAL TRÍCH XUẤT ĐỀ THI WORD & MATHTYPE
 const AzotaExamConfigModal: any = dynamic<any>(
   () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
@@ -31,6 +33,38 @@ function normalizeText(str: any): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeSubjectCategory(
+  rawCat?: string | null,
+  fallbackTitle?: string
+): SubjectCategoryKey {
+  const clean = String(rawCat || "").trim().toLowerCase();
+  if (clean === "dai" || clean === "algebra" || clean === "dai_so") return "dai";
+  if (clean === "hinh" || clean === "geometry" || clean === "hinh_hoc") return "hinh";
+  if (clean === "tong_on" || clean === "review" || clean === "tongon") return "tong_on";
+  if (clean === "tang_cuong" || clean === "boost" || clean === "tangcuong") return "tang_cuong";
+
+  const titleLower = String(fallbackTitle || "").toLowerCase();
+  if (
+    titleLower.includes("hình học") ||
+    titleLower.includes("oxyz") ||
+    titleLower.includes("khối đa diện") ||
+    titleLower.includes("mặt cầu") ||
+    titleLower.includes("mặt phẳng") ||
+    titleLower.includes("đường thẳng") ||
+    titleLower.includes("vectơ") ||
+    titleLower.includes("vector")
+  ) {
+    return "hinh";
+  }
+  if (titleLower.includes("tổng ôn") || titleLower.includes("luyện đề")) {
+    return "tong_on";
+  }
+  if (titleLower.includes("tăng cường") || titleLower.includes("bổ trợ")) {
+    return "tang_cuong";
+  }
+  return "dai";
 }
 
 // HÀM SỬA LỖI DÍNH LỆNH LATEX (\inftyminus, \inftyplus, v.v.) TRƯỚC KHI RENDER KATEX
@@ -278,6 +312,7 @@ export default function AdminModals(props: AdminModalsProps) {
   const [newItemDescription, setNewItemDescription] = useState<string>("");
   const [newItemFormat, setNewItemFormat] = useState<string>("Zoom");
   const [newItemTargetMode, setNewItemTargetMode] = useState<"online" | "offline" | "all">("all");
+  const [newItemCategory, setNewItemCategory] = useState<SubjectCategoryKey>("dai");
   const [newItemAssignedMonth, setNewItemAssignedMonth] = useState<number>(currentRealtimeMonth);
   const [newItemAssignedWeek, setNewItemAssignedWeek] = useState<number>(currentRealtimeWeek);
 
@@ -305,8 +340,19 @@ export default function AdminModals(props: AdminModalsProps) {
     if (createModal) {
       setNewItemAssignedMonth(new Date().getMonth() + 1);
       setNewItemAssignedWeek(Math.min(5, Math.max(1, Math.ceil(new Date().getDate() / 7))));
+
+      if (createModal.type === "lesson" && createModal.chapterId) {
+        const parentChap = (chapters || []).find((c: any) => c.id === createModal.chapterId);
+        const inheritedCat = normalizeSubjectCategory(
+          parentChap?.category || parentChap?.subject_category || parentChap?.subject_type,
+          parentChap?.title
+        );
+        setNewItemCategory(inheritedCat);
+      } else {
+        setNewItemCategory("dai");
+      }
     }
-  }, [createModal]);
+  }, [createModal, chapters]);
 
   useEffect(() => {
     return () => {
@@ -917,11 +963,6 @@ export default function AdminModals(props: AdminModalsProps) {
     flatQuestions.forEach((q) => {
       const idx = q.absoluteIndex; // 1..N (Khớp tuyệt đối với qIdx của ExamRoomView)
 
-      // Thứ tự ưu tiên khóa tuyệt đối khớp 100% với ExamRoomView:
-      // 1) ID thực của câu hỏi trong ExamRoomView (q.id hoặc "q-" + idx)
-      // 2) "q-" + idx và "q_" + idx
-      // 3) Chỉ số câu dạng chuỗi String(idx) ("1", "2", ..., "N")
-      // 4) Chỉ khi không có các khóa trên mới xét đến `${secIdx}_${qIdxInSec}`
       const priorityKeys = [
         q.effectiveId,
         q.rawQId,
@@ -1292,6 +1333,8 @@ export default function AdminModals(props: AdminModalsProps) {
         id: "chap-" + Date.now(), 
         title: newItemTitle.trim(), 
         target_mode: newItemTargetMode, 
+        category: newItemCategory,
+        subject_category: newItemCategory,
         lessons: [] 
       });
     } else if (createModal.type === "lesson" && createModal.chapterId) {
@@ -1303,6 +1346,8 @@ export default function AdminModals(props: AdminModalsProps) {
           duration: 45, 
           format: newItemFormat, 
           target_mode: newItemTargetMode,
+          category: newItemCategory,
+          subject_category: newItemCategory,
           assigned_month: newItemAssignedMonth,
           assigned_week: newItemAssignedWeek,
           lecture_files: [], 
@@ -1320,18 +1365,52 @@ export default function AdminModals(props: AdminModalsProps) {
     setNewItemDescription(""); 
     setNewItemFormat("Zoom");
     setNewItemTargetMode("all");
+    setNewItemCategory("dai");
     dispatchOptimisticUpdate(newChapters); 
   };
 
-  const handleEditLessonSubmit = (e: React.FormEvent) => {
+  const handleEditLessonSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editLessonModal || !editLessonForm.title.trim()) return;
 
+    const resolvedCat: SubjectCategoryKey = normalizeSubjectCategory(
+      editLessonForm.category || editLessonForm.subject_category,
+      editLessonForm.title
+    );
+
+    const updatedPayload = {
+      ...editLessonForm,
+      category: resolvedCat,
+      subject_category: resolvedCat,
+    };
+
     const newChapters = (chapters || []).map((chap: any) => chap?.id === editLessonModal.chapterId ? {
-      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...editLessonForm } : les)
+      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...updatedPayload } : les)
     } : chap);
 
+    const targetLessonId = editLessonModal.lesson.id;
     if (setEditLessonModal) setEditLessonModal(null); 
+
+    if (supabase && targetLessonId) {
+      try {
+        await supabase
+          .from("lessons")
+          .update({
+            title: updatedPayload.title.trim(),
+            description: updatedPayload.description || "",
+            duration: updatedPayload.duration || 45,
+            format: updatedPayload.format || "Zoom",
+            target_mode: updatedPayload.target_mode || "all",
+            category: resolvedCat,
+            assigned_month: Number(updatedPayload.assigned_month) || currentRealtimeMonth,
+            assigned_week: Number(updatedPayload.assigned_week) || currentRealtimeWeek,
+          })
+          .eq("id", targetLessonId);
+      } catch (err) {
+        console.error("Lỗi đồng bộ chỉnh sửa bài học lên Supabase:", err);
+      }
+    }
+
     dispatchOptimisticUpdate(newChapters); 
   };
 
@@ -2371,13 +2450,13 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI (BỔ SUNG CHỌN THÁNG & TUẦN MẶC ĐỊNH REALTIME) */}
+      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI (BỔ SUNG CỤM NÚT CHỌN 4 PHÂN MÔN + THÁNG & TUẦN) */}
       {createModal && (
         <div 
           onClick={() => setCreateModal && setCreateModal(null)} 
           className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl cursor-pointer font-sans"
         >
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleCreateNewItem} className="bg-white/95 backdrop-blur-2xl rounded-[32px] w-full max-w-md p-8 shadow-2xl border border-white/50 space-y-4 cursor-default text-left">
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleCreateNewItem} className="bg-white/95 backdrop-blur-2xl rounded-[32px] w-full max-w-md p-8 shadow-2xl border border-white/50 space-y-4 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar">
             <h3 className="font-extrabold text-slate-900 text-[17px] border-b border-slate-200/60 pb-3.5 tracking-tight">
               {createModal.type === "chapter" ? "Thêm Chương Mới" : "Thêm Bài Học Mới"}
             </h3>
@@ -2387,7 +2466,19 @@ export default function AdminModals(props: AdminModalsProps) {
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Chọn chương chứa bài học <span className="text-rose-500">*</span></label>
                 <select 
                   value={createModal.chapterId || ""} 
-                  onChange={e => setCreateModal && setCreateModal({ ...createModal, chapterId: e.target.value })}
+                  onChange={e => {
+                    const nextChapId = e.target.value;
+                    if (setCreateModal) setCreateModal({ ...createModal, chapterId: nextChapId });
+                    const foundChap = (chapters || []).find((c: any) => c.id === nextChapId);
+                    if (foundChap) {
+                      setNewItemCategory(
+                        normalizeSubjectCategory(
+                          foundChap.category || foundChap.subject_category,
+                          foundChap.title
+                        )
+                      );
+                    }
+                  }}
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-xs font-semibold outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white cursor-pointer"
                 >
                   {(chapters || []).map((c: any) => (
@@ -2401,6 +2492,104 @@ export default function AdminModals(props: AdminModalsProps) {
               <label className="block text-xs font-bold text-slate-700 mb-1.5">Tên {createModal.type === "chapter" ? "chương" : "bài học"} <span className="text-rose-500">*</span></label>
               <input autoFocus required type="text" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} placeholder={createModal.type === "chapter" ? "VD: Chương 1: Ứng dụng đạo hàm..." : "VD: Bài 1: Tính đơn điệu của hàm số..."} className="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-xs font-semibold outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm" />
             </div>
+
+            {/* CỤM CHỌN 1 TRONG 4 PHÂN MÔN CHO CẢ CHƯƠNG VÀ BÀI HỌC */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Phân môn Toán THPT (Subject Category) <span className="text-rose-500">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewItemCategory("dai")}
+                  className={
+                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
+                    (newItemCategory === "dai"
+                      ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
+                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                  }
+                >
+                  📐 Đại số
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewItemCategory("hinh")}
+                  className={
+                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
+                    (newItemCategory === "hinh"
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
+                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                  }
+                >
+                  📏 Hình học
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewItemCategory("tong_on")}
+                  className={
+                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
+                    (newItemCategory === "tong_on"
+                      ? "bg-purple-50 border-purple-500 text-purple-700 ring-2 ring-purple-500/20 shadow-xs"
+                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                  }
+                >
+                  🎯 Tổng ôn
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewItemCategory("tang_cuong")}
+                  className={
+                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
+                    (newItemCategory === "tang_cuong"
+                      ? "bg-amber-50 border-amber-500 text-amber-700 ring-2 ring-amber-500/20 shadow-xs"
+                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                  }
+                >
+                  ⚡ Tăng cường
+                </button>
+              </div>
+            </div>
+
+            {createModal.type === "chapter" && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân luồng chương (Target Mode) *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewItemTargetMode("online")}
+                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                      newItemTargetMode === "online"
+                        ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Lớp Online
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewItemTargetMode("offline")}
+                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                      newItemTargetMode === "offline"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Lớp Offline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewItemTargetMode("all")}
+                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
+                      newItemTargetMode === "all"
+                        ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    Cả 2 (Full)
+                  </button>
+                </div>
+              </div>
+            )}
             
             {createModal.type === "lesson" && (
               <>
@@ -2494,13 +2683,13 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 9. MODAL CHỈNH SỬA BÀI HỌC (BỔ SUNG CHỌN THÁNG & TUẦN) */}
+      {/* 9. MODAL CHỈNH SỬA BÀI HỌC (BỔ SUNG CỤM NÚT CHỌN 4 PHÂN MÔN + THÁNG & TUẦN) */}
       {editLessonModal && editLessonForm && (
         <div 
           onClick={() => setEditLessonModal && setEditLessonModal(null)} 
           className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditLessonSubmit} className="bg-white rounded-[24px] w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditLessonSubmit} className="bg-white rounded-[24px] w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
               <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2"><Edit3 className="w-5 h-5 text-[#1D4ED8]" /> Chỉnh sửa bài học</h3>
               <button type="button" onClick={() => setEditLessonModal && setEditLessonModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
@@ -2509,6 +2698,91 @@ export default function AdminModals(props: AdminModalsProps) {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề bài học</label>
                 <input required type="text" value={editLessonForm.title} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+              </div>
+
+              {/* CỤM NÚT CHỌN 1 TRONG 4 PHÂN MÔN TRONG MODAL SỬA BÀI HỌC */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Phân môn Toán THPT (Subject Category) *
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditLessonForm &&
+                      setEditLessonForm({
+                        ...editLessonForm,
+                        category: "dai",
+                        subject_category: "dai",
+                      })
+                    }
+                    className={
+                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
+                      ((editLessonForm.category || editLessonForm.subject_category || "dai") === "dai"
+                        ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                    }
+                  >
+                    📐 Đại số
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditLessonForm &&
+                      setEditLessonForm({
+                        ...editLessonForm,
+                        category: "hinh",
+                        subject_category: "hinh",
+                      })
+                    }
+                    className={
+                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
+                      ((editLessonForm.category || editLessonForm.subject_category) === "hinh"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                    }
+                  >
+                    📏 Hình học
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditLessonForm &&
+                      setEditLessonForm({
+                        ...editLessonForm,
+                        category: "tong_on",
+                        subject_category: "tong_on",
+                      })
+                    }
+                    className={
+                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
+                      ((editLessonForm.category || editLessonForm.subject_category) === "tong_on"
+                        ? "bg-purple-50 border-purple-500 text-purple-700 ring-2 ring-purple-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                    }
+                  >
+                    🎯 Tổng ôn
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditLessonForm &&
+                      setEditLessonForm({
+                        ...editLessonForm,
+                        category: "tang_cuong",
+                        subject_category: "tang_cuong",
+                      })
+                    }
+                    className={
+                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
+                      ((editLessonForm.category || editLessonForm.subject_category) === "tang_cuong"
+                        ? "bg-amber-50 border-amber-500 text-amber-700 ring-2 ring-amber-500/20 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                    }
+                  >
+                    ⚡ Tăng cường
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/50 rounded-2xl border border-blue-200/70">
