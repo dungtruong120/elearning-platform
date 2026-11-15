@@ -1864,67 +1864,47 @@ supabase
 const handleDeleteResource = async (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
 
-    // Tìm thông tin item sắp xóa để đối chiếu cả ID lẫn Title
-    let targetTitle = "";
-    for (const chap of chapters || []) {
-      const les = (chap?.lessons || []).find((l: any) => l?.id === lessonId);
-      if (les && Array.isArray(les[resType])) {
-        const found = les[resType].find((r: any) => String(r?.id) === String(resId));
-        if (found?.title) targetTitle = String(found.title).trim();
-      }
-    }
+    // 1. Luôn thử xóa trên bảng homeworks nếu là BTVN hoặc ID bắt đầu bằng exam- / hw-
+    const isHomeworkItem =
+      resType === "homework_files" ||
+      resType === "homeworks" ||
+      resType === "homework" ||
+      String(resId || "").startsWith("exam-") ||
+      String(resId || "").startsWith("hw-");
 
-    if (resType === "homework_files" && resId) {
-      // 1. Xóa theo ID trên bảng homeworks
-      const { error: delErr } = await supabase
+    if (isHomeworkItem && resId) {
+      const { error } = await supabase
         .from("homeworks")
         .delete()
-        .eq("id", String(resId));
+        .eq("id", String(resId).trim());
 
-      if (delErr) {
-        console.error("Lỗi xóa homeworks:", delErr);
-        showToast("Không xóa được trên Supabase (kiểm tra RLS bảng homeworks): " + delErr.message, "error");
+      if (error) {
+        alert("Lỗi xóa trên Supabase: " + error.message);
         return;
-      }
-
-      // 2. Xóa luôn các bản ghi trùng tên trong cùng lesson_id (nếu có)
-      if (lessonId && targetTitle) {
-        await supabase
-          .from("homeworks")
-          .delete()
-          .eq("lesson_id", String(lessonId))
-          .eq("title", targetTitle);
-      }
-
-      // 3. Xóa cache localStorage của đề này trên trình duyệt
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.removeItem(`tct_exam_payload_${String(resId).trim()}`);
-        } catch {}
       }
     }
 
-    if (
-      viewResourcesModal &&
-      viewResourcesModal.lessonId === lessonId &&
-      viewResourcesModal.type === resType
-    ) {
+    // 2. Cập nhật đóng modal xem danh sách (nếu đang mở)
+    if (viewResourcesModal) {
       setViewResourcesModal((prev: any) =>
-        prev ? { ...prev, items: (prev.items || []).filter((i: any) => i?.id !== resId) } : null
+        prev
+          ? { ...prev, items: (prev.items || []).filter((i: any) => String(i?.id) !== String(resId)) }
+          : null
       );
     }
 
+    // 3. Cập nhật state và đồng bộ lên Supabase
     const newChapters = (chapters || []).map((chap) => ({
       ...chap,
       lessons: (chap?.lessons || []).map((les: any) =>
         les?.id === lessonId
-          ? { ...les, [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) }
+          ? { ...les, [resType]: (les[resType] || []).filter((r: any) => String(r?.id) !== String(resId)) }
           : les
       ),
     }));
 
     await syncCoursesToSupabase(newChapters, "tài nguyên");
-    showToast("Đã xóa tài nguyên vĩnh viễn!", "success");
+    showToast("Đã xóa vĩnh viễn!", "success");
   };
 const handleEditResourceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
