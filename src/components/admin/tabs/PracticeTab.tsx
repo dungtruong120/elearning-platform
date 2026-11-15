@@ -15,7 +15,9 @@ import {
   Printer,
   Camera,
   RefreshCw,
-  X
+  X,
+  FilePlus2,
+  Layers
 } from "lucide-react";
 import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -25,6 +27,7 @@ import {
   openPrintableDynamicAnswerSheet
 } from "@/lib/omrEngine";
 import { AdminBulkOMRScannerModal } from "@/components/admin/paper/AdminBulkOMRScannerModal";
+import { AzotaExamConfigModal } from "@/components/admin/AzotaExamConfigModal";
 
 // DANH MỤC ĐẦY ĐỦ KHÔI PHỤC TẤT CẢ PHÂN LOẠI ĐỀ
 export const PRACTICE_CATEGORIES = [
@@ -174,6 +177,73 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
   return rawCat || "Tự do";
 }
 
+/**
+ * NHẬN DIỆN ĐỀ ĐÁNH GIÁ NĂNG LỰC HSA & SỐ PHẦN THI HIỆN CÓ (1/3, 2/3, 3/3)
+ */
+function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
+  isHsa: boolean;
+  partsCount: number;
+  maxPoints: number;
+  partShortNames: string[];
+} {
+  const rawFormat = String(exam?.exam_format || "").toLowerCase();
+  const rawCat = String(exam?.category || "").toUpperCase();
+  const rawTitle = String(exam?.title || "").toUpperCase();
+
+  const rawSecs = Array.isArray(exam?.data)
+    ? exam.data
+    : Array.isArray(exam?.sections)
+    ? exam.sections
+    : [];
+
+  const hasHsaSectionKey = rawSecs.some((s: any) => {
+    const k = String(s?.part_key || s?.key || "").toLowerCase();
+    return k === "quant" || k === "qual" || k === "english" || Number(s?.max_points || s?.maxScore) === 50;
+  });
+
+  const isHsa =
+    rawFormat === "hsa" ||
+    rawCat.includes("HSA") ||
+    rawTitle.includes("HSA") ||
+    hasHsaSectionKey;
+
+  if (!isHsa) {
+    return { isHsa: false, partsCount: 0, maxPoints: 10, partShortNames: [] };
+  }
+
+  let partsCount = 1;
+  const partShortNames: string[] = [];
+
+  if (typeof exam?.hsa_parts_count === "number" && exam.hsa_parts_count > 0) {
+    partsCount = Math.min(3, Math.max(1, exam.hsa_parts_count));
+  } else if (rawSecs.length > 0) {
+    partsCount = Math.min(3, Math.max(1, rawSecs.length));
+  } else if (resolvedTotalQuestions >= 115) {
+    partsCount = 3;
+  } else if (resolvedTotalQuestions >= 65) {
+    partsCount = 2;
+  } else {
+    partsCount = 1;
+  }
+
+  if (rawSecs.length > 0) {
+    rawSecs.forEach((s: any) => {
+      const k = String(s?.part_key || s?.key || "").toLowerCase();
+      if (k === "quant") partShortNames.push("Định lượng");
+      else if (k === "qual") partShortNames.push("Định tính");
+      else if (k === "english") partShortNames.push("Tiếng Anh");
+      else if (s?.shortTitle || s?.title) partShortNames.push(String(s.shortTitle || s.title));
+    });
+  }
+
+  return {
+    isHsa: true,
+    partsCount,
+    maxPoints: partsCount * 50,
+    partShortNames,
+  };
+}
+
 function safeSaveExamsToLocal(exams: any[]) {
   if (typeof window === "undefined" || !Array.isArray(exams) || exams.length === 0) return;
   try {
@@ -183,6 +253,9 @@ function safeSaveExamsToLocal(exams: any[]) {
       title: ex?.title,
       exam_code: ex?.exam_code,
       category: ex?.category || "Tự do",
+      exam_format: ex?.exam_format,
+      hsa_parts_count: ex?.hsa_parts_count,
+      total_points: ex?.total_points,
       duration_minutes: ex?.duration_minutes || 90,
       total_questions: ex?.total_questions,
       target_mode: ex?.target_mode || "all",
@@ -222,6 +295,7 @@ export interface PracticeTabProps {
   }) => void;
   onOpenExamEditor?: (exam: any) => void;
   onTestExam?: (exam: any) => void;
+  onAppendHsaPart?: (exam: any, file: File) => void;
   practiceCategoryFilter?: string;
   setPracticeCategoryFilter?: (cat: string) => void;
   examsWithScoresData?: any[];
@@ -254,6 +328,7 @@ export default function PracticeTab({
   setAzotaScoreViewModal,
   onOpenExamEditor,
   onTestExam,
+  onAppendHsaPart,
   practiceCategoryFilter: propCategoryFilter = "Tất cả danh mục",
   setPracticeCategoryFilter: propSetCategoryFilter,
   practiceSyncStatus
@@ -266,6 +341,17 @@ export default function PracticeTab({
   const [searchKeyword, setSearchKeyword] = useState<string>("");
   const [loadingSingleExamId, setLoadingSingleExamId] = useState<string | null>(null);
   const isFetchingRef = useRef<boolean>(false);
+
+  // State phục vụ Modal ghép thêm phần thi HSA trực tiếp
+  const [hsaAppendModalState, setHsaAppendModalState] = useState<{
+    isOpen: boolean;
+    targetExam: any | null;
+    file: File | null;
+  }>({
+    isOpen: false,
+    targetExam: null,
+    file: null,
+  });
 
   useEffect(() => {
     if (propCategoryFilter) {
@@ -528,7 +614,7 @@ export default function PracticeTab({
           try {
             const { data: sbProfiles } = await effectiveSupabase
               .from("profiles")
-              .select("id, student_code, full_name, username, school, grade, role, learning_mode, study_mode") // 👈 THÊM student_code VÀO ĐÂY
+              .select("id, student_code, full_name, username, school, grade, role, learning_mode, study_mode")
               .limit(200);
             if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
               recoveredStudents = sbProfiles.filter(
@@ -800,7 +886,7 @@ export default function PracticeTab({
     return Array.from(fromAttemptsMap.values());
   }, [propRegisteredStudents, internalStudents, effectiveAttempts]);
 
- const sbdDirectoryList = useMemo(() => {
+  const sbdDirectoryList = useMemo(() => {
     const pool: {
       id: string;
       username: string;
@@ -969,6 +1055,8 @@ export default function PracticeTab({
       const resolvedTotalQuestions =
         Number(ex?.total_questions) || attemptMaxTotalQ || counts.totalCount || 22;
 
+      const hsaInfo = detectHsaExamInfo(ex, resolvedTotalQuestions);
+
       return {
         ...ex,
         displayStt: displayIndex + 1,
@@ -977,6 +1065,10 @@ export default function PracticeTab({
         part1Count: counts.part1Count,
         part2Count: counts.part2Count,
         part3Count: counts.part3Count,
+        isHsaExam: hsaInfo.isHsa,
+        hsaPartsCount: hsaInfo.partsCount,
+        hsaMaxPoints: hsaInfo.maxPoints,
+        hsaPartShortNames: hsaInfo.partShortNames,
         totalSubmissions: matchingAttempts.length,
         uniqueStudentCount: studentBestMap.size,
         avgScore: avgScore.toFixed(2),
@@ -1143,6 +1235,66 @@ export default function PracticeTab({
     }
   };
 
+  // Xử lý khi Admin bấm "+ Ghép phần HSA" và chọn file Word thứ 2/thứ 3 trên dòng đề HSA
+  const handleTriggerAppendHsaPart = async (exam: any, file: File) => {
+    const fullExam = await ensureFullExamDataLoaded(exam);
+
+    if (typeof onAppendHsaPart === "function") {
+      onAppendHsaPart(fullExam, file);
+      return;
+    }
+
+    // Luôn mở Modal cấu hình HSA chuyên biệt với prop appendToExam để ghép thêm phần thi an toàn
+    setHsaAppendModalState({
+      isOpen: true,
+      targetExam: fullExam,
+      file,
+    });
+  };
+
+  // Lưu đề HSA sau khi ghép thêm phần thi mới
+  const handleSaveAppendedHsaExam = async (updatedExamPayload: any) => {
+    const targetId = String(updatedExamPayload.id);
+
+    const updatedList = effectiveExams.map((ex) =>
+      String(ex?.id) === targetId ? { ...ex, ...updatedExamPayload } : ex
+    );
+
+    setInternalExams(updatedList);
+    safeSaveExamsToLocal(updatedList);
+
+    if (typeof savePracticeExams === "function") {
+      try {
+        await savePracticeExams(updatedList);
+      } catch {}
+    }
+
+    if (effectiveSupabase) {
+      try {
+        await effectiveSupabase
+          .from("practice_exams")
+          .upsert({
+            id: updatedExamPayload.id,
+            title: updatedExamPayload.title,
+            category: updatedExamPayload.category || "Đề luyện thi ĐGNL (HSA/TSA)",
+            duration_minutes: updatedExamPayload.duration_minutes,
+            total_questions: updatedExamPayload.total_questions,
+            data: updatedExamPayload.sections || updatedExamPayload.data,
+            updated_at: new Date().toISOString(),
+          });
+      } catch (err) {
+        console.error("Lỗi cập nhật đề HSA lên Supabase:", err);
+      }
+    }
+
+    if (showToast) {
+      showToast(
+        `Đã ghép thêm phần thi cho đề "${updatedExamPayload.title}" (${updatedExamPayload.sections?.length || 1}/3 phần)!`,
+        "success"
+      );
+    }
+  };
+
   const handleDeletePracticeExam = async (exam: any) => {
     if (!confirm(`Bạn có chắc chắn muốn xóa đề thi "${exam.title}"?`)) return;
     const targetId = String(exam.id);
@@ -1272,7 +1424,7 @@ export default function PracticeTab({
           </div>
         </div>
 
-        {/* 2. THANH CHUYỂN TAB, DROPDOWN LỌC DANH MỤC & Ô TÌM KIẾM THỜI GIAN THỰC */}
+        {/* 2. THANH CHUYỂN TAB, DROPDOWN LỌC DANH MỤC & Ô TÌM KIẾM THỜI GỰC */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg w-fit">
             <button
@@ -1407,6 +1559,11 @@ export default function PracticeTab({
                           <span className="font-bold text-slate-800 text-xs sm:text-sm">
                             {exam.title}
                           </span>
+                          {exam.isHsaExam && (
+                            <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold tracking-wide">
+                              HSA • {exam.hsaPartsCount}/3 phần ({exam.hsaMaxPoints}đ)
+                            </span>
+                          )}
                           {idx === 0 &&
                             activeCategoryFilter === "Tất cả danh mục" &&
                             !searchKeyword.trim() && (
@@ -1418,7 +1575,11 @@ export default function PracticeTab({
                         <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-slate-500">
                           <span>
                             {exam.totalQuestionsCount} câu
-                            {Array.isArray(exam.data) && exam.data.length > 0
+                            {exam.isHsaExam
+                              ? exam.hsaPartShortNames.length > 0
+                                ? ` (${exam.hsaPartShortNames.join(" • ")})`
+                                : ""
+                              : Array.isArray(exam.data) && exam.data.length > 0
                               ? ` (P1: ${exam.part1Count} • P2: ${exam.part2Count} • P3: ${exam.part3Count})`
                               : ""}
                           </span>
@@ -1475,6 +1636,31 @@ export default function PracticeTab({
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* Nút + Ghép phần HSA cho đề ĐGNL HSA chưa đủ 3 phần */}
+                          {exam.isHsaExam && exam.hsaPartsCount < 3 && (
+                            <label
+                              className={`px-2.5 py-1.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition ${
+                                isRowLoadingDetail ? "opacity-50 pointer-events-none" : ""
+                              }`}
+                              title="Tải thêm file Word phần 2 hoặc phần 3 để ghép vào đề HSA này"
+                            >
+                              <FilePlus2 className="w-3.5 h-3.5 text-blue-700" />
+                              <span>+ Ghép phần HSA</span>
+                              <input
+                                type="file"
+                                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (file) {
+                                    handleTriggerAppendHsaPart(exam, file);
+                                  }
+                                }}
+                              />
+                            </label>
+                          )}
+
                           {/* Nút In Phiếu A4: Tự động Lazy-Load câu hỏi của riêng đề này nếu chưa có */}
                           <button
                             type="button"
@@ -1594,7 +1780,16 @@ export default function PracticeTab({
                     <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
                       {idx + 1}
                     </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-800">{exam.title}</td>
+                    <td className="py-3.5 px-4 font-bold text-slate-800">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>{exam.title}</span>
+                        {exam.isHsaExam && (
+                          <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold">
+                            HSA • {exam.hsaPartsCount}/3 phần ({exam.hsaMaxPoints}đ)
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-700">
                       {exam.examCode}
                     </td>
@@ -1787,6 +1982,20 @@ export default function PracticeTab({
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL GHÉP THÊM PHẦN THI HSA TRỰC TIẾP TRONG BẢNG */}
+      {hsaAppendModalState.isOpen && (
+        <AzotaExamConfigModal
+          isOpen={hsaAppendModalState.isOpen}
+          file={hsaAppendModalState.file}
+          mode="practice"
+          appendToExam={hsaAppendModalState.targetExam}
+          onClose={() =>
+            setHsaAppendModalState({ isOpen: false, targetExam: null, file: null })
+          }
+          onSave={handleSaveAppendedHsaExam}
+        />
       )}
 
       {/* MODAL CAMERA CHẤM OMR */}
