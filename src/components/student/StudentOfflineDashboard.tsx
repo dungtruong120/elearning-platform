@@ -77,7 +77,7 @@ export const SUBJECT_CATEGORY_CONFIG: Record<
     dotClass: string;
   }
 > = {
- const SUBJECT_CONFIG = {
+ 
   dai: {
     label: "Đại số & Giải tích",
     shortLabel: "Đại số",
