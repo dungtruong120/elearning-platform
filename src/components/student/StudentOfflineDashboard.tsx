@@ -319,7 +319,31 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
     return null;
   });
+// Tự động đồng bộ lại danh sách BTVN mới nhất từ Supabase mỗi khi học sinh F5 ngay trong bài học
+  useEffect(() => {
+    if (!selectedLesson?.id) return;
+    let isCancelled = false;
 
+    supabase
+      .from("homeworks")
+      .select("id, lesson_id, title, duration_minutes, is_quiz")
+      .eq("lesson_id", selectedLesson.id)
+      .then(({ data }) => {
+        if (isCancelled || !Array.isArray(data)) return;
+        setSelectedLesson((prev: any) => {
+          if (!prev || prev.id !== selectedLesson.id) return prev;
+          const refreshed = { ...prev, homework_files: data };
+          try {
+            sessionStorage.setItem("tct_active_lesson", JSON.stringify(refreshed));
+          } catch {}
+          return refreshed;
+        });
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedLesson?.id]);
   const [examRoom, setExamRoom] = useState<any | null>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -876,45 +900,35 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       .on("postgres_changes", { event: "*", schema: "public", table: "chapters" }, () =>
         fetchAuthAndData()
       )
+      .on("postgres_changes", { event: "*", schema: "public", table: "homeworks" }, () => {
+        fetchAuthAndData();
+        // Nếu học sinh đang mở sẵn bài học, tự cập nhật lại danh sách BTVN ngay lập tức
+        setSelectedLesson((prev: any) => {
+          if (!prev?.id) return prev;
+          supabase
+            .from("homeworks")
+            .select("id, lesson_id, title, duration_minutes, is_quiz")
+            .eq("lesson_id", prev.id)
+            .then(({ data }) => {
+              if (Array.isArray(data)) {
+                setSelectedLesson((cur: any) => {
+                  if (!cur || cur.id !== prev.id) return cur;
+                  const refreshed = { ...cur, homework_files: data };
+                  try {
+                    sessionStorage.setItem("tct_active_lesson", JSON.stringify(refreshed));
+                  } catch {}
+                  return refreshed;
+                });
+              }
+            });
+          return prev;
+        });
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () =>
         fetchAuthAndData()
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "system_notifications" }, () =>
         fetchAuthAndData()
-      )
-      .subscribe();
-
-    // Kênh bắt sự kiện Khóa tài khoản Realtime
-    const channelSecurity = supabase
-      .channel(`security-guard-${profile?.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "profiles",
-          filter: `id=eq.${profile?.id}`
-        },
-        (payload: any) => {
-          const updated = payload.new;
-          const isLocked =
-            updated?.status === "rejected" ||
-            updated?.status === "locked" ||
-            updated?.approval_status === "rejected" ||
-            updated?.is_approved === false;
-
-          if (isLocked) {
-            localStorage.removeItem("tct_current_user");
-            localStorage.removeItem("edunexus_current_user");
-            sessionStorage.clear();
-            alert("🔒 Tài khoản của bạn vừa bị tạm khóa bởi Ban quản trị.");
-            if (onLogout) {
-              onLogout();
-            } else {
-              window.location.href = "/";
-            }
-          }
-        }
       )
       .subscribe();
 
