@@ -931,7 +931,38 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         fetchAuthAndData()
       )
       .subscribe();
+const channelSecurity = supabase
+      .channel(`security-guard-${profile?.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${profile?.id}`
+        },
+        (payload: any) => {
+          const updated = payload.new;
+          const isLocked =
+            updated?.status === "rejected" ||
+            updated?.status === "locked" ||
+            updated?.approval_status === "rejected" ||
+            updated?.is_approved === false;
 
+          if (isLocked) {
+            localStorage.removeItem("tct_current_user");
+            localStorage.removeItem("edunexus_current_user");
+            sessionStorage.clear();
+            alert("🔒 Tài khoản của bạn vừa bị tạm khóa bởi Ban quản trị.");
+            if (onLogout) {
+              onLogout();
+            } else {
+              window.location.href = "/";
+            }
+          }
+        }
+      )
+      .subscribe();
     const channelSessions = supabase
       .channel("realtime-student-offline-sessions")
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () =>
