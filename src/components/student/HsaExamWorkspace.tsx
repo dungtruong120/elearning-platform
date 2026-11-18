@@ -51,9 +51,9 @@ export interface HsaPartConfig {
 export const HSA_PARTS_CONFIG: Record<HsaPartKey, HsaPartConfig> = {
   quant: {
     key: "quant",
-    code: "Phần 1",
+    code: "Phần 1 (Bắt buộc)",
     title: "Toán học & Xử lý số liệu",
-    upperTitle: "TOÁN HỌC & XỬ LÝ SỐ LIỆU",
+    upperTitle: "PHẦN 1: TOÁN HỌC & XỬ LÝ SỐ LIỆU",
     shortTitle: "Toán học & Xử lý số liệu",
     defaultQuestions: 50,
     defaultDurationMinutes: 75,
@@ -62,9 +62,9 @@ export const HSA_PARTS_CONFIG: Record<HsaPartKey, HsaPartConfig> = {
   },
   qual: {
     key: "qual",
-    code: "Phần 2",
+    code: "Phần 2 (Bắt buộc)",
     title: "Ngôn ngữ - Văn học",
-    upperTitle: "NGÔN NGỮ - VĂN HỌC",
+    upperTitle: "PHẦN 2: NGÔN NGỮ - VĂN HỌC",
     shortTitle: "Ngôn ngữ - Văn học",
     defaultQuestions: 50,
     defaultDurationMinutes: 60,
@@ -73,9 +73,9 @@ export const HSA_PARTS_CONFIG: Record<HsaPartKey, HsaPartConfig> = {
   },
   english: {
     key: "english",
-    code: "Phần 3 (Tự chọn 1)",
-    title: "Tự chọn 1: Tiếng Anh",
-    upperTitle: "TIẾNG ANH",
+    code: "Phần 3 (Tự chọn • Tổ hợp 1)",
+    title: "Tổ hợp 1: Tiếng Anh",
+    upperTitle: "PHẦN 3: TIẾNG ANH",
     shortTitle: "Tiếng Anh",
     defaultQuestions: 50,
     defaultDurationMinutes: 60,
@@ -84,9 +84,9 @@ export const HSA_PARTS_CONFIG: Record<HsaPartKey, HsaPartConfig> = {
   },
   history_geo: {
     key: "history_geo",
-    code: "Phần 3 (Tự chọn 2)",
-    title: "Tự chọn 2: Khoa học (Lịch sử - Địa lý)",
-    upperTitle: "KHOA HỌC (LỊCH SỬ - ĐỊA LÝ)",
+    code: "Phần 3 (Tự chọn • Tổ hợp 2)",
+    title: "Tổ hợp 2: Khoa học (Lịch sử - Địa lý)",
+    upperTitle: "PHẦN 3: KHOA HỌC (LỊCH SỬ - ĐỊA LÝ)",
     shortTitle: "Lịch sử - Địa lý",
     defaultQuestions: 50,
     defaultDurationMinutes: 60,
@@ -201,7 +201,8 @@ function extractImagesAndCleanText(
 ): { cleanedText: string; images: string[] } {
   const images: string[] = [];
   if (explicitImage && typeof explicitImage === "string" && explicitImage.trim()) {
-    const resolvedExplicit = resolveTokenImageSrc(explicitImage.trim(), mediaMap) || explicitImage.trim();
+    const resolvedExplicit =
+      resolveTokenImageSrc(explicitImage.trim(), mediaMap) || explicitImage.trim();
     if (resolvedExplicit && !images.includes(resolvedExplicit)) {
       images.push(resolvedExplicit);
     }
@@ -245,8 +246,8 @@ function MathAndImageRenderer({
     <div
       className={
         inline
-          ? "inline leading-relaxed text-slate-800 text-[14px] break-words"
-          : "leading-relaxed text-slate-800 text-[14.5px] whitespace-pre-wrap break-words"
+          ? "inline font-sans antialiased text-[15px] leading-[1.7] text-slate-900 break-words"
+          : "font-sans antialiased text-[15px] leading-[1.7] text-slate-900 whitespace-pre-wrap break-words"
       }
     >
       {segments.map((seg, idx) => {
@@ -262,7 +263,7 @@ function MathAndImageRenderer({
               src={src}
               alt="Minh họa"
               onClick={() => onOpenLightbox && onOpenLightbox(src)}
-              className="inline-block max-h-20 align-middle mx-1.5 my-1 object-contain rounded border border-slate-200 bg-white p-0.5 cursor-zoom-in"
+              className="inline-block max-h-24 align-middle mx-1.5 my-1 object-contain rounded border border-slate-200 bg-white p-0.5 cursor-zoom-in"
             />
           );
         }
@@ -282,15 +283,15 @@ function MathAndImageRenderer({
                 key={idx}
                 className={
                   isDisplay
-                    ? "block my-2.5 text-center overflow-x-auto py-1"
-                    : "inline-block align-middle px-0.5 text-[15px]"
+                    ? "block my-2.5 text-center overflow-x-auto py-1 text-[16px] text-slate-900"
+                    : "inline align-baseline px-0.5 text-[15.5px] text-slate-900"
                 }
                 dangerouslySetInnerHTML={{ __html: html }}
               />
             );
           } catch {
             return (
-              <span key={idx} className="font-mono text-slate-700">
+              <span key={idx} className="font-mono text-slate-800 text-[15px]">
                 {latex}
               </span>
             );
@@ -498,7 +499,7 @@ function parseExamIntoHsaParts(rawExam: any): Record<HsaPartKey, NormalizedHsaPa
     const targetPart = result[partKey]!;
     const rawQuestions = Array.isArray(sec?.questions) ? sec.questions : [];
 
-    rawQuestions.forEach((q: any, qIdx: number) => {
+    rawQuestions.forEach((q: any) => {
       const qMediaMap: Record<string, string> = {
         ...targetPart.mediaMap,
         ...(q?.mediaMap || {}),
@@ -726,34 +727,44 @@ export function HsaExamWorkspace({
     [partsMap]
   );
 
-  const hasBothElectives = useMemo(
-    () => Boolean(partsMap.english && partsMap.history_geo),
+  const hasEnglishQuestions = useMemo(
+    () => Boolean(partsMap.english && partsMap.english.questions.length > 0),
     [partsMap]
   );
 
-  // Điều chỉnh selectedElective mặc định nếu đề chỉ có 1 trong 2 phần tự chọn
+  const hasHistoryGeoQuestions = useMemo(
+    () => Boolean(partsMap.history_geo && partsMap.history_geo.questions.length > 0),
+    [partsMap]
+  );
+
+  const hasBothElectives = useMemo(
+    () => hasEnglishQuestions && hasHistoryGeoQuestions,
+    [hasEnglishQuestions, hasHistoryGeoQuestions]
+  );
+
+  // Tự động chọn tổ hợp đã có dữ liệu nếu đề thi chỉ mở 1 trong 2 tổ hợp
   useEffect(() => {
-    if (!partsMap.english && partsMap.history_geo) {
+    if (!hasEnglishQuestions && hasHistoryGeoQuestions) {
       setSelectedElective("history_geo");
-    } else if (partsMap.english && !partsMap.history_geo) {
+    } else if (hasEnglishQuestions && !hasHistoryGeoQuestions) {
       setSelectedElective("english");
     }
-  }, [partsMap]);
+  }, [hasEnglishQuestions, hasHistoryGeoQuestions]);
 
-  // Danh sách các phần hiển thị trên Bảng điều khiển Ca thi (2 phần bắt buộc hiện có + 1 phần tự chọn đã chọn)
-  const displayedHubPartKeys = useMemo(() => {
-    const list: HsaPartKey[] = [];
-    if (partsMap.quant && partsMap.quant.questions.length > 0) list.push("quant");
-    if (partsMap.qual && partsMap.qual.questions.length > 0) list.push("qual");
+  // Cấu trúc 3 phần thi cố định của thí sinh hiển thị ở Màn hình 1: Phần 1 (quant), Phần 2 (qual), Phần 3 (selectedElective)
+  const threeExamSlotKeys = useMemo<HsaPartKey[]>(
+    () => ["quant", "qual", selectedElective],
+    [selectedElective]
+  );
 
-    if (hasBothElectives) {
-      list.push(selectedElective);
-    } else {
-      if (partsMap.english && partsMap.english.questions.length > 0) list.push("english");
-      if (partsMap.history_geo && partsMap.history_geo.questions.length > 0) list.push("history_geo");
-    }
-    return list;
-  }, [partsMap, hasBothElectives, selectedElective]);
+  // Danh sách các phần trong cấu trúc 3 phần thi đã mở câu hỏi trong đề này
+  const activeRequiredAndSelectedPartKeys = useMemo(
+    () =>
+      threeExamSlotKeys.filter(
+        (k) => partsMap[k] !== null && partsMap[k]!.questions.length > 0
+      ),
+    [threeExamSlotKeys, partsMap]
+  );
 
   // --------------------------------------------------------------------------
   // 2. KHÔI PHỤC TIẾN TRÌNH TỪ LOCALSTORAGE, REVIEW ATTEMPT & SUPABASE
@@ -914,7 +925,7 @@ export function HsaExamWorkspace({
       } catch {}
     }
 
-   if (!foundLocal && profile?.id) {
+    if (!foundLocal && profile?.id) {
       (async () => {
         try {
           const { data: cloudAttempt } = await supabase
@@ -990,7 +1001,11 @@ export function HsaExamWorkspace({
   }, [partsProgress, progressStorageKey]);
 
   const handleSelectElective = (electiveKey: "english" | "history_geo") => {
+    const isAvailable =
+      electiveKey === "english" ? hasEnglishQuestions : hasHistoryGeoQuestions;
+    if (!isAvailable) return;
     if (lockedElectiveKey && lockedElectiveKey !== electiveKey) return;
+
     setSelectedElective(electiveKey);
     if (typeof window !== "undefined") {
       try {
@@ -1016,7 +1031,7 @@ export function HsaExamWorkspace({
   // --------------------------------------------------------------------------
   const handleStartPartExam = (partKey: HsaPartKey) => {
     const partObj = partsMap[partKey];
-    if (!partObj) return;
+    if (!partObj || partObj.questions.length === 0) return;
 
     if (partKey === "english" || partKey === "history_geo") {
       setSelectedElective(partKey);
@@ -1457,7 +1472,7 @@ export function HsaExamWorkspace({
         ? Number(((totalCorrectQuestions / totalAttemptedQuestions) * 100).toFixed(1))
         : 0;
 
-    let rankLabel = " Đạt yêu cầu";
+    let rankLabel = "Đạt yêu cầu";
     if (accuracyPercent >= 85) rankLabel = "Xuất sắc (Top 5% HSA)";
     else if (accuracyPercent >= 75) rankLabel = "Giỏi (Top 15% HSA)";
     else if (accuracyPercent >= 60) rankLabel = "Khá";
@@ -1558,7 +1573,7 @@ export function HsaExamWorkspace({
   // ==========================================================================
   if (isFetchingExam) {
     return (
-      <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col items-center justify-center p-6 font-sans">
+      <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col items-center justify-center p-6 font-sans antialiased">
         <div className="bg-white border border-slate-200 rounded-xl p-8 max-w-md w-full text-center space-y-3 shadow-xs">
           <Loader2 className="w-8 h-8 text-blue-700 animate-spin mx-auto" />
           <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
@@ -1577,7 +1592,7 @@ export function HsaExamWorkspace({
   // ==========================================================================
   if (screen === "hub") {
     return (
-      <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-hidden font-sans text-slate-800">
+      <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-hidden font-sans antialiased text-slate-800">
         {/* HEADER CHUẨN KHẢO THÍ */}
         <header className="h-16 px-4 sm:px-8 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
           <button
@@ -1614,7 +1629,7 @@ export function HsaExamWorkspace({
         {/* NỘI DUNG BẢNG ĐIỀU KHIỂN CA THI */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
           <div className="max-w-4xl mx-auto space-y-6">
-            {/* Tiêu đề đề thi trên mobile & thông tin tổng quan */}
+            {/* Tiêu đề đề thi & thông tin tổng quan */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-700 uppercase">
@@ -1625,7 +1640,7 @@ export function HsaExamWorkspace({
                   {quizTitle || loadedExam?.title || "Đề thi Đánh giá năng lực HSA"}
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Điểm từng phần được chấm theo thang 50 điểm và tự động lưu ngay sau khi nộp mỗi phần.
+                  Cấu trúc bài thi gồm 2 phần bắt buộc và 1 phần tự chọn. Điểm từng phần chấm theo thang 50 điểm (tổng 150 điểm).
                 </p>
               </div>
 
@@ -1635,187 +1650,258 @@ export function HsaExamWorkspace({
                     Tiến độ hoàn thành
                   </div>
                   <div className="text-base font-bold text-slate-900">
-                    {completedPartsList.length} / {displayedHubPartKeys.length || 1} phần thi
+                    {completedPartsList.length} / {activeRequiredAndSelectedPartKeys.length || 3} phần thi
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* CHỌN TỔ HỢP PHẦN 3 (Nếu đề có cả english và history_geo) */}
-            {hasBothElectives && (
-              <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                      Chọn Tổ hợp Phần 3 (Tự chọn)
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Thí sinh tích chọn 1 trong 2 phần tự chọn bên dưới. Sau khi đã bắt đầu làm 1 tổ hợp, tổ hợp còn lại sẽ được khóa.
-                    </p>
-                  </div>
-                  {lockedElectiveKey && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold shrink-0">
-                      <Lock className="w-3.5 h-3.5" />
-                      Đã cố định theo phần thi bạn đã làm
-                    </span>
-                  )}
+            {/* CHỌN TỔ HỢP PHẦN 3 (TỰ CHỌN): LUÔN HIỂN THỊ 2 THẺ TỔ HỢP TRỰC QUAN */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Phần 3 (Tự chọn) — Chọn 1 trong 2 Tổ hợp bài thi
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Thí sinh tích chọn 1 trong 2 tổ hợp tự chọn bên dưới trước khi bắt đầu làm bài. Sau khi đã làm 1 tổ hợp, tổ hợp còn lại sẽ bị khóa.
+                  </p>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {(["english", "history_geo"] as const).map((elecKey) => {
-                    const isSelected = selectedElective === elecKey;
-                    const isLockedOut =
-                      lockedElectiveKey !== null && lockedElectiveKey !== elecKey;
-                    const label =
-                      elecKey === "english"
-                        ? "Tiếng Anh (50 câu - 60 phút)"
-                        : "Lịch sử - Địa lý (50 câu - 60 phút)";
-
-                    return (
-                      <button
-                        key={elecKey}
-                        type="button"
-                        disabled={isLockedOut}
-                        onClick={() => handleSelectElective(elecKey)}
-                        className={`p-3.5 rounded-lg border text-left flex items-center justify-between transition ${
-                          isSelected
-                            ? "bg-blue-50/70 border-blue-600 text-slate-900"
-                            : isLockedOut
-                              ? "bg-slate-50 border-slate-200 text-slate-400 opacity-60 cursor-not-allowed"
-                              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                              isSelected ? "border-blue-600 bg-blue-600" : "border-slate-400 bg-white"
-                            }`}
-                          >
-                            {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                          </span>
-                          <div>
-                            <div className="text-xs font-bold">
-                              [ {elecKey === "english" ? "Tiếng Anh" : "Lịch sử - Địa lý"} ]
-                            </div>
-                            <div className="text-[11px] text-slate-500">{label}</div>
-                          </div>
-                        </div>
-
-                        {isLockedOut ? (
-                          <Lock className="w-4 h-4 text-slate-400" />
-                        ) : isSelected ? (
-                          <span className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold uppercase">
-                            Đã chọn
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
+                {lockedElectiveKey && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold shrink-0">
+                    <Lock className="w-3.5 h-3.5" />
+                    Đã khóa đổi tổ hợp sau khi bắt đầu thi
+                  </span>
+                )}
               </div>
-            )}
 
-            {/* DANH SÁCH CÁC PHẦN THI */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 px-1">
-                Danh sách các phần thi trong đề
-              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {(
+                  [
+                    {
+                      key: "english" as const,
+                      title: "Tổ hợp 1: Tiếng Anh",
+                      meta: "50 câu — 60 phút — 50 điểm",
+                      hasData: hasEnglishQuestions,
+                      questionCount: partsMap.english?.questions.length || 50,
+                      duration: partsMap.english?.durationMinutes || 60
+                    },
+                    {
+                      key: "history_geo" as const,
+                      title: "Tổ hợp 2: Khoa học (Lịch sử - Địa lý)",
+                      meta: "50 câu — 60 phút — 50 điểm",
+                      hasData: hasHistoryGeoQuestions,
+                      questionCount: partsMap.history_geo?.questions.length || 50,
+                      duration: partsMap.history_geo?.durationMinutes || 60
+                    }
+                  ] as const
+                ).map((item) => {
+                  const isSelected = selectedElective === item.key && item.hasData;
+                  const isLockedByProgress =
+                    lockedElectiveKey !== null && lockedElectiveKey !== item.key;
+                  const isDisabled = !item.hasData || isLockedByProgress;
+                  const itemProg = partsProgress[item.key];
 
-              {displayedHubPartKeys.length === 0 ? (
-                <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-2">
-                  <AlertCircle className="w-7 h-7 text-slate-400 mx-auto" />
-                  <p className="text-sm font-bold text-slate-700">
-                    Đề thi này hiện chưa có dữ liệu câu hỏi.
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Vui lòng quay lại bảng điều khiển hoặc liên hệ giáo viên quản trị.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {displayedHubPartKeys.map((partKey, idx) => {
-                    const partObj = partsMap[partKey]!;
-                    const cfg = HSA_PARTS_CONFIG[partKey];
-                    const prog = partsProgress[partKey];
-                    const isCompleted = Boolean(prog?.completed);
-
-                    return (
-                      <div
-                        key={partKey}
-                        className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                      >
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold uppercase">
-                              Phần {idx + 1}
-                            </span>
-                            <h4 className="text-sm sm:text-base font-bold text-slate-900">
-                              {cfg.title}
-                            </h4>
-                            {isCompleted ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                Đã hoàn thành: {prog!.score} / 50 điểm
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold">
-                                Chưa làm
-                              </span>
-                            )}
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => handleSelectElective(item.key)}
+                      className={`p-4 rounded-xl border text-left flex items-start justify-between gap-3 transition ${
+                        !item.hasData
+                          ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed"
+                          : isSelected
+                            ? "bg-blue-50/70 border-blue-700 text-slate-900"
+                            : isLockedByProgress
+                              ? "bg-slate-50 border-slate-200 text-slate-400 opacity-65 cursor-not-allowed"
+                              : "bg-white border-slate-200 text-slate-800 hover:bg-slate-50 cursor-pointer"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span
+                          className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                            isSelected
+                              ? "border-blue-700 bg-white"
+                              : "border-slate-400 bg-white"
+                          }`}
+                        >
+                          {isSelected && <span className="w-2 h-2 rounded-full bg-blue-700" />}
+                        </span>
+                        <div className="space-y-1">
+                          <div className="text-xs sm:text-sm font-bold">{item.title}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {item.hasData
+                              ? `${item.questionCount} câu — ${item.duration} phút — 50 điểm`
+                              : item.meta}
                           </div>
-
-                          <div className="flex items-center gap-4 text-xs text-slate-500">
-                            <span>
-                              Số lượng: <strong className="text-slate-700">{partObj.questions.length} câu hỏi</strong>
-                            </span>
-                            <span>•</span>
-                            <span>
-                              Thời gian: <strong className="text-slate-700">{partObj.durationMinutes} phút</strong>
-                            </span>
-                            <span>•</span>
-                            <span>
-                              Thang điểm: <strong className="text-slate-700">50 điểm</strong>
-                            </span>
-                            {isCompleted && (
-                              <>
-                                <span>•</span>
-                                <span>
-                                  Số câu đúng:{" "}
-                                  <strong className="text-emerald-700">
-                                    {prog!.correctCount}/{prog!.totalCount} câu
-                                  </strong>
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {isCompleted ? (
-                            <button
-                              type="button"
-                              onClick={() => handleReviewPart(partKey)}
-                              className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                            >
-                              <Eye className="w-4 h-4 text-blue-700" />
-                              <span>Xem lại đáp án phần này</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleStartPartExam(partKey)}
-                              className="px-5 py-2.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                            >
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>Bắt đầu làm phần này</span>
-                            </button>
+                          {itemProg?.completed && (
+                            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Đã hoàn thành: {itemProg.score}/50 điểm</span>
+                            </div>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+
+                      <div className="shrink-0">
+                        {!item.hasData ? (
+                          <span className="inline-block px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[10px] font-bold">
+                            Chưa mở trong đề này
+                          </span>
+                        ) : isLockedByProgress ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-500 text-[10px] font-bold">
+                            <Lock className="w-3 h-3" />
+                            <span>Đã khóa</span>
+                          </span>
+                        ) : isSelected ? (
+                          <span className="inline-block px-2.5 py-0.5 rounded bg-blue-700 text-white text-[10px] font-bold uppercase">
+                            Đang chọn
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-600 text-[10px] font-semibold">
+                            Chọn tổ hợp
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* CẤU TRÚC 3 PHẦN THI CỦA THÍ SINH */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 px-1">
+                Cấu trúc 3 phần thi của thí sinh
+              </h3>
+
+              <div className="space-y-3">
+                {(
+                  [
+                    {
+                      slotNumber: 1,
+                      badge: "Phần 1 (Bắt buộc)",
+                      partKey: "quant" as HsaPartKey,
+                      displayTitle: "Toán học & Xử lý số liệu",
+                      defaultDuration: 75
+                    },
+                    {
+                      slotNumber: 2,
+                      badge: "Phần 2 (Bắt buộc)",
+                      partKey: "qual" as HsaPartKey,
+                      displayTitle: "Ngôn ngữ - Văn học",
+                      defaultDuration: 60
+                    },
+                    {
+                      slotNumber: 3,
+                      badge: "Phần 3 (Tự chọn)",
+                      partKey: selectedElective as HsaPartKey,
+                      displayTitle:
+                        selectedElective === "english"
+                          ? "Tổ hợp 1: Tiếng Anh"
+                          : "Tổ hợp 2: Khoa học (Lịch sử - Địa lý)",
+                      defaultDuration: 60
+                    }
+                  ] as const
+                ).map((slot) => {
+                  const partObj = partsMap[slot.partKey];
+                  const hasData = Boolean(partObj && partObj.questions.length > 0);
+                  const prog = partsProgress[slot.partKey];
+                  const isCompleted = Boolean(prog?.completed);
+                  const questionCount = partObj?.questions.length || 50;
+                  const durationMinutes = partObj?.durationMinutes || slot.defaultDuration;
+
+                  return (
+                    <div
+                      key={`${slot.slotNumber}-${slot.partKey}`}
+                      className={`bg-white border rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                        hasData ? "border-slate-200" : "border-slate-200 bg-slate-50/60"
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold uppercase">
+                            {slot.badge}
+                          </span>
+                          <h4 className="text-sm sm:text-base font-bold text-slate-900">
+                            {slot.displayTitle}
+                          </h4>
+                          {!hasData ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-200/70 text-slate-600 text-xs font-semibold">
+                              Chưa mở trong đề này
+                            </span>
+                          ) : isCompleted ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Đã hoàn thành: {prog!.score} / 50 điểm
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold">
+                              Chưa làm
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3 sm:gap-4 text-xs text-slate-500 flex-wrap">
+                          <span>
+                            Số lượng:{" "}
+                            <strong className="text-slate-700">
+                              {hasData ? `${questionCount} câu hỏi` : "50 câu hỏi"}
+                            </strong>
+                          </span>
+                          <span>•</span>
+                          <span>
+                            Thời gian:{" "}
+                            <strong className="text-slate-700">{durationMinutes} phút</strong>
+                          </span>
+                          <span>•</span>
+                          <span>
+                            Thang điểm: <strong className="text-slate-700">50 điểm</strong>
+                          </span>
+                          {isCompleted && (
+                            <>
+                              <span>•</span>
+                              <span>
+                                Số câu đúng:{" "}
+                                <strong className="text-emerald-700">
+                                  {prog!.correctCount}/{prog!.totalCount} câu
+                                </strong>
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {!hasData ? (
+                          <span className="px-4 py-2 rounded-lg border border-slate-200 bg-slate-100 text-slate-400 text-xs font-bold cursor-not-allowed">
+                            Chưa mở trong đề này
+                          </span>
+                        ) : isCompleted ? (
+                          <button
+                            type="button"
+                            onClick={() => handleReviewPart(slot.partKey)}
+                            className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                          >
+                            <Eye className="w-4 h-4 text-blue-700" />
+                            <span>Xem lại đáp án phần này</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleStartPartExam(slot.partKey)}
+                            className="px-5 py-2.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                            <span>Bắt đầu làm phần này</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* CỤM NÚT HÀNH ĐỘNG DƯỚI CÙNG */}
@@ -1887,7 +1973,7 @@ export function HsaExamWorkspace({
     const electiveCfg = HSA_PARTS_CONFIG[electiveKey];
 
     return (
-      <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-y-auto font-sans text-slate-800 p-4 sm:p-6 md:p-10">
+      <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-y-auto font-sans antialiased text-slate-800 p-4 sm:p-6 md:p-10">
         <div className="max-w-4xl w-full mx-auto my-auto bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
           {/* DẢI TIÊU ĐỀ XANH LÁ ĐẬM TRÊN CÙNG */}
           <div className="bg-emerald-800 text-white px-6 py-5 border-b border-emerald-900 text-center space-y-1">
@@ -2023,7 +2109,7 @@ export function HsaExamWorkspace({
                   onClick={() => {
                     const targetKey =
                       completedPartsList[0]?.partKey ||
-                      displayedHubPartKeys[0] ||
+                      activeRequiredAndSelectedPartKeys[0] ||
                       availablePartKeys[0] ||
                       "quant";
                     const savedAnswers = partsProgress[targetKey]?.answers || {};
@@ -2102,12 +2188,12 @@ export function HsaExamWorkspace({
   }
 
   // ==========================================================================
-  // MÀN HÌNH 2 — PHÒNG THI THỰC CHIẾN TỪNG PHẦN & XEM LẠI ĐÁP ÁN (2 CỘT 75% - 25%)
+  // MÀN HÌNH 2 — PHÒNG THI CHUẨN ĐHQGHN (CỘT TRÁI RỘNG THOÁNG + CỘT PHẢI 225PX)
   // ==========================================================================
   return (
-    <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-hidden font-sans text-slate-800">
+    <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-hidden font-sans antialiased text-slate-900">
       {/* HEADER TỐI GIẢN CHUẨN PHẦN MỀM THI MÁY TÍNH ĐHQGHN */}
-      <header className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+      <header className="h-13 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -2173,13 +2259,13 @@ export function HsaExamWorkspace({
         </div>
       </header>
 
-      {/* BODY 2 CỘT: CỘT TRÁI 75% (CÂU HỎI) - CỘT PHẢI 25% (SIDEBAR CỐ ĐỊNH) */}
+      {/* BODY 2 CỘT: CỘT TRÁI RỘNG THOÁNG (flex-1 min-w-0) + CỘT PHẢI NHỎ GỌN 225PX */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-        {/* CỘT TRÁI (75% - KHU VỰC CÂU HỎI CUỘN DỌC) */}
-        <div className="w-full lg:w-3/4 flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5">
+        {/* CỘT TRÁI (flex-1 min-w-0 - VÙNG ĐỀ BÀI & CÂU HỎI RỘNG RÃI ~84% MÀN HÌNH) */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-5 space-y-4">
           {/* Thanh bộ lọc nhanh khi ở chế độ Xem lại đáp án (isReviewMode) */}
           {isReviewMode && (
-            <div className="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+            <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold text-slate-700 uppercase">
                   Chế độ Xem lại đáp án:
@@ -2195,7 +2281,7 @@ export function HsaExamWorkspace({
                     key={f.key}
                     type="button"
                     onClick={() => setReviewFilter(f.key)}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                    className={`px-3 py-1 rounded text-xs font-bold border transition cursor-pointer ${
                       reviewFilter === f.key
                         ? "bg-slate-900 text-white border-slate-900"
                         : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -2207,7 +2293,7 @@ export function HsaExamWorkspace({
               </div>
 
               {partsProgress[activePartKey]?.completed && (
-                <div className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-lg">
+                <div className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded">
                   Điểm phần này: {partsProgress[activePartKey]!.score} / 50 điểm (Đúng{" "}
                   {partsProgress[activePartKey]!.correctCount}/
                   {partsProgress[activePartKey]!.totalCount} câu)
@@ -2218,7 +2304,7 @@ export function HsaExamWorkspace({
 
           {/* Danh sách các khối câu hỏi (Hỗ trợ cả Câu hỏi chùm và Câu hỏi đơn lẻ) */}
           {groupedBlocksForActivePart.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-10 text-center text-xs font-semibold text-slate-500">
+            <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-xs font-semibold text-slate-500">
               Không có câu hỏi nào khớp với bộ lọc hiện tại.
             </div>
           ) : (
@@ -2232,28 +2318,28 @@ export function HsaExamWorkspace({
               return (
                 <div
                   key={block.blockKey}
-                  className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs"
+                  className="bg-white border border-slate-200 rounded-lg overflow-hidden"
                 >
                   {/* KHUNG DỮ KIỆN / NGỮ LIỆU CHUNG ĐẶT Ở ĐẦU KHỐI (NẾU LÀ CÂU HỎI CHÙM) */}
                   {hasGroupHeader && (
-                    <div className="bg-amber-50/40 border-b border-amber-200 p-4 sm:p-5 space-y-2.5">
+                    <div className="bg-slate-50/90 border-b border-slate-200 p-4 sm:p-5 space-y-2.5">
                       <div className="flex items-center justify-between">
-                        <span className="px-2.5 py-0.5 rounded bg-amber-100/80 border border-amber-300 text-amber-900 text-[11px] font-bold uppercase">
-                          Dữ kiện / Ngữ liệu chung (Câu {firstQ.localIndex}
+                        <span className="px-2.5 py-0.5 rounded bg-emerald-800 text-white text-xs font-bold">
+                          Dữ kiện câu hỏi chùm (Câu {firstQ.localIndex}
                           {lastQ.localIndex > firstQ.localIndex ? ` – Câu ${lastQ.localIndex}` : ""})
                         </span>
                       </div>
 
                       {hasGroupImages ? (
                         <div className="flex flex-col md:flex-row gap-4 items-start">
-                          <div className="w-full md:w-[65%] max-h-80 overflow-y-auto pr-1">
+                          <div className="w-full md:w-[68%] max-h-80 overflow-y-auto pr-1">
                             <MathAndImageRenderer
                               content={block.groupPassage}
                               mediaMap={activePart?.mediaMap}
                               onOpenLightbox={(src) => setLightboxImageSrc(src)}
                             />
                           </div>
-                          <div className="w-full md:w-[35%] flex flex-col items-center justify-center gap-2 bg-white p-2.5 rounded-lg border border-amber-200/80">
+                          <div className="w-full md:w-[32%] flex flex-col items-center justify-center gap-2 bg-white p-2.5 rounded border border-slate-200">
                             {block.groupImages.map((imgSrc, iIdx) => (
                               <div key={iIdx} className="relative group text-center">
                                 <img
@@ -2300,98 +2386,104 @@ export function HsaExamWorkspace({
                           ref={(el) => {
                             questionRefs.current[q.id] = el;
                           }}
-                          className="p-4 sm:p-5 space-y-3.5"
+                          className="p-4 sm:p-5 space-y-3"
                         >
-                          {/* Dòng tiêu đề Câu số + Nút gắn cờ (Flag) góc phải */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 text-slate-900 text-xs font-extrabold">
-                                Câu {q.localIndex}
-                              </span>
-                              {isReviewMode && (
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
-                                    !isAnswered
-                                      ? "bg-slate-100 text-slate-600 border-slate-300"
-                                      : isCorrect
-                                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                                        : "bg-rose-50 text-rose-700 border-rose-300"
-                                  }`}
-                                >
-                                  {!isAnswered
-                                    ? "Bỏ trống"
-                                    : isCorrect
-                                      ? "Trả lời đúng"
-                                      : "Trả lời sai"}
-                                </span>
-                              )}
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleToggleFlag(q.id)}
-                              className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                                isFlagged
-                                  ? "bg-amber-50 border-amber-300 text-amber-800"
-                                  : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
-                              }`}
-                              title="Đánh dấu câu phân vân"
-                            >
-                              <Flag
-                                className={`w-3.5 h-3.5 ${
-                                  isFlagged ? "fill-amber-400 text-amber-600" : "text-slate-400"
-                                }`}
-                              />
-                              <span>{isFlagged ? "Đã gắn cờ" : "Gắn cờ"}</span>
-                            </button>
-                          </div>
-
-                          {/* NỘI DUNG CÂU HỎI + ĐÁP ÁN: Chia 2 cột (8/4) nếu có hình, 1 cột (100%) nếu không có hình */}
+                          {/* NỘI DUNG CÂU HỎI + ĐÁP ÁN: Chia 2 cột (8/4) nếu có hình riêng, 1 cột nếu không có hình */}
                           <div
                             className={
                               hasQuestionImage
                                 ? "grid grid-cols-1 md:grid-cols-12 gap-4 items-start"
-                                : "space-y-3.5"
+                                : "space-y-3"
                             }
                           >
-                            <div className={hasQuestionImage ? "md:col-span-8 space-y-3.5" : "space-y-3.5"}>
-                              {/* Nội dung đề bài */}
-                              <div className="text-slate-900">
-                                <MathAndImageRenderer
-                                  content={q.promptHtml}
-                                  mediaMap={activePart?.mediaMap}
-                                  onOpenLightbox={(src) => setLightboxImageSrc(src)}
-                                />
+                            <div
+                              className={
+                                hasQuestionImage ? "md:col-span-8 space-y-3" : "space-y-3"
+                              }
+                            >
+                              {/* DÒNG MỞ ĐẦU: Nhãn Câu X nền xanh đậm chữ trắng nằm ngang hàng trực tiếp với nội dung câu hỏi + nút Gắn cờ góc phải */}
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0 font-sans antialiased text-[15px] leading-[1.7] text-slate-900">
+                                  <span className="inline-block bg-emerald-800 text-white text-xs font-bold px-2 py-0.5 rounded mr-2.5 align-baseline select-none">
+                                    Câu {q.localIndex}
+                                  </span>
+
+                                  {isReviewMode && (
+                                    <span
+                                      className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold border mr-2 align-baseline ${
+                                        !isAnswered
+                                          ? "bg-slate-100 text-slate-600 border-slate-300"
+                                          : isCorrect
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                            : "bg-rose-50 text-rose-700 border-rose-300"
+                                      }`}
+                                    >
+                                      {!isAnswered
+                                        ? "Bỏ trống"
+                                        : isCorrect
+                                          ? "Đúng"
+                                          : "Sai"}
+                                    </span>
+                                  )}
+
+                                  <MathAndImageRenderer
+                                    content={q.promptHtml}
+                                    mediaMap={activePart?.mediaMap}
+                                    inline={true}
+                                    onOpenLightbox={(src) => setLightboxImageSrc(src)}
+                                  />
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleFlag(q.id)}
+                                  className={`shrink-0 px-2 py-1 rounded border text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                                    isFlagged
+                                      ? "bg-amber-50 border-amber-300 text-amber-800"
+                                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                                  }`}
+                                  title="Đánh dấu câu phân vân"
+                                >
+                                  <Flag
+                                    className={`w-3 h-3 ${
+                                      isFlagged
+                                        ? "fill-amber-400 text-amber-600"
+                                        : "text-slate-400"
+                                    }`}
+                                  />
+                                  <span className="hidden sm:inline">
+                                    {isFlagged ? "Đã cờ" : "Gắn cờ"}
+                                  </span>
+                                </button>
                               </div>
 
-                              {/* 1. TRẮC NGHIỆM 4 ĐÁP ÁN A/B/C/D (Radio button tròn chuẩn CBT) */}
+                              {/* 1. TRẮC NGHIỆM 4 PHƯƠNG ÁN A, B, C, D XẾP 1 CỘT DỌC DUY NHẤT CHUẨN PHÒNG THI ĐHQGHN */}
                               {q.type === "multiple_choice" && (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                                <div className="flex flex-col space-y-2 pt-1 pl-1 sm:pl-2">
                                   {q.options.map((opt) => {
                                     const isSelected =
                                       userAns.toUpperCase() === opt.key.toUpperCase();
                                     const isOptCorrect =
                                       q.correctAnswer.toUpperCase() === opt.key.toUpperCase();
 
-                                    let cardStyle =
-                                      "bg-white border-slate-200 text-slate-800 hover:bg-slate-50";
-                                    let radioStyle = "border-slate-400 bg-white text-slate-700";
+                                    let rowStyle = "hover:bg-slate-50/80 text-slate-900";
+                                    let labelKeyStyle = "text-slate-700 font-semibold";
+                                    let optionTextStyle = "text-slate-900";
 
                                     if (isReviewMode) {
                                       if (isOptCorrect) {
-                                        cardStyle =
-                                          "bg-emerald-50/90 border-emerald-500 text-emerald-950 font-semibold";
-                                        radioStyle =
-                                          "border-emerald-600 bg-emerald-600 text-white";
+                                        rowStyle = "bg-emerald-50/80 rounded-md";
+                                        labelKeyStyle = "text-emerald-800 font-bold";
+                                        optionTextStyle = "text-emerald-950 font-medium";
                                       } else if (isSelected && !isOptCorrect) {
-                                        cardStyle =
-                                          "bg-rose-50/90 border-rose-400 text-rose-950";
-                                        radioStyle = "border-rose-600 bg-rose-600 text-white";
+                                        rowStyle = "bg-rose-50/80 rounded-md";
+                                        labelKeyStyle = "text-rose-700 font-bold";
+                                        optionTextStyle = "text-rose-950 font-medium";
                                       }
                                     } else if (isSelected) {
-                                      cardStyle =
-                                        "bg-blue-50/80 border-blue-600 text-slate-900 font-semibold";
-                                      radioStyle = "border-blue-600 bg-blue-600 text-white";
+                                      rowStyle = "bg-blue-50/50 rounded-md";
+                                      labelKeyStyle = "text-blue-800 font-bold";
+                                      optionTextStyle = "text-slate-950 font-medium";
                                     }
 
                                     return (
@@ -2400,16 +2492,48 @@ export function HsaExamWorkspace({
                                         type="button"
                                         disabled={isReviewMode}
                                         onClick={() => handleSelectAnswer(q.id, opt.key)}
-                                        className={`p-3 rounded-lg border text-left flex items-start gap-3 transition ${cardStyle} ${
+                                        className={`w-full py-1.5 px-2.5 text-left flex items-start gap-2.5 transition ${rowStyle} ${
                                           isReviewMode ? "cursor-default" : "cursor-pointer"
                                         }`}
                                       >
+                                        {/* Ký hiệu (A), (B), (C), (D) */}
                                         <span
-                                          className={`w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${radioStyle}`}
+                                          className={`text-[14px] leading-[1.7] w-7 shrink-0 select-none ${labelKeyStyle}`}
                                         >
-                                          {opt.key}
+                                          ({opt.key})
                                         </span>
-                                        <div className="flex-1 min-w-0">
+
+                                        {/* Nút tròn Radio ○ ở giữa */}
+                                        <span className="mt-[5px] shrink-0 flex items-center justify-center">
+                                          {isReviewMode ? (
+                                            isOptCorrect ? (
+                                              <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center">
+                                                <Check className="w-3 h-3 stroke-[3]" />
+                                              </span>
+                                            ) : isSelected && !isOptCorrect ? (
+                                              <span className="w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center">
+                                                <X className="w-3 h-3 stroke-[3]" />
+                                              </span>
+                                            ) : (
+                                              <span className="w-4 h-4 rounded-full border border-slate-400 bg-white block" />
+                                            )
+                                          ) : (
+                                            <span
+                                              className={`w-4 h-4 rounded-full border flex items-center justify-center transition ${
+                                                isSelected
+                                                  ? "border-2 border-blue-700 bg-white"
+                                                  : "border-slate-400 bg-white"
+                                              }`}
+                                            >
+                                              {isSelected && (
+                                                <span className="w-2 h-2 rounded-full bg-blue-700 block" />
+                                              )}
+                                            </span>
+                                          )}
+                                        </span>
+
+                                        {/* Nội dung phương án */}
+                                        <div className={`flex-1 min-w-0 ${optionTextStyle}`}>
                                           <MathAndImageRenderer
                                             content={opt.textHtml}
                                             mediaMap={activePart?.mediaMap}
@@ -2425,10 +2549,10 @@ export function HsaExamWorkspace({
 
                               {/* 2. CÂU HỎI ĐIỀN KHUYẾT / TRẢ LỜI NGẮN */}
                               {q.type === "short_answer" && (
-                                <div className="pt-1 space-y-2">
+                                <div className="pt-1 pl-1 sm:pl-2 space-y-2">
                                   <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-                                    <label className="text-xs font-bold text-slate-700 shrink-0">
-                                      Nhập đáp án của bạn:
+                                    <label className="text-[14px] font-semibold text-slate-800 shrink-0">
+                                      Đáp án của thí sinh:
                                     </label>
                                     <input
                                       type="text"
@@ -2436,18 +2560,19 @@ export function HsaExamWorkspace({
                                       value={userAns}
                                       onChange={(e) => handleSelectAnswer(q.id, e.target.value)}
                                       placeholder="Nhập kết quả (VD: 12.5 hoặc -3)..."
-                                      className={`w-full sm:max-w-xs px-3.5 py-2 rounded-lg border text-sm font-bold outline-none transition ${
+                                      className={`w-full max-w-xs px-3 py-1.5 rounded border text-[15px] font-semibold outline-none transition ${
                                         isReviewMode
                                           ? isCorrect
                                             ? "bg-emerald-50 border-emerald-500 text-emerald-900"
                                             : "bg-rose-50 border-rose-400 text-rose-900"
-                                          : "bg-white border-slate-300 text-slate-900 focus:border-blue-600"
+                                          : "bg-white border-slate-300 text-slate-900 focus:border-blue-700"
                                       }`}
                                     />
                                   </div>
                                   {isReviewMode && (
                                     <div className="text-xs font-bold text-emerald-700">
-                                      Đáp án đúng: <span className="font-mono">{q.correctAnswer}</span>
+                                      Đáp án đúng:{" "}
+                                      <span className="font-mono">{q.correctAnswer}</span>
                                     </div>
                                   )}
                                 </div>
@@ -2460,8 +2585,12 @@ export function HsaExamWorkspace({
                                     <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
                                       <tr>
                                         <th className="py-2 px-3 font-bold">Mệnh đề</th>
-                                        <th className="py-2 px-3 text-center font-bold w-16">Đúng</th>
-                                        <th className="py-2 px-3 text-center font-bold w-16">Sai</th>
+                                        <th className="py-2 px-3 text-center font-bold w-16">
+                                          Đúng
+                                        </th>
+                                        <th className="py-2 px-3 text-center font-bold w-16">
+                                          Sai
+                                        </th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
@@ -2484,13 +2613,13 @@ export function HsaExamWorkspace({
                                                 onClick={() =>
                                                   handleToggleTrueFalseSubOption(q.id, oIdx, "Đ")
                                                 }
-                                                className={`w-6 h-6 rounded-full border mx-auto flex items-center justify-center font-bold ${
+                                                className={`w-5 h-5 rounded-full border mx-auto flex items-center justify-center font-bold ${
                                                   curChar === "Đ"
-                                                    ? "bg-blue-600 border-blue-600 text-white"
-                                                    : "bg-white border-slate-300 text-transparent"
+                                                    ? "bg-blue-700 border-blue-700 text-white"
+                                                    : "bg-white border-slate-400 text-transparent"
                                                 }`}
                                               >
-                                                <Check className="w-3.5 h-3.5" />
+                                                <Check className="w-3 h-3" />
                                               </button>
                                             </td>
                                             <td className="py-2 px-3 text-center">
@@ -2500,13 +2629,13 @@ export function HsaExamWorkspace({
                                                 onClick={() =>
                                                   handleToggleTrueFalseSubOption(q.id, oIdx, "S")
                                                 }
-                                                className={`w-6 h-6 rounded-full border mx-auto flex items-center justify-center font-bold ${
+                                                className={`w-5 h-5 rounded-full border mx-auto flex items-center justify-center font-bold ${
                                                   curChar === "S"
-                                                    ? "bg-blue-600 border-blue-600 text-white"
-                                                    : "bg-white border-slate-300 text-transparent"
+                                                    ? "bg-blue-700 border-blue-700 text-white"
+                                                    : "bg-white border-slate-400 text-transparent"
                                                 }`}
                                               >
-                                                <X className="w-3.5 h-3.5" />
+                                                <X className="w-3 h-3" />
                                               </button>
                                             </td>
                                           </tr>
@@ -2544,7 +2673,7 @@ export function HsaExamWorkspace({
 
                           {/* LỜI GIẢI CHI TIẾT DƯỚI MỖI CÂU KHI Ở CHẾ ĐỘ XEM LẠI ĐÁP ÁN */}
                           {isReviewMode && (
-                            <div className="mt-3 p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
+                            <div className="mt-2.5 p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
                               <div className="flex items-center justify-between text-xs font-bold text-slate-800">
                                 <span className="flex items-center gap-1.5 text-blue-800">
                                   <BookOpen className="w-3.5 h-3.5" />
@@ -2561,7 +2690,7 @@ export function HsaExamWorkspace({
                                 </span>
                               </div>
                               {q.solutionHtml ? (
-                                <div className="text-xs text-slate-700 pt-1 border-t border-slate-200/80">
+                                <div className="pt-1.5 border-t border-slate-200/80">
                                   <MathAndImageRenderer
                                     content={q.solutionHtml}
                                     mediaMap={activePart?.mediaMap}
@@ -2585,19 +2714,19 @@ export function HsaExamWorkspace({
           )}
         </div>
 
-        {/* CỘT PHẢI (25% - SIDEBAR ĐIỀU HƯỚNG CỐ ĐỊNH) */}
-        <aside className="w-full lg:w-1/4 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col shrink-0 max-h-[42vh] lg:max-h-none">
-          {/* ĐỒNG HỒ ĐẾM NGƯỢC CỠ LỚN & NÚT NỘP PHẦN THI */}
-          <div className="p-4 border-b border-slate-200 space-y-3">
+        {/* CỘT PHẢI THU GỌN 225PX (w-full lg:w-[225px] shrink-0) */}
+        <aside className="w-full lg:w-[225px] shrink-0 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col max-h-[38vh] lg:max-h-none">
+          {/* ĐỒNG HỒ ĐẾM NGƯỢC GỌN GÀNG & NÚT NỘP PHẦN THI */}
+          <div className="p-3 border-b border-slate-200 space-y-2.5">
             {!isReviewMode ? (
               <>
-                <div className="bg-[#F8FAFC] border border-slate-200 rounded-lg p-3 text-center">
+                <div className="bg-[#F8FAFC] border border-slate-200 rounded-lg py-2 px-2.5 text-center">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-center gap-1">
-                    <Clock className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Thời gian còn lại của phần thi</span>
+                    <Clock className="w-3 h-3 text-slate-500" />
+                    <span>Thời gian còn lại</span>
                   </div>
                   <div
-                    className={`text-2xl sm:text-3xl font-mono font-extrabold tracking-wider mt-1 ${
+                    className={`text-xl font-mono font-bold tracking-wider mt-0.5 ${
                       remainingSeconds <= 300 ? "text-rose-600" : "text-slate-900"
                     }`}
                   >
@@ -2609,23 +2738,23 @@ export function HsaExamWorkspace({
                   type="button"
                   disabled={isSubmittingPart}
                   onClick={() => setConfirmSubmitModal(true)}
-                  className="w-full py-2.5 px-4 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="w-full py-2 px-3 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isSubmittingPart ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Đang chấm điểm...</span>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang chấm...</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4" />
+                      <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>Nộp phần thi này</span>
                     </>
                   )}
                 </button>
 
-                <div className="text-center text-xs font-semibold text-slate-600">
-                  Bạn đã chọn{" "}
+                <div className="text-center text-[11px] font-semibold text-slate-600">
+                  Đã chọn{" "}
                   <strong className="text-blue-700">
                     {answeredCountInActivePart}/{activePart?.questions.length || 0}
                   </strong>{" "}
@@ -2634,37 +2763,37 @@ export function HsaExamWorkspace({
               </>
             ) : (
               <div className="space-y-2">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg py-2 px-2.5 text-center">
                   <div className="text-[10px] font-bold uppercase text-emerald-800">
-                    Kết quả phần thi này
+                    Kết quả phần thi
                   </div>
-                  <div className="text-2xl font-extrabold text-emerald-900 mt-0.5">
+                  <div className="text-lg font-extrabold text-emerald-900 mt-0.5">
                     {partsProgress[activePartKey]?.score ?? 0} / 50 điểm
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setScreen("report")}
-                  className="w-full py-2 px-4 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition cursor-pointer"
+                  className="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition cursor-pointer"
                 >
-                  Quay lại Phiếu Báo Điểm HSA
+                  Phiếu Báo Điểm HSA
                 </button>
               </div>
             )}
           </div>
 
-          {/* MA TRẬN DANH SÁCH CÂU HỎI CHIA ĐÚNG 5 CỘT (1 -> 50) */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* MA TRẬN DANH SÁCH CÂU HỎI CHIA 5 CỘT Ô VUÔNG NHỎ GỌN (grid-cols-5 gap-1.5, h-7 text-[11px]) */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-700">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
                 DANH SÁCH CÂU HỎI
               </span>
-              <span className="text-[11px] font-semibold text-slate-500">
+              <span className="text-[10px] font-semibold text-slate-500">
                 {activePart?.questions.length || 0} câu
               </span>
             </div>
 
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-1.5">
               {(activePart?.questions || []).map((q) => {
                 const userAns = currentAnswers[q.id];
                 const answered = isQuestionAnswered(q, userAns);
@@ -2672,7 +2801,7 @@ export function HsaExamWorkspace({
                 const correct = checkIsQuestionCorrect(q, userAns);
 
                 let btnClass =
-                  "bg-white border-slate-200 text-slate-700 hover:border-blue-400 hover:bg-slate-50";
+                  "bg-white border-slate-200 text-slate-700 hover:border-blue-500 hover:bg-slate-50";
                 if (isReviewMode) {
                   if (!answered) {
                     btnClass = "bg-slate-100 border-slate-300 text-slate-500";
@@ -2690,12 +2819,12 @@ export function HsaExamWorkspace({
                     key={q.id}
                     type="button"
                     onClick={() => scrollToQuestion(q.id)}
-                    className={`relative h-9 rounded-lg border text-xs font-semibold flex items-center justify-center transition cursor-pointer ${btnClass}`}
+                    className={`relative h-7 rounded border text-[11px] font-semibold flex items-center justify-center transition cursor-pointer select-none ${btnClass}`}
                   >
                     <span>{q.localIndex}</span>
                     {flagged && (
                       <span
-                        className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-white"
+                        className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 border border-white"
                         title="Câu đang gắn cờ phân vân"
                       />
                     )}
@@ -2704,34 +2833,36 @@ export function HsaExamWorkspace({
               })}
             </div>
 
-            {/* Chú thích màu sắc ma trận */}
-            <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+            {/* Chú thích màu sắc ma trận gọn gàng */}
+            <div className="pt-2.5 border-t border-slate-100 space-y-1 text-[10px] text-slate-600">
               {!isReviewMode ? (
                 <>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded bg-blue-700 inline-block" />
-                    <span>Đã chọn đáp án</span>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-xs bg-blue-700 inline-block" />
+                      <span>Đã chọn</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-xs bg-white border border-slate-300 inline-block" />
+                      <span>Chưa làm</span>
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded bg-white border border-slate-300 inline-block" />
-                    <span>Chưa làm</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 col-span-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
-                    <span>Đánh dấu phân vân (Flag)</span>
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                    <span>Gắn cờ phân vân</span>
                   </div>
                 </>
               ) : (
-                <>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded bg-emerald-600 inline-block" />
-                    <span>Trả lời đúng</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded bg-rose-600 inline-block" />
-                    <span>Trả lời sai</span>
-                  </div>
-                </>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-emerald-600 inline-block" />
+                    <span>Câu đúng</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-rose-600 inline-block" />
+                    <span>Câu sai</span>
+                  </span>
+                </div>
               )}
             </div>
           </div>
