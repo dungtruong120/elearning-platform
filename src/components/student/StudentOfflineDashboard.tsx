@@ -765,14 +765,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       console.error("Lỗi tải chương trình học & BTVN:", e);
     }
 
-    // 2. TẢI DANH SÁCH ĐỀ LUYỆN THI (LẤY THÊM exam_format VÀ data KÈM FALLBACK AN TOÀN)
+    // 2. TẢI DANH SÁCH ĐỀ LUYỆN THI SIÊU NHẸ (BỎ CỘT data ĐỂ KHÔNG TỐN EGRESS)
     try {
       setIsLoadingExams(true);
-      let dbExams: any[] | null = null;
-      const { data: examsWithFormat, error: fmtErr } = await supabase
+      const { data: dbExams } = await supabase
         .from("practice_exams")
         .select(
-          "id, title, category, exam_format, duration_minutes, created_at, target_mode, allowViewFile, driveUrl, data"
+          "id, title, category, duration_minutes, created_at, target_mode, allowViewFile, driveUrl"
         )
         .order("created_at", { ascending: false });
 
@@ -1681,11 +1680,14 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     });
   }, [workspacePracticeExam, myAttempts]);
 
-  // Mở thẳng không gian phòng thi toàn màn hình HsaExamWorkspace nếu là đề HSA, ngược lại mở ExamEntryModal chuẩn THPT
+// Nạp chi tiết câu hỏi của đúng đề được chọn rồi mở phòng thi HSA hoặc ExamEntryModal
   const handleTriggerExamEntryModal = useCallback(
     async (examObj: any, isHomeworkFlag: boolean = false) => {
-      if (!isHomeworkFlag && isHsaExamItem(examObj)) {
-        const fullExam = await ensurePracticeExamQuestionsLoaded(examObj);
+      const fullExam = !isHomeworkFlag
+        ? await ensurePracticeExamQuestionsLoaded(examObj)
+        : examObj;
+
+      if (!isHomeworkFlag && isHsaExamItem(fullExam)) {
         const payload = {
           ...fullExam,
           id: fullExam.id,
@@ -1706,13 +1708,12 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
       setEntryModalState({
         isOpen: true,
-        exam: examObj,
+        exam: fullExam,
         isHomework: isHomeworkFlag
       });
     },
     [ensurePracticeExamQuestionsLoaded]
   );
-
   // Mở chế độ Xem lại bài làm (Tự động nạp câu hỏi + đáp án đã chọn từ Supabase nếu là đề HSA)
   const handleOpenReviewAttempt = useCallback(
     async (examObj: any, attemptObj: any) => {
@@ -3006,7 +3007,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                       <p className="text-xs text-slate-400 font-normal mb-3.5">
                                         {hsaMeta.isHsa
                                           ? "Chuẩn phòng thi ĐHQGHN • Lưu tiến trình từng phần"
-                                          : `Số câu: ${qCount} câu • Hỗ trợ Web & Phiếu A4`}
+                                          : `${qCount > 0 ? `Số câu: ${qCount} câu • ` : ""}Hỗ trợ Web & Phiếu A4`}
                                       </p>
                                     </div>
 
@@ -3026,20 +3027,20 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                       )}
 
                                       <button
-                                        onClick={() =>
+                                        onClick={async () => {
+                                          const fullExam = await ensurePracticeExamQuestionsLoaded(exam);
                                           openPrintableDynamicAnswerSheet({
-                                            ...exam,
-                                            examTitle: exam.title,
+                                            ...fullExam,
+                                            examTitle: fullExam.title,
                                             studentSbd: studentAutoSbd,
                                             studentName: profile?.full_name || ""
-                                          })
-                                        }
+                                          });
+                                        }}
                                         className="min-h-[38px] p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200 text-xs font-semibold transition flex items-center justify-center shrink-0 cursor-pointer"
                                         title="In phiếu trả lời A4 tự co giãn theo đề này"
                                       >
                                         <Printer className="w-4 h-4" />
                                       </button>
-
                                       <button
                                         onClick={() => setWorkspacePracticeExam(exam)}
                                         className="min-h-[38px] p-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 text-xs font-semibold transition flex items-center justify-center shrink-0 cursor-pointer"
