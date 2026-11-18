@@ -765,7 +765,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       console.error("Lỗi tải chương trình học & BTVN:", e);
     }
 
-    // 2. TẢI DANH SÁCH ĐỀ LUYỆN THI SIÊU NHẸ (BỎ CỘT data ĐỂ KHÔNG TỐN EGRESS)
+   // 2. TẢI DANH SÁCH ĐỀ LUYỆN THI SIÊU NHẸ (BỎ CỘT data ĐỂ KHÔNG TỐN EGRESS)
     try {
       setIsLoadingExams(true);
       const { data: dbExams } = await supabase
@@ -775,25 +775,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         )
         .order("created_at", { ascending: false });
 
-      if (!fmtErr && Array.isArray(examsWithFormat)) {
-        dbExams = examsWithFormat;
-      } else {
-        const { data: examsFallback } = await supabase
-          .from("practice_exams")
-          .select(
-            "id, title, category, duration_minutes, created_at, target_mode, allowViewFile, driveUrl, data"
-          )
-          .order("created_at", { ascending: false });
-        dbExams = examsFallback;
-      }
-
       if (dbExams && Array.isArray(dbExams)) {
         setPracticeExams((prev) => {
           const prevMap = new Map<string, any>();
           prev.forEach((p) => {
             if (p?.id) prevMap.set(String(p.id), p);
           });
-          return dbExams!.map((ex: any) => {
+          return dbExams.map((ex: any) => {
             const cached = prevMap.get(String(ex.id));
             return {
               ...cached,
