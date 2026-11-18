@@ -7,8 +7,7 @@ import { Header } from "@/components/student/Header";
 import { StudentLeaderboardView } from "@/components/student/StudentLeaderboardView";
 import ScheduleView from "@/components/student/ScheduleView";
 import { ExamRoomView } from "@/components/student/ExamRoomView";
-import HsaExamLobbyModal from "@/components/student/HsaExamLobbyModal";
-import HsaExamRoomView from "@/components/student/HsaExamRoomView";
+import HsaExamWorkspace from "@/components/student/HsaExamWorkspace";
 import { LessonWorkspaceView } from "@/components/student/LessonWorkspaceView";
 import PracticeExamWorkspace from "@/components/student/PracticeExamWorkspace";
 import { ExamEntryModal } from "@/components/student/ExamEntryModal";
@@ -142,17 +141,40 @@ export function normalizeSubjectCategory(
   return "dai";
 }
 
+/**
+ * NHẬN DIỆN CHÍNH XÁC ĐỀ THI ĐÁNH GIÁ NĂNG LỰC HSA (ĐHQGHN)
+ * Tuyệt đối không đoán mò qua maxScore hay duration_minutes để tránh nhận nhầm đề thường.
+ */
 function isHsaExamItem(exam?: any, attempt?: any): boolean {
   if (!exam && !attempt) return false;
-  if (exam?.isHsa || String(exam?.exam_format || "").toLowerCase() === "hsa") {
+
+  const rawFormat = String(exam?.exam_format || attempt?.exam_format || "").trim().toLowerCase();
+  if (rawFormat === "thpt") return false;
+  if (
+    exam?.isHsa === true ||
+    rawFormat === "hsa" ||
+    attempt?.submission_type === "web_hsa" ||
+    attempt?.answers?.__hsa_meta?.examFormat === "hsa"
+  ) {
     return true;
   }
+
   const catStr = String(exam?.category || attempt?.category || "").toUpperCase();
   const titleStr = String(
-    exam?.title || attempt?.examTitle || attempt?.exam_title || attempt?.quizTitle || attempt?.quiz_title || ""
+    exam?.title ||
+      attempt?.examTitle ||
+      attempt?.exam_title ||
+      attempt?.quizTitle ||
+      attempt?.quiz_title ||
+      ""
   ).toUpperCase();
 
-  if (catStr.includes("HSA") || titleStr.includes("HSA")) {
+  if (
+    catStr.includes("ĐGNL HSA") ||
+    catStr.includes("HSA") ||
+    titleStr.includes("ĐGNL HSA") ||
+    /\bHSA\b/.test(titleStr)
+  ) {
     return true;
   }
 
@@ -164,19 +186,10 @@ function isHsaExamItem(exam?: any, attempt?: any): boolean {
 
   if (
     rawSecs.some((s: any) => {
-      const k = String(s?.part_key || s?.key || "").toLowerCase();
-      return (
-        k === "quant" ||
-        k === "qual" ||
-        k === "english" ||
-        Number(s?.max_points || s?.maxScore) === 50
-      );
+      const k = String(s?.part_key || s?.key || "").trim().toLowerCase();
+      return k === "quant" || k === "qual" || k === "english" || k === "history_geo";
     })
   ) {
-    return true;
-  }
-
-  if (Number(attempt?.max_score || attempt?.score || 0) > 10.5) {
     return true;
   }
 
@@ -187,10 +200,11 @@ function getHsaDisplayMeta(exam: any): {
   isHsa: boolean;
   partsCount: number;
   maxPoints: number;
+  badgeLabel: string;
 } {
   const isHsa = isHsaExamItem(exam);
   if (!isHsa) {
-    return { isHsa: false, partsCount: 0, maxPoints: 10 };
+    return { isHsa: false, partsCount: 0, maxPoints: 10, badgeLabel: "" };
   }
 
   const rawSecs = Array.isArray(exam?.data)
@@ -199,21 +213,42 @@ function getHsaDisplayMeta(exam: any): {
     ? exam.sections
     : [];
 
-  let partsCount = 1;
+  const detectedKeys = new Set<string>();
+  rawSecs.forEach((s: any) => {
+    const k = String(s?.part_key || s?.key || "").trim().toLowerCase();
+    if (k === "quant" || k === "qual" || k === "english" || k === "history_geo") {
+      detectedKeys.add(k);
+    }
+  });
+
+  let partsCount = 0;
   if (typeof exam?.hsa_parts_count === "number" && exam.hsa_parts_count > 0) {
-    partsCount = Math.min(3, Math.max(1, exam.hsa_parts_count));
+    partsCount = Math.min(4, Math.max(1, exam.hsa_parts_count));
+  } else if (detectedKeys.size > 0) {
+    partsCount = Math.min(4, detectedKeys.size);
   } else if (rawSecs.length > 0) {
-    partsCount = Math.min(3, Math.max(1, rawSecs.length));
-  } else if (Number(exam?.duration_minutes) >= 180) {
-    partsCount = 3;
-  } else if (Number(exam?.duration_minutes) >= 120) {
-    partsCount = 2;
+    partsCount = Math.min(4, Math.max(1, rawSecs.length));
+  }
+
+  const hasAllFour =
+    partsCount >= 4 ||
+    (detectedKeys.has("quant") &&
+      detectedKeys.has("qual") &&
+      detectedKeys.has("english") &&
+      detectedKeys.has("history_geo"));
+
+  let badgeLabel = "HSA • ĐGNL ĐHQGHN (Thang 150đ)";
+  if (hasAllFour) {
+    badgeLabel = "HSA • ĐGNL ĐHQGHN • 2 bắt buộc + 2 tự chọn (Anh / Sử-Địa)";
+  } else if (partsCount > 0) {
+    badgeLabel = `HSA • ĐGNL ĐHQGHN (${partsCount} phần • Thang ${Math.min(150, partsCount * 50)}đ)`;
   }
 
   return {
     isHsa: true,
-    partsCount,
-    maxPoints: partsCount * 50
+    partsCount: partsCount || 3,
+    maxPoints: partsCount > 0 ? Math.min(150, partsCount * 50) : 150,
+    badgeLabel
   };
 }
 
@@ -319,7 +354,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
     return null;
   });
-// Tự động đồng bộ lại danh sách BTVN mới nhất từ Supabase mỗi khi học sinh F5 ngay trong bài học
+
+  // Tự động đồng bộ lại danh sách BTVN mới nhất từ Supabase mỗi khi học sinh F5 ngay trong bài học
   useEffect(() => {
     if (!selectedLesson?.id) return;
     let isCancelled = false;
@@ -344,6 +380,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       isCancelled = true;
     };
   }, [selectedLesson?.id]);
+
   const [examRoom, setExamRoom] = useState<any | null>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -519,15 +556,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     isHomework: false
   });
 
-  // STATE CHO SẢNH CHỜ ĐỀ THI ĐÁNH GIÁ NĂNG LỰC HSA (ĐHQGHN)
-  const [hsaLobbyModalState, setHsaLobbyModalState] = useState<{
-    isOpen: boolean;
-    exam: any | null;
-  }>({
-    isOpen: false,
-    exam: null
-  });
-
   const [activeDigitalSheetExam, setActiveDigitalSheetExam] = useState<{
     exam: any;
     isHomework: boolean;
@@ -546,7 +574,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   );
   const [offlineToast, setOfflineToast] = useState<string>("");
 
-  // Hàm nạp đầy đủ câu hỏi (`data`) của đề từ Supabase khi học sinh mở sảnh chờ HSA hoặc xem lại bài HSA
+  // Hàm nạp đầy đủ câu hỏi (`data`) của đề từ Supabase khi học sinh mở phòng thi HSA hoặc xem lại bài HSA
   const ensurePracticeExamQuestionsLoaded = useCallback(async (examObj: any): Promise<any> => {
     if (!examObj || !examObj.id) return examObj;
     const hasLoaded =
@@ -736,14 +764,29 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     } catch (e) {
       console.error("Lỗi tải chương trình học & BTVN:", e);
     }
+
+    // 2. TẢI DANH SÁCH ĐỀ LUYỆN THI (LẤY THÊM exam_format VÀ data KÈM FALLBACK AN TOÀN)
     try {
       setIsLoadingExams(true);
-      const { data: dbExams } = await supabase
+      let dbExams: any[] | null = null;
+      const { data: examsWithFormat, error: fmtErr } = await supabase
         .from("practice_exams")
         .select(
-          "id, title, category, duration_minutes, created_at, target_mode, allowViewFile, driveUrl"
+          "id, title, category, exam_format, duration_minutes, created_at, target_mode, allowViewFile, driveUrl, data"
         )
         .order("created_at", { ascending: false });
+
+      if (!fmtErr && Array.isArray(examsWithFormat)) {
+        dbExams = examsWithFormat;
+      } else {
+        const { data: examsFallback } = await supabase
+          .from("practice_exams")
+          .select(
+            "id, title, category, duration_minutes, created_at, target_mode, allowViewFile, driveUrl, data"
+          )
+          .order("created_at", { ascending: false });
+        dbExams = examsFallback;
+      }
 
       if (dbExams && Array.isArray(dbExams)) {
         setPracticeExams((prev) => {
@@ -751,18 +794,31 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           prev.forEach((p) => {
             if (p?.id) prevMap.set(String(p.id), p);
           });
-          return dbExams.map((ex: any) => {
+          return dbExams!.map((ex: any) => {
             const cached = prevMap.get(String(ex.id));
             return {
               ...cached,
               ...ex,
               data: ex.data || cached?.data,
-              sections: ex.sections || cached?.sections
+              sections: ex.data || ex.sections || cached?.sections
             };
           });
         });
         if (typeof window !== "undefined") {
-          localStorage.setItem("edunexus_practice_exams", JSON.stringify(dbExams));
+          try {
+            const slimForCache = dbExams.map((ex: any) => ({
+              id: ex.id,
+              title: ex.title,
+              category: ex.category,
+              exam_format: ex.exam_format,
+              duration_minutes: ex.duration_minutes,
+              created_at: ex.created_at,
+              target_mode: ex.target_mode,
+              allowViewFile: ex.allowViewFile,
+              driveUrl: ex.driveUrl
+            }));
+            localStorage.setItem("edunexus_practice_exams", JSON.stringify(slimForCache));
+          } catch {}
         }
       }
     } catch (e) {
@@ -931,7 +987,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         fetchAuthAndData()
       )
       .subscribe();
-const channelSecurity = supabase
+
+    const channelSecurity = supabase
       .channel(`security-guard-${profile?.id}`)
       .on(
         "postgres_changes",
@@ -963,6 +1020,7 @@ const channelSecurity = supabase
         }
       )
       .subscribe();
+
     const channelSessions = supabase
       .channel("realtime-student-offline-sessions")
       .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () =>
@@ -1438,7 +1496,6 @@ const channelSecurity = supabase
         setHistoryModalExamId(null);
         setSelectedSysNotif(null);
         setPreviewExam(null);
-        setHsaLobbyModalState({ isOpen: false, exam: null });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -1624,15 +1681,26 @@ const channelSecurity = supabase
     });
   }, [workspacePracticeExam, myAttempts]);
 
-  // Mở sảnh chờ thi HSA nếu đề thuộc ĐGNL HSA, ngược lại mở ExamEntryModal chuẩn THPT
+  // Mở thẳng không gian phòng thi toàn màn hình HsaExamWorkspace nếu là đề HSA, ngược lại mở ExamEntryModal chuẩn THPT
   const handleTriggerExamEntryModal = useCallback(
     async (examObj: any, isHomeworkFlag: boolean = false) => {
       if (!isHomeworkFlag && isHsaExamItem(examObj)) {
         const fullExam = await ensurePracticeExamQuestionsLoaded(examObj);
-        setHsaLobbyModalState({
-          isOpen: true,
-          exam: fullExam
-        });
+        const payload = {
+          ...fullExam,
+          id: fullExam.id,
+          title: fullExam.title || "Đề thi ĐGNL HSA",
+          duration: fullExam.duration_minutes || fullExam.duration || 75,
+          isHomework: false,
+          isHsa: true,
+          exam_format: "hsa"
+        };
+        setExamRoom(payload);
+        if (typeof window !== "undefined") {
+          try {
+            sessionStorage.setItem("tct_active_exam_room", JSON.stringify(payload));
+          } catch {}
+        }
         return;
       }
 
@@ -1658,7 +1726,7 @@ const channelSecurity = supabase
           try {
             const { data: attRow } = await supabase
               .from("exam_attempts")
-              .select("id, answers, section_scores, score, max_score")
+              .select("id, answers, score")
               .eq("id", resolvedAttempt.id)
               .maybeSingle();
             if (attRow) {
@@ -1943,17 +2011,16 @@ const channelSecurity = supabase
 
     if (isHsaExamItem(reviewAttemptData.exam, reviewAttemptData.attempt)) {
       return (
-        <HsaExamRoomView
+        <HsaExamWorkspace
           key={
-            "hsa-review-room-" +
+            "hsa-review-workspace-" +
             (reviewAttemptData.attempt?.id || reviewAttemptData.exam?.id || Date.now())
           }
           quizId={reviewAttemptData.exam.id}
           quizTitle={reviewAttemptData.exam.title}
           examData={reviewAttemptData.exam}
-          initialPartKey="all"
           profile={profile!}
-          isReviewMode={true}
+          initialReviewMode={true}
           reviewAttempt={reviewAttemptData.attempt}
           onBackToDashboard={() => {
             setReviewAttemptData(null);
@@ -1985,14 +2052,13 @@ const channelSecurity = supabase
   if (examRoom) {
     if (!examRoom.isHomework && isHsaExamItem(examRoom)) {
       return (
-        <HsaExamRoomView
-          key={"active-hsa-exam-" + examRoom.id + "-" + (examRoom.initialPartKey || "all")}
+        <HsaExamWorkspace
+          key={"active-hsa-workspace-" + examRoom.id}
           quizId={examRoom.id}
           quizTitle={examRoom.title}
           examData={examRoom}
-          initialPartKey={examRoom.initialPartKey || "all"}
           profile={profile!}
-          isReviewMode={false}
+          initialReviewMode={false}
           onBackToDashboard={() => {
             setExamRoom(null);
             if (typeof window !== "undefined") {
@@ -2896,9 +2962,9 @@ const channelSecurity = supabase
                               .filter((e) => {
                                 if (selectedPracticeCategory === "Tất cả đề") return true;
                                 if (selectedPracticeCategory === "ĐGNL HSA (ĐHQGHN)") {
-                                  return isHsaExamItem(e) || e.category === selectedPracticeCategory;
+                                  return isHsaExamItem(e);
                                 }
-                                return e.category === selectedPracticeCategory;
+                                return e.category === selectedPracticeCategory && !isHsaExamItem(e);
                               })
                               .filter((e) =>
                                 e.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -2919,13 +2985,14 @@ const channelSecurity = supabase
                                   >
                                     <div>
                                       <div className="flex justify-between items-center gap-2 mb-2.5">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                          <span className="text-[10px] font-semibold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100 truncate">
-                                            {exam.category}
-                                          </span>
-                                          {hsaMeta.isHsa && (
-                                            <span className="text-[10px] font-bold bg-slate-900 text-white px-2 py-0.5 rounded shrink-0">
-                                              HSA • {hsaMeta.partsCount}/3 phần ({hsaMeta.maxPoints}đ)
+                                        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                          {hsaMeta.isHsa ? (
+                                            <span className="text-[10px] font-bold bg-slate-900 text-white px-2 py-0.5 rounded truncate">
+                                              {hsaMeta.badgeLabel}
+                                            </span>
+                                          ) : (
+                                            <span className="text-[10px] font-semibold uppercase bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100 truncate">
+                                              {exam.category}
                                             </span>
                                           )}
                                         </div>
@@ -2938,7 +3005,7 @@ const channelSecurity = supabase
                                       </h3>
                                       <p className="text-xs text-slate-400 font-normal mb-3.5">
                                         {hsaMeta.isHsa
-                                          ? `Chuẩn phòng thi ĐHQGHN • Thang ${hsaMeta.maxPoints} điểm`
+                                          ? "Chuẩn phòng thi ĐHQGHN • Lưu tiến trình từng phần"
                                           : `Số câu: ${qCount} câu • Hỗ trợ Web & Phiếu A4`}
                                       </p>
                                     </div>
@@ -3527,34 +3594,6 @@ const channelSecurity = supabase
           </div>
         </div>
       )}
-
-      {/* MODAL SẢNH CHỜ PHÒNG THI ĐÁNH GIÁ NĂNG LỰC HSA (ĐHQGHN) */}
-      <HsaExamLobbyModal
-        isOpen={hsaLobbyModalState.isOpen}
-        exam={hsaLobbyModalState.exam}
-        studentName={profile?.full_name || "Học sinh"}
-        studentSbd={studentAutoSbd}
-        onClose={() => setHsaLobbyModalState({ isOpen: false, exam: null })}
-        onStartExam={(selectedPartKey) => {
-          const ex = hsaLobbyModalState.exam;
-          if (!ex) return;
-          const payload = {
-            ...ex,
-            id: ex.id,
-            title: ex.title || "Đề thi ĐGNL HSA",
-            duration: ex.duration_minutes || ex.duration || 75,
-            isHomework: false,
-            isHsa: true,
-            exam_format: "hsa",
-            initialPartKey: selectedPartKey
-          };
-          setHsaLobbyModalState({ isOpen: false, exam: null });
-          setExamRoom(payload);
-          if (typeof window !== "undefined") {
-            sessionStorage.setItem("tct_active_exam_room", JSON.stringify(payload));
-          }
-        }}
-      />
 
       <ExamEntryModal
         isOpen={entryModalState.isOpen}
