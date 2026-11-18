@@ -914,16 +914,18 @@ export function HsaExamWorkspace({
       } catch {}
     }
 
-    if (!foundLocal && profile?.id) {
-      supabase
-        .from("exam_attempts")
-        .select("id, quiz_id, student_id, score, answers, created_at")
-        .eq("quiz_id", quizId)
-        .eq("student_id", profile.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-        .then(({ data: cloudAttempt }) => {
+   if (!foundLocal && profile?.id) {
+      (async () => {
+        try {
+          const { data: cloudAttempt } = await supabase
+            .from("exam_attempts")
+            .select("id, quiz_id, student_id, score, answers, created_at")
+            .eq("quiz_id", quizId)
+            .eq("student_id", profile.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
           if (cloudAttempt && cloudAttempt.answers) {
             let rawAns = cloudAttempt.answers;
             if (typeof rawAns === "string") {
@@ -954,8 +956,8 @@ export function HsaExamWorkspace({
               }
             }
           }
-        })
-        .catch(() => {});
+        } catch {}
+      })();
     }
   }, [
     availablePartKeys,
