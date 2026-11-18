@@ -92,19 +92,35 @@ function extractExamTimestampScore(exam: any): number {
 
 /**
  * TỰ ĐỘNG NHẬN DIỆN DANH MỤC CHUẨN DỰA TRÊN TÊN ĐỀ & CATEGORY GỐC
+ * Đảm bảo đề thường (như "TEST NGUYÊN HÀM" thuộc "Đề kiểm tra định kỳ") không bao giờ bị nhận nhầm sang ĐGNL HSA/TSA.
  */
 function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
   const rawCat = String(exam?.category || fallbackCategory || "").trim();
+  const rawFormat = String(exam?.exam_format || "").trim().toLowerCase();
   const titleSearch = normalizeVietnameseSearch(exam?.title || "");
   const catSearch = normalizeVietnameseSearch(rawCat);
+
+  // 1. Nếu đề được đánh dấu rõ exam_format === "hsa" hoặc category gốc là ĐGNL HSA
+  if (rawFormat === "hsa" || /\b(hsa|tsa|dgnl)\b/i.test(catSearch)) {
+    return "Đề luyện thi ĐGNL (HSA/TSA)";
+  }
+
+  // 2. Nếu đề đã có category chuẩn thuộc các danh mục THPT / Kiểm tra định kỳ / Giữa kỳ / Học kỳ / BTVN thì giữ nguyên 100%
+  if (
+    rawCat &&
+    PRACTICE_CATEGORIES.includes(rawCat) &&
+    rawCat !== "Tất cả danh mục" &&
+    rawCat !== "Tự do"
+  ) {
+    return rawCat;
+  }
 
   if (
     catSearch.includes("giua ky") ||
     catSearch.includes("giua ki") ||
     titleSearch.includes("giua ky") ||
     titleSearch.includes("giua ki") ||
-    titleSearch.includes("gk1") ||
-    titleSearch.includes("gk2")
+    /\b(gk1|gk2)\b/i.test(titleSearch)
   ) {
     return "Đề thi giữa kỳ";
   }
@@ -118,8 +134,7 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
     titleSearch.includes("hoc ki") ||
     titleSearch.includes("cuoi ky") ||
     titleSearch.includes("cuoi ki") ||
-    titleSearch.includes("hk1") ||
-    titleSearch.includes("hk2")
+    /\b(hk1|hk2)\b/i.test(titleSearch)
   ) {
     return "Đề thi học kỳ";
   }
@@ -129,7 +144,7 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
     catSearch.includes("bai tap") ||
     exam?.isHomework ||
     exam?.is_homework ||
-    titleSearch.includes("btvn")
+    /\bbtvn\b/i.test(titleSearch)
   ) {
     return "Bài tập về nhà (BTVN)";
   }
@@ -137,19 +152,13 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
   if (
     catSearch.includes("dinh ky") ||
     catSearch.includes("kiem tra") ||
-    titleSearch.includes("kiem tra")
+    titleSearch.includes("kiem tra") ||
+    /\btest\b/i.test(titleSearch)
   ) {
     return "Đề kiểm tra định kỳ";
   }
 
-  if (
-    catSearch.includes("hsa") ||
-    catSearch.includes("tsa") ||
-    catSearch.includes("dgnl") ||
-    titleSearch.includes("hsa") ||
-    titleSearch.includes("tsa") ||
-    titleSearch.includes("dgnl")
-  ) {
+  if (/\b(hsa|tsa|dgnl)\b/i.test(titleSearch)) {
     return "Đề luyện thi ĐGNL (HSA/TSA)";
   }
 
@@ -157,7 +166,7 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
     catSearch.includes("thpt") ||
     catSearch.includes("thi thu") ||
     titleSearch.includes("thi thu") ||
-    titleSearch.includes("thpt")
+    /\bthpt\b/i.test(titleSearch)
   ) {
     return "Đề thi thử THPT Quốc Gia";
   }
@@ -170,25 +179,33 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
     return "Đề tổng ôn chuyên đề";
   }
 
-  if (rawCat && PRACTICE_CATEGORIES.includes(rawCat)) {
-    return rawCat;
-  }
-
   return rawCat || "Tự do";
 }
 
 /**
- * NHẬN DIỆN ĐỀ ĐÁNH GIÁ NĂNG LỰC HSA & SỐ PHẦN THI HIỆN CÓ (1/3, 2/3, 3/3)
+ * NHẬN DIỆN ĐỀ ĐÁNH GIÁ NĂNG LỰC HSA & CÁC PHẦN ĐÃ UP (TỐI ĐA 4 PHẦN: quant, qual, english, history_geo)
  */
 function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
   isHsa: boolean;
   partsCount: number;
   maxPoints: number;
   partShortNames: string[];
+  badgeText: string;
 } {
-  const rawFormat = String(exam?.exam_format || "").toLowerCase();
-  const rawCat = String(exam?.category || "").toUpperCase();
-  const rawTitle = String(exam?.title || "").toUpperCase();
+  const rawFormat = String(exam?.exam_format || "").trim().toLowerCase();
+  const rawCat = String(exam?.category || "").trim();
+  const rawTitle = String(exam?.title || "").trim();
+
+  // Nếu đề được chỉ định rõ là đề THPT hoặc thuộc danh mục kiểm tra thường mà không có cờ HSA
+  if (rawFormat === "thpt") {
+    return {
+      isHsa: false,
+      partsCount: 0,
+      maxPoints: 10,
+      partShortNames: [],
+      badgeText: "",
+    };
+  }
 
   const rawSecs = Array.isArray(exam?.data)
     ? exam.data
@@ -198,26 +215,64 @@ function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
 
   const hasHsaSectionKey = rawSecs.some((s: any) => {
     const k = String(s?.part_key || s?.key || "").toLowerCase();
-    return k === "quant" || k === "qual" || k === "english" || Number(s?.max_points || s?.maxScore) === 50;
+    return (
+      k === "quant" ||
+      k === "qual" ||
+      k === "english" ||
+      k === "history_geo" ||
+      Number(s?.max_points || s?.maxScore) === 50
+    );
   });
 
   const isHsa =
     rawFormat === "hsa" ||
-    rawCat.includes("HSA") ||
-    rawTitle.includes("HSA") ||
+    /\b(hsa|đgnl|dgnl)\b/i.test(rawCat) ||
+    /\bhsa\b/i.test(rawTitle) ||
     hasHsaSectionKey;
 
   if (!isHsa) {
-    return { isHsa: false, partsCount: 0, maxPoints: 10, partShortNames: [] };
+    return {
+      isHsa: false,
+      partsCount: 0,
+      maxPoints: 10,
+      partShortNames: [],
+      badgeText: "",
+    };
+  }
+
+  const detectedKeys = new Set<string>();
+  const partShortNames: string[] = [];
+
+  if (rawSecs.length > 0) {
+    rawSecs.forEach((s: any) => {
+      const k = String(s?.part_key || s?.key || "").toLowerCase();
+      if (k === "quant") {
+        detectedKeys.add("quant");
+        partShortNames.push("Định lượng");
+      } else if (k === "qual") {
+        detectedKeys.add("qual");
+        partShortNames.push("Định tính");
+      } else if (k === "english") {
+        detectedKeys.add("english");
+        partShortNames.push("Tiếng Anh");
+      } else if (k === "history_geo") {
+        detectedKeys.add("history_geo");
+        partShortNames.push("Sử - Địa");
+      } else if (s?.shortTitle || s?.title) {
+        partShortNames.push(String(s.shortTitle || s.title));
+      }
+    });
   }
 
   let partsCount = 1;
-  const partShortNames: string[] = [];
-
   if (typeof exam?.hsa_parts_count === "number" && exam.hsa_parts_count > 0) {
-    partsCount = Math.min(3, Math.max(1, exam.hsa_parts_count));
+    partsCount = Math.min(4, Math.max(1, exam.hsa_parts_count));
+  } else if (detectedKeys.size > 0) {
+    partsCount = Math.min(4, detectedKeys.size);
   } else if (rawSecs.length > 0) {
-    partsCount = Math.min(3, Math.max(1, rawSecs.length));
+    partsCount = Math.min(4, Math.max(1, rawSecs.length));
+  } else if (resolvedTotalQuestions >= 180) {
+    partsCount = 4;
   } else if (resolvedTotalQuestions >= 115) {
     partsCount = 3;
   } else if (resolvedTotalQuestions >= 65) {
@@ -226,21 +281,23 @@ function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
     partsCount = 1;
   }
 
-  if (rawSecs.length > 0) {
-    rawSecs.forEach((s: any) => {
-      const k = String(s?.part_key || s?.key || "").toLowerCase();
-      if (k === "quant") partShortNames.push("Định lượng");
-      else if (k === "qual") partShortNames.push("Định tính");
-      else if (k === "english") partShortNames.push("Tiếng Anh");
-      else if (s?.shortTitle || s?.title) partShortNames.push(String(s.shortTitle || s.title));
-    });
-  }
+  const hasAllFour =
+    partsCount >= 4 ||
+    (detectedKeys.has("quant") &&
+      detectedKeys.has("qual") &&
+      detectedKeys.has("english") &&
+      detectedKeys.has("history_geo"));
+
+  const badgeText = hasAllFour
+    ? "HSA • Đủ 2 bắt buộc + 2 tự chọn (Anh / Sử-Địa)"
+    : `HSA • Đã up ${partsCount}/4 phần`;
 
   return {
     isHsa: true,
     partsCount,
-    maxPoints: partsCount * 50,
+    maxPoints: Math.min(150, partsCount * 50),
     partShortNames,
+    badgeText,
   };
 }
 
@@ -1069,6 +1126,7 @@ export default function PracticeTab({
         hsaPartsCount: hsaInfo.partsCount,
         hsaMaxPoints: hsaInfo.maxPoints,
         hsaPartShortNames: hsaInfo.partShortNames,
+        hsaBadgeText: hsaInfo.badgeText,
         totalSubmissions: matchingAttempts.length,
         uniqueStudentCount: studentBestMap.size,
         avgScore: avgScore.toFixed(2),
@@ -1235,7 +1293,7 @@ export default function PracticeTab({
     }
   };
 
-  // Xử lý khi Admin bấm "+ Ghép phần HSA" và chọn file Word thứ 2/thứ 3 trên dòng đề HSA
+  // Xử lý khi Admin bấm "+ Ghép phần HSA" và chọn file Word cho phần thi tiếp theo
   const handleTriggerAppendHsaPart = async (exam: any, file: File) => {
     const fullExam = await ensureFullExamDataLoaded(exam);
 
@@ -1244,7 +1302,7 @@ export default function PracticeTab({
       return;
     }
 
-    // Luôn mở Modal cấu hình HSA chuyên biệt với prop appendToExam để ghép thêm phần thi an toàn
+    // Luôn mở Modal cấu hình HSA chuyên biệt với prop appendToExam & initialData để ghép thêm phần thi an toàn
     setHsaAppendModalState({
       isOpen: true,
       targetExam: fullExam,
@@ -1289,7 +1347,7 @@ export default function PracticeTab({
 
     if (showToast) {
       showToast(
-        `Đã ghép thêm phần thi cho đề "${updatedExamPayload.title}" (${updatedExamPayload.sections?.length || 1}/3 phần)!`,
+        `Đã ghép thêm phần thi cho đề "${updatedExamPayload.title}" (${updatedExamPayload.sections?.length || 1}/4 phần)!`,
         "success"
       );
     }
@@ -1561,7 +1619,7 @@ export default function PracticeTab({
                           </span>
                           {exam.isHsaExam && (
                             <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold tracking-wide">
-                              HSA • {exam.hsaPartsCount}/3 phần ({exam.hsaMaxPoints}đ)
+                              {exam.hsaBadgeText}
                             </span>
                           )}
                           {idx === 0 &&
@@ -1636,13 +1694,13 @@ export default function PracticeTab({
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Nút + Ghép phần HSA cho đề ĐGNL HSA chưa đủ 3 phần */}
-                          {exam.isHsaExam && exam.hsaPartsCount < 3 && (
+                          {/* Nút + Ghép phần HSA cho đề ĐGNL HSA chưa đủ 4 phần */}
+                          {exam.isHsaExam && exam.hsaPartsCount < 4 && (
                             <label
                               className={`px-2.5 py-1.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition ${
                                 isRowLoadingDetail ? "opacity-50 pointer-events-none" : ""
                               }`}
-                              title="Tải thêm file Word phần 2 hoặc phần 3 để ghép vào đề HSA này"
+                              title="Tải thêm file Word phần thi tiếp theo để ghép vào đề HSA này"
                             >
                               <FilePlus2 className="w-3.5 h-3.5 text-blue-700" />
                               <span>+ Ghép phần HSA</span>
@@ -1785,7 +1843,7 @@ export default function PracticeTab({
                         <span>{exam.title}</span>
                         {exam.isHsaExam && (
                           <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold">
-                            HSA • {exam.hsaPartsCount}/3 phần ({exam.hsaMaxPoints}đ)
+                            {exam.hsaBadgeText}
                           </span>
                         )}
                       </div>
@@ -1991,6 +2049,7 @@ export default function PracticeTab({
           file={hsaAppendModalState.file}
           mode="practice"
           appendToExam={hsaAppendModalState.targetExam}
+          initialData={hsaAppendModalState.targetExam}
           onClose={() =>
             setHsaAppendModalState({ isOpen: false, targetExam: null, file: null })
           }
