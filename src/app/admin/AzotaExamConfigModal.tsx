@@ -22,7 +22,7 @@ export const PRACTICE_CATEGORIES = [
   "Học Kì 2"
 ];
 
-export type HsaPartKey = "quant" | "qual" | "english";
+export type HsaPartKey = "quant" | "qual" | "english" | "history_geo";
 
 export const HSA_PART_CONFIG: Record<
   HsaPartKey,
@@ -38,7 +38,7 @@ export const HSA_PART_CONFIG: Record<
 > = {
   quant: {
     key: "quant",
-    label: "Phần 1: Tư duy Định lượng (Toán học & Xử lý số liệu - 75 phút)",
+    label: "Phần 1: Tư duy Định lượng (Toán học & Xử lý số liệu - 75 phút - 50 điểm)",
     shortTitle: "Tư duy Định lượng",
     headerTitle: "TOÁN HỌC & XỬ LÝ SỐ LIỆU",
     defaultDuration: 75,
@@ -47,7 +47,7 @@ export const HSA_PART_CONFIG: Record<
   },
   qual: {
     key: "qual",
-    label: "Phần 2: Tư duy Định tính (Ngôn ngữ - Văn học - 60 phút)",
+    label: "Phần 2: Tư duy Định tính (Ngôn ngữ - Văn học - 60 phút - 50 điểm)",
     shortTitle: "Tư duy Định tính",
     headerTitle: "NGÔN NGỮ - VĂN HỌC",
     defaultDuration: 60,
@@ -56,12 +56,21 @@ export const HSA_PART_CONFIG: Record<
   },
   english: {
     key: "english",
-    label: "Phần 3: Tiếng Anh / Khoa học (60 phút)",
-    shortTitle: "Tiếng Anh",
+    label: "Phần 3 (Tự chọn 1): Tiếng Anh (60 phút - 50 điểm)",
+    shortTitle: "Tự chọn 1: Tiếng Anh",
     headerTitle: "TIẾNG ANH",
     defaultDuration: 60,
     maxPoints: 50,
     order: 3,
+  },
+  history_geo: {
+    key: "history_geo",
+    label: "Phần 3 (Tự chọn 2): Khoa học (Lịch sử - Địa lý - 60 phút - 50 điểm)",
+    shortTitle: "Tự chọn 2: Khoa học (Sử - Địa)",
+    headerTitle: "KHOA HỌC (LỊCH SỬ - ĐỊA LÝ)",
+    defaultDuration: 60,
+    maxPoints: 50,
+    order: 4,
   },
 };
 
@@ -71,6 +80,8 @@ export interface ExtendedParsedQuestion extends ParsedQuestion {
   sub_percentages?: Record<string, number>;
   image?: string;
   passage_html?: string;
+  group_id?: string;
+  group_passage?: string;
   part_key?: string;
   media_map?: Record<string, string>;
   mediaMap?: Record<string, string>;
@@ -611,7 +622,7 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
 }
 
 // ============================================================================
-// 3. TỰ ĐỘNG CHUẨN HÓA THỨ TỰ CÂU HỎI, NGỮ LIỆU ĐỌC HIỂU & ĐÁP ÁN
+// 3. TỰ ĐỘNG CHUẨN HÓA THỨ TỰ CÂU HỎI, CÂU HỎI CHÙM, NGỮ LIỆU ĐỌC HIỂU & ĐÁP ÁN
 // ============================================================================
 
 export function autoNormalizeQuestions(rawText: string): string {
@@ -638,6 +649,11 @@ export function normalizeOptionsSmart(text: string): string {
 const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+)|(?:I{1,3}|IV)\.)\s*[:\-]?[^\r\n]*)/gi;
 const PASSAGE_BLOCK_REGEX = /\[(?:NGU_LIEU|NGỮ_LIỆU|NGU\s*LIEU|NGỮ\s*LIỆU|PASSAGE)\]([\s\S]*?)\[\/(?:NGU_LIEU|NGỮ_LIỆU|NGU\s*LIEU|NGỮ\s*LIỆU|PASSAGE)\]/gi;
 
+// Regex nhận diện "Câu hỏi chùm:", "Hết câu hỏi chùm", "=== Hết câu hỏi chùm ===" và "Câu đơn:"
+const GROUP_START_LINE_REGEX = /^\s*(?:\*{1,2})?Câu\s*hỏi\s*chùm\s*:\s*(?:\*{1,2})?(.*)$/i;
+const GROUP_END_LINE_REGEX = /^\s*(?:={2,}\s*)?Hết\s*câu\s*hỏi\s*chùm(?:\s*={2,})?\s*$/i;
+const SINGLE_QUESTION_MARKER_REGEX = /^\s*(?:\*{1,2})?Câu\s*đơn\s*:?\s*(?:\*{1,2})?(.*)$/i;
+
 function getSectionTypeFromTitle(title: string): QuestionType {
   if (/đúng\s*sai|true\s*false/i.test(title)) return "true_false";
   if (/trả\s*lời\s*ngắn|điền\s*khuyết|short\s*answer/i.test(title)) return "short_answer";
@@ -656,7 +672,17 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
     );
   }
 
-  // Bảo toàn khối [NGU_LIEU]...[/NGU_LIEU] đặt trước Câu hỏi đầu tiên của đoạn
+  // Nếu văn bản có chứa "Câu hỏi chùm:", chỉ đánh số lại các dòng Câu <số>: mà bảo toàn nguyên vẹn vị trí các khối Câu hỏi chùm: / Hết câu hỏi chùm / Câu đơn:
+  if (/câu\s*hỏi\s*chùm\s*:/i.test(norm)) {
+    let cur = startQIdx;
+    const updated = norm.replace(
+      /(?:^|[\r\n]+)\s*(?:Câu|Bài|Question)\s*\d+[:.]?\s*/gi,
+      () => "\n\nCâu " + (cur++) + ": \n"
+    );
+    return { labeledText: updated.trim(), nextQIdx: cur };
+  }
+
+  // Bảo toàn khối [NGU_LIEU]...[/NGU_LIEU] đặt trước Câu hỏi đầu tiên của đoạn (100% logic cũ khi không có Câu hỏi chùm:)
   const qSplitRegex = /(?:^|[\r\n]+)(?=(?:Câu|Bài|Question)\s*\d+[:.]?\s*)/gi;
   const rawPieces = norm.split(qSplitRegex).map(s => s.trim()).filter(Boolean);
 
@@ -730,7 +756,14 @@ export function injectQuestionLabelsIfMissing(rawText: string): string {
   }
 }
 
-function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: string, sectionType: QuestionType, sectionIndex: number): ExtendedParsedQuestion {
+function parseSingleQuestionChunk(
+  chunk: string,
+  qIndex: number,
+  sectionTitle: string,
+  sectionType: QuestionType,
+  sectionIndex: number,
+  groupMeta?: { group_id: string; group_passage: string }
+): ExtendedParsedQuestion {
   let norm = chunk.normalize("NFC").trim();
   norm = repairMathTypeGlitch(norm);
   norm = normalizeOptionsSmart(norm);
@@ -743,7 +776,9 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     }
     return "";
   });
-  const chunkPassageHtml = extractedPassages.length > 0 ? extractedPassages.join("\n\n") : undefined;
+  const chunkPassageHtml =
+    groupMeta?.group_passage ||
+    (extractedPassages.length > 0 ? extractedPassages.join("\n\n") : undefined);
 
   const cleanChunk = (norm || "")
     .replace(/^\s*(?:\*{1,2})?(?:(?:Câu|Bài|Question)\s*\d+[:.\-\)]?|\d+[\.:\)])\s*(?:\*{1,2})?[:.\-\s]*/gi, "")
@@ -847,6 +882,8 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       original_label: "Câu " + qIndex,
       prompt_html: promptHtml,
       passage_html: chunkPassageHtml,
+      group_id: groupMeta?.group_id,
+      group_passage: groupMeta?.group_passage,
       options,
       correct_answer: options.map(o => (o.is_true_false_ans ? "Đ" : "S")).join(""),
       solution_html: solutionText,
@@ -870,6 +907,8 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
       original_label: "Câu " + qIndex,
       prompt_html: promptAndOpts,
       passage_html: chunkPassageHtml,
+      group_id: groupMeta?.group_id,
+      group_passage: groupMeta?.group_passage,
       options: [],
       correct_answer: correctAns,
       solution_html: solutionText,
@@ -944,6 +983,8 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
         original_label: "Câu " + qIndex,
         prompt_html: promptAndOpts.replace(/(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+[^\r\n]+/gi, "").trim(),
         passage_html: chunkPassageHtml,
+        group_id: groupMeta?.group_id,
+        group_passage: groupMeta?.group_passage,
         options: [],
         correct_answer: shortAnsMatch[1].replace(/Lời\s*giải.*$/i, "").trim(),
         solution_html: solutionText,
@@ -960,6 +1001,8 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
     original_label: "Câu " + qIndex,
     prompt_html: promptHtml,
     passage_html: chunkPassageHtml,
+    group_id: groupMeta?.group_id,
+    group_passage: groupMeta?.group_passage,
     options,
     correct_answer: correctAns,
     solution_html: solutionText,
@@ -969,48 +1012,192 @@ function parseSingleQuestionChunk(chunk: string, qIndex: number, sectionTitle: s
 
 /**
  * Gán ngữ liệu đọc hiểu `[NGU_LIEU]...[/NGU_LIEU]` cho các câu hỏi liên tiếp trong cùng nhóm đọc hiểu
- * Hỗ trợ:
- * - Đặt `[NGU_LIEU]...(Dùng cho câu 26-30)...[/NGU_LIEU]` để tự động áp vào các câu trong khoảng chỉ định
- * - Hoặc đặt `[NGU_LIEU]...[/NGU_LIEU]` ngay trước/trong câu đầu tiên của chùm câu hỏi đọc hiểu (và kết thúc khi gặp `[/KET_THUC_NGU_LIEU]` hoặc khối `[NGU_LIEU]` mới)
  */
 function propagateReadingPassages(questions: ExtendedParsedQuestion[]): ExtendedParsedQuestion[] {
   let activePassage: string | undefined = undefined;
+  let activeGroupId: string | undefined = undefined;
   let activeRangeEnd: number | null = null;
+  let passageCounter = 1;
 
   return questions.map((q, idx) => {
     const qNum = q.order_index || idx + 1;
     let prompt = q.prompt_html || "";
 
+    // Nếu câu hỏi đã được gắn group_id & group_passage từ bộ nhận diện "Câu hỏi chùm:", giữ nguyên
+    if (q.group_id && q.group_passage) {
+      return {
+        ...q,
+        passage_html: q.passage_html || q.group_passage,
+      };
+    }
+
     if (/\[\/(?:KET_THUC_NGU_LIEU|END_PASSAGE)\]/i.test(prompt)) {
       prompt = prompt.replace(/\[\/(?:KET_THUC_NGU_LIEU|END_PASSAGE)\]/gi, "").trim();
       activePassage = undefined;
+      activeGroupId = undefined;
       activeRangeEnd = null;
     }
 
     if (q.passage_html) {
       activePassage = q.passage_html;
-      // Kiểm tra xem trong ngữ liệu hoặc đề bài có ghi chú khoảng câu (VD: "từ câu 26 đến câu 30" hoặc "(26-30)")
+      activeGroupId = "grp-" + Date.now() + "-" + (passageCounter++);
       const rangeMatch = (q.passage_html + " " + prompt).match(/(?:câu|question)\s*(\d+)\s*(?:đến|tới|\-|–|~|to)\s*(?:câu|question)?\s*(\d+)/i);
       if (rangeMatch && rangeMatch[2]) {
         activeRangeEnd = parseInt(rangeMatch[2], 10);
       } else {
-        // Mặc định nếu không ghi rõ khoảng câu thì áp dụng cho tối đa 5 câu liên tiếp
         activeRangeEnd = qNum + 4;
       }
     }
 
-    const assignedPassage =
-      q.passage_html ||
-      (activePassage && (activeRangeEnd === null || qNum <= activeRangeEnd)
-        ? activePassage
-        : undefined);
+    const isWithinActivePassage =
+      Boolean(activePassage) && (activeRangeEnd === null || qNum <= activeRangeEnd);
+
+    const assignedPassage = q.passage_html || (isWithinActivePassage ? activePassage : undefined);
+    const assignedGroupId = q.group_id || (assignedPassage ? activeGroupId : undefined);
 
     return {
       ...q,
       prompt_html: prompt,
       passage_html: assignedPassage,
+      group_id: assignedGroupId,
+      group_passage: assignedPassage,
     };
   });
+}
+
+/**
+ * Tách câu hỏi có hỗ trợ nhận diện tự động từ khóa "Câu hỏi chùm:"
+ * - Khi gặp dòng bắt đầu bằng "Câu hỏi chùm:", gom toàn bộ văn bản + hình ảnh từ sau dấu ":" đến trước câu hỏi con đầu tiên làm `group_passage`, sinh `group_id = "grp-" + Date.now() + "-" + idx`.
+ * - Gắn `group_id` và `group_passage` cho tất cả các câu hỏi con liên tiếp phía sau cho đến khi gặp "Hết câu hỏi chùm", "=== Hết câu hỏi chùm ===", khối "Câu hỏi chùm:" mới, hoặc "Câu đơn:".
+ */
+function parseQuestionsWithClusterSupport(
+  content: string,
+  secTitle: string,
+  secType: QuestionType,
+  sIdx: number
+): ExtendedParsedQuestion[] {
+  const lines = content.split(/\r?\n/);
+  const qHeaderLineRegex = /^\s*(?:\*{1,2})?(?:Câu|Bài|Question)\s*(\d+)[:.\-\)]?\s*(?:\*{1,2})?(.*)$/i;
+
+  let groupIdxCounter = 1;
+  let currentGroupId: string | undefined = undefined;
+  let currentGroupPassageLines: string[] = [];
+  let isCollectingGroupPassage = false;
+
+  const collectedQuestions: {
+    qNum: number;
+    label: string;
+    lines: string[];
+    groupId?: string;
+    groupPassage?: string;
+  }[] = [];
+
+  let activeQuestion: {
+    qNum: number;
+    label: string;
+    lines: string[];
+    groupId?: string;
+    groupPassage?: string;
+  } | null = null;
+
+  const flushActiveQuestion = () => {
+    if (activeQuestion) {
+      collectedQuestions.push(activeQuestion);
+      activeQuestion = null;
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // 1. Kiểm tra dòng bắt đầu "Câu hỏi chùm:"
+    const groupStartMatch = line.match(GROUP_START_LINE_REGEX);
+    if (groupStartMatch) {
+      flushActiveQuestion();
+      currentGroupId = "grp-" + Date.now() + "-" + (groupIdxCounter++);
+      currentGroupPassageLines = [];
+      const afterColon = (groupStartMatch[1] || "").trim();
+      if (afterColon) {
+        currentGroupPassageLines.push(afterColon);
+      }
+      isCollectingGroupPassage = true;
+      continue;
+    }
+
+    // 2. Kiểm tra dòng kết thúc "Hết câu hỏi chùm" hoặc "=== Hết câu hỏi chùm ==="
+    if (GROUP_END_LINE_REGEX.test(line)) {
+      flushActiveQuestion();
+      currentGroupId = undefined;
+      currentGroupPassageLines = [];
+      isCollectingGroupPassage = false;
+      continue;
+    }
+
+    // 3. Kiểm tra dòng đánh dấu "Câu đơn:"
+    const singleMarkerMatch = line.match(SINGLE_QUESTION_MARKER_REGEX);
+    if (singleMarkerMatch) {
+      flushActiveQuestion();
+      currentGroupId = undefined;
+      currentGroupPassageLines = [];
+      isCollectingGroupPassage = false;
+      const remainder = (singleMarkerMatch[1] || "").trim();
+      if (remainder) {
+        const inlineQMatch = remainder.match(qHeaderLineRegex);
+        if (inlineQMatch) {
+          const qNum = parseInt(inlineQMatch[1], 10);
+          activeQuestion = {
+            qNum,
+            label: "Câu " + qNum,
+            lines: [inlineQMatch[2] || ""],
+          };
+        }
+      }
+      continue;
+    }
+
+    // 4. Kiểm tra dòng bắt đầu "Câu <số>:"
+    const qMatch = line.match(qHeaderLineRegex);
+    if (qMatch) {
+      flushActiveQuestion();
+      isCollectingGroupPassage = false;
+      const qNum = parseInt(qMatch[1], 10);
+      const passageStr =
+        currentGroupId && currentGroupPassageLines.length > 0
+          ? currentGroupPassageLines.join("\n").trim()
+          : undefined;
+
+      activeQuestion = {
+        qNum,
+        label: "Câu " + qNum,
+        lines: [qMatch[2] || ""],
+        groupId: currentGroupId,
+        groupPassage: passageStr,
+      };
+      continue;
+    }
+
+    // 5. Dòng nội dung thông thường: đưa vào dữ kiện chùm hoặc câu hỏi đang mở
+    if (isCollectingGroupPassage) {
+      currentGroupPassageLines.push(line);
+    } else if (activeQuestion) {
+      activeQuestion.lines.push(line);
+    }
+  }
+
+  flushActiveQuestion();
+
+  const parsedList: ExtendedParsedQuestion[] = collectedQuestions.map((item) => {
+    const chunkText = item.lines.join("\n").trim();
+    const groupMeta =
+      item.groupId && item.groupPassage
+        ? { group_id: item.groupId, group_passage: item.groupPassage }
+        : undefined;
+    const parsed = parseSingleQuestionChunk(chunkText, item.qNum, secTitle, secType, sIdx, groupMeta);
+    parsed.original_label = item.label;
+    return parsed;
+  });
+
+  return propagateReadingPassages(parsedList);
 }
 
 export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
@@ -1031,6 +1218,12 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
   }
 
   const parseQuestionsFromText = (content: string, secTitle: string, secType: QuestionType, sIdx: number): ExtendedParsedQuestion[] => {
+    // Nếu có từ khóa "Câu hỏi chùm:", kích hoạt bộ bóc tách câu hỏi chùm chuyên biệt
+    if (/câu\s*hỏi\s*chùm\s*:/i.test(content)) {
+      return parseQuestionsWithClusterSupport(content, secTitle, secType, sIdx);
+    }
+
+    // Nếu không có từ khóa "Câu hỏi chùm:", chạy y hệt logic cũ 100%
     const qSplitRegex = /(?:^|[\r\n]+)(?:Câu|Bài|Question)\s*(\d+)[:.]?\s*/gi;
     const matches: { index: number; label: string; fullMatch: string; qNum: number }[] = [];
     let qm: RegExpExecArray | null;
@@ -1151,6 +1344,9 @@ export function buildHsaPartSectionFromText(
     section_title: partMeta.headerTitle,
     part_key: partKey,
     points: ptPerQuestion,
+    group_id: q.group_id,
+    group_passage: q.group_passage || q.passage_html,
+    passage_html: q.passage_html || q.group_passage,
   }));
 
   return {
@@ -1179,6 +1375,7 @@ function inferNextAvailableHsaPartKey(existingSections: ExtendedExamSection[]): 
   if (!used.has("quant")) return "quant";
   if (!used.has("qual")) return "qual";
   if (!used.has("english")) return "english";
+  if (!used.has("history_geo")) return "history_geo";
   return "quant";
 }
 
@@ -1186,15 +1383,36 @@ function normalizeExistingHsaSections(rawSections: any[]): ExtendedExamSection[]
   if (!Array.isArray(rawSections)) return [];
   return rawSections.map((sec: any, idx: number) => {
     const rawKey = String(sec.part_key || sec.key || "").toLowerCase();
+    const titleStr = String(sec.section_title || sec.title || "");
     let partKey: HsaPartKey = "quant";
-    if (rawKey === "qual" || rawKey.includes("dinh_tinh") || rawKey.includes("van") || /ngôn\s*ngữ|văn\s*học|định\s*tính/i.test(sec.section_title || sec.title || "")) {
+
+    if (
+      rawKey === "history_geo" ||
+      rawKey.includes("su") ||
+      rawKey.includes("dia") ||
+      rawKey.includes("khoa_hoc") ||
+      /lịch\s*sử|địa\s*lý|địa\s*lí|khoa\s*học/i.test(titleStr)
+    ) {
+      partKey = "history_geo";
+    } else if (
+      rawKey === "qual" ||
+      rawKey.includes("dinh_tinh") ||
+      rawKey.includes("van") ||
+      /ngôn\s*ngữ|văn\s*học|định\s*tính/i.test(titleStr)
+    ) {
       partKey = "qual";
-    } else if (rawKey === "english" || rawKey.includes("anh") || rawKey.includes("science") || /tiếng\s*anh|khoa\s*học|english/i.test(sec.section_title || sec.title || "")) {
+    } else if (
+      rawKey === "english" ||
+      rawKey.includes("anh") ||
+      /tiếng\s*anh|english/i.test(titleStr)
+    ) {
       partKey = "english";
     } else if (idx === 1 && !rawKey) {
       partKey = "qual";
-    } else if (idx >= 2 && !rawKey) {
+    } else if (idx === 2 && !rawKey) {
       partKey = "english";
+    } else if (idx >= 3 && !rawKey) {
+      partKey = "history_geo";
     }
 
     const meta = HSA_PART_CONFIG[partKey];
@@ -1220,6 +1438,9 @@ function normalizeExistingHsaSections(rawSections: any[]): ExtendedExamSection[]
         original_label: `Câu ${qIdx + 1}`,
         part_key: partKey,
         points: ptPerQ,
+        group_id: q.group_id,
+        group_passage: q.group_passage || q.passage_html,
+        passage_html: q.passage_html || q.group_passage,
       })),
     };
   });
@@ -1392,23 +1613,24 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const isHsaDetected = Boolean(
       targetBaseExam ||
       baseExam?.exam_format === "hsa" ||
-      /hsa|đgnl|dgnl/i.test(String(baseExam?.category || baseExam?.title || ""))
+      /\b(hsa|đgnl|dgnl)\b/i.test(String(baseExam?.category || baseExam?.title || ""))
     );
 
-    // Trường hợp 1: Ghép thêm phần thi vào đề HSA đã có (kèm hoặc không kèm file mới)
-    if (targetBaseExam) {
+    // Trường hợp 1: Ghép thêm phần thi vào đề HSA đã có (hoặc chỉnh sửa đề HSA kèm file mới)
+    if (targetBaseExam || (initialData && isHsaDetected && file)) {
+      const refExam = targetBaseExam || initialData;
       setExamFormat("hsa");
-      setExamTitle(targetBaseExam.title || "Đề thi ĐGNL HSA");
-      setCategory(targetBaseExam.category || "Đề luyện thi ĐGNL (HSA/TSA)");
+      setExamTitle(refExam.title || "Đề thi ĐGNL HSA");
+      setCategory("ĐGNL HSA (ĐHQGHN)");
 
-      const rawExistingSecs = Array.isArray(targetBaseExam.sections)
-        ? targetBaseExam.sections
-        : Array.isArray(targetBaseExam.data)
-        ? targetBaseExam.data
+      const rawExistingSecs = Array.isArray(refExam.sections)
+        ? refExam.sections
+        : Array.isArray(refExam.data)
+        ? refExam.data
         : [];
       const normalizedExisting = normalizeExistingHsaSections(rawExistingSecs);
       const existingMedia: Record<string, string> = {
-        ...(targetBaseExam.mediaMap || targetBaseExam.media_map || {}),
+        ...(refExam.mediaMap || refExam.media_map || {}),
       };
       normalizedExisting.forEach((s) => {
         Object.assign(existingMedia, s.mediaMap || s.media_map || {});
@@ -1460,6 +1682,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
         setSections(normalizedExisting);
         setMediaMap(existingMedia);
         setActiveHsaSectionIndex(0);
+        if (normalizedExisting[0]?.part_key) {
+          setCurrentHsaPartKey(normalizedExisting[0].part_key as HsaPartKey);
+        }
         setRawText(normalizedExisting[0]?.raw_source_text || "");
         setDuration(
           normalizedExisting.reduce(
@@ -1475,7 +1700,11 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     if (initialData && !file) {
       setExamTitle(initialData.title || "");
       setDuration(initialData.duration_minutes || (isHsaDetected ? 75 : 50));
-      setCategory(initialData.category || PRACTICE_CATEGORIES[0]);
+      setCategory(
+        isHsaDetected
+          ? "ĐGNL HSA (ĐHQGHN)"
+          : initialData.category || PRACTICE_CATEGORIES[2]
+      );
       setExamFormat(isHsaDetected ? "hsa" : "thpt");
 
       const initSecs = Array.isArray(initialData.sections)
@@ -1504,8 +1733,10 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       const cleanFileName = file.name.replace(/\.[^/.]+$/, "");
       setExamTitle(cleanFileName);
 
-      const fileLooksLikeHsa = /hsa|đgnl|dgnl|định\s*lượng|định\s*tính/i.test(cleanFileName);
-      const detectedPart: HsaPartKey = /định\s*tính|ngôn\s*ngữ|văn/i.test(cleanFileName)
+      const fileLooksLikeHsa = /\b(hsa|đgnl|dgnl)\b|định\s*lượng|định\s*tính/i.test(cleanFileName);
+      const detectedPart: HsaPartKey = /lịch\s*sử|địa\s*lý|địa\s*lí|khoa\s*học/i.test(cleanFileName)
+        ? "history_geo"
+        : /định\s*tính|ngôn\s*ngữ|văn/i.test(cleanFileName)
         ? "qual"
         : /tiếng\s*anh|english/i.test(cleanFileName)
         ? "english"
@@ -1528,6 +1759,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             setDuration(HSA_PART_CONFIG[detectedPart].defaultDuration);
           } else {
             setExamFormat("thpt");
+            setCategory("Tốt Nghiệp THPT");
             const parsed = parseExamHierarchical(labeledText);
             setSections(parsed);
             setDuration(50);
@@ -1542,7 +1774,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     }
   }, [file, isOpen, initialData, targetBaseExam]);
 
-  // Chuyển đổi giữa thang điểm THPT (10.0) và ĐGNL HSA (50đ/phần)
+  // Chuyển đổi giữa Chế độ 1: Đề chuẩn THPT / Kiểm tra (Thang 10.0) và Chế độ 2: Đề ĐGNL HSA ĐHQGHN (Thang 50đ/phần)
   const handleSwitchExamFormat = (nextFormat: "thpt" | "hsa") => {
     if (nextFormat === examFormat) return;
     setExamFormat(nextFormat);
@@ -1566,6 +1798,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
         );
       }
     } else {
+      if (category === "ĐGNL HSA (ĐHQGHN)") {
+        setCategory("Tốt Nghiệp THPT");
+      }
       if (rawText.trim()) {
         const thptSecs = parseExamHierarchical(rawText);
         setSections(thptSecs);
@@ -1574,7 +1809,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     }
   };
 
-  // Đổi loại phần thi HSA (quant / qual / english) cho phần đang chọn
+  // Đổi loại phần thi HSA (quant / qual / english / history_geo) cho phần đang chọn
   const handleChangeActiveHsaPartKey = (newPartKey: HsaPartKey) => {
     setCurrentHsaPartKey(newPartKey);
     if (examFormat !== "hsa") return;
@@ -1620,7 +1855,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     });
   };
 
-  // Nạp thêm file Word thứ 2 / thứ 3 để ghép thêm phần thi HSA vào cùng đề
+  // Nạp thêm file Word cho phần thi khác (Ghép phần HSA: hỗ trợ đủ 4 phần quant, qual, english, history_geo)
   const handleAppendAdditionalHsaWordFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const newFile = e.target.files?.[0];
     e.target.value = "";
@@ -1720,7 +1955,25 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     handleRawTextChange(reIndexed);
   };
 
-  // Nút chèn nhanh thẻ [NGU_LIEU]...[/NGU_LIEU] cho đề Văn / Tiếng Anh HSA
+  // Nút chèn nhanh mẫu "Câu hỏi chùm:" vào trình biên tập thô
+  const handleInsertClusterTemplate = () => {
+    const template =
+      "\nCâu hỏi chùm: Đọc ngữ liệu / dữ kiện sau và trả lời các câu hỏi bên dưới:\n(Dán nội dung ngữ liệu hoặc hình ảnh chung vào đây...)\n\nCâu 1: Nội dung câu hỏi con thứ nhất?\nA. Phương án A\nB. Phương án B\nC. Phương án C\nD. Phương án D\n\n=== Hết câu hỏi chùm ===\n";
+    if (textareaRef.current) {
+      const start = textareaRef.current.selectionStart || 0;
+      const end = textareaRef.current.selectionEnd || 0;
+      const selected = rawText.substring(start, end);
+      const block = selected
+        ? `\nCâu hỏi chùm: ${selected}\n=== Hết câu hỏi chùm ===\n`
+        : template;
+      const updated = rawText.substring(0, start) + block + rawText.substring(end);
+      handleRawTextChange(updated);
+    } else {
+      handleRawTextChange(template + "\n" + rawText);
+    }
+  };
+
+  // Nút chèn nhanh thẻ [NGU_LIEU]...[/NGU_LIEU]
   const handleInsertPassageBlockTag = () => {
     const template = "\n[NGU_LIEU]\nĐọc đoạn ngữ liệu sau và trả lời các câu hỏi bên dưới:\n(Dán nội dung văn bản đọc hiểu vào đây...)\n[/NGU_LIEU]\n";
     if (textareaRef.current) {
@@ -2097,7 +2350,15 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const embeddedSections = sections.map((sec: any, idx: number) => {
       const hsaKey: HsaPartKey | undefined =
         examFormat === "hsa"
-          ? ((sec.part_key || sec.key || (idx === 0 ? "quant" : idx === 1 ? "qual" : "english")) as HsaPartKey)
+          ? ((sec.part_key ||
+              sec.key ||
+              (idx === 0
+                ? "quant"
+                : idx === 1
+                ? "qual"
+                : idx === 2
+                ? "english"
+                : "history_geo")) as HsaPartKey)
           : undefined;
       const hsaMeta = hsaKey ? HSA_PART_CONFIG[hsaKey] : undefined;
       const qList = sec.questions || [];
@@ -2136,7 +2397,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             order_index: examFormat === "hsa" ? qIdx + 1 : q.order_index,
             part_key: hsaKey || q.part_key,
             points: examFormat === "hsa" ? hsaPtPerQ : q.points,
-            passage_html: q.passage_html || undefined,
+            group_id: q.group_id || undefined,
+            group_passage: q.group_passage || q.passage_html || undefined,
+            passage_html: q.passage_html || q.group_passage || undefined,
             image: resolvedSrc || undefined,
             media_map: mediaMap,
             mediaMap: mediaMap
@@ -2151,7 +2414,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       id: existingId || ("exam-" + Date.now()),
       title: examTitle || (examFormat === "hsa" ? "Đề thi ĐGNL HSA" : "Đề thi mới"),
       duration_minutes: duration,
-      category: examFormat === "hsa" && !/hsa|đgnl/i.test(category) ? "ĐGNL HSA (ĐHQGHN)" : category,
+      category: examFormat === "hsa" ? "ĐGNL HSA (ĐHQGHN)" : category,
       exam_format: examFormat,
       hsa_parts_count: examFormat === "hsa" ? embeddedSections.length : undefined,
       total_questions: totalQuestions,
@@ -2200,7 +2463,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
               {examFormat === "hsa" ? "Cấu hình Đề thi ĐGNL HSA (ĐHQGHN)" : "Azota All-In-One Exam Engine"}
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                {examFormat === "hsa" ? `${sections.length}/3 phần • ${totalMaxPoints}đ` : "Thang 10.0 THPT"}
+                {examFormat === "hsa" ? `${sections.length}/4 phần • ${totalMaxPoints}đ` : "Thang 10.0 THPT"}
               </span>
             </h2>
             <p className="text-xs text-slate-500 font-medium">
@@ -2210,7 +2473,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* CÔNG TẮC CHỌN LOẠI THANG ĐIỂM: CHUẨN THPT VS ĐGNL HSA */}
+          {/* CÔNG TẮC CHỌN CHẾ ĐỘ ĐỀ: ĐỀ CHUẨN THPT / KIỂM TRA (THANG 10.0) VS ĐỀ ĐGNL HSA ĐHQGHN (THANG 50Đ/PHẦN) */}
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold">
             <button
               type="button"
@@ -2222,7 +2485,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   : "text-slate-600 hover:text-slate-900")
               }
             >
-              Chuẩn THPT (Thang 10.0)
+              Đề chuẩn THPT / Kiểm tra (Thang 10.0 điểm)
             </button>
             <button
               type="button"
@@ -2234,7 +2497,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   : "text-slate-600 hover:text-slate-900")
               }
             >
-              ĐGNL HSA ĐHQGHN (Thang 50đ/phần)
+              Đề ĐGNL HSA ĐHQGHN (Thang 50 điểm / phần)
             </button>
           </div>
 
@@ -2261,12 +2524,12 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
         </div>
       </header>
 
-      {/* THANH CÔNG CỤ QUẢN LÝ CÁC PHẦN THI HSA (CHỈ HIỂN THỊ KHI CHỌN ĐGNL HSA) */}
+      {/* THANH CÔNG CỤ QUẢN LÝ 4 PHẦN THI HSA (CHỈ HIỂN THỊ KHI CHỌN ĐGNL HSA) */}
       {examFormat === "hsa" && (
         <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-              Các phần trong đề ({sections.length}/3):
+              Các phần trong đề ({sections.length}/4):
             </span>
             {sections.map((sec, idx) => {
               const pKey = (sec.part_key || sec.key || "quant") as HsaPartKey;
@@ -2284,7 +2547,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   }
                 >
                   <span>
-                    Phần {idx + 1}: {pMeta.shortTitle} ({sec.questions.length} câu • 50đ)
+                    {pMeta.shortTitle} ({sec.questions.length} câu • 50đ)
                   </span>
                   {sections.length > 1 && (
                     <button
@@ -2306,30 +2569,31 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
               );
             })}
 
-            {sections.length < 3 && (
+            {sections.length < 4 && (
               <button
                 type="button"
                 onClick={() => appendWordInputRef.current?.click()}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-blue-800 border border-dashed border-blue-400 text-xs font-bold cursor-pointer transition-all"
               >
                 <FilePlus2 className="w-3.5 h-3.5" />
-                <span>+ Ghép thêm file Word phần {sections.length + 1}</span>
+                <span>+ Nạp thêm file Word cho phần thi khác (Ghép phần HSA)</span>
               </button>
             )}
           </div>
 
           <div className="flex items-center gap-2">
             <label className="text-xs font-bold text-slate-600 whitespace-nowrap">
-              Gán phân môn cho phần đang chọn:
+              Chọn phần thi cho file đang mở:
             </label>
             <select
               value={currentHsaPartKey}
               onChange={(e) => handleChangeActiveHsaPartKey(e.target.value as HsaPartKey)}
               className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-800 outline-none focus:border-blue-800 cursor-pointer"
             >
-              <option value="quant">quant — Toán học & Xử lý số liệu (75p • 50đ)</option>
-              <option value="qual">qual — Ngôn ngữ - Văn học (60p • 50đ)</option>
-              <option value="english">english — Tiếng Anh / Khoa học (60p • 50đ)</option>
+              <option value="quant">1. Phần 1: Tư duy Định lượng (Toán học & Xử lý số liệu - 75p - 50đ)</option>
+              <option value="qual">2. Phần 2: Tư duy Định tính (Ngôn ngữ - Văn học - 60p - 50đ)</option>
+              <option value="english">3. Phần 3 (Tự chọn 1): Tiếng Anh (60p - 50đ)</option>
+              <option value="history_geo">4. Phần 3 (Tự chọn 2): Khoa học (Lịch sử - Địa lý - 60p - 50đ)</option>
             </select>
           </div>
         </div>
@@ -2341,12 +2605,12 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
             <div className="text-center space-y-1">
               <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
-              <p className="text-xs text-slate-500">Tự động nhận diện công thức, quét toàn bộ hình ảnh và chuẩn hóa phát biểu...</p>
+              <p className="text-xs text-slate-500">Tự động nhận diện công thức, câu hỏi chùm, quét toàn bộ hình ảnh và chuẩn hóa phát biểu...</p>
             </div>
           </div>
         ) : step === 1 ? (
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 min-h-0 overflow-hidden">
-            {/* CỘT PREVIEW BÊN TRÁI */}
+            {/* CỘT PREVIEW BÊN TRÁI (NHÓM CÁC CÂU CÙNG group_id VÀO CHUNG 1 KHUNG THẺ) */}
             <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
               <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
                 <span className="text-xs font-black uppercase tracking-wider text-blue-800 flex items-center gap-1.5">
@@ -2359,7 +2623,189 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
               <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
                 {sections.map((sec, sIdx) => {
-                  let lastRenderedPassage: string | undefined = undefined;
+                  // Gom nhóm các câu hỏi liên tiếp có cùng group_id vào chung 1 khối thẻ hiển thị trên Preview
+                  const previewBlocks: {
+                    blockKey: string;
+                    isCluster: boolean;
+                    groupId?: string;
+                    groupPassage?: string;
+                    questions: { q: ExtendedParsedQuestion; qIdx: number }[];
+                  }[] = [];
+
+                  sec.questions.forEach((q, qIdx) => {
+                    const gId = q.group_id;
+                    const gPass = q.group_passage || q.passage_html;
+                    if (gId) {
+                      const prevBlock = previewBlocks[previewBlocks.length - 1];
+                      if (prevBlock && prevBlock.isCluster && prevBlock.groupId === gId) {
+                        prevBlock.questions.push({ q, qIdx });
+                        if (!prevBlock.groupPassage && gPass) {
+                          prevBlock.groupPassage = gPass;
+                        }
+                        return;
+                      }
+                      previewBlocks.push({
+                        blockKey: `cluster-${sIdx}-${gId}-${qIdx}`,
+                        isCluster: true,
+                        groupId: gId,
+                        groupPassage: gPass,
+                        questions: [{ q, qIdx }],
+                      });
+                    } else {
+                      previewBlocks.push({
+                        blockKey: `single-${sIdx}-${q.id}-${qIdx}`,
+                        isCluster: false,
+                        questions: [{ q, qIdx }],
+                      });
+                    }
+                  });
+
+                  const renderQuestionCard = (q: ExtendedParsedQuestion, idx: number, inCluster: boolean = false) => {
+                    const isSolOpen = !!expandedSolutions[q.id];
+                    const isAnyOptionLong = q.options?.some(opt => {
+                      const t = opt.text_html || "";
+                      return t.length > 30 || t.includes("\\frac") || t.includes("right)");
+                    });
+
+                    return (
+                      <div
+                        key={q.id}
+                        className={
+                          inCluster
+                            ? "p-4 rounded-xl border border-slate-200 bg-white space-y-3"
+                            : "p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3"
+                        }
+                      >
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-xs text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200/60">
+                              {q.original_label || ("Câu " + (idx + 1))}
+                            </span>
+                            {(q.group_id || q.passage_html) && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                Câu hỏi chùm
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-500">Đáp án:</span>
+                            <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
+                              {q.correct_answer || "A"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="py-1">
+                          <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
+                        </div>
+
+                        {q.type !== "short_answer" && sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
+                          <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
+                            {q.options.map(opt => {
+                              const isCorrect = opt.key === q.correct_answer;
+                              return (
+                                <div 
+                                  key={opt.key}
+                                  onClick={() => handleUpdateAnswer(q.id, opt.key)}
+                                  className={"p-3 rounded-xl border text-xs flex items-center gap-2.5 transition-all cursor-pointer " + (
+                                    isCorrect 
+                                      ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-300" 
+                                      : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                                  )}
+                                >
+                                  <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
+                                    isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
+                                  )}>
+                                    {opt.key}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {sec.section_type === "true_false" && q.options && (
+                          <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+                            <table className="w-full text-left text-[13px]">
+                              <thead className="bg-slate-50 border-b border-slate-200">
+                                <tr>
+                                  <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
+                                  <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
+                                  <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 bg-white">
+                                {q.options.map(opt => {
+                                  const isTrue = opt.is_true_false_ans === true;
+                                  const isFalse = opt.is_true_false_ans === false;
+                                  return (
+                                    <tr key={opt.key} className="hover:bg-slate-50/50">
+                                      <td className="py-2.5 px-3">
+                                        <div className="flex items-start gap-2">
+                                          <span className="font-bold text-blue-600">{opt.key})</span>
+                                          <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
+                                        </div>
+                                      </td>
+                                      <td className="py-2.5 px-3 text-center align-middle">
+                                        <div 
+                                          onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
+                                          className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                        >
+                                          <Check className="w-4 h-4"/>
+                                        </div>
+                                      </td>
+                                      <td className="py-2.5 px-3 text-center align-middle">
+                                        <div 
+                                          onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
+                                          className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                        >
+                                          <X className="w-4 h-4"/>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        {(sec.section_type === "short_answer" || q.type === "short_answer") && (
+                          <div className="p-3 bg-slate-100/80 rounded-xl border border-slate-200 flex items-center gap-3 text-xs mt-3">
+                            <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
+                            <input 
+                              type="text" 
+                              value={q.correct_answer || ""} 
+                              onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
+                              placeholder="Nhập đáp án số hoặc chữ..." 
+                              className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 outline-none focus:border-blue-700" 
+                            />
+                          </div>
+                        )}
+
+                        {q.solution_html && (
+                          <div className="pt-3 border-t border-slate-100 mt-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleSolution(q.id)}
+                              className="text-[11px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer bg-blue-50/60 px-2.5 py-1.5 rounded-lg border border-blue-200/60 transition-colors"
+                            >
+                              <BookOpen className="w-3.5 h-3.5"/>
+                              <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
+                            </button>
+                            {isSolOpen && (
+                              <div className="mt-2.5 p-4 bg-slate-50 rounded-xl border border-slate-200 text-[13px]">
+                                <TokenViewer content={q.solution_html} mediaMap={mediaMap}/>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
 
                   return (
                     <div key={"sec-pv-" + sIdx} className="space-y-4">
@@ -2391,169 +2837,47 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                       </div>
 
                       <div className="space-y-4">
-                        {sec.questions.map((q, idx) => {
-                          const isSolOpen = !!expandedSolutions[q.id];
-                          const showPassageHeader =
-                            Boolean(q.passage_html) && q.passage_html !== lastRenderedPassage;
-                          if (q.passage_html) {
-                            lastRenderedPassage = q.passage_html;
-                          } else {
-                            lastRenderedPassage = undefined;
+                        {previewBlocks.map((block) => {
+                          if (!block.isCluster) {
+                            const singleItem = block.questions[0];
+                            return renderQuestionCard(singleItem.q, singleItem.qIdx, false);
                           }
 
-                          const isAnyOptionLong = q.options?.some(opt => {
-                            const t = opt.text_html || "";
-                            return t.length > 30 || t.includes("\\frac") || t.includes("right)");
-                          });
+                          const firstLabel =
+                            block.questions[0]?.q.original_label ||
+                            `Câu ${block.questions[0]?.qIdx + 1}`;
+                          const lastLabel =
+                            block.questions[block.questions.length - 1]?.q.original_label ||
+                            `Câu ${block.questions[block.questions.length - 1]?.qIdx + 1}`;
 
                           return (
-                            <React.Fragment key={q.id}>
-                              {showPassageHeader && q.passage_html && (
-                                <div className="p-4 rounded-xl border border-slate-200 bg-[#FAF8F5] space-y-2">
-                                  <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-700">
-                                      Ngữ liệu đọc hiểu (passage_html)
+                            <div
+                              key={block.blockKey}
+                              className="rounded-2xl border-2 border-amber-200/90 bg-amber-50/20 overflow-hidden space-y-3 p-3.5"
+                            >
+                              {block.groupPassage && (
+                                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/60 space-y-2">
+                                  <div className="flex items-center justify-between border-b border-amber-200/80 pb-1.5">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-amber-900">
+                                      Dữ kiện / Ngữ liệu chung ({firstLabel}
+                                      {lastLabel !== firstLabel ? ` – ${lastLabel}` : ""})
                                     </span>
-                                    <span className="text-[11px] font-semibold text-slate-500">
-                                      Hiển thị phía trên chùm câu hỏi
+                                    <span className="text-[11px] font-bold text-amber-800 bg-white px-2 py-0.5 rounded border border-amber-200">
+                                      {block.questions.length} câu hỏi con
                                     </span>
                                   </div>
-                                  <div className="max-h-56 overflow-y-auto pr-1 custom-scrollbar">
-                                    <TokenViewer content={q.passage_html} mediaMap={mediaMap} />
+                                  <div className="max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+                                    <TokenViewer content={block.groupPassage} mediaMap={mediaMap} />
                                   </div>
                                 </div>
                               )}
 
-                              <div className="p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3">
-                                <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-black text-xs text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200/60">
-                                      {q.original_label || ("Câu " + (idx + 1))}
-                                    </span>
-                                    {q.passage_html && (
-                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                        Có ngữ liệu
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                                    <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
-                                      {q.correct_answer || "A"}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="py-1">
-                                  <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
-                                </div>
-
-                                {q.type !== "short_answer" && sec.section_type === "multiple_choice" && q.options && q.options.some(o => o.text_html) && (
-                                  <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
-                                    {q.options.map(opt => {
-                                      const isCorrect = opt.key === q.correct_answer;
-                                      return (
-                                        <div 
-                                          key={opt.key}
-                                          onClick={() => handleUpdateAnswer(q.id, opt.key)}
-                                          className={"p-3 rounded-xl border text-xs flex items-center gap-2.5 transition-all cursor-pointer " + (
-                                            isCorrect 
-                                              ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-300" 
-                                              : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-                                          )}
-                                        >
-                                          <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
-                                            isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                                          )}>
-                                            {opt.key}
-                                          </span>
-                                          <div className="flex-1 min-w-0">
-                                            <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-
-                                {sec.section_type === "true_false" && q.options && (
-                                  <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
-                                    <table className="w-full text-left text-[13px]">
-                                      <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
-                                          <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
-                                          <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
-                                          <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-slate-100 bg-white">
-                                        {q.options.map(opt => {
-                                          const isTrue = opt.is_true_false_ans === true;
-                                          const isFalse = opt.is_true_false_ans === false;
-                                          return (
-                                            <tr key={opt.key} className="hover:bg-slate-50/50">
-                                              <td className="py-2.5 px-3">
-                                                <div className="flex items-start gap-2">
-                                                  <span className="font-bold text-blue-600">{opt.key})</span>
-                                                  <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
-                                                </div>
-                                              </td>
-                                              <td className="py-2.5 px-3 text-center align-middle">
-                                                <div 
-                                                  onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
-                                                  className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
-                                                >
-                                                  <Check className="w-4 h-4"/>
-                                                </div>
-                                              </td>
-                                              <td className="py-2.5 px-3 text-center align-middle">
-                                                <div 
-                                                  onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
-                                                  className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
-                                                >
-                                                  <X className="w-4 h-4"/>
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                )}
-
-                                {(sec.section_type === "short_answer" || q.type === "short_answer") && (
-                                  <div className="p-3 bg-slate-100/80 rounded-xl border border-slate-200 flex items-center gap-3 text-xs mt-3">
-                                    <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
-                                    <input 
-                                      type="text" 
-                                      value={q.correct_answer || ""} 
-                                      onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
-                                      placeholder="Nhập đáp án số hoặc chữ..." 
-                                      className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 outline-none focus:border-blue-700" 
-                                    />
-                                  </div>
-                                )}
-
-                                {q.solution_html && (
-                                  <div className="pt-3 border-t border-slate-100 mt-3">
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleSolution(q.id)}
-                                      className="text-[11px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer bg-blue-50/60 px-2.5 py-1.5 rounded-lg border border-blue-200/60 transition-colors"
-                                    >
-                                      <BookOpen className="w-3.5 h-3.5"/>
-                                      <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
-                                    </button>
-                                    {isSolOpen && (
-                                      <div className="mt-2.5 p-4 bg-slate-50 rounded-xl border border-slate-200 text-[13px]">
-                                        <TokenViewer content={q.solution_html} mediaMap={mediaMap}/>
-                                      </div>
-                                    )}
-                                  </div>
+                              <div className="space-y-3">
+                                {block.questions.map((item) =>
+                                  renderQuestionCard(item.q, item.qIdx, true)
                                 )}
                               </div>
-                            </React.Fragment>
+                            </div>
                           );
                         })}
                       </div>
@@ -2574,6 +2898,16 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                 </div>
                 
                 <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleInsertClusterTemplate}
+                    className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    title="Chèn nhanh mẫu Câu hỏi chùm: ... === Hết câu hỏi chùm ==="
+                  >
+                    <Layers className="w-3.5 h-3.5 text-amber-700"/>
+                    <span>+ Câu hỏi chùm:</span>
+                  </button>
+
                   {examFormat === "hsa" && (
                     <button
                       type="button"
@@ -2624,7 +2958,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   value={rawText}
                   onPaste={handleTextareaPaste}
                   onChange={(e) => handleRawTextChange(e.target.value)}
-                  placeholder="Nội dung đề thi thô... Với bài đọc hiểu HSA, bọc đoạn văn trong cặp thẻ [NGU_LIEU]...[/NGU_LIEU] ngay trước câu hỏi đầu tiên của bài đọc."
+                  placeholder="Nội dung đề thi thô... Để tạo câu hỏi chùm, bắt đầu bằng dòng 'Câu hỏi chùm: <dữ kiện chung>' trước câu con đầu tiên và kết thúc bằng dòng 'Hết câu hỏi chùm'."
                   className="w-full h-full p-4 font-mono text-[12.5px] text-slate-900 bg-white resize-none outline-none leading-relaxed custom-scrollbar border-none focus:ring-0"
                   spellCheck={false}
                 />
@@ -2916,8 +3250,8 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                     • Định dạng đề:{" "}
                     <strong className="font-bold">
                       {examFormat === "hsa"
-                        ? `ĐGNL HSA ĐHQGHN (${sections.length}/3 phần)`
-                        : "Chuẩn Tốt nghiệp THPT"}
+                        ? `ĐGNL HSA ĐHQGHN (${sections.length}/4 phần)`
+                        : "Chuẩn Tốt nghiệp THPT / Kiểm tra"}
                     </strong>
                   </div>
                   <div>
