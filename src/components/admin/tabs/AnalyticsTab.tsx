@@ -22,7 +22,9 @@ import {
   Save,
   ZoomIn,
   ZoomOut,
-  PenTool
+  PenTool,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import katex from "katex";
 import { supabase } from "@/lib/supabaseClient";
@@ -52,6 +54,18 @@ function normalizeText(str: any): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isHsaAttemptOrQuiz(att?: any, quizObj?: any): boolean {
+  const fmt = String(quizObj?.exam_format || att?.exam_format || "").trim().toLowerCase();
+  if (fmt === "hsa") return true;
+  if (att?.submission_type === "web_hsa") return true;
+  if (att?.answers?.__hsa_meta?.examFormat === "hsa") return true;
+  const cat = String(quizObj?.category || att?.category || "").toUpperCase();
+  const title = String(
+    quizObj?.title || att?.examTitle || att?.quizTitle || att?.quiz_title || att?.title || ""
+  ).toUpperCase();
+  return cat.includes("HSA") || /\bHSA\b/.test(title) || title.includes("ĐGNL HSA");
 }
 
 function sanitizeLatexString(tex: string): string {
@@ -116,7 +130,7 @@ function AnalyticsRichContent({
       if (!src) {
         return `<span class="inline-flex items-center px-2 py-0.5 text-[11px] bg-slate-100 text-slate-500 rounded border border-slate-200">[Hình: ${rawKey}]</span>`;
       }
-      return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+      return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1" /></div>`;
     });
 
     str = str.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
@@ -136,7 +150,7 @@ function AnalyticsRichContent({
       if (/^(?:img|image)_\d+$/i.test(cleaned)) {
         const src = resolveAnalyticsImageSrc(cleaned, mediaMap);
         if (src) {
-          return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+          return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1" /></div>`;
         }
       }
       try {
@@ -166,8 +180,6 @@ function AnalyticsRichContent({
 
 export default function AnalyticsTab({
   analyticsData,
-  analyticsModeFilter,
-  setAnalyticsModeFilter,
   rankingScope,
   setRankingScope,
   selectedChapterId,
@@ -182,30 +194,29 @@ export default function AnalyticsTab({
 }: AnalyticsTabProps) {
   const currentRealtimeMonth = useMemo(() => new Date().getMonth() + 1, []);
 
-  // STATE BỘ LỌC CHUYÊN SÂU (HỖ TRỢ 3 PHÂN LOẠI HÌNH THỨC: WEB | GIẤY | PHIẾU TÔ ONLINE)
-  const [examTypeFilter, setExamTypeFilter] = useState<"all" | "homework" | "test" | "practice">(
-    "all"
-  );
+  // STATE BỘ LỌC TINH GỌN (1 THANH CHÍNH + NGĂN NÂNG CAO THU GỌN MẶC ĐỊNH)
+  const [examTypeFilter, setExamTypeFilter] = useState<
+    "all" | "homework" | "test" | "practice" | "hsa"
+  >("all");
   const [submissionTypeFilter, setSubmissionTypeFilter] = useState<
     "all" | "web" | "paper" | "digital_sheet"
   >("all");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(false);
   const [customScopeMode, setCustomScopeMode] = useState<
     "course" | "month_week" | "chapter" | "lesson"
-  >(
-    rankingScope === "chapter" ? "chapter" : rankingScope === "lesson" ? "lesson" : "course"
-  );
+  >(rankingScope === "chapter" ? "chapter" : rankingScope === "lesson" ? "lesson" : "course");
   const [selectedMonth, setSelectedMonth] = useState<number>(currentRealtimeMonth);
   const [selectedWeek, setSelectedWeek] = useState<string>("all");
   const [studentSearchQuery, setStudentSearchQuery] = useState<string>("");
   const [selectedStudentId, setSelectedStudentId] = useState<string>("all");
   const [focusedTypeFilter, setFocusedTypeFilter] = useState<
-    "all" | "homework" | "test" | "practice"
+    "all" | "homework" | "test" | "practice" | "hsa"
   >("all");
 
   // STATE MODAL XEM CHI TIẾT BÀI LÀM (HỖ TRỢ CẢ BÀI WEB, ẢNH QUÉT BÀI GIẤY OMR & PHIẾU TÔ ONLINE)
   const [submissionModalState, setSubmissionModalState] = useState<{
     studentName: string;
-    modeLabel: "BTVN" | "Đề kiểm tra" | "Luyện đề";
+    modeLabel: "BTVN" | "Đề kiểm tra" | "Luyện đề" | "ĐGNL HSA";
     attemptsList: any[];
     activeAttempt: any;
   } | null>(null);
@@ -232,9 +243,7 @@ export default function AnalyticsTab({
       if (savedAtt) {
         const parsed = JSON.parse(savedAtt);
         if (Array.isArray(parsed)) {
-          setLocalAttempts(
-            parsed.filter((a: any) => !delIds.has(String(a?.id || "")))
-          );
+          setLocalAttempts(parsed.filter((a: any) => !delIds.has(String(a?.id || ""))));
         }
       }
     } catch {}
@@ -380,7 +389,7 @@ export default function AnalyticsTab({
     return { byId, byTitle };
   }, [chapters, effectivePracticeExams]);
 
-  // Hàm phân loại chi tiết từng lượt nộp bài (Hỗ trợ rõ 3 loại: 'web' | 'paper' | 'digital_sheet')
+  // Hàm phân loại chi tiết từng lượt nộp bài (Hỗ trợ rõ: homework | test | practice | hsa và web | paper | digital_sheet)
   const classifyAttempt = (att: any) => {
     const qId = String(att?.quizId || att?.quiz_id || att?.exam_id || "")
       .trim()
@@ -395,8 +404,12 @@ export default function AnalyticsTab({
       (normTitle && quizLookupMap.byTitle.get(normTitle)) ||
       null;
 
-    let kind: "homework" | "test" | "practice" = "practice";
-    if (matched) {
+    const isHsa = isHsaAttemptOrQuiz(att, matched?.quizObj);
+
+    let kind: "homework" | "test" | "practice" | "hsa" = "practice";
+    if (isHsa) {
+      kind = "hsa";
+    } else if (matched) {
       kind = matched.kind;
     } else if (att?.type === "homework" || att?.isHomework || att?.is_homework) {
       kind = "homework";
@@ -421,8 +434,8 @@ export default function AnalyticsTab({
     const submissionType: "web" | "paper" | "digital_sheet" = isDigitalSheetSubmission
       ? "digital_sheet"
       : isPaperScanSubmission
-      ? "paper"
-      : "web";
+        ? "paper"
+        : "web";
 
     const hasSheetImage = isDigitalSheetSubmission || isPaperScanSubmission;
 
@@ -446,10 +459,10 @@ export default function AnalyticsTab({
       rawAttempt: att,
       quizObj: matched?.quizObj || null,
       kind,
+      isHsa,
       submissionType,
       hasSheetImage,
-      paperScanUrl:
-        att?.paper_scan_url || att?.omr_raw_data?.warped_image_data_url || null,
+      paperScanUrl: att?.paper_scan_url || att?.omr_raw_data?.warped_image_data_url || null,
       omrRawData: att?.omr_raw_data || null,
       month,
       week,
@@ -462,8 +475,8 @@ export default function AnalyticsTab({
       timeSpent: isDigitalSheetSubmission
         ? "Tô phiếu Online"
         : isPaperScanSubmission
-        ? "Làm trên giấy"
-        : timeSpentRaw || "15 phút",
+          ? "Làm trên giấy"
+          : timeSpentRaw || "15 phút",
       createdAt: validDate.toISOString(),
       formattedDate: `${String(validDate.getDate()).padStart(2, "0")}/${String(
         validDate.getMonth() + 1
@@ -493,9 +506,11 @@ export default function AnalyticsTab({
   // LƯU ĐIỂM SỬA THỦ CÔNG CHO BÀI THI TRÊN GIẤY / PHIẾU ONLINE / BÀI WEB
   const handleSaveManualScoreOverride = async () => {
     if (!submissionModalState?.activeAttempt || isSavingManualScore) return;
+    const isHsaItem = Boolean(submissionModalState.activeAttempt.isHsa);
+    const maxAllowed = isHsaItem ? 150 : 10;
     const parsedScore = Number(String(manualScoreInput).replace(",", "."));
-    if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > 10) {
-      alert("Vui lòng nhập mức điểm hợp lệ từ 0.0 đến 10.0!");
+    if (isNaN(parsedScore) || parsedScore < 0 || parsedScore > maxAllowed) {
+      alert(`Vui lòng nhập mức điểm hợp lệ từ 0.0 đến ${maxAllowed}.0!`);
       return;
     }
 
@@ -541,22 +556,24 @@ export default function AnalyticsTab({
       } catch {}
     }
 
-    // Đồng bộ lên Supabase
+    // Đồng bộ lên Supabase bằng async/await trong try/catch
     try {
-      await Promise.allSettled([
-        supabase
-          .from("exam_attempts")
-          .update({ score: parsedScore, points: parsedScore })
-          .eq("id", targetAttemptId),
-        supabase
-          .from("quiz_results")
-          .update({ score: parsedScore, points: parsedScore })
-          .eq("id", targetAttemptId),
-        supabase
-          .from("attempts")
-          .update({ score: parsedScore, points: parsedScore })
-          .eq("id", targetAttemptId)
-      ]);
+      await supabase
+        .from("exam_attempts")
+        .update({ score: parsedScore, points: parsedScore })
+        .eq("id", targetAttemptId);
+    } catch {}
+    try {
+      await supabase
+        .from("quiz_results")
+        .update({ score: parsedScore, points: parsedScore })
+        .eq("id", targetAttemptId);
+    } catch {}
+    try {
+      await supabase
+        .from("attempts")
+        .update({ score: parsedScore, points: parsedScore })
+        .eq("id", targetAttemptId);
     } catch {}
 
     setIsSavingManualScore(false);
@@ -564,7 +581,7 @@ export default function AnalyticsTab({
     setTimeout(() => setScoreSavedToast(false), 2500);
   };
 
-  // TÍNH TOÁN BẢNG ĐIỂM TỔNG HỢP & PHÂN TÁCH MẢNG hwAttempts / testAttempts / webCount / paperCount / digitalSheetCount
+  // TÍNH TOÁN BẢNG ĐIỂM TỔNG HỢP
   const enrichedStudentRows = useMemo(() => {
     const studentMap = new Map<
       string,
@@ -573,13 +590,14 @@ export default function AnalyticsTab({
         name: string;
         username: string;
         school: string;
-        mode: "online" | "offline";
         hwScores: number[];
         testScores: number[];
         pracScores: number[];
+        hsaScores: number[];
         hwAttempts: any[];
         testAttempts: any[];
         pracAttempts: any[];
+        hsaAttempts: any[];
         detailedAttempts: any[];
         webAttemptsCount: number;
         paperAttemptsCount: number;
@@ -596,21 +614,19 @@ export default function AnalyticsTab({
     (analyticsData || []).forEach((st: any) => {
       if (!st) return;
       const id = String(st.id || st.name);
-      const mode = String(st.mode || "online").toLowerCase().includes("off")
-        ? "offline"
-        : "online";
       studentMap.set(id, {
         id,
         name: st.name || "Học sinh",
         username: st.username || "",
         school: st.school || "THPT",
-        mode,
         hwScores: [],
         testScores: [],
         pracScores: [],
+        hsaScores: [],
         hwAttempts: [],
         testAttempts: [],
         pracAttempts: [],
+        hsaAttempts: [],
         detailedAttempts: [],
         webAttemptsCount: 0,
         paperAttemptsCount: 0,
@@ -629,19 +645,19 @@ export default function AnalyticsTab({
       if (!s) return;
       const id = String(s.id || s.full_name);
       if (!studentMap.has(id)) {
-        const modeStr = String(s.learning_mode || s.study_mode || "online").toLowerCase();
         studentMap.set(id, {
           id,
           name: s.full_name || s.username || "Học sinh",
           username: s.username || (s.email ? String(s.email).split("@")[0] : ""),
           school: s.school || "THPT",
-          mode: modeStr.includes("off") ? "offline" : "online",
           hwScores: [],
           testScores: [],
           pracScores: [],
+          hsaScores: [],
           hwAttempts: [],
           testAttempts: [],
           pracAttempts: [],
+          hsaAttempts: [],
           detailedAttempts: [],
           webAttemptsCount: 0,
           paperAttemptsCount: 0,
@@ -692,6 +708,9 @@ export default function AnalyticsTab({
       } else if (classified.kind === "test") {
         stEntry.testScores.push(classified.score);
         stEntry.testAttempts.push(enrichedAttItem);
+      } else if (classified.kind === "hsa") {
+        stEntry.hsaScores.push(classified.score);
+        stEntry.hsaAttempts.push(enrichedAttItem);
       } else {
         stEntry.pracScores.push(classified.score);
         stEntry.pracAttempts.push(enrichedAttItem);
@@ -713,12 +732,6 @@ export default function AnalyticsTab({
 
     return Array.from(studentMap.values())
       .filter((st) => {
-        if (analyticsModeFilter !== "all" && st.mode !== analyticsModeFilter) {
-          return false;
-        }
-        if (selectedStudentId !== "all" && st.id !== selectedStudentId) {
-          return false;
-        }
         if (submissionTypeFilter === "paper" && st.paperAttemptsCount === 0) {
           return false;
         }
@@ -730,6 +743,9 @@ export default function AnalyticsTab({
           hasDetailedAttemptsSource &&
           st.webAttemptsCount === 0
         ) {
+          return false;
+        }
+        if (examTypeFilter === "hsa" && st.hsaScores.length === 0) {
           return false;
         }
         if (studentSearchQuery.trim()) {
@@ -749,8 +765,8 @@ export default function AnalyticsTab({
           st.hwScores.length > 0
             ? Math.max(...st.hwScores)
             : !hasDetailedAttemptsSource && submissionTypeFilter === "all"
-            ? st.fallbackHwMax
-            : 0;
+              ? st.fallbackHwMax
+              : 0;
         const hwAvg =
           st.hwScores.length > 0
             ? st.hwScores.reduce((a, b) => a + b, 0) / st.hwScores.length
@@ -760,18 +776,30 @@ export default function AnalyticsTab({
           st.testScores.length > 0
             ? Math.max(...st.testScores)
             : !hasDetailedAttemptsSource && submissionTypeFilter === "all"
-            ? st.fallbackTestMax
-            : 0;
+              ? st.fallbackTestMax
+              : 0;
         const testAvg =
           st.testScores.length > 0
             ? st.testScores.reduce((a, b) => a + b, 0) / st.testScores.length
             : testMax;
 
-        const pracMax = st.pracScores.length > 0 ? Math.max(...st.pracScores) : 0;
         const pracAvg =
           st.pracScores.length > 0
             ? st.pracScores.reduce((a, b) => a + b, 0) / st.pracScores.length
             : 0;
+
+        const hsaAvg =
+          st.hsaScores.length > 0
+            ? st.hsaScores.reduce((a, b) => a + b, 0) / st.hsaScores.length
+            : 0;
+
+        const combinedExamScores = [...st.testScores, ...st.pracScores];
+        const combinedExamAvg =
+          combinedExamScores.length > 0
+            ? combinedExamScores.reduce((a, b) => a + b, 0) / combinedExamScores.length
+            : !hasDetailedAttemptsSource && submissionTypeFilter === "all"
+              ? st.fallbackTestMax
+              : 0;
 
         let displayOverall = 0;
         if (
@@ -787,6 +815,8 @@ export default function AnalyticsTab({
           displayOverall = customScopeMode === "lesson" ? testMax : testAvg;
         } else if (examTypeFilter === "practice") {
           displayOverall = pracAvg;
+        } else if (examTypeFilter === "hsa") {
+          displayOverall = hsaAvg;
         } else {
           const activeBuckets: number[] = [];
           if (st.hwScores.length > 0)
@@ -796,6 +826,8 @@ export default function AnalyticsTab({
           if (st.pracScores.length > 0) activeBuckets.push(pracAvg);
           if (activeBuckets.length > 0) {
             displayOverall = activeBuckets.reduce((a, b) => a + b, 0) / activeBuckets.length;
+          } else if (st.hsaScores.length > 0) {
+            displayOverall = hsaAvg;
           }
         }
 
@@ -811,12 +843,14 @@ export default function AnalyticsTab({
           hwCount: st.hwScores.length,
           testCount: st.testScores.length,
           pracCount: st.pracScores.length,
+          hsaCount: st.hsaScores.length,
           hwMax: Number(hwMax.toFixed(1)),
           hwAvg: Number(hwAvg.toFixed(1)),
           testMax: Number(testMax.toFixed(1)),
           testAvg: Number(testAvg.toFixed(1)),
-          pracMax: Number(pracMax.toFixed(1)),
           pracAvg: Number(pracAvg.toFixed(1)),
+          hsaAvg: Number(hsaAvg.toFixed(1)),
+          combinedExamAvg: Number(combinedExamAvg.toFixed(1)),
           overallAvg: Number(displayOverall.toFixed(1))
         };
       })
@@ -825,7 +859,6 @@ export default function AnalyticsTab({
     analyticsData,
     effectiveStudents,
     effectiveAttempts,
-    analyticsModeFilter,
     examTypeFilter,
     submissionTypeFilter,
     customScopeMode,
@@ -833,7 +866,6 @@ export default function AnalyticsTab({
     selectedWeek,
     selectedChapterId,
     selectedLessonId,
-    selectedStudentId,
     studentSearchQuery,
     quizLookupMap,
     scoreOverridesMap
@@ -849,21 +881,6 @@ export default function AnalyticsTab({
     if (focusedTypeFilter === "all") return focusedStudent.detailedAttempts;
     return focusedStudent.detailedAttempts.filter((a: any) => a.kind === focusedTypeFilter);
   }, [focusedStudent, focusedTypeFilter]);
-
-  const handleOpenTypeSpecificModal = (
-    studentRow: any,
-    targetType: "homework" | "test"
-  ) => {
-    const list = targetType === "homework" ? studentRow.hwAttempts : studentRow.testAttempts;
-    if (!list || list.length === 0) return;
-
-    setSubmissionModalState({
-      studentName: studentRow.name,
-      modeLabel: targetType === "homework" ? "BTVN" : "Đề kiểm tra",
-      attemptsList: list,
-      activeAttempt: list[0]
-    });
-  };
 
   // ĐỐI CHIẾU CÂU HỎI & ĐÁP ÁN TRONG MODAL XEM BÀI LÀM (ABSOLUTE ID MAPPING)
   const activeModalReviewData = useMemo(() => {
@@ -893,11 +910,7 @@ export default function AnalyticsTab({
     }
 
     const rawSections =
-      examObj?.data ||
-      examObj?.sections ||
-      att?.exam_data ||
-      att?.sections ||
-      [];
+      examObj?.data || examObj?.sections || att?.exam_data || att?.sections || [];
 
     const mediaMap: Record<string, any> = {
       ...(examObj?.media_map || {}),
@@ -922,8 +935,8 @@ export default function AnalyticsTab({
           (sec?.section_title && /đúng\s*sai/i.test(sec.section_title)
             ? "true_false"
             : sec?.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
-            ? "short_answer"
-            : "multiple_choice");
+              ? "short_answer"
+              : "multiple_choice");
 
         const secQuestions = Array.isArray(sec?.questions) ? sec.questions : [];
         secQuestions.forEach((q: any, qIdxInSec: number) => {
@@ -1174,16 +1187,13 @@ export default function AnalyticsTab({
       "Hạng",
       "Họ và tên",
       "Trường",
-      "Phân hệ",
       "Số lượt làm",
       "Bài Web",
       "Bài Giấy",
       "Phiếu Onl",
       "Đ.BTVN (Max)",
       "Đ.BTVN (TB)",
-      "Đ.Kiểm tra (Max)",
-      "Đ.Kiểm tra (TB)",
-      "Đ.Luyện đề (TB)",
+      "Đ.KT & Đề (TB)",
       "Điểm Tổng kết"
     ];
 
@@ -1191,21 +1201,17 @@ export default function AnalyticsTab({
       idx + 1,
       `"${st.name}"`,
       `"${st.school}"`,
-      st.mode === "online" ? "Online" : "Offline",
       st.totalAttempts,
       st.webAttemptsCount,
       st.paperAttemptsCount,
       st.digitalSheetAttemptsCount,
       st.hwMax,
       st.hwAvg,
-      st.testMax,
-      st.testAvg,
-      st.pracAvg,
+      st.combinedExamAvg,
       st.overallAvg
     ]);
 
-    const csvContent =
-      "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1216,221 +1222,123 @@ export default function AnalyticsTab({
     URL.revokeObjectURL(url);
   };
 
+  const hasActiveAdvancedFilter = customScopeMode !== "course";
+
   return (
-    <div className="space-y-5 animate-in fade-in duration-300 max-w-6xl mx-auto text-left font-sans">
-      {/* 1. BẢNG ĐIỀU KHIỂN BỘ LỌC ĐA CHIỀU CHUYÊN SÂU */}
-      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-xs space-y-3.5">
-        {/* HÀNG LỌC 1: LOẠI BÀI + HÌNH THỨC LÀM BÀI (WEB / GIẤY / PHIẾU TÔ ONLINE) + HÌNH THỨC HỌC */}
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
-              <Filter className="w-3.5 h-3.5 text-[#1D4ED8]" /> Loại bài:
-            </span>
-            <button
-              type="button"
-              onClick={() => setExamTypeFilter("all")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
-                examTypeFilter === "all"
-                  ? "bg-[#1D4ED8] text-white shadow-2xs"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              Tất cả bài
-            </button>
-            <button
-              type="button"
-              onClick={() => setExamTypeFilter("homework")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer ${
-                examTypeFilter === "homework"
-                  ? "bg-emerald-600 text-white shadow-2xs"
-                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-              }`}
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>Chỉ BTVN</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setExamTypeFilter("test")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer ${
-                examTypeFilter === "test"
-                  ? "bg-indigo-600 text-white shadow-2xs"
-                  : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
-              }`}
-            >
-              <Award className="w-3.5 h-3.5" />
-              <span>Chỉ Đề kiểm tra</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setExamTypeFilter("practice")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer ${
-                examTypeFilter === "practice"
-                  ? "bg-blue-600 text-white shadow-2xs"
-                  : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
-              }`}
-            >
-              <Target className="w-3.5 h-3.5" />
-              <span>Luyện đề thực chiến</span>
-            </button>
+    <div className="space-y-4 animate-in fade-in duration-300 max-w-6xl mx-auto text-left font-sans">
+      {/* 1. THANH CÔNG CỤ CHÍNH (1 HÀNG NGANG DUY NHẤT) + NGĂN BỘ LỌC NÂNG CAO THU GỌN */}
+      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 space-y-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Ô tìm kiếm tên học sinh */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={studentSearchQuery}
+              onChange={(e) => setStudentSearchQuery(e.target.value)}
+              placeholder="Tìm tên học sinh, trường..."
+              className="w-full pl-9 pr-8 py-2 bg-[#F8FAFC] border border-slate-200/90 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-[#1D4ED8] focus:bg-white transition"
+            />
+            {studentSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setStudentSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* BỘ LỌC HÌNH THỨC NỘP BÀI: TẤT CẢ | 🌐 LÀM TRÊN WEB | 📄 LÀM TRÊN GIẤY | 📝 PHIẾU TÔ ONLINE */}
-            <div className="flex items-center gap-1 p-1 bg-purple-50/70 rounded-xl border border-purple-200/80 shrink-0">
-              <button
-                type="button"
-                onClick={() => setSubmissionTypeFilter("all")}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
-                  submissionTypeFilter === "all"
-                    ? "bg-white text-slate-900 shadow-2xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Tất cả hình thức
-              </button>
-              <button
-                type="button"
-                onClick={() => setSubmissionTypeFilter("web")}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
-                  submissionTypeFilter === "web"
-                    ? "bg-white text-[#1D4ED8] shadow-2xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                🌐 Làm trên Web
-              </button>
-              <button
-                type="button"
-                onClick={() => setSubmissionTypeFilter("paper")}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
-                  submissionTypeFilter === "paper"
-                    ? "bg-purple-600 text-white shadow-2xs"
-                    : "text-purple-700 hover:text-purple-900"
-                }`}
-              >
-                📄 Làm trên Giấy
-              </button>
-              <button
-                type="button"
-                onClick={() => setSubmissionTypeFilter("digital_sheet")}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
-                  submissionTypeFilter === "digital_sheet"
-                    ? "bg-indigo-600 text-white shadow-2xs"
-                    : "text-indigo-700 hover:text-indigo-900"
-                }`}
-              >
-                📝 Phiếu Tô Online
-              </button>
-            </div>
+          {/* Dropdown lọc nhanh Loại bài */}
+          <select
+            value={examTypeFilter}
+            onChange={(e) => setExamTypeFilter(e.target.value as any)}
+            className="px-3 py-2 bg-[#F8FAFC] border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-700 outline-none focus:border-[#1D4ED8] focus:bg-white cursor-pointer"
+          >
+            <option value="all">Loại bài: Tất cả bài</option>
+            <option value="homework">Chỉ BTVN</option>
+            <option value="test">Chỉ Đề kiểm tra</option>
+            <option value="practice">Luyện đề thực chiến</option>
+            <option value="hsa">ĐGNL HSA</option>
+          </select>
 
-            {/* ĐỐI TƯỢNG HỌC SINH: ALL / ONLINE / OFFLINE */}
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0 w-fit">
-              <button
-                type="button"
-                onClick={() => setAnalyticsModeFilter("all")}
-                className={
-                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " +
-                  (analyticsModeFilter === "all"
-                    ? "bg-white text-[#1D4ED8] shadow-xs"
-                    : "text-slate-600 hover:text-slate-900")
-                }
-              >
-                Toàn bộ HS
-              </button>
-              <button
-                type="button"
-                onClick={() => setAnalyticsModeFilter("online")}
-                className={
-                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " +
-                  (analyticsModeFilter === "online"
-                    ? "bg-white text-indigo-700 shadow-xs"
-                    : "text-slate-600 hover:text-slate-900")
-                }
-              >
-                HS Online
-              </button>
-              <button
-                type="button"
-                onClick={() => setAnalyticsModeFilter("offline")}
-                className={
-                  "px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer " +
-                  (analyticsModeFilter === "offline"
-                    ? "bg-white text-emerald-700 shadow-xs"
-                    : "text-slate-600 hover:text-slate-900")
-                }
-              >
-                HS Offline
-              </button>
-            </div>
-          </div>
+          {/* Dropdown lọc Hình thức nộp */}
+          <select
+            value={submissionTypeFilter}
+            onChange={(e) => setSubmissionTypeFilter(e.target.value as any)}
+            className="px-3 py-2 bg-[#F8FAFC] border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-700 outline-none focus:border-[#1D4ED8] focus:bg-white cursor-pointer"
+          >
+            <option value="all">Hình thức: Tất cả</option>
+            <option value="web">Làm trên Web</option>
+            <option value="paper">Làm trên Giấy (OMR)</option>
+            <option value="digital_sheet">Phiếu Tô Online</option>
+          </select>
+
+          {/* Nút Bộ lọc nâng cao (Mặc định thu gọn false) */}
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilters((prev) => !prev)}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+              showAdvancedFilters || hasActiveAdvancedFilter
+                ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                : "bg-white text-slate-700 border-slate-200/90 hover:bg-[#F8FAFC]"
+            }`}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            <span>Bộ lọc nâng cao</span>
+            {showAdvancedFilters ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          {/* Nút Xuất CSV gọn gàng bên phải */}
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="px-3.5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto"
+            title="Xuất bảng điểm ra file Excel / CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Xuất CSV</span>
+          </button>
         </div>
 
-        {/* HÀNG LỌC 2: PHẠM VI + TÌM HỌC SINH CỤ THỂ */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomScopeMode("course");
-                  setRankingScope("course");
-                }}
-                className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " +
-                  (customScopeMode === "course"
-                    ? "bg-white text-[#1D4ED8] shadow-2xs"
-                    : "text-slate-500 hover:text-slate-800")
-                }
-              >
-                Toàn khóa
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomScopeMode("month_week");
-                  setRankingScope("course");
-                }}
-                className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer " +
-                  (customScopeMode === "month_week"
-                    ? "bg-white text-[#1D4ED8] shadow-2xs"
-                    : "text-slate-500 hover:text-slate-800")
-                }
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Theo Tháng & Tuần</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomScopeMode("chapter");
-                  setRankingScope("chapter");
-                }}
-                className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " +
-                  (customScopeMode === "chapter"
-                    ? "bg-white text-[#1D4ED8] shadow-2xs"
-                    : "text-slate-500 hover:text-slate-800")
-                }
-              >
-                Từng chương
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomScopeMode("lesson");
-                  setRankingScope("lesson");
-                }}
-                className={
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer " +
-                  (customScopeMode === "lesson"
-                    ? "bg-white text-[#1D4ED8] shadow-2xs"
-                    : "text-slate-500 hover:text-slate-800")
-                }
-              >
-                Từng bài
-              </button>
+        {/* NGĂN BỘ LỌC NÂNG CAO (CHỈ MỞ KHI BẤM) */}
+        {showAdvancedFilters && (
+          <div className="pt-3 border-t border-slate-200/90 flex flex-wrap items-center gap-2.5">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              Phạm vi:
+            </span>
+            <div className="flex flex-wrap gap-1 bg-[#F8FAFC] p-1 rounded-lg border border-slate-200/90">
+              {(
+                [
+                  { id: "course", label: "Toàn khóa" },
+                  { id: "month_week", label: "Theo Tháng & Tuần" },
+                  { id: "chapter", label: "Từng chương" },
+                  { id: "lesson", label: "Từng bài" }
+                ] as const
+              ).map((sc) => (
+                <button
+                  key={sc.id}
+                  type="button"
+                  onClick={() => {
+                    setCustomScopeMode(sc.id);
+                    setRankingScope(
+                      sc.id === "chapter" ? "chapter" : sc.id === "lesson" ? "lesson" : "course"
+                    );
+                  }}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                    customScopeMode === sc.id
+                      ? "bg-[#1D4ED8] text-white"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {sc.label}
+                </button>
+              ))}
             </div>
 
             {customScopeMode === "month_week" && (
@@ -1438,7 +1346,7 @@ export default function AnalyticsTab({
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                  className="px-3 py-1.5 text-xs font-bold text-[#1D4ED8] bg-blue-50 border border-blue-200 rounded-xl outline-none cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200/90 rounded-lg outline-none focus:border-[#1D4ED8] cursor-pointer"
                 >
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                     <option key={m} value={m}>
@@ -1450,7 +1358,7 @@ export default function AnalyticsTab({
                 <select
                   value={selectedWeek}
                   onChange={(e) => setSelectedWeek(e.target.value)}
-                  className="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl outline-none cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200/90 rounded-lg outline-none focus:border-[#1D4ED8] cursor-pointer"
                 >
                   <option value="all">Tất cả các tuần</option>
                   {[1, 2, 3, 4, 5].map((w) => (
@@ -1469,7 +1377,7 @@ export default function AnalyticsTab({
                   setSelectedChapterId(e.target.value);
                   setSelectedLessonId("all");
                 }}
-                className="px-3 py-1.5 text-xs font-bold text-[#1D4ED8] bg-blue-50 border border-blue-200 rounded-xl focus:border-blue-500 outline-none transition cursor-pointer max-w-[240px]"
+                className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200/90 rounded-lg focus:border-[#1D4ED8] outline-none transition cursor-pointer max-w-[240px]"
               >
                 <option value="all">-- Chọn Chương --</option>
                 {(chapters || []).map((c) => (
@@ -1479,11 +1387,12 @@ export default function AnalyticsTab({
                 ))}
               </select>
             )}
+
             {customScopeMode === "lesson" && selectedChapterId !== "all" && (
               <select
                 value={selectedLessonId}
                 onChange={(e) => setSelectedLessonId(e.target.value)}
-                className="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl focus:border-indigo-500 outline-none transition cursor-pointer max-w-[240px]"
+                className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200/90 rounded-lg focus:border-[#1D4ED8] outline-none transition cursor-pointer max-w-[240px]"
               >
                 <option value="all">-- Chọn Bài học --</option>
                 {activeLessons.map((l: any) => (
@@ -1494,130 +1403,56 @@ export default function AnalyticsTab({
               </select>
             )}
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[180px]">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={studentSearchQuery}
-                onChange={(e) => setStudentSearchQuery(e.target.value)}
-                placeholder="Tìm tên học sinh..."
-                className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] focus:bg-white"
-              />
-              {studentSearchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setStudentSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-[#1D4ED8] shrink-0" />
-              <select
-                value={selectedStudentId}
-                onChange={(e) => {
-                  setSelectedStudentId(e.target.value);
-                  setFocusedTypeFilter("all");
-                }}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer max-w-[200px]"
-              >
-                <option value="all">Xem tất cả học sinh</option>
-                {(analyticsData || []).map((st: any) => (
-                  <option key={st.id} value={st.id}>
-                    {st.name} ({st.mode === "online" ? "Onl" : "Off"})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
-              title="Xuất bảng điểm ra file Excel / CSV"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Xuất CSV</span>
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* 2. PANEL CHI TIẾT LỊCH SỬ ĐIỂM CỦA RIÊNG 1 HỌC SINH */}
+      {/* 2. PANEL CHI TIẾT HỒ SƠ ĐIỂM & BÀI LÀM CỦA RIÊNG 1 HỌC SINH (MASTER-DETAIL) */}
       {focusedStudent && (
-        <div className="bg-white rounded-3xl border-2 border-blue-200 shadow-sm overflow-hidden animate-in zoom-in-95 duration-150">
-          <div className="p-4 sm:px-6 bg-gradient-to-r from-blue-50 via-indigo-50/40 to-white border-b border-blue-100 flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-white rounded-xl border border-[#1D4ED8]/40 overflow-hidden animate-in fade-in duration-150">
+          <div className="p-4 sm:px-5 bg-[#F8FAFC] border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-[#1D4ED8] text-white font-black text-sm flex items-center justify-center shadow-xs">
+              <div className="w-9 h-9 rounded-lg bg-[#1D4ED8] text-white font-bold text-xs flex items-center justify-center shrink-0">
                 {focusedStudent.name.slice(0, 2).toUpperCase()}
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="font-extrabold text-slate-900 text-sm sm:text-base">
-                    Hồ sơ điểm chi tiết: {focusedStudent.name}
-                  </h4>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
-                      focusedStudent.mode === "online"
-                        ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                        : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    }`}
-                  >
-                    {focusedStudent.mode === "online" ? "Online" : "Offline"}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 font-semibold">
-                  {focusedStudent.school} • Đang hiển thị:{" "}
-                  <strong>{focusedStudentFilteredAttempts.length} bài</strong> (🌐{" "}
-                  {focusedStudent.webAttemptsCount} Web • 📄 {focusedStudent.paperAttemptsCount}{" "}
-                  Giấy • 📝 {focusedStudent.digitalSheetAttemptsCount} Phiếu Onl)
+                <h4 className="font-bold text-slate-900 text-sm">
+                  Hồ sơ điểm chi tiết: {focusedStudent.name}
+                </h4>
+                <p className="text-xs text-slate-500">
+                  {focusedStudent.school} • {focusedStudentFilteredAttempts.length} bài (Web:{" "}
+                  {focusedStudent.webAttemptsCount} • Giấy: {focusedStudent.paperAttemptsCount} •
+                  Phiếu Onl: {focusedStudent.digitalSheetAttemptsCount})
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setFocusedTypeFilter("all")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                  focusedTypeFilter === "all"
-                    ? "bg-slate-800 text-white border-slate-800"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                Tất cả ({focusedStudent.detailedAttempts.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFocusedTypeFilter("homework")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                  focusedTypeFilter === "homework"
-                    ? "bg-emerald-600 text-white border-emerald-600"
-                    : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                }`}
-              >
-                BTVN: {focusedStudent.hwAvg}đ ({focusedStudent.hwCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFocusedTypeFilter("test")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                  focusedTypeFilter === "test"
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
-                }`}
-              >
-                Đề KT: {focusedStudent.testAvg}đ ({focusedStudent.testCount})
-              </button>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: "all", label: `Tất cả (${focusedStudent.detailedAttempts.length})` },
+                  { id: "homework", label: `BTVN (${focusedStudent.hwCount})` },
+                  { id: "test", label: `Đề KT (${focusedStudent.testCount})` },
+                  { id: "practice", label: `Luyện đề (${focusedStudent.pracCount})` },
+                  { id: "hsa", label: `HSA (${focusedStudent.hsaCount})` }
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setFocusedTypeFilter(tab.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                    focusedTypeFilter === tab.id
+                      ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
+                      : "bg-white text-slate-600 border-slate-200/90 hover:bg-slate-50"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={() => setSelectedStudentId("all")}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/90 rounded-lg text-xs font-semibold transition flex items-center gap-1 cursor-pointer ml-1"
               >
                 <X className="w-3.5 h-3.5" /> Đóng
               </button>
@@ -1626,87 +1461,61 @@ export default function AnalyticsTab({
 
           <div className="overflow-x-auto max-h-80 custom-scrollbar">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-500 border-b border-slate-200 sticky top-0">
+              <thead className="bg-white text-[11px] font-semibold uppercase text-slate-500 border-b border-slate-200/90 sticky top-0">
                 <tr>
                   <th className="py-2.5 px-4 w-12 text-center">STT</th>
                   <th className="py-2.5 px-4">Tên bài tập / Đề thi</th>
                   <th className="py-2.5 px-3 text-center">Phân loại</th>
                   <th className="py-2.5 px-3 text-center">Hình thức</th>
-                  <th className="py-2.5 px-3 text-center">Tuần / Tháng</th>
                   <th className="py-2.5 px-3 text-center">Thời điểm nộp</th>
-                  <th className="py-2.5 px-4 text-right">Điểm số & Bài làm</th>
+                  <th className="py-2.5 px-4 text-right">Điểm số & Chi tiết</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {focusedStudentFilteredAttempts.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-400 italic">
+                    <td colSpan={6} className="py-8 text-center text-slate-400 italic">
                       Học sinh chưa có bài nộp nào trong phân loại này.
                     </td>
                   </tr>
                 ) : (
                   focusedStudentFilteredAttempts.map((item: any, idx: number) => (
-                    <tr key={item.id || idx} className="hover:bg-slate-50/70">
-                      <td className="py-2.5 px-4 text-center font-bold text-slate-400">
+                    <tr key={item.id || idx} className="hover:bg-[#F8FAFC]">
+                      <td className="py-2.5 px-4 text-center font-semibold text-slate-400">
                         {idx + 1}
                       </td>
-                      <td className="py-2.5 px-4 font-bold text-slate-800">
+                      <td className="py-2.5 px-4 font-semibold text-slate-800">
                         <div>{item.examTitle}</div>
                         {item.lessonTitle && (
-                          <span className="text-[10px] text-slate-400 font-medium">
+                          <span className="text-[11px] text-slate-400 font-normal">
                             {item.lessonTitle}
                           </span>
                         )}
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        {item.kind === "homework" ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            BTVN
-                          </span>
-                        ) : item.kind === "test" ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            Đề kiểm tra
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
-                            Luyện đề
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        {item.submissionType === "digital_sheet" ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            📝 Phiếu Onl
-                          </span>
-                        ) : item.submissionType === "paper" ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-200">
-                            📄 Giấy
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
-                            🌐 Web
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]">
-                          T{item.week}.Th{item.month < 10 ? "0" + item.month : item.month}
+                        <span className="px-2 py-0.5 rounded bg-[#F8FAFC] text-slate-700 border border-slate-200/90 text-[11px] font-semibold">
+                          {item.kind === "homework"
+                            ? "BTVN"
+                            : item.kind === "test"
+                              ? "Đề KT"
+                              : item.kind === "hsa"
+                                ? "ĐGNL HSA"
+                                : "Luyện đề"}
                         </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center text-slate-600 font-medium">
+                        {item.submissionType === "digital_sheet"
+                          ? "Phiếu Onl"
+                          : item.submissionType === "paper"
+                            ? "Giấy (OMR)"
+                            : "Web"}
                       </td>
                       <td className="py-2.5 px-3 text-center text-slate-500">
                         {item.formattedTime} • {item.formattedDate}
                       </td>
                       <td className="py-2.5 px-4 text-right">
                         <div className="inline-flex items-center gap-2">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-lg font-black text-xs border ${
-                              item.kind === "homework"
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                : item.kind === "test"
-                                ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                : "bg-blue-50 text-[#1D4ED8] border-blue-200"
-                            }`}
-                          >
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 font-bold text-xs">
                             {Number(item.score).toFixed(2)}đ
                           </span>
                           <button
@@ -1718,13 +1527,15 @@ export default function AnalyticsTab({
                                   item.kind === "homework"
                                     ? "BTVN"
                                     : item.kind === "test"
-                                    ? "Đề kiểm tra"
-                                    : "Luyện đề",
-                                attemptsList: [item],
+                                      ? "Đề kiểm tra"
+                                      : item.kind === "hsa"
+                                        ? "ĐGNL HSA"
+                                        : "Luyện đề",
+                                attemptsList: focusedStudentFilteredAttempts,
                                 activeAttempt: item
                               })
                             }
-                            className="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-[#1D4ED8] text-[#1D4ED8] hover:text-white text-[11px] font-bold transition cursor-pointer border border-blue-200"
+                            className="px-2.5 py-1 rounded-md bg-white hover:bg-[#1D4ED8] text-[#1D4ED8] hover:text-white text-[11px] font-semibold transition cursor-pointer border border-blue-200"
                           >
                             {item.hasSheetImage ? "Xem phiếu" : "Xem bài"}
                           </button>
@@ -1739,103 +1550,61 @@ export default function AnalyticsTab({
         </div>
       )}
 
-      {/* 3. BẢNG ĐIỂM & XẾP HẠNG TỔNG HỢP (CÓ BADGE [🌐 WEB] / [📄 GIẤY] / [📝 PHIẾU ONL]) */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div className="p-4 sm:px-6 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Trophy className="w-4 h-4 text-amber-500" />
-            <h3 className="font-extrabold text-slate-900 text-sm">
-              Bảng điểm & Xếp hạng học viên TCT
+      {/* 3. BẢNG XẾP HẠNG 6 CỘT THOÁNG MẮT (CHUẨN MASTER-DETAIL) */}
+      <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden">
+        <div className="px-4 py-3 sm:px-5 border-b border-slate-200/90 bg-[#F8FAFC] flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-[#1D4ED8]" />
+            <h3 className="font-bold text-slate-900 text-sm">
+              Bảng xếp hạng & Kết quả học viên
             </h3>
-            {examTypeFilter !== "all" && (
-              <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-black uppercase">
-                Đang lọc:{" "}
-                {examTypeFilter === "homework"
-                  ? "Chỉ BTVN"
-                  : examTypeFilter === "test"
-                  ? "Chỉ Đề kiểm tra"
-                  : "Luyện đề thực chiến"}
-              </span>
-            )}
-            {submissionTypeFilter !== "all" && (
-              <span className="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-black uppercase">
-                Hình thức:{" "}
-                {submissionTypeFilter === "paper"
-                  ? "📄 Làm trên Giấy"
-                  : submissionTypeFilter === "digital_sheet"
-                  ? "📝 Phiếu Tô Online"
-                  : "🌐 Làm trên Web"}
-              </span>
-            )}
-            {customScopeMode === "month_week" && (
-              <span className="px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-black uppercase">
-                Tháng {selectedMonth} {selectedWeek !== "all" ? `• Tuần ${selectedWeek}` : ""}
-              </span>
-            )}
+            <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
+              (Bấm vào dòng học sinh để xem hồ sơ chi tiết)
+            </span>
           </div>
-          <span className="text-xs text-slate-500 font-bold">
+          <span className="text-xs text-slate-600 font-semibold">
             {isLoadingAnalytics ? "Đang tính điểm..." : `${enrichedStudentRows.length} học viên`}
           </span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+            <thead className="bg-white text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200/90">
               <tr>
-                <th className="py-3 px-3 font-bold text-center w-14">Hạng</th>
-                <th className="py-3 px-4 font-bold min-w-[170px]">Học sinh</th>
-                <th className="py-3 px-3 font-bold text-center w-22">Phân hệ</th>
-                <th className="py-3 px-3 font-bold text-center w-40">
+                <th className="py-3 px-4 font-semibold text-center w-16">Hạng</th>
+                <th className="py-3 px-4 font-semibold min-w-[180px]">Học sinh</th>
+                <th className="py-3 px-4 font-semibold text-center">
                   Lượt làm (Web / Giấy / Phiếu Onl)
                 </th>
-                {(examTypeFilter === "all" || examTypeFilter === "homework") && (
-                  <th className="py-3 px-3 font-bold text-center text-emerald-700 w-32">
-                    Điểm BTVN (Max / TB)
-                  </th>
-                )}
-                {(examTypeFilter === "all" || examTypeFilter === "test") && (
-                  <th className="py-3 px-3 font-bold text-center text-indigo-700 w-32">
-                    Điểm Đề KT (Max / TB)
-                  </th>
-                )}
-                {(examTypeFilter === "all" || examTypeFilter === "practice") && (
-                  <th className="py-3 px-3 font-bold text-center text-blue-700 w-26">
-                    Luyện đề (TB)
-                  </th>
-                )}
-                <th className="py-3 px-3 font-bold text-center text-[#1D4ED8] w-24">Tổng kết</th>
-                <th className="py-3 px-4 font-bold text-center min-w-[210px]">
-                  Xem chi tiết bài làm
+                <th className="py-3 px-4 font-semibold text-center">Điểm BTVN (Max / TB)</th>
+                <th className="py-3 px-4 font-semibold text-center">Điểm KT & Đề (TB)</th>
+                <th className="py-3 px-4 font-semibold text-center text-[#1D4ED8] w-28">
+                  Tổng kết
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoadingAnalytics ? (
                 <tr>
-                  <td colSpan={9} className="py-16 text-center">
-                    <div className="flex flex-col items-center justify-center gap-2.5">
-                      <Loader2 className="w-7 h-7 text-[#1D4ED8] animate-spin" />
-                      <span className="text-xs font-bold text-slate-500">
-                        Đang đồng bộ và tính toán điểm số tức thì...
+                  <td colSpan={6} className="py-16 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="w-6 h-6 text-[#1D4ED8] animate-spin" />
+                      <span className="text-xs font-medium text-slate-500">
+                        Đang đồng bộ và tính toán điểm số...
                       </span>
                     </div>
                   </td>
                 </tr>
               ) : enrichedStudentRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                  <td colSpan={6} className="py-12 text-center text-slate-400 font-medium">
                     Chưa có dữ liệu làm bài nào khớp với bộ lọc hiện tại.
                   </td>
                 </tr>
               ) : (
                 enrichedStudentRows.map((st, idx) => {
                   const rank = idx + 1;
-                  const isTop1 = rank === 1;
-                  const isTop2 = rank === 2;
-                  const isTop3 = rank === 3;
                   const isFocused = selectedStudentId === st.id;
-                  const hasHwSubmission = st.hwAttempts && st.hwAttempts.length > 0;
-                  const hasTestSubmission = st.testAttempts && st.testAttempts.length > 0;
 
                   return (
                     <tr
@@ -1845,162 +1614,57 @@ export default function AnalyticsTab({
                         setFocusedTypeFilter("all");
                       }}
                       className={`transition-colors cursor-pointer ${
-                        isFocused ? "bg-blue-50/70" : "hover:bg-slate-50/70 bg-white"
+                        isFocused ? "bg-blue-50/60" : "hover:bg-[#F8FAFC] bg-white"
                       }`}
                     >
-                      <td className="py-2.5 px-3 text-center font-black">
-                        {isTop1 ? (
+                      <td className="py-3 px-4 text-center font-bold">
+                        {rank <= 3 ? (
                           <span
-                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-xs font-black shadow-2xs"
-                            title="Hạng 1 - Huy hiệu Vàng"
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border ${
+                              rank === 1
+                                ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                                : "bg-[#F8FAFC] text-slate-700 border-slate-200"
+                            }`}
                           >
-                            🥇
-                          </span>
-                        ) : isTop2 ? (
-                          <span
-                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-700 border border-slate-300 text-xs font-black"
-                            title="Hạng 2 - Huy hiệu Bạc"
-                          >
-                            🥈
-                          </span>
-                        ) : isTop3 ? (
-                          <span
-                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-800 border border-orange-300 text-xs font-black"
-                            title="Hạng 3 - Huy hiệu Đồng"
-                          >
-                            🥉
+                            {rank}
                           </span>
                         ) : (
-                          <span className="text-slate-400 font-bold">#{rank}</span>
+                          <span className="text-slate-400 font-semibold">#{rank}</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-4 font-bold text-slate-800">
-                        <div className="group-hover:text-[#1D4ED8]">{st.name}</div>
-                        <span className="text-[10px] text-slate-400 font-normal">
-                          {st.school || "THPT"}
-                        </span>
+
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-900">{st.name}</div>
+                        <div className="text-[11px] text-slate-400">{st.school || "THPT"}</div>
                       </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <span
-                          className={
-                            "px-2 py-0.5 rounded text-[9px] font-black uppercase " +
-                            (st.mode === "online"
-                              ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                              : "bg-emerald-50 text-emerald-700 border border-emerald-200")
-                          }
-                        >
-                          {st.mode === "online" ? "Online" : "Offline"}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <div className="font-semibold text-slate-700">{st.totalAttempts} lượt</div>
-                        <div className="flex items-center justify-center gap-1 mt-0.5 flex-wrap">
-                          {st.webAttemptsCount > 0 && (
-                            <span className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-extrabold">
-                              🌐 Web ({st.webAttemptsCount})
-                            </span>
-                          )}
-                          {st.paperAttemptsCount > 0 && (
-                            <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 border border-purple-200 text-[9px] font-extrabold">
-                              📄 Giấy ({st.paperAttemptsCount})
-                            </span>
-                          )}
-                          {st.digitalSheetAttemptsCount > 0 && (
-                            <span className="px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-extrabold">
-                              📝 Phiếu Onl ({st.digitalSheetAttemptsCount})
-                            </span>
-                          )}
-                          {st.webAttemptsCount === 0 &&
-                            st.paperAttemptsCount === 0 &&
-                            st.digitalSheetAttemptsCount === 0 &&
-                            st.totalAttempts > 0 && (
-                              <span className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-extrabold">
-                                🌐 Web
-                              </span>
-                            )}
+
+                      <td className="py-3 px-4 text-center">
+                        <div className="font-semibold text-slate-800">{st.totalAttempts} lượt</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          Web: {st.webAttemptsCount} • Giấy: {st.paperAttemptsCount} • Phiếu Onl:{" "}
+                          {st.digitalSheetAttemptsCount}
                         </div>
                       </td>
 
-                      {/* ĐIỂM BTVN */}
-                      {(examTypeFilter === "all" || examTypeFilter === "homework") && (
-                        <td className="py-2.5 px-3 text-center">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-black">
-                            <span>{Number(st.hwMax || 0).toFixed(1)}</span>
-                            <span className="text-[10px] font-semibold text-emerald-600/80">
-                              (TB: {Number(st.hwAvg || 0).toFixed(1)})
-                            </span>
-                          </span>
-                        </td>
-                      )}
+                      <td className="py-3 px-4 text-center">
+                        <span className="font-bold text-slate-900">
+                          {Number(st.hwMax || 0).toFixed(1)}
+                        </span>
+                        <span className="text-[11px] text-slate-500 ml-1">
+                          / TB {Number(st.hwAvg || 0).toFixed(1)}
+                        </span>
+                      </td>
 
-                      {/* ĐIỂM ĐỀ KIỂM TRA */}
-                      {(examTypeFilter === "all" || examTypeFilter === "test") && (
-                        <td className="py-2.5 px-3 text-center">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 font-black">
-                            <span>{Number(st.testMax || 0).toFixed(1)}</span>
-                            <span className="text-[10px] font-semibold text-indigo-600/80">
-                              (TB: {Number(st.testAvg || 0).toFixed(1)})
-                            </span>
-                          </span>
-                        </td>
-                      )}
+                      <td className="py-3 px-4 text-center font-semibold text-slate-800">
+                        {examTypeFilter === "hsa"
+                          ? `${Number(st.hsaAvg || 0).toFixed(1)}đ`
+                          : `${Number(st.combinedExamAvg || 0).toFixed(1)}đ`}
+                      </td>
 
-                      {/* ĐIỂM LUYỆN ĐỀ */}
-                      {(examTypeFilter === "all" || examTypeFilter === "practice") && (
-                        <td className="py-2.5 px-3 text-center">
-                          <span className="inline-block px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-black">
-                            {Number(st.pracAvg || 0).toFixed(1)}
-                          </span>
-                        </td>
-                      )}
-
-                      <td className="py-2.5 px-3 text-center">
-                        <span className="inline-block px-3 py-1 bg-[#1D4ED8] text-white font-black rounded-lg shadow-2xs">
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-block px-3 py-1 bg-[#1D4ED8] text-white font-bold rounded-lg text-xs">
                           {Number(st.overallAvg || 0).toFixed(1)}
                         </span>
-                      </td>
-
-                      {/* CỘT 2 NÚT TÁCH BIỆT: [👁 XEM BTVN] & [👁 XEM ĐỀ KT] */}
-                      <td className="py-2.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            disabled={!hasHwSubmission}
-                            onClick={() => handleOpenTypeSpecificModal(st, "homework")}
-                            title={
-                              hasHwSubmission
-                                ? `Xem chi tiết bài làm BTVN của ${st.name}`
-                                : `${st.name} chưa có bài nộp BTVN trong phạm vi này`
-                            }
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition inline-flex items-center gap-1 ${
-                              hasHwSubmission
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-600 hover:text-white cursor-pointer shadow-2xs"
-                                : "bg-slate-50 text-slate-300 border-slate-200/70 cursor-not-allowed opacity-60"
-                            }`}
-                          >
-                            <Eye className="w-3 h-3" />
-                            <span>Xem BTVN</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={!hasTestSubmission}
-                            onClick={() => handleOpenTypeSpecificModal(st, "test")}
-                            title={
-                              hasTestSubmission
-                                ? `Xem chi tiết bài làm Đề kiểm tra của ${st.name}`
-                                : `${st.name} chưa có bài nộp Đề kiểm tra trong phạm vi này`
-                            }
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition inline-flex items-center gap-1 ${
-                              hasTestSubmission
-                                ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white cursor-pointer shadow-2xs"
-                                : "bg-slate-50 text-slate-300 border-slate-200/70 cursor-not-allowed opacity-60"
-                            }`}
-                          >
-                            <Eye className="w-3 h-3" />
-                            <span>Xem Đề KT</span>
-                          </button>
-                        </div>
                       </td>
                     </tr>
                   );
@@ -2019,63 +1683,51 @@ export default function AnalyticsTab({
           onClick={(e) => {
             if (e.target === e.currentTarget) setSubmissionModalState(null);
           }}
-          className="fixed inset-0 z-[550] flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-xs cursor-pointer font-sans"
+          className="fixed inset-0 z-[550] flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs cursor-pointer font-sans"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className={`bg-white rounded-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] cursor-default animate-in zoom-in-95 duration-150 text-left ${
+            className={`bg-white rounded-xl w-full border border-slate-200/90 overflow-hidden flex flex-col max-h-[94vh] cursor-default text-left ${
               submissionModalState.activeAttempt.hasSheetImage ? "max-w-6xl" : "max-w-4xl"
             }`}
           >
             {/* HEADER COMPACT 1 DÒNG (CÓ BỘ SỬA ĐIỂM THỦ CÔNG CHO GIÁO VIÊN) */}
-            <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="px-4 py-2.5 bg-white border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border shrink-0 ${
-                    submissionModalState.modeLabel === "BTVN"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      : "bg-indigo-50 text-indigo-700 border-indigo-200"
-                  }`}
-                >
+                <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-bold uppercase shrink-0">
                   {submissionModalState.modeLabel}
                 </span>
 
-                {submissionModalState.activeAttempt.submissionType === "digital_sheet" ? (
-                  <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-black uppercase shrink-0">
-                    📝 Phiếu Tô Online
-                  </span>
-                ) : submissionModalState.activeAttempt.submissionType === "paper" ? (
-                  <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-black uppercase shrink-0">
-                    📄 Bài thi Giấy (OMR)
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-black uppercase shrink-0">
-                    🌐 Bài thi Web
-                  </span>
-                )}
+                <span className="px-2 py-0.5 rounded bg-[#F8FAFC] text-slate-700 border border-slate-200/90 text-[10px] font-semibold uppercase shrink-0">
+                  {submissionModalState.activeAttempt.submissionType === "digital_sheet"
+                    ? "Phiếu Tô Online"
+                    : submissionModalState.activeAttempt.submissionType === "paper"
+                      ? "Bài thi Giấy (OMR)"
+                      : "Bài thi Web"}
+                </span>
 
-                <span className="font-extrabold text-sm text-slate-900 truncate max-w-[160px] sm:max-w-[200px]">
+                <span className="font-bold text-sm text-slate-900 truncate max-w-[160px] sm:max-w-[200px]">
                   {submissionModalState.studentName}
                 </span>
 
                 {/* Ô CHỈNH SỬA ĐIỂM THỦ CÔNG DÀNH CHO GIÁO VIÊN */}
-                <div className="inline-flex items-center gap-1 bg-rose-50/80 border border-rose-200 px-2 py-0.5 rounded-lg">
-                  <span className="text-[10px] font-bold text-rose-700">Điểm:</span>
+                <div className="inline-flex items-center gap-1 bg-[#F8FAFC] border border-slate-200/90 px-2 py-0.5 rounded-lg">
+                  <span className="text-[10px] font-semibold text-slate-600">Điểm:</span>
                   <input
                     type="number"
                     step="0.1"
                     min="0"
-                    max="10"
+                    max={submissionModalState.activeAttempt.isHsa ? 150 : 10}
                     value={manualScoreInput}
                     onChange={(e) => setManualScoreInput(e.target.value)}
-                    className="w-12 text-center font-black text-xs text-rose-700 bg-white border border-rose-200 rounded px-1 py-0.5 outline-none focus:border-rose-500"
+                    className="w-14 text-center font-bold text-xs text-slate-900 bg-white border border-slate-200 rounded px-1 py-0.5 outline-none focus:border-[#1D4ED8]"
                     title="Giáo viên có thể sửa lại điểm nếu học sinh tẩy chì bị nhận diện nhầm"
                   />
                   <button
                     type="button"
                     disabled={isSavingManualScore}
                     onClick={handleSaveManualScoreOverride}
-                    className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                    className="px-2 py-0.5 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
                     title="Lưu điểm điều chỉnh"
                   >
                     <Save className="w-3 h-3" />
@@ -2096,40 +1748,35 @@ export default function AnalyticsTab({
                         );
                       }
                     }}
-                    className="px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none cursor-pointer max-w-[220px]"
+                    className="px-2.5 py-1 bg-[#F8FAFC] border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-800 outline-none cursor-pointer max-w-[220px]"
                   >
                     {submissionModalState.attemptsList.map((attItem: any, idx: number) => (
                       <option key={attItem.id || idx} value={String(attItem.id || "")}>
-                        {attItem.submissionType === "digital_sheet"
-                          ? "[📝 Phiếu Onl] "
-                          : attItem.submissionType === "paper"
-                          ? "[📄 Giấy] "
-                          : "[🌐 Web] "}
                         {attItem.examTitle} ({Number(attItem.score).toFixed(2)}đ)
                       </option>
                     ))}
                   </select>
                 ) : (
-                  <span className="text-xs text-slate-500 font-semibold truncate max-w-[200px]">
+                  <span className="text-xs text-slate-500 font-medium truncate max-w-[200px]">
                     • {submissionModalState.activeAttempt.examTitle}
                   </span>
                 )}
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
-                  ✓ Đúng: {activeModalReviewData?.correctCount ?? 0}
+                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold">
+                  Đúng: {activeModalReviewData?.correctCount ?? 0}
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold">
-                  ✕ Sai: {activeModalReviewData?.wrongCount ?? 0}
+                <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-semibold">
+                  Sai: {activeModalReviewData?.wrongCount ?? 0}
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-bold">
-                  ○ Trống: {activeModalReviewData?.skippedCount ?? 0}
+                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-semibold">
+                  Trống: {activeModalReviewData?.skippedCount ?? 0}
                 </span>
                 <button
                   type="button"
                   onClick={() => setSubmissionModalState(null)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer ml-1"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer ml-1"
                   title="Đóng"
                 >
                   <X className="w-4 h-4" />
@@ -2149,15 +1796,15 @@ export default function AnalyticsTab({
               {/* CỘT TRÁI: ẢNH PHIẾU QUÉT KÈM VÒNG TRÒN XANH/ĐỎ */}
               {submissionModalState.activeAttempt.hasSheetImage &&
                 submissionModalState.activeAttempt.paperScanUrl && (
-                  <div className="lg:col-span-6 border-r border-slate-200 bg-slate-900 flex flex-col min-h-0">
-                    <div className="px-4 py-2 bg-slate-950 text-slate-300 text-[11px] font-bold flex items-center justify-between border-b border-slate-800 shrink-0">
+                  <div className="lg:col-span-6 border-r border-slate-200/90 bg-slate-900 flex flex-col min-h-0">
+                    <div className="px-4 py-2 bg-slate-950 text-slate-300 text-[11px] font-semibold flex items-center justify-between border-b border-slate-800 shrink-0">
                       <div className="flex items-center gap-3">
-                        <span className="text-purple-300">
+                        <span>
                           SBD:{" "}
                           {submissionModalState.activeAttempt.omrRawData?.detected_sbd ||
                             "Chưa tô"}
                         </span>
-                        <span className="text-emerald-300">
+                        <span>
                           Mã đề:{" "}
                           {submissionModalState.activeAttempt.omrRawData?.detected_exam_code ||
                             "101"}
@@ -2192,7 +1839,7 @@ export default function AnalyticsTab({
                           width: `${Math.round(480 * paperZoomScale)}px`,
                           transition: "width 0.18s ease-out"
                         }}
-                        className="relative rounded-xl overflow-hidden border border-slate-700 bg-white shadow-xl shrink-0"
+                        className="relative rounded-lg overflow-hidden border border-slate-700 bg-white shrink-0"
                       >
                         <img
                           src={submissionModalState.activeAttempt.paperScanUrl}
@@ -2217,10 +1864,10 @@ export default function AnalyticsTab({
                                   b.status === "correct"
                                     ? "#10B981"
                                     : b.status === "wrong"
-                                    ? "#EF4444"
-                                    : b.status === "expected_missed"
-                                    ? "#3B82F6"
-                                    : "#F59E0B";
+                                      ? "#EF4444"
+                                      : b.status === "expected_missed"
+                                        ? "#1D4ED8"
+                                        : "#F59E0B";
 
                                 return (
                                   <circle
@@ -2232,8 +1879,8 @@ export default function AnalyticsTab({
                                       b.status === "correct"
                                         ? "rgba(16,185,129,0.22)"
                                         : b.status === "wrong"
-                                        ? "rgba(239,68,68,0.22)"
-                                        : "none"
+                                          ? "rgba(239,68,68,0.22)"
+                                          : "none"
                                     }
                                     stroke={strokeColor}
                                     strokeWidth={2}
@@ -2252,7 +1899,7 @@ export default function AnalyticsTab({
 
               {/* CỘT PHẢI: DANH SÁCH CÂU HỎI & ĐỐI CHIẾU LỜI GIẢI */}
               <div
-                className={`p-3 sm:p-5 overflow-y-auto custom-scrollbar space-y-3 bg-slate-50/50 ${
+                className={`p-3 sm:p-5 overflow-y-auto custom-scrollbar space-y-3 bg-[#F8FAFC] ${
                   submissionModalState.activeAttempt.hasSheetImage &&
                   submissionModalState.activeAttempt.paperScanUrl
                     ? "lg:col-span-6"
@@ -2260,10 +1907,10 @@ export default function AnalyticsTab({
                 }`}
               >
                 {!activeModalReviewData || activeModalReviewData.questionsList.length === 0 ? (
-                  <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center space-y-2">
-                    <p className="text-xs font-bold text-slate-700">
+                  <div className="bg-white border border-slate-200/90 rounded-xl p-6 text-center space-y-2">
+                    <p className="text-xs font-semibold text-slate-700">
                       Bài nộp: {submissionModalState.activeAttempt.examTitle} — Kết quả:{" "}
-                      <span className="text-rose-600 font-black">
+                      <span className="text-[#1D4ED8] font-bold">
                         {Number(submissionModalState.activeAttempt.score ?? 0).toFixed(2)} điểm
                       </span>
                     </p>
@@ -2281,36 +1928,36 @@ export default function AnalyticsTab({
                     return (
                       <div
                         key={q.qId || index}
-                        className={`p-3.5 rounded-2xl border bg-white shadow-2xs transition ${
+                        className={`p-3.5 rounded-xl border bg-white transition ${
                           isCorrect
                             ? "border-emerald-200"
                             : isWrong
-                            ? "border-rose-200"
-                            : "border-slate-200"
+                              ? "border-rose-200"
+                              : "border-slate-200/90"
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
                           <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] font-black text-xs border border-blue-200">
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] font-bold text-xs border border-blue-200">
                               Câu {q.globalOrder}
                             </span>
                             {q.sectionTitle && (
-                              <span className="text-[11px] font-semibold text-slate-400 truncate max-w-[240px]">
+                              <span className="text-[11px] font-medium text-slate-400 truncate max-w-[240px]">
                                 {q.sectionTitle}
                               </span>
                             )}
                           </div>
 
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase border ${
                               isCorrect
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                 : isWrong
-                                ? "bg-rose-50 text-rose-700 border-rose-200"
-                                : "bg-slate-100 text-slate-600 border-slate-200"
+                                  ? "bg-rose-50 text-rose-700 border-rose-200"
+                                  : "bg-slate-100 text-slate-600 border-slate-200"
                             }`}
                           >
-                            {isCorrect ? "✓ Chính xác" : isWrong ? "✕ Chọn sai" : "○ Bỏ trống"}
+                            {isCorrect ? "Chính xác" : isWrong ? "Chọn sai" : "Bỏ trống"}
                           </span>
                         </div>
 
@@ -2325,7 +1972,7 @@ export default function AnalyticsTab({
                             <img
                               src={resolveAnalyticsImageSrc(q.image, mediaMap)}
                               alt="Hình câu hỏi"
-                              className="max-h-56 rounded-xl border border-slate-200 object-contain bg-white p-1"
+                              className="max-h-56 rounded-lg border border-slate-200 object-contain bg-white p-1"
                             />
                           </div>
                         )}
@@ -2335,9 +1982,7 @@ export default function AnalyticsTab({
                           q.options.length > 0 && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
                               {q.options.map((opt: any, oIdx: number) => {
-                                const optKey = String(
-                                  opt?.key || ["A", "B", "C", "D"][oIdx] || ""
-                                )
+                                const optKey = String(opt?.key || ["A", "B", "C", "D"][oIdx] || "")
                                   .trim()
                                   .toUpperCase();
                                 const stuPicked =
@@ -2345,27 +1990,27 @@ export default function AnalyticsTab({
                                 const isRightOpt =
                                   String(q.correctDisplay || "").trim().toUpperCase() === optKey;
 
-                                let boxStyle = "border-slate-200 bg-slate-50/60 text-slate-700";
+                                let boxStyle = "border-slate-200/90 bg-[#F8FAFC] text-slate-700";
                                 if (isRightOpt) {
                                   boxStyle =
-                                    "border-emerald-400 bg-emerald-50/90 text-emerald-900 font-bold ring-1 ring-emerald-400/30";
+                                    "border-emerald-300 bg-emerald-50/70 text-emerald-900 font-semibold";
                                 } else if (stuPicked && !isRightOpt) {
                                   boxStyle =
-                                    "border-rose-400 bg-rose-50/90 text-rose-900 font-bold ring-1 ring-rose-400/30";
+                                    "border-rose-300 bg-rose-50/70 text-rose-900 font-semibold";
                                 }
 
                                 return (
                                   <div
                                     key={optKey || oIdx}
-                                    className={`p-2 rounded-xl border text-xs flex items-start gap-2 ${boxStyle}`}
+                                    className={`p-2 rounded-lg border text-xs flex items-start gap-2 ${boxStyle}`}
                                   >
                                     <span
-                                      className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${
+                                      className={`w-5 h-5 rounded flex items-center justify-center text-[11px] font-bold shrink-0 ${
                                         isRightOpt
                                           ? "bg-emerald-600 text-white"
                                           : stuPicked
-                                          ? "bg-rose-600 text-white"
-                                          : "bg-white border border-slate-300 text-slate-600"
+                                            ? "bg-rose-600 text-white"
+                                            : "bg-white border border-slate-300 text-slate-600"
                                       }`}
                                     >
                                       {optKey}
@@ -2393,10 +2038,10 @@ export default function AnalyticsTab({
                                 return (
                                   <div
                                     key={optKey || oIdx}
-                                    className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs flex items-start justify-between gap-3"
+                                    className="p-2 rounded-lg border border-slate-200/90 bg-[#F8FAFC] text-xs flex items-start justify-between gap-3"
                                   >
                                     <div className="flex items-start gap-2 min-w-0">
-                                      <span className="font-black text-slate-700 shrink-0">
+                                      <span className="font-bold text-slate-700 shrink-0">
                                         {optKey})
                                       </span>
                                       <AnalyticsRichContent
@@ -2414,12 +2059,12 @@ export default function AnalyticsTab({
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-slate-500 font-medium">Học sinh chọn:</span>
                             <span
-                              className={`px-2 py-0.5 rounded-md font-extrabold border ${
+                              className={`px-2 py-0.5 rounded font-semibold border ${
                                 isCorrect
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                   : isWrong
-                                  ? "bg-rose-50 text-rose-700 border-rose-300"
-                                  : "bg-slate-100 text-slate-600 border-slate-300"
+                                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                                    : "bg-slate-100 text-slate-600 border-slate-200"
                               }`}
                             >
                               {q.stuDisplay}
@@ -2428,16 +2073,16 @@ export default function AnalyticsTab({
 
                           <div className="flex items-center gap-2">
                             <span className="text-slate-500 font-medium">Đáp án đúng:</span>
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-extrabold">
+                            <span className="px-2 py-0.5 rounded bg-emerald-600 text-white font-semibold">
                               {q.correctDisplay}
                             </span>
                           </div>
                         </div>
 
                         {(q.solution_html || q.solution || q.explanation) && (
-                          <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700">
-                            <div className="font-extrabold text-amber-800 mb-1 flex items-center gap-1.5">
-                              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                          <div className="mt-2.5 p-2.5 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-xs text-slate-700">
+                            <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8]" />
                               <span>Lời giải chi tiết:</span>
                             </div>
                             <AnalyticsRichContent
