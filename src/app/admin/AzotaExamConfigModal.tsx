@@ -1,12 +1,45 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { 
-  Loader2, Layers, CheckCircle2, XCircle, PenTool, CircleDot, 
-  CheckSquare, AlignLeft, Edit3, Sigma, Eye, AlertTriangle, 
-  ArrowRight, ArrowLeft, Settings2, Clock, Play, Sparkles, X, Link as LinkIcon, Video,
-  BookOpen, ChevronDown, ChevronUp, Check, RefreshCw, FolderCheck, ImagePlus, Calculator, Wand2, Percent, FileText,
-  Hash, Lock, Unlock, Plus, FilePlus2, Trash2
+import {
+  Loader2,
+  Layers,
+  CheckCircle2,
+  XCircle,
+  PenTool,
+  CircleDot,
+  CheckSquare,
+  AlignLeft,
+  Edit3,
+  Sigma,
+  Eye,
+  AlertTriangle,
+  ArrowRight,
+  ArrowLeft,
+  Settings2,
+  Clock,
+  Play,
+  Sparkles,
+  X,
+  Link as LinkIcon,
+  Video,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Check,
+  RefreshCw,
+  FolderCheck,
+  ImagePlus,
+  Calculator,
+  Wand2,
+  Percent,
+  FileText,
+  Hash,
+  Lock,
+  Unlock,
+  Plus,
+  FilePlus2,
+  Trash2
 } from "lucide-react";
 import katex from "katex";
 import JSZip from "jszip";
@@ -15,7 +48,7 @@ import { QuestionType, QuestionOption, ParsedQuestion, ExamSection, ExamSettings
 export const PRACTICE_CATEGORIES = [
   "ĐGNL HSA (ĐHQGHN)",
   "ĐGTD TSA (ĐHBK)",
-  "Tốt Nghiệp THPT", 
+  "Tốt Nghiệp THPT",
   "Giữa Kì 1",
   "Học Kì 1",
   "Giữa Kì 2",
@@ -28,7 +61,7 @@ export const HSA_PART_KEYS_ORDER: HsaPartKey[] = [
   "quant",
   "qual",
   "english",
-  "history_geo",
+  "history_geo"
 ];
 
 export const HSA_PART_CONFIG: Record<
@@ -47,48 +80,48 @@ export const HSA_PART_CONFIG: Record<
 > = {
   quant: {
     key: "quant",
-    badgeLabel: "Phần 1 • Bắt buộc",
+    badgeLabel: "Phần 1 (Bắt buộc)",
     cardTitle: "Toán học & Xử lý số liệu",
-    label: "Phần 1: Tư duy Định lượng (Toán học & Xử lý số liệu - 75 phút - 50 điểm)",
+    label: "Phần 1 (Bắt buộc) • Toán học & Xử lý số liệu (75p • 50đ)",
     shortTitle: "Tư duy Định lượng",
     headerTitle: "TOÁN HỌC & XỬ LÝ SỐ LIỆU",
     defaultDuration: 75,
     maxPoints: 50,
-    order: 1,
+    order: 1
   },
   qual: {
     key: "qual",
-    badgeLabel: "Phần 2 • Bắt buộc",
+    badgeLabel: "Phần 2 (Bắt buộc)",
     cardTitle: "Ngôn ngữ - Văn học",
-    label: "Phần 2: Tư duy Định tính (Ngôn ngữ - Văn học - 60 phút - 50 điểm)",
+    label: "Phần 2 (Bắt buộc) • Ngôn ngữ - Văn học (60p • 50đ)",
     shortTitle: "Tư duy Định tính",
     headerTitle: "NGÔN NGỮ - VĂN HỌC",
     defaultDuration: 60,
     maxPoints: 50,
-    order: 2,
+    order: 2
   },
   english: {
     key: "english",
-    badgeLabel: "Phần 3 • Tự chọn A",
+    badgeLabel: "Phần 3 (Tự chọn A)",
     cardTitle: "Tiếng Anh",
-    label: "Phần 3 (Tự chọn 1): Tiếng Anh (60 phút - 50 điểm)",
+    label: "Phần 3 (Tự chọn A) • Tiếng Anh (60p • 50đ)",
     shortTitle: "Tự chọn 1: Tiếng Anh",
     headerTitle: "TIẾNG ANH",
     defaultDuration: 60,
     maxPoints: 50,
-    order: 3,
+    order: 3
   },
   history_geo: {
     key: "history_geo",
-    badgeLabel: "Phần 3 • Tự chọn B",
-    cardTitle: "Khoa học: Lịch sử - Địa lý",
-    label: "Phần 3 (Tự chọn 2): Khoa học (Lịch sử - Địa lý - 60 phút - 50 điểm)",
+    badgeLabel: "Phần 3 (Tự chọn B)",
+    cardTitle: "Lịch sử - Địa lý",
+    label: "Phần 3 (Tự chọn B) • Lịch sử - Địa lý (60p • 50đ)",
     shortTitle: "Tự chọn 2: Khoa học (Sử - Địa)",
     headerTitle: "KHOA HỌC (LỊCH SỬ - ĐỊA LÝ)",
     defaultDuration: 60,
     maxPoints: 50,
-    order: 4,
-  },
+    order: 4
+  }
 };
 
 export interface ExtendedParsedQuestion extends ParsedQuestion {
@@ -129,20 +162,32 @@ function isCleanLatex(latex: string): boolean {
   const trimmed = latex.trim();
   if (trimmed.length < 1) return false;
 
-  if (trimmed === "()" || trimmed === "[]" || trimmed === "{}" || trimmed === "\\left(\\right)" || trimmed === "$$") {
+  if (
+    trimmed === "()" ||
+    trimmed === "[]" ||
+    trimmed === "{}" ||
+    trimmed === "\\left(\\right)" ||
+    trimmed === "$$"
+  ) {
     return false;
   }
 
-  if (/MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(trimmed)) {
+  if (
+    /MathType|DSMT|WinAllBasic|Courier|MTExtra|CompObj|OleObject|Times New Roman|Symbol|Word\.Document/i.test(
+      trimmed
+    )
+  ) {
     return false;
   }
 
   for (let i = 0; i < trimmed.length; i++) {
     const code = trimmed.charCodeAt(i);
-    if ((code >= 0x4e00 && code <= 0x9fff) || 
-        (code >= 0x3400 && code <= 0x4dbf) || 
-        (code >= 0x3040 && code <= 0x30ff) || 
-        (code >= 0xac00 && code <= 0xd7af)) {
+    if (
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0x3040 && code <= 0x30ff) ||
+      (code >= 0xac00 && code <= 0xd7af)
+    ) {
       return false;
     }
   }
@@ -154,48 +199,98 @@ function convertOmmlToLatex(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
   const el = node as Element;
   const name = el.localName || el.nodeName?.split(":").pop() || "";
-  
+
   if (name === "t") return el.textContent || "";
-  
+
   if (name === "f") {
-    const num = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "").includes("num")) as any;
-    const den = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "").includes("den")) as any;
-    return "\\frac{" + (num ? convertOmmlToLatex(num) : "") + "}{" + (den ? convertOmmlToLatex(den) : "") + "}";
+    const num = Array.from(el.childNodes).find((n: any) =>
+      (n.localName || n.nodeName || "").includes("num")
+    ) as any;
+    const den = Array.from(el.childNodes).find((n: any) =>
+      (n.localName || n.nodeName || "").includes("den")
+    ) as any;
+    return (
+      "\\frac{" +
+      (num ? convertOmmlToLatex(num) : "") +
+      "}{" +
+      (den ? convertOmmlToLatex(den) : "") +
+      "}"
+    );
   }
-  
+
   if (name === "sSup") {
-    const e = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
-    const sup = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "sup") as any;
-    return "{" + (e ? convertOmmlToLatex(e) : "") + "}^{" + (sup ? convertOmmlToLatex(sup) : "") + "}";
+    const e = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "e"
+    ) as any;
+    const sup = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "sup"
+    ) as any;
+    return (
+      "{" +
+      (e ? convertOmmlToLatex(e) : "") +
+      "}^{" +
+      (sup ? convertOmmlToLatex(sup) : "") +
+      "}"
+    );
   }
-  
+
   if (name === "sSub") {
-    const e = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
-    const sub = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "sub") as any;
-    return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}";
+    const e = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "e"
+    ) as any;
+    const sub = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "sub"
+    ) as any;
+    return (
+      "{" +
+      (e ? convertOmmlToLatex(e) : "") +
+      "}_{" +
+      (sub ? convertOmmlToLatex(sub) : "") +
+      "}"
+    );
   }
-  
+
   if (name === "sSubSup") {
-    const e = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
-    const sub = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "sub") as any;
-    const sup = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "sup") as any;
-    return "{" + (e ? convertOmmlToLatex(e) : "") + "}_{" + (sub ? convertOmmlToLatex(sub) : "") + "}^{" + (sup ? convertOmmlToLatex(sup) : "") + "}";
+    const e = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "e"
+    ) as any;
+    const sub = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "sub"
+    ) as any;
+    const sup = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "sup"
+    ) as any;
+    return (
+      "{" +
+      (e ? convertOmmlToLatex(e) : "") +
+      "}_{" +
+      (sub ? convertOmmlToLatex(sub) : "") +
+      "}^{" +
+      (sup ? convertOmmlToLatex(sup) : "") +
+      "}"
+    );
   }
-  
+
   if (name === "d") {
-    const e = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
+    const e = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "e"
+    ) as any;
     const inner = e ? convertOmmlToLatex(e).trim() : "";
     if (!inner) return "";
     return "\\left(" + inner + "\\right)";
   }
-  
+
   if (name === "rad") {
-    const degNode = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "").includes("deg")) as any;
-    const eNode = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
-    
+    const degNode = Array.from(el.childNodes).find((n: any) =>
+      (n.localName || n.nodeName || "").includes("deg")
+    ) as any;
+    const eNode = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "e"
+    ) as any;
+
     const degStr = degNode ? convertOmmlToLatex(degNode).trim() : "";
     const eStr = eNode ? convertOmmlToLatex(eNode).trim() : "";
-    
+
     if (degStr && degStr !== "") {
       return "\\sqrt[" + degStr + "]{" + eStr + "}";
     }
@@ -203,16 +298,20 @@ function convertOmmlToLatex(node: Node): string {
   }
 
   if (name === "acc") {
-    const e = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
+    const e = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "e"
+    ) as any;
     const inner = e ? convertOmmlToLatex(e).trim() : "";
     return "\\vec{" + inner + "}";
   }
 
   if (name === "bar") {
-    const e = Array.from(el.childNodes).find((n: any) => (n.localName || n.nodeName || "") === "e") as any;
+    const e = Array.from(el.childNodes).find(
+      (n: any) => (n.localName || n.nodeName || "") === "e"
+    ) as any;
     return "\\overline{" + (e ? convertOmmlToLatex(e) : "") + "}";
   }
-  
+
   let str = "";
   for (let i = 0; i < el.childNodes.length; i++) {
     str += convertOmmlToLatex(el.childNodes[i]);
@@ -243,16 +342,44 @@ class MTEFStreamReader {
 }
 
 const SYMBOL_MAP: Record<number, string> = {
-  0x03B1: "\\alpha", 0x03B2: "\\beta", 0x03B3: "\\gamma", 0x03B4: "\\delta",
-  0x03C0: "\\pi", 0x03B8: "\\theta", 0x03BB: "\\lambda", 0x03BC: "\\mu",
-  0x03C3: "\\sigma", 0x03C9: "\\omega", 0x0394: "\\Delta", 0x03A9: "\\Omega",
-  0x00B1: "\\pm ", 0x00D7: "\\times ", 0x00F7: "\\div ", 0x2264: "\\le ",
-  0x2265: "\\ge ", 0x2260: "\\ne ", 0x221E: "+\\infty ", 0x2208: "\\in ",
-  0x2192: "\\to ", 0x21D2: "\\Rightarrow ", 0x2248: "\\approx ",
-  0x2205: "\\emptyset ", 0x2229: "\\cap ", 0x222A: "\\cup ",
-  0x2212: "-", 0x2013: "-", 0x2014: "-", 0x003E: ">", 0x003C: "<",
-  0x003B: "; ", 0x002C: ", ", 0x2225: "\\parallel ", 0x22A5: "\\perp ",
-  0x2220: "\\angle ", 0x00B0: "^\\circ ", 0x2216: "\\setminus "
+  0x03b1: "\\alpha",
+  0x03b2: "\\beta",
+  0x03b3: "\\gamma",
+  0x03b4: "\\delta",
+  0x03c0: "\\pi",
+  0x03b8: "\\theta",
+  0x03bb: "\\lambda",
+  0x03bc: "\\mu",
+  0x03c3: "\\sigma",
+  0x03c9: "\\omega",
+  0x0394: "\\Delta",
+  0x03a9: "\\Omega",
+  0x00b1: "\\pm ",
+  0x00d7: "\\times ",
+  0x00f7: "\\div ",
+  0x2264: "\\le ",
+  0x2265: "\\ge ",
+  0x2260: "\\ne ",
+  0x221e: "+\\infty ",
+  0x2208: "\\in ",
+  0x2192: "\\to ",
+  0x21d2: "\\Rightarrow ",
+  0x2248: "\\approx ",
+  0x2205: "\\emptyset ",
+  0x2229: "\\cap ",
+  0x222a: "\\cup ",
+  0x2212: "-",
+  0x2013: "-",
+  0x2014: "-",
+  0x003e: ">",
+  0x003c: "<",
+  0x003b: "; ",
+  0x002c: ", ",
+  0x2225: "\\parallel ",
+  0x22a5: "\\perp ",
+  0x2220: "\\angle ",
+  0x00b0: "^\\circ ",
+  0x2216: "\\setminus "
 };
 
 function decodeMtefToLatex(uint8: Uint8Array): string {
@@ -262,10 +389,13 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
 
   const searchBoundary = uint8.length - 12;
   for (let i = 0; i < searchBoundary; i++) {
-    if ((uint8[i] === 2 || uint8[i] === 3 || uint8[i] === 5) && 
-        (uint8[i + 1] === 0 || uint8[i + 1] === 1) && 
-        (uint8[i + 2] === 0 || uint8[i + 2] === 1) && 
-        uint8[i + 3] >= 1 && uint8[i + 3] <= 15) {
+    if (
+      (uint8[i] === 2 || uint8[i] === 3 || uint8[i] === 5) &&
+      (uint8[i + 1] === 0 || uint8[i + 1] === 1) &&
+      (uint8[i + 2] === 0 || uint8[i + 2] === 1) &&
+      uint8[i + 3] >= 1 &&
+      uint8[i + 3] <= 15
+    ) {
       start = i;
       break;
     }
@@ -274,7 +404,7 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
   if (start === -1) {
     const deepBoundary = uint8.length - 24;
     for (let i = 0; i < deepBoundary; i++) {
-      if (uint8[i] === 0x1C && uint8[i + 1] === 0x00) {
+      if (uint8[i] === 0x1c && uint8[i + 1] === 0x00) {
         for (let j = i; j < Math.min(uint8.length - 6, i + 64); j++) {
           if (uint8[j] === 2 || uint8[j] === 3 || uint8[j] === 5) {
             start = j;
@@ -306,21 +436,29 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
     while (reader.hasMore()) {
       const tag = reader.readByte();
       if (tag === 0) break;
-      const recType = tag & 0x0F;
-      const opts = version >= 5 ? reader.readByte() : (tag >> 4);
+      const recType = tag & 0x0f;
+      const opts = version >= 5 ? reader.readByte() : tag >> 4;
 
-      if (recType === 1) { 
-        if (opts & 0x08) { reader.readByte(); reader.readByte(); }
-        if (opts & 0x04) { reader.readByte(); }
+      if (recType === 1) {
+        if (opts & 0x08) {
+          reader.readByte();
+          reader.readByte();
+        }
+        if (opts & 0x04) {
+          reader.readByte();
+        }
         res.push(parseLine());
-      } else if (recType === 2) { 
-        if (opts & 0x08) { reader.readByte(); reader.readByte(); }
+      } else if (recType === 2) {
+        if (opts & 0x08) {
+          reader.readByte();
+          reader.readByte();
+        }
         reader.readByte();
         let chCode = 0;
         if (version >= 5) {
           chCode = reader.readUint16();
         } else {
-          chCode = (opts & 0x01) ? reader.readUint16() : reader.readByte();
+          chCode = opts & 0x01 ? reader.readUint16() : reader.readByte();
         }
 
         if (opts & 0x02) {
@@ -332,44 +470,47 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
           res.push(SYMBOL_MAP[chCode]);
         } else if (chCode >= 32 && chCode <= 126) {
           res.push(String.fromCharCode(chCode));
-        } else if (chCode === 0xBA) {
+        } else if (chCode === 0xba) {
           res.push("\\equiv ");
-        } else if (chCode >= 0x0370 && chCode <= 0x03FF) {
+        } else if (chCode >= 0x0370 && chCode <= 0x03ff) {
           res.push(String.fromCharCode(chCode));
-        } else if (chCode >= 0x2000 && chCode <= 0x22FF) {
+        } else if (chCode >= 0x2000 && chCode <= 0x22ff) {
           res.push(String.fromCharCode(chCode));
         }
-      } else if (recType === 3) { 
-        if (opts & 0x08) { reader.readByte(); reader.readByte(); }
+      } else if (recType === 3) {
+        if (opts & 0x08) {
+          reader.readByte();
+          reader.readByte();
+        }
         const selector = reader.readByte();
         const variation = version >= 5 ? reader.readUint16() : reader.readByte();
 
-        if (selector === 0 || selector === 1) { 
+        if (selector === 0 || selector === 1) {
           const inner = parseLine().trim();
           if (inner) res.push("\\left(" + inner + "\\right)");
-        } else if (selector === 2) { 
+        } else if (selector === 2) {
           const inner = parseLine().trim();
           if (inner) res.push("\\left\\{" + inner + "\\right\\}");
-        } else if (selector === 3) { 
+        } else if (selector === 3) {
           const inner = parseLine().trim();
           if (inner) res.push("\\left[" + inner + "\\right]");
-        } else if (selector === 4) { 
+        } else if (selector === 4) {
           const inner = parseLine().trim();
           if (inner) res.push("\\left|" + inner + "\\right|");
-        } else if (selector === 10 || selector === 13) { 
-          if (variation === 1) { 
+        } else if (selector === 10 || selector === 13) {
+          if (variation === 1) {
             const deg = parseLine();
             const rad = parseLine();
             res.push("\\sqrt[" + deg + "]{" + (rad || "") + "}");
-          } else { 
+          } else {
             const rad = parseLine();
             res.push("\\sqrt{" + (rad || "") + "}");
           }
-        } else if (selector === 11 || selector === 14) { 
+        } else if (selector === 11 || selector === 14) {
           const num = parseLine();
           const den = parseLine();
           res.push("\\frac{" + num + "}{" + den + "}");
-        } else if (selector === 15 || selector === 27 || selector === 28 || selector === 29) { 
+        } else if (selector === 15 || selector === 27 || selector === 28 || selector === 29) {
           if (variation === 0 || selector === 28) {
             const sup = parseLine();
             res.push("^{" + sup + "}");
@@ -381,28 +522,28 @@ function decodeMtefToLatex(uint8: Uint8Array): string {
             const sup = parseLine();
             res.push("_{" + sub + "}^{" + sup + "}");
           }
-        } else if (selector === 19) { 
+        } else if (selector === 19) {
           const body = parseLine().trim();
           res.push("\\vec{" + body + "}");
-        } else if (selector === 15) { 
+        } else if (selector === 15) {
           const body = parseLine();
           res.push("\\int " + body);
-        } else if (selector === 16) { 
+        } else if (selector === 16) {
           const body = parseLine();
           res.push("\\sum " + body);
-        } else { 
+        } else {
           const inner = parseLine();
           if (inner) res.push(inner);
         }
-      } else if (recType === 4) { 
+      } else if (recType === 4) {
         const lines: string[] = [];
         while (reader.hasMore()) {
           const t = reader.readByte();
           if (t === 0) break;
-          if ((t & 0x0F) === 1) lines.push(parseLine());
+          if ((t & 0x0f) === 1) lines.push(parseLine());
         }
         res.push(lines.join(" "));
-      } else if (recType === 6) { 
+      } else if (recType === 6) {
         const embType = reader.readByte();
         if (embType === 5 || embType === 4) res.push("'");
         else if (embType === 6) res.push("''");
@@ -442,12 +583,15 @@ export function repairMathTypeGlitch(raw: string): string {
   text = text.replace(/(\\right\))\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
   text = text.replace(/([0-9a-zA-Z\)])\s*\\\{([0-9a-zA-Z\s;,]+)\\\}/g, "$1 \\setminus \\{$2\\}");
 
-  text = text.replace(/(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g, (match, v1, v2, v3, v4) => {
-    if (v3) {
-      return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} + \\vec{" + v3 + "} = \\vec{" + v4 + "}$";
+  text = text.replace(
+    /(?:\$)?\b([A-Z]{2}(?:')?)\s*\+\s*([A-Z]{2}(?:')?)(?:\s*\+\s*([A-Z]{2}(?:')?))?\s*=\s*([A-Z]{2}(?:')?)\b(?:\$)?/g,
+    (match, v1, v2, v3, v4) => {
+      if (v3) {
+        return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} + \\vec{" + v3 + "} = \\vec{" + v4 + "}$";
+      }
+      return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} = \\vec{" + v4 + "}$";
     }
-    return "$\\vec{" + v1 + "} + \\vec{" + v2 + "} = \\vec{" + v4 + "}$";
-  });
+  );
 
   text = text.replace(/([a-zA-Z0-9\)\}])\s*>>\s*(\$|\s|\.|\,|$)/g, "$1 > 0$2");
   text = text.replace(/([a-zA-Z0-9\)\}])\s*><\s*(\$|\s|\.|\,|$)/g, "$1 < 0$2");
@@ -529,7 +673,7 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
 
   if (relsFile) {
     const xml = new DOMParser().parseFromString(await relsFile.async("string"), "text/xml");
-    Array.from(xml.getElementsByTagName("Relationship")).forEach(rel => {
+    Array.from(xml.getElementsByTagName("Relationship")).forEach((rel) => {
       const id = rel.getAttribute("Id");
       const target = rel.getAttribute("Target");
       if (id && target) relsMap[id] = target.replace(/^media\//, "word/media/");
@@ -541,7 +685,7 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
   const relIdToToken: Record<string, string> = {};
 
   for (const [rId, path] of Object.entries(relsMap)) {
-    const zipPath = path.startsWith("word/") ? path : ("word/" + path);
+    const zipPath = path.startsWith("word/") ? path : "word/" + path;
     const fileEntry = zip.files[zipPath];
     if (fileEntry && /\.(png|jpe?g|gif|webp|svg)$/i.test(zipPath)) {
       if (!pathToToken[zipPath]) {
@@ -551,10 +695,9 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
         else if (zipPath.toLowerCase().endsWith("svg")) ext = "svg+xml";
         else if (zipPath.toLowerCase().endsWith("webp")) ext = "webp";
         else if (zipPath.toLowerCase().endsWith("gif")) ext = "gif";
-        
-        const key = keyPrefix + (imgCount++);
+
+        const key = keyPrefix + imgCount++;
         const rawDataUrl = `data:image/${ext};base64,${b64}`;
-        // NÉN ẢNH NHẸ ĐỂ GIẢM 80-90% DUNG LƯỢNG LƯU SUPABASE
         mediaMap[key] = await compressBase64Image(rawDataUrl, 650, 0.65);
         pathToToken[zipPath] = "[img:$" + key + "$]";
       }
@@ -564,7 +707,7 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
 
   const oleCache: Record<string, string> = {};
   for (const [rId, path] of Object.entries(relsMap)) {
-    const zipPath = path.startsWith("word/") ? path : ("word/" + path);
+    const zipPath = path.startsWith("word/") ? path : "word/" + path;
     if (/embeddings\/oleObject\d*\.bin$/i.test(zipPath)) {
       const fileEntry = zip.files[zipPath];
       if (fileEntry) {
@@ -586,7 +729,14 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
     for (const el of allDescendants) {
       const tag = (el.localName || el.nodeName).toLowerCase();
       if (tag.includes("oleobject")) {
-        oleRId = el.getAttribute("r:id") || el.getAttribute("id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || "";
+        oleRId =
+          el.getAttribute("r:id") ||
+          el.getAttribute("id") ||
+          el.getAttributeNS(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            "id"
+          ) ||
+          "";
       }
     }
 
@@ -603,7 +753,17 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
     }
 
     for (const el of allDescendants) {
-      const rId = el.getAttribute("r:id") || el.getAttribute("r:embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed");
+      const rId =
+        el.getAttribute("r:id") ||
+        el.getAttribute("r:embed") ||
+        el.getAttributeNS(
+          "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+          "id"
+        ) ||
+        el.getAttributeNS(
+          "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+          "embed"
+        );
       if (rId && relIdToToken[rId]) {
         return " " + relIdToToken[rId] + " ";
       }
@@ -627,14 +787,24 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
         if (latex) line += " $" + latex + "$ ";
         return;
       }
-      
+
       if (name === "object") {
         line += processOleObject(el);
         return;
       }
-      
+
       if (name === "blip" || name === "imagedata") {
-        const rId = el.getAttribute("r:embed") || el.getAttribute("r:id") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || el.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+        const rId =
+          el.getAttribute("r:embed") ||
+          el.getAttribute("r:id") ||
+          el.getAttributeNS(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            "embed"
+          ) ||
+          el.getAttributeNS(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+            "id"
+          );
         if (rId && relIdToToken[rId]) {
           line += " " + relIdToToken[rId] + " ";
         }
@@ -659,7 +829,7 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
   const body = docXml.getElementsByTagName("w:body")[0] || docXml.documentElement;
 
   const traverseNodes = (parent: Element) => {
-    Array.from(parent.childNodes).forEach(node => {
+    Array.from(parent.childNodes).forEach((node) => {
       if (node.nodeType !== Node.ELEMENT_NODE) return;
       const el = node as Element;
       const name = el.localName || el.nodeName?.split(":").pop() || "";
@@ -669,12 +839,12 @@ export async function extractDocxDirectly(file: File, keyPrefix: string = "img_"
         if (line) rawLines.push(repairMathTypeGlitch(line));
       } else if (name === "tbl") {
         const rows = Array.from(el.getElementsByTagNameNS("*", "tr"));
-        rows.forEach(tr => {
+        rows.forEach((tr) => {
           const cells = Array.from(tr.getElementsByTagNameNS("*", "tc"));
           const cellTexts: string[] = [];
-          cells.forEach(tc => {
+          cells.forEach((tc) => {
             const pList = Array.from(tc.getElementsByTagNameNS("*", "p"));
-            const pTexts = pList.map(p => processParagraphNode(p as Element)).filter(Boolean);
+            const pTexts = pList.map((p) => processParagraphNode(p as Element)).filter(Boolean);
             if (pTexts.length > 0) cellTexts.push(pTexts.join(" "));
           });
           if (cellTexts.length > 0) {
@@ -703,7 +873,7 @@ export function autoNormalizeQuestions(rawText: string): string {
 
   let globalCount = 1;
   text = text.replace(/(?:^|[\r\n]+)\s*(?:Câu|Bài|Question)\s*\d+[:.\-\)]?\s*/gi, () => {
-    return "\n\nCâu " + (globalCount++) + ": ";
+    return "\n\nCâu " + globalCount++ + ": ";
   });
 
   return text.trim();
@@ -718,8 +888,10 @@ export function normalizeOptionsSmart(text: string): string {
   return res;
 }
 
-const SECTION_HEADER_REGEX = /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+)|(?:I{1,3}|IV)\.)\s*[:\-]?[^\r\n]*)/gi;
-const PASSAGE_BLOCK_REGEX = /\[(?:NGU_LIEU|NGỮ_LIỆU|NGU\s*LIEU|NGỮ\s*LIỆU|PASSAGE)\]([\s\S]*?)\[\/(?:NGU_LIEU|NGỮ_LIỆU|NGU\s*LIEU|NGỮ\s*LIỆU|PASSAGE)\]/gi;
+const SECTION_HEADER_REGEX =
+  /(?:^|[\r\n]+)\s*((?:(?:Phần|PHẦN)\s*(?:[IVX]+|\d+)|(?:I{1,3}|IV)\.)\s*[:\-]?[^\r\n]*)/gi;
+const PASSAGE_BLOCK_REGEX =
+  /\[(?:NGU_LIEU|NGỮ_LIỆU|NGU\s*LIEU|NGỮ\s*LIỆU|PASSAGE)\]([\s\S]*?)\[\/(?:NGU_LIEU|NGỮ_LIỆU|NGU\s*LIEU|NGỮ\s*LIỆU|PASSAGE)\]/gi;
 
 // Regex nhận diện "Câu hỏi chùm:", "Hết câu hỏi chùm", "=== Hết câu hỏi chùm ===" và "Câu đơn:"
 const GROUP_START_LINE_REGEX = /^\s*(?:\*{1,2})?Câu\s*hỏi\s*chùm\s*:\s*(?:\*{1,2})?(.*)$/i;
@@ -732,11 +904,16 @@ function getSectionTypeFromTitle(title: string): QuestionType {
   return "multiple_choice";
 }
 
-function processBodyAndNumberQuestions(text: string, startQIdx: number, secType: QuestionType): { labeledText: string; nextQIdx: number } {
+function processBodyAndNumberQuestions(
+  text: string,
+  startQIdx: number,
+  secType: QuestionType
+): { labeledText: string; nextQIdx: number } {
   let norm = normalizeOptionsSmart(text);
 
   if (secType === "true_false") {
-    norm = norm.replace(/((?:^|[\r\n]+)Câu\s*\d+[:.\s]+[\s\S]*?)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)(?=[\r\n]+(?:Lời\s*giải|Đáp\s*án|Câu|$))/gi, 
+    norm = norm.replace(
+      /((?:^|[\r\n]+)Câu\s*\d+[:.\s]+[\s\S]*?)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)([\r\n]+)(?![a-d]\))([^\r\n]+)(?=[\r\n]+(?:Lời\s*giải|Đáp\s*án|Câu|$))/gi,
       (m, head, r1, l1, r2, l2, r3, l3, r4, l4) => {
         if (/Lời\s*giải|Đáp\s*án|Chọn/i.test(l1)) return m;
         return head + "\na) " + l1 + "\nb) " + l2 + "\nc) " + l3 + "\nd) " + l4;
@@ -749,14 +926,17 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
     let cur = startQIdx;
     const updated = norm.replace(
       /(?:^|[\r\n]+)\s*(?:Câu|Bài|Question)\s*\d+[:.]?\s*/gi,
-      () => "\n\nCâu " + (cur++) + ": \n"
+      () => "\n\nCâu " + cur++ + ": \n"
     );
     return { labeledText: updated.trim(), nextQIdx: cur };
   }
 
   // Bảo toàn khối [NGU_LIEU]...[/NGU_LIEU] đặt trước Câu hỏi đầu tiên của đoạn (100% logic cũ khi không có Câu hỏi chùm:)
   const qSplitRegex = /(?:^|[\r\n]+)(?=(?:Câu|Bài|Question)\s*\d+[:.]?\s*)/gi;
-  const rawPieces = norm.split(qSplitRegex).map(s => s.trim()).filter(Boolean);
+  const rawPieces = norm
+    .split(qSplitRegex)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   if (rawPieces.length > 0) {
     let cur = startQIdx;
@@ -770,7 +950,7 @@ function processBodyAndNumberQuestions(text: string, startQIdx: number, secType:
           ? pendingPrefixPassage + "\n" + bodyWithoutHeader
           : bodyWithoutHeader;
         pendingPrefixPassage = "";
-        pieces.push("Câu " + (cur++) + ": \n" + combined);
+        pieces.push("Câu " + cur++ + ": \n" + combined);
       } else {
         pendingPrefixPassage = pendingPrefixPassage
           ? pendingPrefixPassage + "\n\n" + chunk
@@ -853,10 +1033,14 @@ function parseSingleQuestionChunk(
     (extractedPassages.length > 0 ? extractedPassages.join("\n\n") : undefined);
 
   const cleanChunk = (norm || "")
-    .replace(/^\s*(?:\*{1,2})?(?:(?:Câu|Bài|Question)\s*\d+[:.\-\)]?|\d+[\.:\)])\s*(?:\*{1,2})?[:.\-\s]*/gi, "")
+    .replace(
+      /^\s*(?:\*{1,2})?(?:(?:Câu|Bài|Question)\s*\d+[:.\-\)]?|\d+[\.:\)])\s*(?:\*{1,2})?[:.\-\s]*/gi,
+      ""
+    )
     .trim();
 
-  const solRegex = /(?:[\r\n]+|^)\s*(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|Hươ\u0301ng\s*dâ\u0303n\s*giải|HDG|Giải\s*:|LỜI\s*GIẢI)\b/gi;
+  const solRegex =
+    /(?:[\r\n]+|^)\s*(?:Lời\s*giải|Lơ\u0300i\s*giải|Hướng\s*dẫn\s*giải|Hươ\u0301ng\s*dâ\u0303n\s*giải|HDG|Giải\s*:|LỜI\s*GIẢI)\b/gi;
   const solMatch = solRegex.exec(cleanChunk);
 
   let promptAndOpts = cleanChunk;
@@ -866,14 +1050,20 @@ function parseSingleQuestionChunk(
     solutionText = cleanChunk.slice(solMatch.index).trim();
   }
 
-  const uniqueId = "sec-" + sectionIndex + "-q-" + qIndex + "-" + Math.random().toString(36).substring(2, 8);
+  const uniqueId =
+    "sec-" + sectionIndex + "-q-" + qIndex + "-" + Math.random().toString(36).substring(2, 8);
 
   if (sectionType === "true_false") {
     const tfOptRegex = /(?:^|[\r\n\t\s])([a-d])[\.\)]\s*/gim;
     const tfMatches: { key: string; start: number; end: number }[] = [];
     let tm: RegExpExecArray | null;
     while ((tm = tfOptRegex.exec(promptAndOpts)) !== null) {
-      if (tm[1]) tfMatches.push({ key: tm[1].toLowerCase(), start: tm.index, end: tm.index + tm[0].length });
+      if (tm[1])
+        tfMatches.push({
+          key: tm[1].toLowerCase(),
+          start: tm.index,
+          end: tm.index + tm[0].length
+        });
     }
 
     const options: QuestionOption[] = [
@@ -886,10 +1076,12 @@ function parseSingleQuestionChunk(
     let promptHtml = promptAndOpts;
     let tfAIdx = -1;
     for (let i = 0; i <= tfMatches.length - 4; i++) {
-      if (tfMatches[i].key === "a" && 
-          tfMatches[i + 1].key === "b" && 
-          tfMatches[i + 2].key === "c" && 
-          tfMatches[i + 3].key === "d") {
+      if (
+        tfMatches[i].key === "a" &&
+        tfMatches[i + 1].key === "b" &&
+        tfMatches[i + 2].key === "c" &&
+        tfMatches[i + 3].key === "d"
+      ) {
         tfAIdx = i;
         break;
       }
@@ -912,8 +1104,13 @@ function parseSingleQuestionChunk(
       for (let i = 0; i < 4; i++) {
         let t = rawOpts[i];
         let ansVal: boolean | null = null;
-        if (/\[(Đúng|Đ)\]/i.test(t)) { ansVal = true; t = t.replace(/\[(Đúng|Đ)\]/i, "").trim(); }
-        else if (/\[(Sai|S)\]/i.test(t)) { ansVal = false; t = t.replace(/\[(Sai|S)\]/i, "").trim(); }
+        if (/\[(Đúng|Đ)\]/i.test(t)) {
+          ansVal = true;
+          t = t.replace(/\[(Đúng|Đ)\]/i, "").trim();
+        } else if (/\[(Sai|S)\]/i.test(t)) {
+          ansVal = false;
+          t = t.replace(/\[(Sai|S)\]/i, "").trim();
+        }
         options[i].text_html = t;
         if (ansVal !== null) options[i].is_true_false_ans = ansVal;
       }
@@ -924,17 +1121,17 @@ function parseSingleQuestionChunk(
     if (compactAnsMatch && compactAnsMatch[1]) {
       const letters = compactAnsMatch[1].replace(/[^ĐđSsTtFf]/g, "").toUpperCase().split("");
       if (letters.length >= 4) {
-        options[0].is_true_false_ans = (letters[0] === "Đ" || letters[0] === "T");
-        options[1].is_true_false_ans = (letters[1] === "Đ" || letters[1] === "T");
-        options[2].is_true_false_ans = (letters[2] === "Đ" || letters[2] === "T");
-        options[3].is_true_false_ans = (letters[3] === "Đ" || letters[3] === "T");
+        options[0].is_true_false_ans = letters[0] === "Đ" || letters[0] === "T";
+        options[1].is_true_false_ans = letters[1] === "Đ" || letters[1] === "T";
+        options[2].is_true_false_ans = letters[2] === "Đ" || letters[2] === "T";
+        options[3].is_true_false_ans = letters[3] === "Đ" || letters[3] === "T";
       }
     }
 
     if (solutionText) {
       const solLines = solutionText.split(/[\r\n]+/);
       let foundLineIndex = 0;
-      solLines.forEach(line => {
+      solLines.forEach((line) => {
         const trimmed = line.trim();
         if (/^Đúng\s*:/i.test(trimmed) && foundLineIndex < 4) {
           options[foundLineIndex].is_true_false_ans = true;
@@ -957,7 +1154,7 @@ function parseSingleQuestionChunk(
       group_id: groupMeta?.group_id,
       group_passage: groupMeta?.group_passage,
       options,
-      correct_answer: options.map(o => (o.is_true_false_ans ? "Đ" : "S")).join(""),
+      correct_answer: options.map((o) => (o.is_true_false_ans ? "Đ" : "S")).join(""),
       solution_html: solutionText,
       points: 1.0,
       sub_percentages: { a: 25, b: 25, c: 25, d: 25 },
@@ -967,7 +1164,9 @@ function parseSingleQuestionChunk(
 
   if (sectionType === "short_answer") {
     let correctAns = "";
-    const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(cleanChunk + " " + solutionText);
+    const ansMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(
+      cleanChunk + " " + solutionText
+    );
     if (ansMatch && ansMatch[1]) {
       correctAns = ansMatch[1].replace(/Lời\s*giải.*$/i, "").trim();
     }
@@ -989,7 +1188,9 @@ function parseSingleQuestionChunk(
   }
 
   let correctAns = "A";
-  const ansMatch = /(?:Chọn|Đáp\s*án|Đáp\s*số)\s*(?:đáp\s*án\s*)?([A-D])\b/i.exec(cleanChunk + " " + solutionText);
+  const ansMatch = /(?:Chọn|Đáp\s*án|Đáp\s*số)\s*(?:đáp\s*án\s*)?([A-D])\b/i.exec(
+    cleanChunk + " " + solutionText
+  );
   if (ansMatch && ansMatch[1]) {
     correctAns = ansMatch[1].toUpperCase();
   }
@@ -999,16 +1200,22 @@ function parseSingleQuestionChunk(
   let om: RegExpExecArray | null;
   while ((om = optRegex.exec(promptAndOpts)) !== null) {
     if (om[1]) {
-      optMatches.push({ key: om[1].toUpperCase(), start: om.index, end: om.index + om[0].length });
+      optMatches.push({
+        key: om[1].toUpperCase(),
+        start: om.index,
+        end: om.index + om[0].length
+      });
     }
   }
 
   let optAIdx = -1;
   for (let i = 0; i <= optMatches.length - 4; i++) {
-    if (optMatches[i].key === "A" && 
-        optMatches[i + 1].key === "B" && 
-        optMatches[i + 2].key === "C" && 
-        optMatches[i + 3].key === "D") {
+    if (
+      optMatches[i].key === "A" &&
+      optMatches[i + 1].key === "B" &&
+      optMatches[i + 2].key === "C" &&
+      optMatches[i + 3].key === "D"
+    ) {
       optAIdx = i;
       break;
     }
@@ -1034,10 +1241,11 @@ function parseSingleQuestionChunk(
     const textC = promptAndOpts.slice(mC.end, mD.start).trim();
     const textD = promptAndOpts.slice(mD.end).trim();
 
-    const cleanOpt = (s: string) => (s || "")
-      .replace(/^\.+|\.+$/g, "")
-      .replace(/\\left\(\s*\\right\)|\(\s*\)/g, "")
-      .trim();
+    const cleanOpt = (s: string) =>
+      (s || "")
+        .replace(/^\.+|\.+$/g, "")
+        .replace(/\\left\(\s*\\right\)|\(\s*\)/g, "")
+        .trim();
 
     options[0].text_html = cleanOpt(textA);
     options[1].text_html = cleanOpt(textB);
@@ -1046,10 +1254,13 @@ function parseSingleQuestionChunk(
   } else {
     // Nếu câu hỏi không có 4 lựa chọn A, B, C, D -> Tự động nhận diện là câu trả lời ngắn (short_answer)
     // để ở Bước 2 luôn hiện ô <input type="text" placeholder="Nhập đáp án..." /> cho phép nhập trực tiếp
-    const shortAnsMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(cleanChunk + " " + solutionText);
-    const extractedShortAns = shortAnsMatch && shortAnsMatch[1]
-      ? shortAnsMatch[1].replace(/Lời\s*giải.*$/i, "").trim()
-      : "";
+    const shortAnsMatch = /(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+([^Lời\r\n]+)/i.exec(
+      cleanChunk + " " + solutionText
+    );
+    const extractedShortAns =
+      shortAnsMatch && shortAnsMatch[1]
+        ? shortAnsMatch[1].replace(/Lời\s*giải.*$/i, "").trim()
+        : "";
 
     return {
       id: uniqueId,
@@ -1057,7 +1268,9 @@ function parseSingleQuestionChunk(
       section_title: sectionTitle,
       type: "short_answer",
       original_label: "Câu " + qIndex,
-      prompt_html: promptAndOpts.replace(/(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+[^\r\n]+/gi, "").trim(),
+      prompt_html: promptAndOpts
+        .replace(/(?:Đáp\s*án|Đáp\s*số|KQ|Kết\s*quả)[:\s]+[^\r\n]+/gi, "")
+        .trim(),
       passage_html: chunkPassageHtml,
       group_id: groupMeta?.group_id,
       group_passage: groupMeta?.group_passage,
@@ -1102,7 +1315,7 @@ function propagateReadingPassages(questions: ExtendedParsedQuestion[]): Extended
     if (q.group_id && q.group_passage) {
       return {
         ...q,
-        passage_html: q.passage_html || q.group_passage,
+        passage_html: q.passage_html || q.group_passage
       };
     }
 
@@ -1115,8 +1328,10 @@ function propagateReadingPassages(questions: ExtendedParsedQuestion[]): Extended
 
     if (q.passage_html) {
       activePassage = q.passage_html;
-      activeGroupId = "grp-" + Date.now() + "-" + (passageCounter++);
-      const rangeMatch = (q.passage_html + " " + prompt).match(/(?:câu|question)\s*(\d+)\s*(?:đến|tới|\-|–|~|to)\s*(?:câu|question)?\s*(\d+)/i);
+      activeGroupId = "grp-" + Date.now() + "-" + passageCounter++;
+      const rangeMatch = (q.passage_html + " " + prompt).match(
+        /(?:câu|question)\s*(\d+)\s*(?:đến|tới|\-|–|~|to)\s*(?:câu|question)?\s*(\d+)/i
+      );
       if (rangeMatch && rangeMatch[2]) {
         activeRangeEnd = parseInt(rangeMatch[2], 10);
       } else {
@@ -1135,7 +1350,7 @@ function propagateReadingPassages(questions: ExtendedParsedQuestion[]): Extended
       prompt_html: prompt,
       passage_html: assignedPassage,
       group_id: assignedGroupId,
-      group_passage: assignedPassage,
+      group_passage: assignedPassage
     };
   });
 }
@@ -1152,7 +1367,8 @@ function parseQuestionsWithClusterSupport(
   sIdx: number
 ): ExtendedParsedQuestion[] {
   const lines = content.split(/\r?\n/);
-  const qHeaderLineRegex = /^\s*(?:\*{1,2})?(?:Câu|Bài|Question)\s*(\d+)[:.\-\)]?\s*(?:\*{1,2})?(.*)$/i;
+  const qHeaderLineRegex =
+    /^\s*(?:\*{1,2})?(?:Câu|Bài|Question)\s*(\d+)[:.\-\)]?\s*(?:\*{1,2})?(.*)$/i;
 
   let groupIdxCounter = 1;
   let currentGroupId: string | undefined = undefined;
@@ -1189,7 +1405,7 @@ function parseQuestionsWithClusterSupport(
     const groupStartMatch = line.match(GROUP_START_LINE_REGEX);
     if (groupStartMatch) {
       flushActiveQuestion();
-      currentGroupId = "grp-" + Date.now() + "-" + (groupIdxCounter++);
+      currentGroupId = "grp-" + Date.now() + "-" + groupIdxCounter++;
       currentGroupPassageLines = [];
       const afterColon = (groupStartMatch[1] || "").trim();
       if (afterColon) {
@@ -1223,7 +1439,7 @@ function parseQuestionsWithClusterSupport(
           activeQuestion = {
             qNum,
             label: "Câu " + qNum,
-            lines: [inlineQMatch[2] || ""],
+            lines: [inlineQMatch[2] || ""]
           };
         }
       }
@@ -1246,7 +1462,7 @@ function parseQuestionsWithClusterSupport(
         label: "Câu " + qNum,
         lines: [qMatch[2] || ""],
         groupId: currentGroupId,
-        groupPassage: passageStr,
+        groupPassage: passageStr
       };
       continue;
     }
@@ -1267,7 +1483,14 @@ function parseQuestionsWithClusterSupport(
       item.groupId && item.groupPassage
         ? { group_id: item.groupId, group_passage: item.groupPassage }
         : undefined;
-    const parsed = parseSingleQuestionChunk(chunkText, item.qNum, secTitle, secType, sIdx, groupMeta);
+    const parsed = parseSingleQuestionChunk(
+      chunkText,
+      item.qNum,
+      secTitle,
+      secType,
+      sIdx,
+      groupMeta
+    );
     parsed.original_label = item.label;
     return parsed;
   });
@@ -1292,7 +1515,12 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
     }
   }
 
-  const parseQuestionsFromText = (content: string, secTitle: string, secType: QuestionType, sIdx: number): ExtendedParsedQuestion[] => {
+  const parseQuestionsFromText = (
+    content: string,
+    secTitle: string,
+    secType: QuestionType,
+    sIdx: number
+  ): ExtendedParsedQuestion[] => {
     // Nếu có từ khóa "Câu hỏi chùm:", kích hoạt bộ bóc tách câu hỏi chùm chuyên biệt
     if (/câu\s*hỏi\s*chùm\s*:/i.test(content)) {
       return parseQuestionsWithClusterSupport(content, secTitle, secType, sIdx);
@@ -1305,7 +1533,12 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
 
     while ((qm = qSplitRegex.exec(content)) !== null) {
       if (qm[1]) {
-        matches.push({ index: qm.index, label: "Câu " + qm[1], fullMatch: qm[0], qNum: parseInt(qm[1], 10) });
+        matches.push({
+          index: qm.index,
+          label: "Câu " + qm[1],
+          fullMatch: qm[0],
+          qNum: parseInt(qm[1], 10)
+        });
       }
     }
 
@@ -1347,7 +1580,7 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       const secContent = readyText.slice(start, end).trim();
 
       const questions = parseQuestionsFromText(secContent, secTitle, secType, i);
-      questions.forEach(q => {
+      questions.forEach((q) => {
         q.order_index = currentGlobalNum;
         q.original_label = "Câu " + currentGlobalNum;
         currentGlobalNum++;
@@ -1360,7 +1593,12 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
       });
     }
   } else {
-    const questions = parseQuestionsFromText(readyText, "PHẦN I. TRẮC NGHIỆM", "multiple_choice", 0);
+    const questions = parseQuestionsFromText(
+      readyText,
+      "PHẦN I. TRẮC NGHIỆM",
+      "multiple_choice",
+      0
+    );
     sectionsResult = [
       {
         section_title: "PHẦN I. TRẮC NGHIỆM",
@@ -1374,15 +1612,17 @@ export function parseExamHierarchical(rawText: string): ExtendedExamSection[] {
   if (totalQ > 0) {
     const basePt = Number((10 / totalQ).toFixed(2));
     let currentSum = 0;
-    sectionsResult.forEach(sec => {
-      sec.questions.forEach(q => {
+    sectionsResult.forEach((sec) => {
+      sec.questions.forEach((q) => {
         q.points = basePt;
         currentSum += basePt;
       });
     });
     const diff = Number((10 - currentSum).toFixed(2));
     if (sectionsResult[0]?.questions[0]) {
-      sectionsResult[0].questions[0].points = Number(((sectionsResult[0].questions[0].points || 0) + diff).toFixed(2));
+      sectionsResult[0].questions[0].points = Number(
+        ((sectionsResult[0].questions[0].points || 0) + diff).toFixed(2)
+      );
     }
   }
 
@@ -1478,7 +1718,7 @@ export function buildHsaPartSectionFromText(
     points: ptPerQuestion,
     group_id: q.group_id,
     group_passage: q.group_passage || q.passage_html,
-    passage_html: q.passage_html || q.group_passage,
+    passage_html: q.passage_html || q.group_passage
   }));
 
   return {
@@ -1496,7 +1736,7 @@ export function buildHsaPartSectionFromText(
     raw_source_text: rawText,
     questions: normalizedQuestions,
     media_map: mediaMap,
-    mediaMap: mediaMap,
+    mediaMap: mediaMap
   };
 }
 
@@ -1582,9 +1822,9 @@ function normalizeExistingHsaSections(rawSections: any[]): ExtendedExamSection[]
           points: ptPerQ,
           group_id: q.group_id,
           group_passage: q.group_passage || q.passage_html,
-          passage_html: q.passage_html || q.group_passage,
+          passage_html: q.passage_html || q.group_passage
         };
-      }),
+      })
     };
   });
 }
@@ -1601,14 +1841,20 @@ export function cleanAndNormalizeMath(raw: string): string {
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math.trim() + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math.trim() + "$");
 
-  text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
-    const cleanBody = body.replace(/&/g, "").trim();
-    return "$$\\begin{cases} " + cleanBody + " \\end{cases}$$";
-  });
+  text = text.replace(
+    /\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi,
+    (_, body) => {
+      const cleanBody = body.replace(/&/g, "").trim();
+      return "$$\\begin{cases} " + cleanBody + " \\end{cases}$$";
+    }
+  );
 
-  text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => {
-    return "$$" + match + "$$";
-  });
+  text = text.replace(
+    /(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi,
+    (match) => {
+      return "$$" + match + "$$";
+    }
+  );
 
   text = text.replace(/(\\right\.)([a-zA-Z\\])/g, "$1 $2");
   text = text.replace(/([0-9a-zA-Z])(\\[a-zA-Z]+)/g, "$1 $2");
@@ -1616,13 +1862,13 @@ export function cleanAndNormalizeMath(raw: string): string {
   return text;
 }
 
-export function TokenViewer({ 
-  content, 
-  mediaMap = {}, 
-  inline = false 
-}: { 
-  content?: string; 
-  mediaMap: Record<string, string>; 
+export function TokenViewer({
+  content,
+  mediaMap = {},
+  inline = false
+}: {
+  content?: string;
+  mediaMap: Record<string, string>;
   inline?: boolean;
 }) {
   if (!content) return null;
@@ -1631,7 +1877,13 @@ export function TokenViewer({
   const parts = readyContent.split(/(\[img:[^\]]+\]|\$\$[\s\S]*?\$\$|\$[^\$]+?\$)/g);
 
   return (
-    <div className={inline ? "inline leading-relaxed text-slate-800 text-[13px] break-words" : "leading-relaxed text-slate-800 text-[14px] whitespace-pre-wrap break-words"}>
+    <div
+      className={
+        inline
+          ? "inline font-sans antialiased leading-[1.7] text-slate-900 text-[14px] break-words"
+          : "font-sans antialiased leading-[1.7] text-slate-900 text-[14.5px] whitespace-pre-wrap break-words"
+      }
+    >
       {parts.map((part, idx) => {
         if (!part) return null;
 
@@ -1641,23 +1893,26 @@ export function TokenViewer({
           if (rawKey.startsWith("$") && rawKey.endsWith("$")) {
             rawKey = rawKey.slice(1, -1);
           }
-          const isDirectUrl = rawKey.startsWith("http://") || rawKey.startsWith("https://") || rawKey.startsWith("data:");
-          const src = isDirectUrl ? rawKey : (mediaMap[rawKey] || mediaMap["$" + rawKey + "$"]);
+          const isDirectUrl =
+            rawKey.startsWith("http://") ||
+            rawKey.startsWith("https://") ||
+            rawKey.startsWith("data:");
+          const src = isDirectUrl ? rawKey : mediaMap[rawKey] || mediaMap["$" + rawKey + "$"];
           if (!src) return null;
 
           return inline ? (
-            <img 
-              key={idx} 
-              src={src} 
-              alt="Minh họa" 
-              className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white" 
+            <img
+              key={idx}
+              src={src}
+              alt="Minh họa"
+              className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-200 bg-white"
             />
           ) : (
             <div key={idx} className="my-3 text-center flex flex-col items-center justify-center">
-              <img 
-                src={src} 
-                alt="Hình minh họa đề thi" 
-                className="max-h-80 max-w-full rounded-2xl border border-slate-200/90 bg-white shadow-xs p-2 object-contain inline-block" 
+              <img
+                src={src}
+                alt="Hình minh họa đề thi"
+                className="max-h-80 max-w-full rounded-xl border border-slate-200 bg-white p-2 object-contain inline-block"
               />
             </div>
           );
@@ -1671,16 +1926,27 @@ export function TokenViewer({
 
           try {
             return (
-              <span 
-                key={idx} 
-                className={isDisplay ? "block my-2 text-center overflow-x-auto custom-scrollbar" : "inline-block align-middle px-0.5 text-[15px] font-serif"} 
-                dangerouslySetInnerHTML={{ 
-                  __html: katex.renderToString(mathStr, { displayMode: isDisplay, throwOnError: false }) 
-                }} 
+              <span
+                key={idx}
+                className={
+                  isDisplay
+                    ? "block my-2 text-center overflow-x-auto custom-scrollbar text-[15.5px]"
+                    : "inline align-baseline px-0.5 text-[15px] [&_.katex]:text-[15px]"
+                }
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(mathStr, {
+                    displayMode: isDisplay,
+                    throwOnError: false
+                  })
+                }}
               />
             );
           } catch {
-            return <span key={idx} className="text-slate-700 font-mono">{mathStr}</span>;
+            return (
+              <span key={idx} className="text-slate-700 font-mono">
+                {mathStr}
+              </span>
+            );
           }
         }
         return <span key={idx}>{part}</span>;
@@ -1707,14 +1973,14 @@ interface AzotaExamConfigModalProps {
 }
 
 export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
-  const { 
-    isOpen, 
-    file, 
-    mode, 
-    onClose, 
-    onSave, 
-    onSaveExam, 
-    onSuccess, 
+  const {
+    isOpen,
+    file,
+    mode,
+    onClose,
+    onSave,
+    onSaveExam,
+    onSuccess,
     onComplete,
     initialData,
     appendToExam
@@ -1733,6 +1999,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
   // Ngăn HSA mục tiêu khi giáo viên bấm "+ Nạp file Word" hoặc "Thay file Word" trên 1 trong 4 thẻ ngăn
   const [pendingUploadSlotKey, setPendingUploadSlotKey] = useState<HsaPartKey | null>(null);
+  const pendingUploadSlotKeyRef = useRef<HsaPartKey | null>(null);
 
   const [sections, setSections] = useState<ExtendedExamSection[]>([]);
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
@@ -1758,8 +2025,8 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const baseExam = targetBaseExam || initialData;
     const isHsaDetected = Boolean(
       targetBaseExam ||
-      baseExam?.exam_format === "hsa" ||
-      /\b(hsa|đgnl|dgnl)\b/i.test(String(baseExam?.category || baseExam?.title || ""))
+        baseExam?.exam_format === "hsa" ||
+        /\b(hsa|đgnl|dgnl)\b/i.test(String(baseExam?.category || baseExam?.title || ""))
     );
 
     // Trường hợp 1: Ghép thêm phần thi vào đề HSA đã có (hoặc chỉnh sửa đề HSA kèm file mới)
@@ -1772,11 +2039,11 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       const rawExistingSecs = Array.isArray(refExam.sections)
         ? refExam.sections
         : Array.isArray(refExam.data)
-        ? refExam.data
-        : [];
+          ? refExam.data
+          : [];
       const normalizedExisting = normalizeExistingHsaSections(rawExistingSecs);
       const existingMedia: Record<string, string> = {
-        ...(refExam.mediaMap || refExam.media_map || {}),
+        ...(refExam.mediaMap || refExam.media_map || {})
       };
       normalizedExisting.forEach((s) => {
         Object.assign(existingMedia, s.mediaMap || s.media_map || {});
@@ -1799,7 +2066,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             const newHsaSec = buildHsaPartSectionFromText(labeledText, nextPartKey, mergedMedia);
             const mergedSections = [
               ...normalizedExisting.filter((s) => s.part_key !== nextPartKey),
-              newHsaSec,
+              newHsaSec
             ].sort(
               (a, b) =>
                 (HSA_PART_CONFIG[(a.part_key as HsaPartKey) || "quant"]?.order || 99) -
@@ -1850,17 +2117,15 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       setExamTitle(initialData.title || "");
       setDuration(initialData.duration_minutes || (isHsaDetected ? 75 : 50));
       setCategory(
-        isHsaDetected
-          ? "ĐGNL HSA (ĐHQGHN)"
-          : initialData.category || PRACTICE_CATEGORIES[2]
+        isHsaDetected ? "ĐGNL HSA (ĐHQGHN)" : initialData.category || PRACTICE_CATEGORIES[2]
       );
       setExamFormat(isHsaDetected ? "hsa" : "thpt");
 
       const initSecs = Array.isArray(initialData.sections)
         ? initialData.sections
         : Array.isArray(initialData.data)
-        ? initialData.data
-        : [];
+          ? initialData.data
+          : [];
 
       if (initSecs.length > 0) {
         const readySecs = isHsaDetected ? normalizeExistingHsaSections(initSecs) : initSecs;
@@ -1890,13 +2155,13 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       const detectedPart: HsaPartKey = /lịch\s*sử|địa\s*lý|địa\s*lí|khoa\s*học/i.test(cleanFileName)
         ? "history_geo"
         : /định\s*tính|ngôn\s*ngữ|văn/i.test(cleanFileName)
-        ? "qual"
-        : /tiếng\s*anh|english/i.test(cleanFileName)
-        ? "english"
-        : "quant";
+          ? "qual"
+          : /tiếng\s*anh|english/i.test(cleanFileName)
+            ? "english"
+            : "quant";
 
       extractDocxDirectly(file)
-        .then(res => {
+        .then((res) => {
           setMediaMap(res.mediaMap);
           const repaired = repairMathTypeGlitch(res.text);
           const labeledText = injectQuestionLabelsIfMissing(repaired);
@@ -1920,7 +2185,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
           }
           setLoading(false);
         })
-        .catch(err => {
+        .catch((err) => {
           console.error("Lỗi đọc file Word:", err);
           alert("Lỗi đọc file Word. Vui lòng kiểm tra định dạng file .docx!");
           setLoading(false);
@@ -2005,8 +2270,8 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             original_label: `Câu ${qIdx + 1}`,
             section_title: meta.headerTitle,
             part_key: newPartKey,
-            points: ptPerQ,
-          })),
+            points: ptPerQ
+          }))
         };
       });
 
@@ -2021,6 +2286,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
   // Mở hộp thoại chọn file Word cho đúng ngăn HSA được chỉ định (quant / qual / english / history_geo)
   const handleTriggerUploadForHsaSlot = (slotKey: HsaPartKey) => {
+    pendingUploadSlotKeyRef.current = slotKey;
     setPendingUploadSlotKey(slotKey);
     appendWordInputRef.current?.click();
   };
@@ -2032,7 +2298,10 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     if (!newFile) return;
 
     const targetKey: HsaPartKey =
-      pendingUploadSlotKey || inferNextAvailableHsaPartKey(sections);
+      pendingUploadSlotKeyRef.current ||
+      pendingUploadSlotKey ||
+      inferNextAvailableHsaPartKey(sections);
+    pendingUploadSlotKeyRef.current = null;
     setPendingUploadSlotKey(null);
     setLoading(true);
 
@@ -2060,7 +2329,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       setActiveHsaSectionIndex(resolvedIdx);
       setCurrentHsaPartKey(targetKey);
       setRawText(labeledText);
-      // BẮT BUỘC NHẢY VỀ BƯỚC 1 ĐỂ HIỂN THỊ PREVIEW + WORD RAW EDITOR CỦA ĐÚNG PHẦN VỪA NẠP
+      // Bắt buộc nhảy thẳng về Bước 1 (Preview + Word Raw Editor) của đúng phần vừa nạp
       setStep(1);
       setDuration(
         combined.reduce(
@@ -2153,14 +2422,13 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
   // Nút chèn nhanh thẻ [NGU_LIEU]...[/NGU_LIEU]
   const handleInsertPassageBlockTag = () => {
-    const template = "\n[NGU_LIEU]\nĐọc đoạn ngữ liệu sau và trả lời các câu hỏi bên dưới:\n(Dán nội dung văn bản đọc hiểu vào đây...)\n[/NGU_LIEU]\n";
+    const template =
+      "\n[NGU_LIEU]\nĐọc đoạn ngữ liệu sau và trả lời các câu hỏi bên dưới:\n(Dán nội dung văn bản đọc hiểu vào đây...)\n[/NGU_LIEU]\n";
     if (textareaRef.current) {
       const start = textareaRef.current.selectionStart || 0;
       const end = textareaRef.current.selectionEnd || 0;
       const selected = rawText.substring(start, end);
-      const block = selected
-        ? `\n[NGU_LIEU]\n${selected}\n[/NGU_LIEU]\n`
-        : template;
+      const block = selected ? `\n[NGU_LIEU]\n${selected}\n[/NGU_LIEU]\n` : template;
       const updated = rawText.substring(0, start) + block + rawText.substring(end);
       handleRawTextChange(updated);
     } else {
@@ -2185,7 +2453,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
           const compressedB64 = await compressBase64Image(rawB64, 650, 0.65);
           const newKey = "img_clip_" + Date.now();
-          setMediaMap(prev => ({ ...prev, [newKey]: compressedB64 }));
+          setMediaMap((prev) => ({ ...prev, [newKey]: compressedB64 }));
 
           const token = "\n[img:$" + newKey + "$]\n";
           if (textareaRef.current) {
@@ -2204,26 +2472,32 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
   };
 
   const handleUpdateAnswer = (qId: string, newAns: string) => {
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => q.id === qId ? { ...q, correct_answer: newAns } : q)
-    })));
+    setSections((prev) =>
+      prev.map((sec) => ({
+        ...sec,
+        questions: sec.questions.map((q) => (q.id === qId ? { ...q, correct_answer: newAns } : q))
+      }))
+    );
   };
 
   const handleToggleTrueFalseOpt = (qId: string, optKey: string, val: boolean) => {
-    setSections(prev => prev.map(sec => ({
-      ...sec,
-      questions: sec.questions.map(q => {
-        if (q.id !== qId) return q;
-        const newOpts = q.options.map(o => o.key === optKey ? { ...o, is_true_false_ans: val } : o);
-        const newAnsStr = newOpts.map(o => (o.is_true_false_ans ? "Đ" : "S")).join("");
-        return { ...q, options: newOpts, correct_answer: newAnsStr };
-      })
-    })));
+    setSections((prev) =>
+      prev.map((sec) => ({
+        ...sec,
+        questions: sec.questions.map((q) => {
+          if (q.id !== qId) return q;
+          const newOpts = q.options.map((o) =>
+            o.key === optKey ? { ...o, is_true_false_ans: val } : o
+          );
+          const newAnsStr = newOpts.map((o) => (o.is_true_false_ans ? "Đ" : "S")).join("");
+          return { ...q, options: newOpts, correct_answer: newAnsStr };
+        })
+      }))
+    );
   };
 
   const handleToggleLockSection = (sIdx: number) => {
-    setLockedSections(prev => ({
+    setLockedSections((prev) => ({
       ...prev,
       [sIdx]: !prev[sIdx]
     }));
@@ -2232,16 +2506,18 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
   const handleUpdateSectionTotalPoints = (sIdx: number, targetSecPts: number) => {
     if (examFormat === "hsa") {
       // Trong chế độ HSA, mỗi phần cố định thang 50 điểm
-      setSections(prev => prev.map((sec, idx) => {
-        if (idx !== sIdx) return sec;
-        const qCount = sec.questions.length;
-        const ptPerQ = qCount > 0 ? Number((50 / qCount).toFixed(4)) : 1;
-        return {
-          ...sec,
-          max_points: 50,
-          questions: sec.questions.map(q => ({ ...q, points: ptPerQ }))
-        };
-      }));
+      setSections((prev) =>
+        prev.map((sec, idx) => {
+          if (idx !== sIdx) return sec;
+          const qCount = sec.questions.length;
+          const ptPerQ = qCount > 0 ? Number((50 / qCount).toFixed(4)) : 1;
+          return {
+            ...sec,
+            max_points: 50,
+            questions: sec.questions.map((q) => ({ ...q, points: ptPerQ }))
+          };
+        })
+      );
       return;
     }
 
@@ -2252,9 +2528,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const qCount = targetSec.questions.length;
     const ptPerQ = Number((validPts / qCount).toFixed(2));
 
-    setLockedSections(prev => ({ ...prev, [sIdx]: true }));
+    setLockedSections((prev) => ({ ...prev, [sIdx]: true }));
 
-    setSections(prev => {
+    setSections((prev) => {
       let lockedPointsSum = 0;
       prev.forEach((sec, idx) => {
         if (idx !== sIdx && lockedSections[idx]) {
@@ -2265,18 +2541,21 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       const unlockedOtherSecs = prev.filter((_, idx) => idx !== sIdx && !lockedSections[idx]);
       const remainingForUnlocked = Math.max(0, 10 - validPts - lockedPointsSum);
       const totalUnlockedOtherQ = unlockedOtherSecs.reduce((acc, s) => acc + s.questions.length, 0);
-      const unlockedPtPerQ = totalUnlockedOtherQ > 0 ? Number((remainingForUnlocked / totalUnlockedOtherQ).toFixed(2)) : 0;
+      const unlockedPtPerQ =
+        totalUnlockedOtherQ > 0
+          ? Number((remainingForUnlocked / totalUnlockedOtherQ).toFixed(2))
+          : 0;
 
       let sum = 0;
       const updated = prev.map((sec, idx) => {
         if (idx === sIdx) {
           return {
             ...sec,
-            questions: sec.questions.map(q => {
+            questions: sec.questions.map((q) => {
               sum += ptPerQ;
               const subPts: Record<string, number> = {};
               if (sec.section_type === "true_false") {
-                ["a", "b", "c", "d"].forEach(k => {
+                ["a", "b", "c", "d"].forEach((k) => {
                   subPts[k] = Number(((ptPerQ * (tfGlobalPercent[k] || 25)) / 100).toFixed(3));
                 });
               }
@@ -2284,17 +2563,21 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             })
           };
         } else if (lockedSections[idx]) {
-          sec.questions.forEach(q => { sum += (q.points || 0); });
+          sec.questions.forEach((q) => {
+            sum += q.points || 0;
+          });
           return sec;
         } else {
           return {
             ...sec,
-            questions: sec.questions.map(q => {
+            questions: sec.questions.map((q) => {
               sum += unlockedPtPerQ;
               const subPts: Record<string, number> = {};
               if (sec.section_type === "true_false") {
-                ["a", "b", "c", "d"].forEach(k => {
-                  subPts[k] = Number(((unlockedPtPerQ * (tfGlobalPercent[k] || 25)) / 100).toFixed(3));
+                ["a", "b", "c", "d"].forEach((k) => {
+                  subPts[k] = Number(
+                    ((unlockedPtPerQ * (tfGlobalPercent[k] || 25)) / 100).toFixed(3)
+                  );
                 });
               }
               return { ...q, points: unlockedPtPerQ, sub_points: subPts };
@@ -2306,7 +2589,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       const diff = Number((10 - sum).toFixed(2));
       const firstUnlockedSec = updated.find((_, idx) => !lockedSections[idx]);
       if (firstUnlockedSec && firstUnlockedSec.questions[0]) {
-        firstUnlockedSec.questions[0].points = Number(((firstUnlockedSec.questions[0].points || 0) + diff).toFixed(2));
+        firstUnlockedSec.questions[0].points = Number(
+          ((firstUnlockedSec.questions[0].points || 0) + diff).toFixed(2)
+        );
       }
       return updated;
     });
@@ -2314,15 +2599,17 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
   const handleAutoDistribute10Points = () => {
     if (examFormat === "hsa") {
-      setSections(prev => prev.map(sec => {
-        const qCount = sec.questions.length;
-        const ptPerQ = qCount > 0 ? Number((50 / qCount).toFixed(4)) : 1;
-        return {
-          ...sec,
-          max_points: 50,
-          questions: sec.questions.map(q => ({ ...q, points: ptPerQ }))
-        };
-      }));
+      setSections((prev) =>
+        prev.map((sec) => {
+          const qCount = sec.questions.length;
+          const ptPerQ = qCount > 0 ? Number((50 / qCount).toFixed(4)) : 1;
+          return {
+            ...sec,
+            max_points: 50,
+            questions: sec.questions.map((q) => ({ ...q, points: ptPerQ }))
+          };
+        })
+      );
       return;
     }
 
@@ -2332,14 +2619,14 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const basePoint = Number((10 / totalQ).toFixed(2));
     let sum = 0;
 
-    setSections(prev => {
-      const updated = prev.map(sec => ({
+    setSections((prev) => {
+      const updated = prev.map((sec) => ({
         ...sec,
-        questions: sec.questions.map(q => {
+        questions: sec.questions.map((q) => {
           sum += basePoint;
           const subPts: Record<string, number> = {};
           if (sec.section_type === "true_false") {
-            ["a", "b", "c", "d"].forEach(k => {
+            ["a", "b", "c", "d"].forEach((k) => {
               subPts[k] = Number(((basePoint * (tfGlobalPercent[k] || 25)) / 100).toFixed(3));
             });
           }
@@ -2354,7 +2641,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
       const diff = Number((10 - sum).toFixed(2));
       if (updated[0]?.questions[0]) {
-        updated[0].questions[0].points = Number(((updated[0].questions[0].points || 0) + diff).toFixed(2));
+        updated[0].questions[0].points = Number(
+          ((updated[0].questions[0].points || 0) + diff).toFixed(2)
+        );
       }
       return updated;
     });
@@ -2362,16 +2651,20 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
   const handleUpdatePoints = (qId: string, newPoints: number) => {
     if (examFormat === "hsa") {
-      setSections(prev => prev.map(sec => ({
-        ...sec,
-        questions: sec.questions.map(q => q.id === qId ? { ...q, points: Math.max(0, Number(newPoints) || 0) } : q)
-      })));
+      setSections((prev) =>
+        prev.map((sec) => ({
+          ...sec,
+          questions: sec.questions.map((q) =>
+            q.id === qId ? { ...q, points: Math.max(0, Number(newPoints) || 0) } : q
+          )
+        }))
+      );
       return;
     }
 
     const validPoint = Math.max(0, Math.min(10, Number(newPoints) || 0));
 
-    setSections(prev => {
+    setSections((prev) => {
       const allQuestions: { secIdx: number; qIdx: number; id: string; points: number }[] = [];
       prev.forEach((sec, sI) => {
         sec.questions.forEach((q, qI) => {
@@ -2380,9 +2673,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       });
 
       if (allQuestions.length <= 1) {
-        return prev.map(sec => ({
+        return prev.map((sec) => ({
           ...sec,
-          questions: sec.questions.map(q => q.id === qId ? { ...q, points: 10 } : q)
+          questions: sec.questions.map((q) => (q.id === qId ? { ...q, points: 10 } : q))
         }));
       }
 
@@ -2393,9 +2686,12 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
         }
       });
 
-      const otherQuestions = allQuestions.filter(item => item.id !== qId && !lockedSections[item.secIdx]);
+      const otherQuestions = allQuestions.filter(
+        (item) => item.id !== qId && !lockedSections[item.secIdx]
+      );
       const remainingPoints = Math.max(0, 10 - validPoint - lockedPointsSum);
-      const newAverageForOthers = otherQuestions.length > 0 ? Number((remainingPoints / otherQuestions.length).toFixed(2)) : 0;
+      const newAverageForOthers =
+        otherQuestions.length > 0 ? Number((remainingPoints / otherQuestions.length).toFixed(2)) : 0;
 
       let currentAllocated = validPoint;
       const pointMap: Record<string, number> = { [qId]: validPoint };
@@ -2412,13 +2708,16 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
       return prev.map((sec, sI) => ({
         ...sec,
-        questions: sec.questions.map(q => {
+        questions: sec.questions.map((q) => {
           if (lockedSections[sI] && q.id !== qId) return q;
-          const pt = pointMap[q.id] !== undefined ? pointMap[q.id] : (q.points || 0);
+          const pt = pointMap[q.id] !== undefined ? pointMap[q.id] : q.points || 0;
           const subPts: Record<string, number> = {};
           if (sec.section_type === "true_false") {
-            ["a", "b", "c", "d"].forEach(k => {
-              const pct = q.sub_percentages?.[k] !== undefined ? q.sub_percentages[k] : (tfGlobalPercent[k] || 25);
+            ["a", "b", "c", "d"].forEach((k) => {
+              const pct =
+                q.sub_percentages?.[k] !== undefined
+                  ? q.sub_percentages[k]
+                  : tfGlobalPercent[k] || 25;
               subPts[k] = Number(((pt * pct) / 100).toFixed(3));
             });
           }
@@ -2437,25 +2736,27 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const nextPercents = { ...tfGlobalPercent, [key]: val };
     setTfGlobalPercent(nextPercents);
 
-    setSections(prev => prev.map(sec => {
-      if (sec.section_type !== "true_false") return sec;
-      return {
-        ...sec,
-        questions: sec.questions.map(q => {
-          const qPt = q.points || 0;
-          const subPts: Record<string, number> = {};
-          ["a", "b", "c", "d"].forEach(k => {
-            const p = nextPercents[k] || 0;
-            subPts[k] = Number(((qPt * p) / 100).toFixed(3));
-          });
-          return {
-            ...q,
-            sub_percentages: nextPercents,
-            sub_points: subPts
-          };
-        })
-      };
-    }));
+    setSections((prev) =>
+      prev.map((sec) => {
+        if (sec.section_type !== "true_false") return sec;
+        return {
+          ...sec,
+          questions: sec.questions.map((q) => {
+            const qPt = q.points || 0;
+            const subPts: Record<string, number> = {};
+            ["a", "b", "c", "d"].forEach((k) => {
+              const p = nextPercents[k] || 0;
+              subPts[k] = Number(((qPt * p) / 100).toFixed(3));
+            });
+            return {
+              ...q,
+              sub_percentages: nextPercents,
+              sub_points: subPts
+            };
+          })
+        };
+      })
+    );
   };
 
   const handleTriggerUploadImage = () => {
@@ -2473,7 +2774,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
       const compressedB64 = await compressBase64Image(rawB64, 650, 0.65);
       const newKey = "img_custom_" + Date.now();
-      setMediaMap(prev => ({ ...prev, [newKey]: compressedB64 }));
+      setMediaMap((prev) => ({ ...prev, [newKey]: compressedB64 }));
 
       const token = "\n[img:$" + newKey + "$]\n";
       if (textareaRef.current) {
@@ -2507,7 +2808,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
   };
 
   const toggleSolution = (qId: string) => {
-    setExpandedSolutions(prev => ({ ...prev, [qId]: !prev[qId] }));
+    setExpandedSolutions((prev) => ({ ...prev, [qId]: !prev[qId] }));
   };
 
   const totalQuestions = useMemo(() => {
@@ -2515,7 +2816,12 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
   }, [sections]);
 
   const tfTotalPercent = useMemo(() => {
-    return (tfGlobalPercent.a || 0) + (tfGlobalPercent.b || 0) + (tfGlobalPercent.c || 0) + (tfGlobalPercent.d || 0);
+    return (
+      (tfGlobalPercent.a || 0) +
+      (tfGlobalPercent.b || 0) +
+      (tfGlobalPercent.c || 0) +
+      (tfGlobalPercent.d || 0)
+    );
   }, [tfGlobalPercent]);
 
   const totalMaxPoints = useMemo(() => {
@@ -2541,10 +2847,10 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
               (idx === 0
                 ? "quant"
                 : idx === 1
-                ? "qual"
-                : idx === 2
-                ? "english"
-                : "history_geo")) as HsaPartKey)
+                  ? "qual"
+                  : idx === 2
+                    ? "english"
+                    : "history_geo")) as HsaPartKey)
           : undefined;
       const hsaMeta = hsaKey ? HSA_PART_CONFIG[hsaKey] : undefined;
       const qList = sec.questions || [];
@@ -2563,10 +2869,14 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
               shortTitle: hsaMeta.shortTitle,
               headerTitle: hsaMeta.headerTitle,
               section_title: `${hsaMeta.headerTitle} (${hsaMeta.shortTitle})`,
-              duration_minutes: Number(sec.duration_minutes || sec.durationMinutes || hsaMeta.defaultDuration),
-              durationMinutes: Number(sec.durationMinutes || sec.duration_minutes || hsaMeta.defaultDuration),
+              duration_minutes: Number(
+                sec.duration_minutes || sec.durationMinutes || hsaMeta.defaultDuration
+              ),
+              durationMinutes: Number(
+                sec.durationMinutes || sec.duration_minutes || hsaMeta.defaultDuration
+              ),
               max_points: 50,
-              maxScore: 50,
+              maxScore: 50
             }
           : {}),
         media_map: mediaMap,
@@ -2577,7 +2887,8 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
           const m = promptText.match(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/i);
           if (m && m[1]) {
             const cleanK = m[1].replace(/\$/g, "").trim();
-            resolvedSrc = mediaMap[cleanK] || mediaMap[`$${cleanK}$`] || mediaMap[m[1]] || resolvedSrc;
+            resolvedSrc =
+              mediaMap[cleanK] || mediaMap[`$${cleanK}$`] || mediaMap[m[1]] || resolvedSrc;
           }
 
           return {
@@ -2600,7 +2911,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
     const existingId = targetBaseExam?.id || initialData?.id;
 
     const examPayload = {
-      id: existingId || ("exam-" + Date.now()),
+      id: existingId || "exam-" + Date.now(),
       title: examTitle || (examFormat === "hsa" ? "Đề thi ĐGNL HSA" : "Đề thi mới"),
       duration_minutes: duration,
       category: examFormat === "hsa" ? "ĐGNL HSA (ĐHQGHN)" : category,
@@ -2627,13 +2938,13 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 w-screen h-screen z-[200] bg-white flex flex-col rounded-none border-none text-left font-sans overflow-hidden">
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleImageFileChange} 
-        accept="image/*" 
-        className="hidden" 
+    <div className="fixed inset-0 w-screen h-screen z-[200] bg-white flex flex-col rounded-none border-none text-left font-sans antialiased overflow-hidden">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleImageFileChange}
+        accept="image/*"
+        className="hidden"
       />
       <input
         type="file"
@@ -2645,32 +2956,41 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
       <header className="h-16 px-6 border-b border-slate-200 bg-white flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center font-black text-sm">
+          <div className="w-10 h-10 bg-[#1D4ED8] text-white rounded-xl flex items-center justify-center font-bold text-sm">
             {examFormat === "hsa" ? "HSA" : "AZ"}
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
-              {examFormat === "hsa" ? "Cấu hình Đề thi ĐGNL HSA (ĐHQGHN)" : "Azota All-In-One Exam Engine"}
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                {examFormat === "hsa" ? `${sections.length}/4 phần • ${totalMaxPoints}đ` : "Thang 10.0 THPT"}
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              {examFormat === "hsa"
+                ? "Cấu hình Đề thi ĐGNL HSA (ĐHQGHN)"
+                : "Azota All-In-One Exam Engine"}
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-[#F8FAFC] text-slate-700 border border-slate-200">
+                {examFormat === "hsa"
+                  ? `${sections.length}/4 phần • ${totalMaxPoints}đ`
+                  : "Thang 10.0 THPT"}
               </span>
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              Bước {step}/3: {step === 1 ? "Bóc tách & Biên tập đề thi" : step === 2 ? `Ma trận đáp án & Thang điểm (${totalMaxPoints}đ)` : "Cài đặt & Xuất bản"}
+              Bước {step}/3:{" "}
+              {step === 1
+                ? "Bóc tách & Biên tập đề thi"
+                : step === 2
+                  ? `Ma trận đáp án & Thang điểm (${totalMaxPoints}đ)`
+                  : "Cài đặt & Xuất bản"}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           {/* CÔNG TẮC CHỌN CHẾ ĐỘ ĐỀ: ĐỀ CHUẨN THPT / KIỂM TRA (THANG 10.0) VS ĐỀ ĐGNL HSA ĐHQGHN (THANG 50Đ/PHẦN) */}
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold">
+          <div className="flex items-center gap-1 p-1 bg-[#F8FAFC] rounded-xl border border-slate-200 text-xs font-semibold">
             <button
               type="button"
               onClick={() => handleSwitchExamFormat("thpt")}
               className={
                 "px-3 py-1.5 rounded-lg transition-all cursor-pointer " +
                 (examFormat === "thpt"
-                  ? "bg-white text-slate-900 shadow-2xs border border-slate-200/80"
+                  ? "bg-white text-slate-900 border border-slate-200"
                   : "text-slate-600 hover:text-slate-900")
               }
             >
@@ -2682,7 +3002,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
               className={
                 "px-3 py-1.5 rounded-lg transition-all cursor-pointer " +
                 (examFormat === "hsa"
-                  ? "bg-blue-900 text-white shadow-2xs"
+                  ? "bg-[#1D4ED8] text-white"
                   : "text-slate-600 hover:text-slate-900")
               }
             >
@@ -2690,61 +3010,76 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             </button>
           </div>
 
-          <div className="hidden xl:flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl text-xs font-bold text-slate-600">
+          <div className="hidden xl:flex items-center gap-1 p-1 bg-[#F8FAFC] rounded-xl border border-slate-200 text-xs font-semibold text-slate-600">
             <button
               type="button"
               onClick={() => setStep(1)}
-              className={"px-3 py-1 rounded-lg transition-all cursor-pointer " + (step === 1 ? "bg-white text-blue-800 shadow-2xs" : "hover:text-slate-900")}
+              className={
+                "px-3 py-1 rounded-lg transition-all cursor-pointer " +
+                (step === 1
+                  ? "bg-white text-[#1D4ED8] border border-slate-200"
+                  : "hover:text-slate-900")
+              }
             >
               1. Biên tập & Preview
             </button>
             <button
               type="button"
               onClick={() => setStep(2)}
-              className={"px-3 py-1 rounded-lg transition-all cursor-pointer " + (step === 2 ? "bg-white text-blue-800 shadow-2xs" : "hover:text-slate-900")}
+              className={
+                "px-3 py-1 rounded-lg transition-all cursor-pointer " +
+                (step === 2
+                  ? "bg-white text-[#1D4ED8] border border-slate-200"
+                  : "hover:text-slate-900")
+              }
             >
               2. Ma trận đáp án & Điểm
             </button>
             <button
               type="button"
               onClick={() => setStep(3)}
-              className={"px-3 py-1 rounded-lg transition-all cursor-pointer " + (step === 3 ? "bg-white text-blue-800 shadow-2xs" : "hover:text-slate-900")}
+              className={
+                "px-3 py-1 rounded-lg transition-all cursor-pointer " +
+                (step === 3
+                  ? "bg-white text-[#1D4ED8] border border-slate-200"
+                  : "hover:text-slate-900")
+              }
             >
               3. Cài đặt đề thi
             </button>
           </div>
 
-          <button 
+          <button
             type="button"
-            onClick={onClose} 
+            onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
             title="Đóng trình cấu hình"
           >
-            <X className="w-6 h-6"/>
+            <X className="w-5 h-5" />
           </button>
         </div>
       </header>
 
       {/* THANH QUẢN LÝ 4 NGĂN ĐỘC LẬP CỐ ĐỊNH CHO ĐỀ ĐGNL HSA (2 BẮT BUỘC + 2 TỔ HỢP TỰ CHỌN) */}
       {examFormat === "hsa" && (
-        <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 space-y-2.5 shrink-0">
+        <div className="px-6 py-3 bg-[#F8FAFC] border-b border-slate-200 space-y-2.5 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-black text-slate-700 uppercase tracking-wider">
-              Cấu trúc 4 ngăn đề thi ĐGNL HSA (Đã nạp {sections.length}/4 phần):
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Cấu trúc 4 ngăn đề thi ĐGNL HSA (Đã nạp {sections.length}/4 phần)
             </span>
             <div className="flex items-center gap-2">
-              <label className="text-xs font-bold text-slate-600 whitespace-nowrap">
+              <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
                 Đổi phân môn cho phần đang mở:
               </label>
               <select
                 value={currentHsaPartKey}
                 onChange={(e) => handleChangeActiveHsaPartKey(e.target.value as HsaPartKey)}
-                className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-800 outline-none focus:border-blue-800 cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
               >
-                <option value="quant">Phần 1: Toán học & Xử lý số liệu (75p - 50đ)</option>
-                <option value="qual">Phần 2: Ngôn ngữ - Văn học (60p - 50đ)</option>
-                <option value="english">Phần 3 (Tự chọn A): Tiếng Anh (60p - 50đ)</option>
-                <option value="history_geo">Phần 3 (Tự chọn B): Khoa học: Lịch sử - Địa lý (60p - 50đ)</option>
+                <option value="quant">Phần 1 (Bắt buộc) • Toán học & Xử lý số liệu (75p • 50đ)</option>
+                <option value="qual">Phần 2 (Bắt buộc) • Ngôn ngữ - Văn học (60p • 50đ)</option>
+                <option value="english">Phần 3 (Tự chọn A) • Tiếng Anh (60p • 50đ)</option>
+                <option value="history_geo">Phần 3 (Tự chọn B) • Lịch sử - Địa lý (60p • 50đ)</option>
               </select>
             </div>
           </div>
@@ -2771,35 +3106,28 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                     "p-3 rounded-xl border transition-all flex flex-col justify-between gap-2 " +
                     (loadedSec
                       ? isSelected
-                        ? "bg-blue-950 text-white border-blue-950 shadow-xs cursor-pointer"
-                        : "bg-white text-slate-800 border-slate-300 hover:border-blue-500 cursor-pointer"
-                      : "bg-white/70 text-slate-500 border-dashed border-slate-300")
+                        ? "bg-blue-50/50 text-slate-900 border-[#1D4ED8] cursor-pointer"
+                        : "bg-white text-slate-800 border-slate-200 hover:border-slate-300 cursor-pointer"
+                      : "bg-white text-slate-500 border-dashed border-slate-300")
                   }
                 >
                   <div className="flex items-start justify-between gap-1.5">
-                    <div className="space-y-0.5 min-w-0">
+                    <div className="space-y-1 min-w-0">
                       <span
                         className={
-                          "inline-block text-[10px] font-black uppercase px-1.5 py-0.5 rounded " +
+                          "inline-block text-[10px] font-bold px-1.5 py-0.5 rounded " +
                           (loadedSec
                             ? isSelected
-                              ? "bg-blue-800 text-blue-100"
+                              ? "bg-[#1D4ED8] text-white"
                               : "bg-slate-100 text-slate-700"
                             : "bg-slate-100 text-slate-500")
                         }
                       >
-                        [{slotMeta.badgeLabel}]
+                        {slotMeta.badgeLabel}
                       </span>
                       <h5
-                        className={
-                          "text-xs font-black truncate " +
-                          (loadedSec
-                            ? isSelected
-                              ? "text-white"
-                              : "text-slate-900"
-                            : "text-slate-700")
-                        }
-                        title={slotMeta.cardTitle}
+                        className="text-xs font-bold text-slate-900 truncate"
+                        title={`${slotMeta.badgeLabel} • ${slotMeta.cardTitle}`}
                       >
                         {slotMeta.cardTitle}
                       </h5>
@@ -2812,12 +3140,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                           e.stopPropagation();
                           handleRemoveHsaSection(loadedIdx);
                         }}
-                        className={
-                          "p-1 rounded-md transition-colors cursor-pointer shrink-0 " +
-                          (isSelected
-                            ? "text-blue-200 hover:bg-red-500/30 hover:text-white"
-                            : "text-slate-400 hover:bg-rose-50 hover:text-rose-600")
-                        }
+                        className="p-1 rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors cursor-pointer shrink-0"
                         title="Xóa phần thi này"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -2825,15 +3148,10 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/40">
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
                     {loadedSec ? (
                       <>
-                        <span
-                          className={
-                            "text-[11px] font-bold " +
-                            (isSelected ? "text-emerald-300" : "text-emerald-700")
-                          }
-                        >
+                        <span className="text-[11px] font-semibold text-[#1D4ED8]">
                           {loadedSec.questions.length} câu • 50đ ({slotMeta.defaultDuration}p)
                         </span>
                         <button
@@ -2842,12 +3160,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                             e.stopPropagation();
                             handleTriggerUploadForHsaSlot(slotKey);
                           }}
-                          className={
-                            "px-2 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer shrink-0 " +
-                            (isSelected
-                              ? "bg-white/15 hover:bg-white/25 text-white border-white/25"
-                              : "bg-slate-50 hover:bg-slate-100 text-blue-800 border-slate-200")
-                          }
+                          className="px-2 py-1 rounded-lg text-[11px] font-semibold border border-slate-200 bg-white hover:bg-[#F8FAFC] text-[#1D4ED8] transition-all cursor-pointer shrink-0"
                         >
                           Thay file Word
                         </button>
@@ -2863,7 +3176,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                             e.stopPropagation();
                             handleTriggerUploadForHsaSlot(slotKey);
                           }}
-                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-bold inline-flex items-center gap-1 transition-all cursor-pointer shrink-0"
+                          className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[11px] font-semibold inline-flex items-center gap-1 transition-all cursor-pointer shrink-0"
                         >
                           <FilePlus2 className="w-3 h-3" />
                           <span>+ Nạp file Word</span>
@@ -2881,21 +3194,25 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
       <main className="flex-1 min-h-0 overflow-hidden flex flex-col bg-[#F8FAFC]">
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-500">
-            <Loader2 className="w-10 h-10 animate-spin text-blue-600"/>
+            <Loader2 className="w-9 h-9 animate-spin text-[#1D4ED8]" />
             <div className="text-center space-y-1">
-              <p className="text-sm font-bold text-slate-800">Đang phân tích cấu trúc đề thi Word / MathType...</p>
-              <p className="text-xs text-slate-500">Tự động nhận diện công thức, câu hỏi chùm, nén tối ưu hình ảnh và chuẩn hóa phát biểu...</p>
+              <p className="text-sm font-bold text-slate-800">
+                Đang phân tích cấu trúc đề thi Word / MathType...
+              </p>
+              <p className="text-xs text-slate-500">
+                Tự động nhận diện công thức, câu hỏi chùm, nén tối ưu hình ảnh và chuẩn hóa phát biểu...
+              </p>
             </div>
           </div>
         ) : step === 1 ? (
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 min-h-0 overflow-hidden">
             {/* CỘT PREVIEW BÊN TRÁI (NHÓM CÁC CÂU CÙNG group_id VÀO CHUNG 1 KHUNG THẺ) */}
-            <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
-              <div className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 shrink-0">
-                <span className="text-xs font-black uppercase tracking-wider text-blue-800 flex items-center gap-1.5">
-                  <Eye className="w-4 h-4"/> Xem trước đề thi (Preview)
+            <div className="flex flex-col h-full border border-slate-200 rounded-xl bg-white overflow-hidden">
+              <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-[#F8FAFC] shrink-0">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#1D4ED8] flex items-center gap-1.5">
+                  <Eye className="w-4 h-4" /> Xem trước đề thi (Preview)
                 </span>
-                <span className="text-xs text-slate-600 font-bold bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200">
+                <span className="text-xs text-slate-600 font-semibold bg-white px-2.5 py-0.5 rounded-lg border border-slate-200">
                   {totalQuestions} câu hỏi • {sections.length} phần thi ({totalMaxPoints}đ)
                 </span>
               </div>
@@ -2928,18 +3245,22 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                         isCluster: true,
                         groupId: gId,
                         groupPassage: gPass,
-                        questions: [{ q, qIdx }],
+                        questions: [{ q, qIdx }]
                       });
                     } else {
                       previewBlocks.push({
                         blockKey: `single-${sIdx}-${q.id}-${qIdx}`,
                         isCluster: false,
-                        questions: [{ q, qIdx }],
+                        questions: [{ q, qIdx }]
                       });
                     }
                   });
 
-                  const renderQuestionCard = (q: ExtendedParsedQuestion, idx: number, inCluster: boolean = false) => {
+                  const renderQuestionCard = (
+                    q: ExtendedParsedQuestion,
+                    idx: number,
+                    inCluster: boolean = false
+                  ) => {
                     const isSolOpen = !!expandedSolutions[q.id];
                     const hasValidMcOptions =
                       q.options && q.options.some((o) => o.text_html && o.text_html.trim() !== "");
@@ -2948,7 +3269,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                       q.type === "short_answer" ||
                       (!hasValidMcOptions && sec.section_type !== "true_false");
 
-                    const isAnyOptionLong = q.options?.some(opt => {
+                    const isAnyOptionLong = q.options?.some((opt) => {
                       const t = opt.text_html || "";
                       return t.length > 30 || t.includes("\\frac") || t.includes("right)");
                     });
@@ -2959,101 +3280,142 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                         className={
                           inCluster
                             ? "p-4 rounded-xl border border-slate-200 bg-white space-y-3"
-                            : "p-5 rounded-2xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/70 transition-all space-y-3"
+                            : "p-4 rounded-xl border border-slate-200 bg-[#F8FAFC]/60 hover:bg-[#F8FAFC] transition-all space-y-3"
                         }
                       >
-                        <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-xs text-blue-800 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200/60">
-                              {q.original_label || ("Câu " + (idx + 1))}
+                            <span className="font-bold text-xs text-[#1D4ED8] bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+                              {q.original_label || "Câu " + (idx + 1)}
                             </span>
                             {(q.group_id || q.passage_html) && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
                                 Câu hỏi chùm
                               </span>
                             )}
                             {isShortAnswerQuestion && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
                                 Trả lời ngắn
                               </span>
                             )}
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-slate-500">Đáp án:</span>
-                            <span className="font-black text-xs text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
+                            <span className="text-xs font-medium text-slate-500">Đáp án:</span>
+                            <span className="font-bold text-xs text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
                               {q.correct_answer || (isShortAnswerQuestion ? "Chưa nhập" : "A")}
                             </span>
                           </div>
                         </div>
 
                         <div className="py-1">
-                          <TokenViewer content={q.prompt_html} mediaMap={mediaMap}/>
+                          <TokenViewer content={q.prompt_html} mediaMap={mediaMap} />
                         </div>
 
-                        {!isShortAnswerQuestion && sec.section_type === "multiple_choice" && hasValidMcOptions && (
-                          <div className={"grid gap-2.5 pt-1 " + (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
-                            {q.options.map(opt => {
-                              const isCorrect = opt.key === q.correct_answer;
-                              return (
-                                <div 
-                                  key={opt.key}
-                                  onClick={() => handleUpdateAnswer(q.id, opt.key)}
-                                  className={"p-3 rounded-xl border text-xs flex items-center gap-2.5 transition-all cursor-pointer " + (
-                                    isCorrect 
-                                      ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold shadow-2xs ring-1 ring-emerald-300" 
-                                      : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
-                                  )}
-                                >
-                                  <span className={"w-6 h-6 rounded-lg flex items-center justify-center font-black shrink-0 " + (
-                                    isCorrect ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600"
-                                  )}>
-                                    {opt.key}
-                                  </span>
-                                  <div className="flex-1 min-w-0">
-                                    <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
+                        {!isShortAnswerQuestion &&
+                          sec.section_type === "multiple_choice" &&
+                          hasValidMcOptions && (
+                            <div
+                              className={
+                                "grid gap-2 pt-1 " +
+                                (isAnyOptionLong ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")
+                              }
+                            >
+                              {q.options.map((opt) => {
+                                const isCorrect = opt.key === q.correct_answer;
+                                return (
+                                  <div
+                                    key={opt.key}
+                                    onClick={() => handleUpdateAnswer(q.id, opt.key)}
+                                    className={
+                                      "p-2.5 rounded-lg border text-xs flex items-center gap-2.5 transition-all cursor-pointer " +
+                                      (isCorrect
+                                        ? "bg-blue-50/70 border-[#1D4ED8] text-slate-900 font-semibold"
+                                        : "bg-white border-slate-200 text-slate-700 hover:border-slate-300")
+                                    }
+                                  >
+                                    <span
+                                      className={
+                                        "w-6 h-6 rounded-md flex items-center justify-center font-bold shrink-0 " +
+                                        (isCorrect
+                                          ? "bg-[#1D4ED8] text-white"
+                                          : "bg-slate-100 text-slate-600")
+                                      }
+                                    >
+                                      {opt.key}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <TokenViewer
+                                        content={opt.text_html}
+                                        inline={true}
+                                        mediaMap={mediaMap}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                                );
+                              })}
+                            </div>
+                          )}
 
                         {sec.section_type === "true_false" && q.options && (
-                          <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+                          <div className="mt-3 overflow-hidden rounded-xl border border-slate-200">
                             <table className="w-full text-left text-[13px]">
-                              <thead className="bg-slate-50 border-b border-slate-200">
+                              <thead className="bg-[#F8FAFC] border-b border-slate-200">
                                 <tr>
                                   <th className="py-2.5 px-3 font-bold text-slate-600">Phát biểu</th>
-                                  <th className="py-2.5 px-3 text-center font-bold text-emerald-600 w-16">Đúng</th>
-                                  <th className="py-2.5 px-3 text-center font-bold text-rose-600 w-16">Sai</th>
+                                  <th className="py-2.5 px-3 text-center font-bold text-[#1D4ED8] w-16">
+                                    Đúng
+                                  </th>
+                                  <th className="py-2.5 px-3 text-center font-bold text-slate-600 w-16">
+                                    Sai
+                                  </th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-slate-100 bg-white">
-                                {q.options.map(opt => {
+                              <tbody className="divide-y divide-slate-200 bg-white">
+                                {q.options.map((opt) => {
                                   const isTrue = opt.is_true_false_ans === true;
                                   const isFalse = opt.is_true_false_ans === false;
                                   return (
-                                    <tr key={opt.key} className="hover:bg-slate-50/50">
+                                    <tr key={opt.key} className="hover:bg-[#F8FAFC]">
                                       <td className="py-2.5 px-3">
                                         <div className="flex items-start gap-2">
-                                          <span className="font-bold text-blue-600">{opt.key})</span>
-                                          <TokenViewer content={opt.text_html} inline={true} mediaMap={mediaMap}/>
+                                          <span className="font-bold text-[#1D4ED8]">
+                                            {opt.key})
+                                          </span>
+                                          <TokenViewer
+                                            content={opt.text_html}
+                                            inline={true}
+                                            mediaMap={mediaMap}
+                                          />
                                         </div>
                                       </td>
                                       <td className="py-2.5 px-3 text-center align-middle">
-                                        <div 
-                                          onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, true)}
-                                          className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isTrue ? "bg-emerald-500 border-emerald-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                        <div
+                                          onClick={() =>
+                                            handleToggleTrueFalseOpt(q.id, opt.key, true)
+                                          }
+                                          className={
+                                            "w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " +
+                                            (isTrue
+                                              ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
+                                              : "bg-[#F8FAFC] border-slate-300 text-transparent hover:bg-slate-100")
+                                          }
                                         >
-                                          <Check className="w-4 h-4"/>
+                                          <Check className="w-4 h-4" />
                                         </div>
                                       </td>
                                       <td className="py-2.5 px-3 text-center align-middle">
-                                        <div 
-                                          onClick={() => handleToggleTrueFalseOpt(q.id, opt.key, false)}
-                                          className={"w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " + (isFalse ? "bg-rose-500 border-rose-500 text-white shadow-sm scale-110" : "bg-slate-50 border-slate-300 text-transparent hover:bg-slate-100")}
+                                        <div
+                                          onClick={() =>
+                                            handleToggleTrueFalseOpt(q.id, opt.key, false)
+                                          }
+                                          className={
+                                            "w-6 h-6 mx-auto rounded border flex items-center justify-center cursor-pointer transition-all " +
+                                            (isFalse
+                                              ? "bg-slate-800 border-slate-800 text-white"
+                                              : "bg-[#F8FAFC] border-slate-300 text-transparent hover:bg-slate-100")
+                                          }
                                         >
-                                          <X className="w-4 h-4"/>
+                                          <X className="w-4 h-4" />
                                         </div>
                                       </td>
                                     </tr>
@@ -3065,31 +3427,35 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                         )}
 
                         {isShortAnswerQuestion && (
-                          <div className="p-3 bg-slate-100/80 rounded-xl border border-slate-200 flex items-center gap-3 text-xs mt-3">
-                            <span className="font-bold text-slate-700 whitespace-nowrap">Đáp án điền:</span>
-                            <input 
-                              type="text" 
-                              value={q.correct_answer || ""} 
-                              onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
-                              placeholder="Nhập đáp án..." 
-                              className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 outline-none focus:border-blue-700" 
+                          <div className="p-3 bg-white rounded-lg border border-slate-200 flex items-center gap-3 text-xs mt-3">
+                            <span className="font-semibold text-slate-700 whitespace-nowrap">
+                              Đáp án điền:
+                            </span>
+                            <input
+                              type="text"
+                              value={q.correct_answer || ""}
+                              onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
+                              placeholder="Nhập đáp án..."
+                              className="flex-1 p-2 bg-[#F8FAFC] border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#1D4ED8] focus:bg-white"
                             />
                           </div>
                         )}
 
                         {q.solution_html && (
-                          <div className="pt-3 border-t border-slate-100 mt-3">
+                          <div className="pt-3 border-t border-slate-200 mt-3">
                             <button
                               type="button"
                               onClick={() => toggleSolution(q.id)}
-                              className="text-[11px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer bg-blue-50/60 px-2.5 py-1.5 rounded-lg border border-blue-200/60 transition-colors"
+                              className="text-[11px] font-semibold text-[#1D4ED8] hover:text-blue-800 flex items-center gap-1 cursor-pointer bg-blue-50/60 px-2.5 py-1.5 rounded-lg border border-blue-200 transition-colors"
                             >
-                              <BookOpen className="w-3.5 h-3.5"/>
-                              <span>{isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}</span>
+                              <BookOpen className="w-3.5 h-3.5" />
+                              <span>
+                                {isSolOpen ? "Thu gọn lời giải" : "Hiển thị lời giải gốc"}
+                              </span>
                             </button>
                             {isSolOpen && (
-                              <div className="mt-2.5 p-4 bg-slate-50 rounded-xl border border-slate-200 text-[13px]">
-                                <TokenViewer content={q.solution_html} mediaMap={mediaMap}/>
+                              <div className="mt-2.5 p-4 bg-white rounded-xl border border-slate-200 text-[13px]">
+                                <TokenViewer content={q.solution_html} mediaMap={mediaMap} />
                               </div>
                             )}
                           </div>
@@ -3100,29 +3466,28 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
                   return (
                     <div key={"sec-pv-" + sIdx} className="space-y-4">
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                      <div className="p-4 bg-[#F8FAFC] rounded-xl border border-slate-200 flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-blue-900 text-white flex items-center justify-center font-black text-xs">
+                          <div className="w-8 h-8 rounded-lg bg-[#1D4ED8] text-white flex items-center justify-center font-bold text-xs">
                             {examFormat === "hsa" ? activeHsaSectionIndex + 1 : sIdx + 1}
                           </div>
                           <div>
-                            <h4 className="font-black text-sm text-slate-900 uppercase tracking-wide">
+                            <h4 className="font-bold text-sm text-slate-900 uppercase tracking-wide">
                               {sec.section_title}
                             </h4>
-                            <p className="text-[11px] font-semibold text-slate-600">
-                              {sec.questions.length} câu hỏi • {
-                                examFormat === "hsa"
-                                  ? `Thang 50 điểm (${sec.duration_minutes || 60} phút)`
-                                  : sec.section_type === "true_false" 
-                                    ? "Trắc nghiệm Đúng / Sai" 
-                                    : sec.section_type === "short_answer" 
-                                      ? "Trả lời ngắn" 
-                                      : "Trắc nghiệm nhiều lựa chọn (A, B, C, D)"
-                              }
+                            <p className="text-[11px] font-medium text-slate-600">
+                              {sec.questions.length} câu hỏi •{" "}
+                              {examFormat === "hsa"
+                                ? `Thang 50 điểm (${sec.duration_minutes || 60} phút)`
+                                : sec.section_type === "true_false"
+                                  ? "Trắc nghiệm Đúng / Sai"
+                                  : sec.section_type === "short_answer"
+                                    ? "Trả lời ngắn"
+                                    : "Trắc nghiệm nhiều lựa chọn (A, B, C, D)"}
                             </p>
                           </div>
                         </div>
-                        <span className="text-xs font-bold text-slate-700 bg-white px-3 py-1 rounded-xl border border-slate-200">
+                        <span className="text-xs font-semibold text-slate-700 bg-white px-3 py-1 rounded-lg border border-slate-200">
                           {sec.questions.length} câu
                         </span>
                       </div>
@@ -3144,16 +3509,16 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                           return (
                             <div
                               key={block.blockKey}
-                              className="rounded-2xl border-2 border-amber-200/90 bg-amber-50/20 overflow-hidden space-y-3 p-3.5"
+                              className="rounded-xl border border-blue-200 bg-[#F8FAFC] overflow-hidden space-y-3 p-3.5"
                             >
                               {block.groupPassage && (
-                                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/60 space-y-2">
-                                  <div className="flex items-center justify-between border-b border-amber-200/80 pb-1.5">
-                                    <span className="text-[11px] font-black uppercase tracking-wider text-amber-900">
+                                <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+                                  <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#1D4ED8]">
                                       Dữ kiện / Ngữ liệu chung ({firstLabel}
                                       {lastLabel !== firstLabel ? ` – ${lastLabel}` : ""})
                                     </span>
-                                    <span className="text-[11px] font-bold text-amber-800 bg-white px-2 py-0.5 rounded border border-amber-200">
+                                    <span className="text-[11px] font-semibold text-slate-700 bg-[#F8FAFC] px-2 py-0.5 rounded border border-slate-200">
                                       {block.questions.length} câu hỏi con
                                     </span>
                                   </div>
@@ -3179,23 +3544,24 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             </div>
 
             {/* CỘT WORD RAW EDITOR */}
-            <div className="flex flex-col h-full border border-slate-200 rounded-2xl bg-white shadow-xs overflow-hidden">
-              <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 shrink-0 flex-wrap gap-2">
+            <div className="flex flex-col h-full border border-slate-200 rounded-xl bg-white overflow-hidden">
+              <div className="p-3.5 border-b border-slate-200 flex items-center justify-between bg-[#F8FAFC] shrink-0 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <Edit3 className="w-4 h-4 text-slate-700"/>
-                  <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-                    Word Raw Editor {examFormat === "hsa" ? `(${HSA_PART_CONFIG[currentHsaPartKey]?.cardTitle})` : ""}
+                  <Edit3 className="w-4 h-4 text-slate-700" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Word Raw Editor{" "}
+                    {examFormat === "hsa" ? `(${HSA_PART_CONFIG[currentHsaPartKey]?.cardTitle})` : ""}
                   </span>
                 </div>
-                
+
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <button
                     type="button"
                     onClick={handleInsertClusterTemplate}
-                    className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="px-2.5 py-1 bg-white hover:bg-blue-50 text-[#1D4ED8] border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
                     title="Chèn nhanh mẫu Câu hỏi chùm: ... === Hết câu hỏi chùm ==="
                   >
-                    <Layers className="w-3.5 h-3.5 text-amber-700"/>
+                    <Layers className="w-3.5 h-3.5 text-[#1D4ED8]" />
                     <span>+ Câu hỏi chùm:</span>
                   </button>
 
@@ -3203,10 +3569,10 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                     <button
                       type="button"
                       onClick={handleInsertPassageBlockTag}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                      className="px-2.5 py-1 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
                       title="Chèn thẻ [NGU_LIEU]...[/NGU_LIEU] cho đoạn đọc hiểu Văn học / Tiếng Anh"
                     >
-                      <FileText className="w-3.5 h-3.5 text-blue-700"/>
+                      <FileText className="w-3.5 h-3.5 text-[#1D4ED8]" />
                       <span>+ Khối [NGU_LIEU]</span>
                     </button>
                   )}
@@ -3214,30 +3580,30 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   <button
                     type="button"
                     onClick={handleAutoReIndexQuestions}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
                     title="Đánh số lại câu tuần tự từ Câu 1, Câu 2... và chuẩn hóa ý a, b, c, d"
                   >
-                    <Hash className="w-3.5 h-3.5 text-blue-700"/>
+                    <Hash className="w-3.5 h-3.5 text-[#1D4ED8]" />
                     <span>Đánh lại số câu (1, 2...)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleTriggerUploadImage}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
                     title="Chèn ảnh từ máy tính hoặc bấm Ctrl+V để dán trực tiếp ảnh"
                   >
-                    <ImagePlus className="w-3.5 h-3.5 text-blue-600"/>
+                    <ImagePlus className="w-3.5 h-3.5 text-[#1D4ED8]" />
                     <span>Tải ảnh (Ctrl+V)</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleInsertImageUrl}
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
                     title="Dán đường link (URL) ảnh từ internet"
                   >
-                    <LinkIcon className="w-3.5 h-3.5 text-slate-600"/>
+                    <LinkIcon className="w-3.5 h-3.5 text-slate-600" />
                     <span>Chèn Link Ảnh</span>
                   </button>
                 </div>
@@ -3258,10 +3624,10 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
           </div>
         ) : step === 2 ? (
           <div className="flex-1 p-6 overflow-y-auto custom-scrollbar max-w-5xl mx-auto w-full space-y-6">
-            <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="p-5 bg-white rounded-xl border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
-                  <Calculator className="w-5 h-5 text-blue-700"/>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  <Calculator className="w-5 h-5 text-[#1D4ED8]" />
                   {examFormat === "hsa"
                     ? `Cấu hình Ma trận Đáp án & Thang điểm HSA (${sections.length} phần × 50đ = ${totalMaxPoints}đ)`
                     : "Cấu hình Ma trận đáp án & Thang điểm 10.0 (Auto-Balance)"}
@@ -3269,7 +3635,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                 <p className="text-xs text-slate-500 mt-0.5">
                   {examFormat === "hsa"
                     ? "Mỗi phần thi HSA có tổng điểm chuẩn 50 điểm, tự động chia đều cho tổng số câu trong phần đó (VD: 50 câu = 1.0 điểm/câu)."
-                    : "Bấm biểu tượng 🔒 để Khóa cố định điểm phần bạn muốn. Điểm các phần chưa khóa sẽ tự động điều chỉnh."}
+                    : "Bấm biểu tượng Khóa để cố định điểm phần bạn muốn. Điểm các phần chưa khóa sẽ tự động điều chỉnh."}
                 </p>
               </div>
 
@@ -3277,9 +3643,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                 <button
                   type="button"
                   onClick={handleAutoDistribute10Points}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl border border-slate-200 transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-1.5 bg-[#F8FAFC] hover:bg-slate-100 text-slate-800 font-semibold text-xs rounded-lg border border-slate-200 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5"/>
+                  <RefreshCw className="w-3.5 h-3.5 text-[#1D4ED8]" />
                   <span>
                     {examFormat === "hsa"
                       ? "Chuẩn hóa 50 điểm / phần"
@@ -3287,8 +3653,8 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   </span>
                 </button>
 
-                <div className="px-3.5 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border-emerald-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600"/>
+                <div className="px-3.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 bg-blue-50/70 text-[#1D4ED8] border-blue-200">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#1D4ED8]" />
                   <span>
                     Tổng điểm: {totalMaxPoints.toFixed(1)} / {totalMaxPoints.toFixed(1)}
                   </span>
@@ -3297,16 +3663,23 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             </div>
 
             {/* BẢNG CẤU HÌNH % ĐIỂM CHO PHẦN ĐÚNG/SAI */}
-            {examFormat === "thpt" && sections.some(s => s.section_type === "true_false") && (
-              <div className="p-5 bg-slate-50 rounded-3xl border border-slate-200 shadow-xs space-y-3">
+            {examFormat === "thpt" && sections.some((s) => s.section_type === "true_false") && (
+              <div className="p-5 bg-white rounded-xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Percent className="w-4 h-4 text-slate-700"/>
-                    <h4 className="font-black text-xs sm:text-sm text-slate-900 uppercase">
+                    <Percent className="w-4 h-4 text-[#1D4ED8]" />
+                    <h4 className="font-bold text-xs sm:text-sm text-slate-900 uppercase">
                       Cấu hình tỷ lệ % điểm từng ý (Phần Đúng / Sai)
                     </h4>
                   </div>
-                  <span className={"text-xs font-bold px-2 py-0.5 rounded-md border " + (tfTotalPercent === 100 ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-amber-50 text-amber-700 border-amber-300")}>
+                  <span
+                    className={
+                      "text-xs font-semibold px-2 py-0.5 rounded-md border " +
+                      (tfTotalPercent === 100
+                        ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                        : "bg-slate-100 text-slate-700 border-slate-300")
+                    }
+                  >
                     Tổng: {tfTotalPercent}% / 100%
                   </span>
                 </div>
@@ -3314,19 +3687,24 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   Bạn có thể quy định tỷ lệ % điểm mà học sinh nhận được khi làm đúng từng ý. Ví dụ câu 1.0 điểm, ý a là 50% thì ý a nhận 0.5 điểm.
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-                  {(["a", "b", "c", "d"] as const).map(key => (
-                    <div key={key} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
-                      <span className="text-xs font-black uppercase text-slate-700">Ý {key}:</span>
+                  {(["a", "b", "c", "d"] as const).map((key) => (
+                    <div
+                      key={key}
+                      className="bg-[#F8FAFC] p-2.5 rounded-lg border border-slate-200 flex items-center justify-between"
+                    >
+                      <span className="text-xs font-bold uppercase text-slate-700">Ý {key}:</span>
                       <div className="flex items-center gap-1">
                         <input
                           type="number"
                           min="0"
                           max="100"
                           value={tfGlobalPercent[key] !== undefined ? tfGlobalPercent[key] : 25}
-                          onChange={(e) => handleUpdateTfPercent(key, parseFloat(e.target.value) || 0)}
-                          className="w-14 px-1.5 py-0.5 bg-slate-50 border border-slate-300 rounded text-center text-xs font-black text-slate-900 outline-none focus:border-blue-700 focus:bg-white"
+                          onChange={(e) =>
+                            handleUpdateTfPercent(key, parseFloat(e.target.value) || 0)
+                          }
+                          className="w-14 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-center text-xs font-bold text-slate-900 outline-none focus:border-[#1D4ED8]"
                         />
-                        <span className="text-xs font-bold text-slate-400">%</span>
+                        <span className="text-xs font-semibold text-slate-400">%</span>
                       </div>
                     </div>
                   ))}
@@ -3340,67 +3718,82 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                 const secTotalPoints =
                   examFormat === "hsa"
                     ? 50
-                    : Number(sec.questions.reduce((sum, q) => sum + (q.points || 0), 0).toFixed(2));
+                    : Number(
+                        sec.questions.reduce((sum, q) => sum + (q.points || 0), 0).toFixed(2)
+                      );
                 const isLocked = Boolean(lockedSections[sIdx]);
 
                 return (
-                  <div key={"sec-cfg-" + sIdx} className={"bg-white p-5 rounded-3xl border transition-all space-y-4 " + (isLocked ? "border-amber-300 shadow-sm ring-1 ring-amber-200" : "border-slate-200 shadow-xs")}>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
+                  <div
+                    key={"sec-cfg-" + sIdx}
+                    className={
+                      "bg-white p-5 rounded-xl border transition-all space-y-4 " +
+                      (isLocked ? "border-[#1D4ED8]" : "border-slate-200")
+                    }
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-200 gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h4 className="font-black text-sm text-slate-900 uppercase">
+                          <h4 className="font-bold text-sm text-slate-900 uppercase">
                             {sec.section_title}
                           </h4>
                           {isLocked && examFormat === "thpt" && (
-                            <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-                              <Lock className="w-3 h-3"/> Đã Khóa
+                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> Đã Khóa
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-slate-500 font-semibold">
+                        <span className="text-[11px] text-slate-500 font-medium">
                           {examFormat === "hsa"
                             ? `Thang 50 điểm • ${sec.questions.length} câu hỏi (${sec.questions.length > 0 ? Number((50 / sec.questions.length).toFixed(2)) : 1}đ/câu)`
                             : `${sec.section_type === "true_false" ? "Trắc nghiệm Đúng/Sai" : sec.section_type === "short_answer" ? "Trả lời ngắn" : "Trắc nghiệm 4 phương án"} • ${sec.questions.length} câu hỏi`}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 bg-slate-50 p-1.5 px-3 rounded-2xl border border-slate-200">
-                        <span className="text-xs font-extrabold text-slate-800 whitespace-nowrap">
+                      <div className="flex items-center gap-2 bg-[#F8FAFC] p-1.5 px-3 rounded-lg border border-slate-200">
+                        <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
                           Điểm phần:
                         </span>
                         <div className="flex items-center gap-1">
-                          <input 
+                          <input
                             type="number"
                             step="0.1"
                             min="0"
                             max="100"
                             disabled={examFormat === "hsa"}
                             value={secTotalPoints}
-                            onChange={(e) => handleUpdateSectionTotalPoints(sIdx, parseFloat(e.target.value) || 0)}
-                            className="w-16 px-2 py-1 bg-white border border-slate-300 rounded-lg text-center text-xs font-black text-blue-800 outline-none focus:border-blue-600 disabled:bg-slate-100"
+                            onChange={(e) =>
+                              handleUpdateSectionTotalPoints(sIdx, parseFloat(e.target.value) || 0)
+                            }
+                            className="w-16 px-2 py-1 bg-white border border-slate-200 rounded-md text-center text-xs font-bold text-[#1D4ED8] outline-none focus:border-[#1D4ED8] disabled:bg-slate-100"
                           />
-                          <span className="text-xs font-bold text-slate-700 mr-1.5">đ</span>
+                          <span className="text-xs font-semibold text-slate-700 mr-1.5">đ</span>
                         </div>
 
                         {examFormat === "thpt" && (
                           <button
                             type="button"
                             onClick={() => handleToggleLockSection(sIdx)}
-                            className={"px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer " + (
-                              isLocked 
-                                ? "bg-amber-500 hover:bg-amber-600 text-white" 
-                                : "bg-white hover:bg-slate-100 text-slate-600 border border-slate-300"
-                            )}
+                            className={
+                              "px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer " +
+                              (isLocked
+                                ? "bg-[#1D4ED8] hover:bg-blue-800 text-white"
+                                : "bg-white hover:bg-slate-100 text-slate-600 border border-slate-200")
+                            }
                             title={isLocked ? "Bấm để Mở khóa điểm" : "Bấm để Khóa cố định điểm"}
                           >
-                            {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                            {isLocked ? (
+                              <Lock className="w-3.5 h-3.5" />
+                            ) : (
+                              <Unlock className="w-3.5 h-3.5" />
+                            )}
                             <span>{isLocked ? "Cố định" : "Khóa"}</span>
                           </button>
                         )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pt-1">
                       {sec.questions.map((q, idx) => {
                         const hasValidMcOptions =
                           Array.isArray(q.options) &&
@@ -3411,35 +3804,43 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                           (!hasValidMcOptions && sec.section_type !== "true_false");
 
                         return (
-                          <div key={q.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 shadow-2xs space-y-2.5">
-                            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                              <span className="font-black text-blue-800">{q.original_label || ("Câu " + (idx + 1))}</span>
+                          <div
+                            key={q.id}
+                            className="p-3.5 bg-[#F8FAFC] rounded-xl border border-slate-200 space-y-2.5"
+                          >
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                              <span className="font-bold text-[#1D4ED8]">
+                                {q.original_label || "Câu " + (idx + 1)}
+                              </span>
                               <div className="flex items-center gap-1">
                                 <span className="text-[10px] text-slate-400">Điểm:</span>
-                                <input 
+                                <input
                                   type="number"
                                   step="0.05"
                                   value={q.points !== undefined ? Number(q.points.toFixed(2)) : 0.25}
-                                  onChange={(e) => handleUpdatePoints(q.id, parseFloat(e.target.value) || 0)}
-                                  className="w-14 px-1.5 py-0.5 bg-white border border-slate-300 rounded text-center text-xs font-black text-slate-900 outline-none focus:border-blue-600"
+                                  onChange={(e) =>
+                                    handleUpdatePoints(q.id, parseFloat(e.target.value) || 0)
+                                  }
+                                  className="w-14 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-center text-xs font-bold text-slate-900 outline-none focus:border-[#1D4ED8]"
                                 />
                               </div>
                             </div>
 
                             {!isShortAnswerCard && sec.section_type === "multiple_choice" && (
                               <div className="grid grid-cols-4 gap-1">
-                                {["A", "B", "C", "D"].map(k => {
+                                {["A", "B", "C", "D"].map((k) => {
                                   const isSel = q.correct_answer === k;
                                   return (
                                     <button
                                       key={k}
                                       type="button"
                                       onClick={() => handleUpdateAnswer(q.id, k)}
-                                      className={"py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer " + (
-                                        isSel 
-                                          ? "bg-emerald-600 text-white shadow-xs" 
-                                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                                      )}
+                                      className={
+                                        "py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer " +
+                                        (isSel
+                                          ? "bg-[#1D4ED8] text-white"
+                                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50")
+                                      }
                                     >
                                       {k}
                                     </button>
@@ -3450,32 +3851,57 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
 
                             {sec.section_type === "true_false" && (
                               <div className="space-y-1.5">
-                                {["a", "b", "c", "d"].map(subKey => {
-                                  const opt = q.options.find(o => o.key === subKey);
+                                {["a", "b", "c", "d"].map((subKey) => {
+                                  const opt = q.options.find((o) => o.key === subKey);
                                   const isTrue = opt?.is_true_false_ans === true;
-                                  const subPt = q.sub_points?.[subKey] !== undefined ? q.sub_points[subKey] : Number((((q.points || 0) * (tfGlobalPercent[subKey] || 25)) / 100).toFixed(3));
+                                  const subPt =
+                                    q.sub_points?.[subKey] !== undefined
+                                      ? q.sub_points[subKey]
+                                      : Number(
+                                          (
+                                            ((q.points || 0) * (tfGlobalPercent[subKey] || 25)) /
+                                            100
+                                          ).toFixed(3)
+                                        );
                                   return (
-                                    <div key={subKey} className="flex items-center justify-between gap-1 text-[11px]">
+                                    <div
+                                      key={subKey}
+                                      className="flex items-center justify-between gap-1 text-[11px]"
+                                    >
                                       <div className="flex items-center gap-1">
-                                        <span className="font-bold text-slate-700 uppercase">{subKey}:</span>
-                                        <span className="text-[9px] text-slate-400 font-semibold">({subPt}đ)</span>
+                                        <span className="font-bold text-slate-700 uppercase">
+                                          {subKey}:
+                                        </span>
+                                        <span className="text-[9px] text-slate-400 font-medium">
+                                          ({subPt}đ)
+                                        </span>
                                       </div>
                                       <div className="flex items-center gap-1">
                                         <button
                                           type="button"
-                                          onClick={() => handleToggleTrueFalseOpt(q.id, subKey, true)}
-                                          className={"px-1.5 py-0.5 rounded font-black text-[10px] border cursor-pointer " + (
-                                            isTrue ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200"
-                                          )}
+                                          onClick={() =>
+                                            handleToggleTrueFalseOpt(q.id, subKey, true)
+                                          }
+                                          className={
+                                            "px-1.5 py-0.5 rounded font-bold text-[10px] border cursor-pointer " +
+                                            (isTrue
+                                              ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
+                                              : "bg-white text-slate-600 border-slate-200")
+                                          }
                                         >
                                           Đ
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => handleToggleTrueFalseOpt(q.id, subKey, false)}
-                                          className={"px-1.5 py-0.5 rounded font-black text-[10px] border cursor-pointer " + (
-                                            !isTrue ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-600 border-slate-200"
-                                          )}
+                                          onClick={() =>
+                                            handleToggleTrueFalseOpt(q.id, subKey, false)
+                                          }
+                                          className={
+                                            "px-1.5 py-0.5 rounded font-bold text-[10px] border cursor-pointer " +
+                                            (!isTrue
+                                              ? "bg-slate-800 text-white border-slate-800"
+                                              : "bg-white text-slate-600 border-slate-200")
+                                          }
                                         >
                                           S
                                         </button>
@@ -3487,12 +3913,12 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                             )}
 
                             {isShortAnswerCard && (
-                              <input 
-                                type="text" 
-                                value={q.correct_answer || ""} 
-                                onChange={(e) => handleUpdateAnswer(q.id, e.target.value)} 
-                                placeholder="Nhập đáp án..." 
-                                className="w-full p-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-800 outline-none focus:border-blue-600" 
+                              <input
+                                type="text"
+                                value={q.correct_answer || ""}
+                                onChange={(e) => handleUpdateAnswer(q.id, e.target.value)}
+                                placeholder="Nhập đáp án..."
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#1D4ED8]"
                               />
                             )}
                           </div>
@@ -3506,47 +3932,53 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
           </div>
         ) : (
           <div className="flex-1 p-6 overflow-y-auto custom-scrollbar flex items-center justify-center">
-            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-xs max-w-lg w-full space-y-5">
-              <div className="text-center space-y-1 pb-2 border-b border-slate-100">
-                <h3 className="font-black text-lg text-slate-900">Thiết lập Thông số Đề thi</h3>
-                <p className="text-xs text-slate-500">Hoàn tất các cài đặt bên dưới để xuất bản đề thi</p>
+            <div className="bg-white rounded-xl border border-slate-200 p-8 max-w-lg w-full space-y-5">
+              <div className="text-center space-y-1 pb-3 border-b border-slate-200">
+                <h3 className="font-bold text-lg text-slate-900">Thiết lập Thông số Đề thi</h3>
+                <p className="text-xs text-slate-500">
+                  Hoàn tất các cài đặt bên dưới để xuất bản đề thi
+                </p>
               </div>
 
-              <div className="space-y-4 text-xs font-bold text-slate-700">
+              <div className="space-y-4 text-xs font-semibold text-slate-700">
                 <div>
                   <label className="block mb-1.5">Tiêu đề đề thi *</label>
-                  <input 
-                    type="text" 
-                    value={examTitle} 
-                    onChange={e => setExamTitle(e.target.value)} 
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all" 
+                  <input
+                    type="text"
+                    value={examTitle}
+                    onChange={(e) => setExamTitle(e.target.value)}
+                    className="w-full p-3 bg-[#F8FAFC] border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-[#1D4ED8] focus:bg-white transition-all"
                   />
                 </div>
 
                 <div>
                   <label className="block mb-1.5">Tổng thời gian làm bài (Phút) *</label>
-                  <input 
-                    type="number" 
-                    value={duration} 
-                    onChange={e => setDuration(Number(e.target.value))} 
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all" 
+                  <input
+                    type="number"
+                    value={duration}
+                    onChange={(e) => setDuration(Number(e.target.value))}
+                    className="w-full p-3 bg-[#F8FAFC] border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-[#1D4ED8] focus:bg-white transition-all"
                   />
                 </div>
 
                 {mode === "practice" && (
                   <div>
                     <label className="block mb-1.5">Danh mục Luyện đề</label>
-                    <select 
-                      value={category} 
-                      onChange={e => setCategory(e.target.value)}
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition-all cursor-pointer"
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full p-3 bg-[#F8FAFC] border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 outline-none focus:border-[#1D4ED8] focus:bg-white transition-all cursor-pointer"
                     >
-                      {PRACTICE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      {PRACTICE_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 )}
 
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-800 text-xs leading-relaxed font-normal space-y-1">
+                <div className="p-4 bg-[#F8FAFC] rounded-xl border border-slate-200 text-slate-800 text-xs leading-relaxed font-normal space-y-1">
                   <div>
                     • Định dạng đề:{" "}
                     <strong className="font-bold">
@@ -3562,9 +3994,7 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
                   </div>
                   <div>
                     • Thang điểm chuẩn:{" "}
-                    <strong className="font-bold">
-                      {totalMaxPoints.toFixed(1)} điểm
-                    </strong>{" "}
+                    <strong className="font-bold">{totalMaxPoints.toFixed(1)} điểm</strong>{" "}
                     {examFormat === "hsa" ? "(50 điểm / phần)" : "(Auto-Balanced 10.0)"}.
                   </div>
                 </div>
@@ -3579,9 +4009,9 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
           type="button"
           disabled={step === 1}
           onClick={() => setStep(step === 3 ? 2 : 1)}
-          className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-40 cursor-pointer hover:bg-slate-50 transition-all flex items-center gap-1.5"
+          className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold text-xs disabled:opacity-40 cursor-pointer hover:bg-[#F8FAFC] transition-all flex items-center gap-1.5"
         >
-          <ArrowLeft className="w-4 h-4"/> Quay lại
+          <ArrowLeft className="w-4 h-4" /> Quay lại
         </button>
 
         <div className="flex items-center gap-3">
@@ -3589,18 +4019,18 @@ export function AzotaExamConfigModal(props: AzotaExamConfigModalProps) {
             <button
               type="button"
               onClick={() => setStep(step === 1 ? 2 : 3)}
-              className="px-6 py-2.5 rounded-xl bg-blue-800 hover:bg-blue-900 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+              className="px-6 py-2.5 rounded-xl bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
             >
               <span>Tiếp tục ({totalQuestions} câu)</span>
-              <ArrowRight className="w-4 h-4"/>
+              <ArrowRight className="w-4 h-4" />
             </button>
           ) : (
             <button
               type="button"
               onClick={handleFinalPublish}
-              className="px-7 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs cursor-pointer transition-all flex items-center gap-2"
+              className="px-7 py-2.5 rounded-xl bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold text-xs cursor-pointer transition-all flex items-center gap-2"
             >
-              <Check className="w-4 h-4"/>
+              <Check className="w-4 h-4" />
               <span>
                 {targetBaseExam ? "Lưu & Cập Nhật Đề HSA" : "Lưu & Xuất Bản Đề Thi"}
               </span>
