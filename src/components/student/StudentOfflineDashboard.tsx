@@ -18,14 +18,11 @@ import { Profile, ExamAttempt } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
 import { useAutoSyncAttempts } from "@/hooks/useAutoSyncAttempts";
 import {
-  Target,
   BookOpen,
   CheckCircle2,
   Clock,
   Edit3,
-  Check,
   Layers,
-  FileText,
   X,
   ArrowRight,
   Library,
@@ -35,7 +32,8 @@ import {
   ChevronUp,
   Eye,
   Lock,
-  GraduationCap
+  GraduationCap,
+  Calendar
 } from "lucide-react";
 
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
@@ -189,6 +187,27 @@ function isHsaExamItem(exam?: any, attempt?: any): boolean {
   return false;
 }
 
+/**
+ * LOẠI BỎ ĐỀ KIỂM TRA ĐỊNH KỲ & BTVN KHỎI TAB LUYỆN ĐỀ THPT
+ */
+function isExcludedFromThptPractice(exam?: any): boolean {
+  if (!exam) return true;
+  if (exam.isHomework === true || exam.is_homework === true) return true;
+  const catNorm = normalizeStr(exam.category || "");
+  if (
+    catNorm.includes("kiểm tra định kỳ") ||
+    catNorm.includes("kiem tra dinh ky") ||
+    catNorm.includes("đề kiểm tra") ||
+    catNorm.includes("de kiem tra") ||
+    catNorm.includes("bài tập về nhà") ||
+    catNorm.includes("bai tap ve nha") ||
+    catNorm.includes("btvn")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function getHsaDisplayMeta(exam: any): {
   isHsa: boolean;
   partsCount: number;
@@ -233,6 +252,80 @@ function getHsaDisplayMeta(exam: any): {
     partsCount: partsCount || 3,
     maxPoints: partsCount > 0 ? Math.min(150, partsCount * 50) : 150,
     badgeLabel
+  };
+}
+
+const VIETNAMESE_FULL_WEEKDAYS = [
+  "Chủ Nhật",
+  "Thứ Hai",
+  "Thứ Ba",
+  "Thứ Tư",
+  "Thứ Năm",
+  "Thứ Sáu",
+  "Thứ Bảy"
+];
+
+const VIETNAMESE_SHORT_WEEKDAYS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+function formatDDMMYYYY(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function formatVietnameseTodayLabel(date: Date = new Date()): string {
+  const weekday = VIETNAMESE_FULL_WEEKDAYS[date.getDay()];
+  return `Hôm nay: ${weekday}, ${formatDDMMYYYY(date)}`;
+}
+
+/**
+ * TỰ ĐỘNG TÍNH HẠN NỘP +7 NGÀY TỪ CHUỖI NGÀY HỌC "DD/MM/YYYY"
+ */
+function computeDueDateInfo(studyDateStr?: string): {
+  isOverdue: boolean;
+  daysRemaining: number;
+  label: string;
+} | null {
+  if (!studyDateStr || !String(studyDateStr).includes("/")) return null;
+  const parts = String(studyDateStr).trim().split("/");
+  if (parts.length !== 3) return null;
+
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = parseInt(parts[2], 10);
+  if (isNaN(day) || isNaN(month) || isNaN(year) || year < 2000) return null;
+
+  const dueDate = new Date(year, month - 1, day + 7);
+  if (isNaN(dueDate.getTime())) return null;
+
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const dueMidnight = new Date(
+    dueDate.getFullYear(),
+    dueDate.getMonth(),
+    dueDate.getDate()
+  ).getTime();
+
+  const diffDays = Math.round((dueMidnight - todayMidnight) / 86400000);
+  const shortWeekday = VIETNAMESE_SHORT_WEEKDAYS[dueDate.getDay()];
+  const formattedDue = `${shortWeekday}, ${formatDDMMYYYY(dueDate)}`;
+
+  if (diffDays < 0) {
+    return {
+      isOverdue: true,
+      daysRemaining: diffDays,
+      label: `Quá hạn • Hạn: ${formattedDue}`
+    };
+  }
+
+  return {
+    isOverdue: false,
+    daysRemaining: diffDays,
+    label:
+      diffDays === 0
+        ? `Hạn nộp: ${formattedDue} (hôm nay)`
+        : `Hạn nộp: ${formattedDue} (còn ${diffDays} ngày)`
   };
 }
 
@@ -334,7 +427,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return null;
   });
 
-  // Tự động đồng bộ lại danh sách BTVN mới nhất từ Supabase mỗi khi học sinh F5 ngay trong bài học
   useEffect(() => {
     if (!selectedLesson?.id) return;
     let isCancelled = false;
@@ -402,11 +494,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Lọc phân môn THPT ('all' | 'dai' | 'hinh' | 'tong_on' | 'tang_cuong')
   const [selectedSubjectCategory, setSelectedSubjectCategory] = useState<
     "all" | "dai" | "hinh" | "tong_on" | "tang_cuong"
   >("all");
-  // Lọc mảng kiến thức HSA ('all' | 'quant' | 'qual' | 'elective')
   const [selectedHsaDomain, setSelectedHsaDomain] = useState<
     "all" | "quant" | "qual" | "elective"
   >("all");
@@ -518,7 +608,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   );
   const [offlineToast, setOfflineToast] = useState<string>("");
 
-  // Hàm nạp đầy đủ câu hỏi (`data`) của đề từ Supabase khi học sinh mở phòng thi HSA hoặc xem lại bài HSA
+  const todayVietnameseLabel = useMemo(() => formatVietnameseTodayLabel(new Date()), []);
+
   const ensurePracticeExamQuestionsLoaded = useCallback(async (examObj: any): Promise<any> => {
     if (!examObj || !examObj.id) return examObj;
     const hasLoaded =
@@ -551,7 +642,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return examObj;
   }, []);
 
-  // ĐỒNG BỘ NỀN TỪ SUPABASE
   const fetchAuthAndData = useCallback(async () => {
     if (profile?.id) {
       try {
@@ -1297,11 +1387,15 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       .filter((chap: any) => chap.lessons.length > 0);
   }, [allNormalizedChapters]);
 
-  // PHÂN TÁCH 2 NHÓM ĐỀ THI: ĐỀ THPT (!isHsaExamItem) & ĐỀ ĐGNL HSA (isHsaExamItem)
+  // PHÂN TÁCH 2 NHÓM ĐỀ THI: ĐỀ THPT (LOẠI BỎ ĐỀ KIỂM TRA ĐỊNH KỲ & BTVN) & ĐỀ ĐGNL HSA
   const thptPracticeExams = useMemo(() => {
     return (practiceExams || []).filter((e: any) => {
       const tMode = (e?.target_mode || "all").toLowerCase();
-      return (tMode === "offline" || tMode === "all") && !isHsaExamItem(e);
+      return (
+        (tMode === "offline" || tMode === "all") &&
+        !isHsaExamItem(e) &&
+        !isExcludedFromThptPractice(e)
+      );
     });
   }, [practiceExams]);
 
@@ -1494,16 +1588,18 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     };
   }, [thptChapters, findAttemptForLesson]);
 
-  // TỰ ĐỘNG LỌC TỐI ĐA 5 NHIỆM VỤ (BTVN / KIỂM TRA) MỚI NHẤT CHƯA NỘP TỪ CẢ THPT & HSA CHO TAB OVERVIEW
-  const pendingTasksList = useMemo(() => {
-    const tasks: {
+  // VIỆC CẦN LÀM NGAY (GỒM CẢ BTVN/KIỂM TRA CHƯA NỘP KÈM HẠN +7 NGÀY & CÁC ĐỀ THI THPT/HSA CHƯA LÀM)
+  const pendingTodoItems = useMemo(() => {
+    const lessonTasks: {
       key: string;
+      itemType: "lesson_task";
       lesson: any;
-      taskTitle: string;
-      lessonTitle: string;
-      kindLabel: "BTVN" | "Kiểm tra";
-      trackLabel: "THPT" | "HSA";
-      metaText: string;
+      title: string;
+      subtitle: string;
+      badgeText: string;
+      dueLabel: string;
+      isOverdue: boolean;
+      hasDueDate: boolean;
     }[] = [];
 
     allNormalizedChapters.forEach((chap: any) => {
@@ -1513,22 +1609,23 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         const studyDate = les.study_date ? String(les.study_date).trim() : "";
         const lesMonth = Number(les.assigned_month) || 10;
         const lesWeek = Number(les.assigned_week) || 1;
-        const metaText = studyDate
-          ? `${studyDate} • Tuần ${lesWeek}`
-          : `Tuần ${lesWeek} • Tháng ${lesMonth < 10 ? "0" + lesMonth : lesMonth}`;
+        const dueInfo = computeDueDateInfo(studyDate);
+        const fallbackPeriod = `Tuần ${lesWeek} • Tháng ${lesMonth < 10 ? "0" + lesMonth : lesMonth}`;
 
         (les.homework_files || []).forEach((hw: any) => {
           if (!hw) return;
           const att = findAttemptForLesson(hw, les.title, true);
           if (!att) {
-            tasks.push({
+            lessonTasks.push({
               key: `hw-${les.id}-${hw.id}`,
+              itemType: "lesson_task",
               lesson: les,
-              taskTitle: hw.title || "Bài tập về nhà",
-              lessonTitle: les.title,
-              kindLabel: "BTVN",
-              trackLabel,
-              metaText
+              title: hw.title || "Bài tập về nhà",
+              subtitle: les.title,
+              badgeText: `${trackLabel} • BTVN`,
+              dueLabel: dueInfo ? dueInfo.label : fallbackPeriod,
+              isOverdue: Boolean(dueInfo?.isOverdue),
+              hasDueDate: Boolean(dueInfo)
             });
           }
         });
@@ -1537,22 +1634,70 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           if (!tq) return;
           const att = findAttemptForLesson(tq, les.title, false);
           if (!att) {
-            tasks.push({
+            lessonTasks.push({
               key: `tq-${les.id}-${tq.id}`,
+              itemType: "lesson_task",
               lesson: les,
-              taskTitle: tq.title || "Bài kiểm tra",
-              lessonTitle: les.title,
-              kindLabel: "Kiểm tra",
-              trackLabel,
-              metaText
+              title: tq.title || "Bài kiểm tra",
+              subtitle: les.title,
+              badgeText: `${trackLabel} • Kiểm tra`,
+              dueLabel: dueInfo ? dueInfo.label : fallbackPeriod,
+              isOverdue: Boolean(dueInfo?.isOverdue),
+              hasDueDate: Boolean(dueInfo)
             });
           }
         });
       });
     });
 
-    return tasks.slice(0, 5);
-  }, [allNormalizedChapters, findAttemptForLesson]);
+    const examTasks: {
+      key: string;
+      itemType: "practice_exam";
+      exam: any;
+      title: string;
+      subtitle: string;
+      badgeText: string;
+      dueLabel: string;
+      isOverdue: boolean;
+      hasDueDate: boolean;
+    }[] = [];
+
+    const combinedCandidateExams = [...hsaPracticeExams, ...thptPracticeExams];
+    combinedCandidateExams.forEach((ex: any) => {
+      if (!ex?.id) return;
+      const exId = String(ex.id).trim().toLowerCase();
+      const exTitleNorm = normalizeStr(ex.title || "");
+      const hasAttempted = myAttempts.some((a) => {
+        const aId = String(a.quizId || a.quiz_id || a.exam_id || "").trim().toLowerCase();
+        const aTitle = normalizeStr(a.quizTitle || a.examTitle || a.title || "");
+        return (exId && aId === exId) || (exTitleNorm && aTitle === exTitleNorm);
+      });
+
+      if (!hasAttempted) {
+        const isHsa = isHsaExamItem(ex);
+        const createdRaw = ex.created_at || ex.createdAt;
+        const createdDate = createdRaw ? new Date(createdRaw) : null;
+        const postedLabel =
+          createdDate && !isNaN(createdDate.getTime())
+            ? `Đăng ngày ${formatDDMMYYYY(createdDate)}`
+            : "Đề thi mới";
+
+        examTasks.push({
+          key: `prac-${ex.id}`,
+          itemType: "practice_exam",
+          exam: ex,
+          title: ex.title || "Đề luyện thi",
+          subtitle: `${ex.category || (isHsa ? "ĐGNL HSA (ĐHQGHN)" : "Luyện đề THPT")} • ${ex.duration_minutes || (isHsa ? 195 : 50)} phút`,
+          badgeText: isHsa ? "ĐGNL HSA" : "Luyện đề THPT",
+          dueLabel: postedLabel,
+          isOverdue: false,
+          hasDueDate: false
+        });
+      }
+    });
+
+    return [...lessonTasks.slice(0, 5), ...examTasks.slice(0, 5)];
+  }, [allNormalizedChapters, findAttemptForLesson, hsaPracticeExams, thptPracticeExams, myAttempts]);
 
   const currentWorkspaceAttempts = useMemo(() => {
     if (!workspacePracticeExam) return [];
@@ -1565,7 +1710,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     });
   }, [workspacePracticeExam, myAttempts]);
 
-  // Nạp chi tiết câu hỏi của đúng đề được chọn rồi mở phòng thi HSA hoặc ExamEntryModal
   const handleTriggerExamEntryModal = useCallback(
     async (examObj: any, isHomeworkFlag: boolean = false) => {
       const fullExam = !isHomeworkFlag
@@ -1600,7 +1744,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     [ensurePracticeExamQuestionsLoaded]
   );
 
-  // Mở chế độ Xem lại bài làm (Tự động nạp câu hỏi + đáp án đã chọn từ Supabase nếu là đề HSA)
   const handleOpenReviewAttempt = useCallback(
     async (examObj: any, attemptObj: any) => {
       let resolvedExam = examObj;
@@ -2105,7 +2248,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   }
 
   return (
-    <div className="h-screen w-full bg-[#F8FAFC] antialiased text-slate-800 tracking-normal leading-relaxed flex overflow-hidden relative selection:bg-blue-500/20">
+    <div className="h-screen w-full bg-[#F1F5F9] antialiased text-slate-800 tracking-normal leading-relaxed flex overflow-hidden relative selection:bg-blue-500/20">
       <AnimatePresence>
         {offlineToast && (
           <motion.div
@@ -2167,11 +2310,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         <main className="flex-1 p-3 sm:p-4 md:px-6 md:py-5 pb-20 md:pb-6 overflow-y-auto overflow-x-hidden custom-scrollbar transition-all duration-300 ease-in-out w-full">
           {isTabChanging ? (
             <div className="max-w-5xl mx-auto space-y-4 animate-pulse">
-              <div className="h-14 bg-slate-200/70 rounded-xl w-full" />
-              <div className="h-32 bg-slate-200/60 rounded-xl w-full" />
+              <div className="h-14 bg-slate-200/80 rounded-xl w-full" />
+              <div className="h-32 bg-slate-200/70 rounded-xl w-full" />
               <div className="space-y-2.5">
-                <div className="h-12 bg-slate-200/50 rounded-xl w-full" />
-                <div className="h-12 bg-slate-200/50 rounded-xl w-full" />
+                <div className="h-12 bg-slate-200/60 rounded-xl w-full" />
+                <div className="h-12 bg-slate-200/60 rounded-xl w-full" />
               </div>
             </div>
           ) : (
@@ -2242,50 +2385,69 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                       </div>
                     </div>
 
-                    {/* KHỐI 2: NHIỆM VỤ CHƯA HOÀN THÀNH (VIỆC CẦN LÀM NGAY - TỐI ĐA 5 BÀI) */}
+                    {/* KHỐI 2: VIỆC CẦN LÀM NGAY (GỒM BTVN/KT HẠN +7 NGÀY & ĐỀ THI THPT/HSA CHƯA LÀM) */}
                     <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden">
-                      <div className="px-4 py-3 border-b border-slate-200/90 bg-[#F8FAFC] flex items-center justify-between">
+                      <div className="px-4 py-3 border-b border-slate-200/90 bg-[#F8FAFC] flex flex-wrap items-center justify-between gap-2">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                          Việc cần làm ngay ({pendingTasksList.length})
+                          Việc cần làm ngay ({pendingTodoItems.length})
                         </h3>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("progress")}
-                          className="text-xs font-semibold text-[#1D4ED8] hover:underline cursor-pointer"
-                        >
-                          Xem toàn bộ tiến độ →
-                        </button>
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                          <Calendar className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                          <span>{todayVietnameseLabel}</span>
+                        </div>
                       </div>
 
-                      {pendingTasksList.length === 0 ? (
+                      {pendingTodoItems.length === 0 ? (
                         <div className="p-6 text-center space-y-1">
                           <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto" />
                           <p className="text-xs font-semibold text-slate-700">
-                            Bạn đã hoàn thành toàn bộ bài tập hiện có.
+                            Bạn đã hoàn thành toàn bộ bài tập và đề thi hiện có.
                           </p>
                           <p className="text-xs text-slate-400">
-                            Hãy chọn 1 đề thi thử THPT hoặc ĐGNL HSA để rèn luyện thêm.
+                            Bạn có thể xem lại bài học cũ hoặc làm lại đề để nâng cao điểm số.
                           </p>
                         </div>
                       ) : (
                         <div className="divide-y divide-slate-100">
-                          {pendingTasksList.map((task) => (
+                          {pendingTodoItems.map((item) => (
                             <div
-                              key={task.key}
-                              onClick={() => handleOpenLesson(task.lesson)}
-                              className="px-4 py-3 hover:bg-[#F8FAFC] transition flex items-center justify-between gap-3 cursor-pointer group"
+                              key={item.key}
+                              onClick={() => {
+                                if (item.itemType === "lesson_task") {
+                                  handleOpenLesson(item.lesson);
+                                } else {
+                                  handleTriggerExamEntryModal(item.exam, false);
+                                }
+                              }}
+                              className="px-4 py-3 hover:bg-[#F8FAFC] transition flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 cursor-pointer group"
                             >
-                              <div className="min-w-0 flex-1 space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 shrink-0">
-                                    {task.trackLabel} • {task.kindLabel}
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200/90 shrink-0">
+                                    {item.badgeText}
                                   </span>
                                   <span className="text-sm font-semibold text-slate-900 truncate group-hover:text-[#1D4ED8]">
-                                    {task.taskTitle}
+                                    {item.title}
                                   </span>
                                 </div>
-                                <div className="text-xs text-slate-500 truncate">
-                                  {task.lessonTitle} • {task.metaText}
+                                <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
+                                  <span className="truncate max-w-md">{item.subtitle}</span>
+                                  <span className="text-slate-300">•</span>
+                                  {item.hasDueDate ? (
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                                        item.isOverdue
+                                          ? "bg-rose-50 text-rose-700 border-rose-200"
+                                          : "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                                      }`}
+                                    >
+                                      {item.dueLabel}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] font-medium text-slate-500">
+                                      {item.dueLabel}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
 
@@ -2301,7 +2463,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
                     {/* KHỐI 3: 2 THẺ ĐIỀU HƯỚNG NHANH (LỘ TRÌNH SONG SONG THPT & ĐGNL HSA) */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Thẻ 1: Ôn thi THPT */}
                       <div className="bg-white rounded-xl border border-slate-200/90 p-5 flex flex-col justify-between gap-4">
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
@@ -2355,7 +2516,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                         </div>
                       </div>
 
-                      {/* Thẻ 2: Luyện thi ĐGNL HSA */}
                       <div className="bg-white rounded-xl border border-slate-200/90 p-5 flex flex-col justify-between gap-4">
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
@@ -2493,9 +2653,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                         <div className="min-w-0 space-y-1 flex-1">
                                           <h4
                                             className={`text-sm font-semibold break-words ${
-                                              isLocked
-                                                ? "text-slate-500"
-                                                : "text-slate-900"
+                                              isLocked ? "text-slate-500" : "text-slate-900"
                                             }`}
                                           >
                                             {les.title}
@@ -2561,7 +2719,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                 )}
 
                 {/* ================================================================= */}
-                {/* TAB 3: `practice` (LUYỆN ĐỀ THPT — CHỈ ĐỀ THPT, THẺ TỐI GIẢN)      */}
+                {/* TAB 3: `practice` (LUYỆN ĐỀ THPT — LOẠI BỎ ĐỀ KT ĐỊNH KỲ & BTVN)   */}
                 {/* ================================================================= */}
                 {activeTab === "practice" && (
                   <div className="max-w-6xl mx-auto space-y-4 text-left">
@@ -2660,18 +2818,24 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                     (acc: number, sec: any) => acc + (sec.questions?.length || 0),
                                     0
                                   ) || 0;
+                                const displayCategory = exam.category || "Tốt Nghiệp THPT";
 
                                 return (
                                   <div
                                     key={exam.id}
                                     className="bg-white border border-slate-200/90 rounded-xl p-4 hover:border-slate-300 transition flex flex-col justify-between gap-4"
                                   >
-                                    <div className="space-y-1.5">
-                                      <p className="text-[11px] font-medium text-slate-500">
-                                        {exam.category || "Luyện đề THPT"} •{" "}
-                                        {exam.duration_minutes || 45} phút
-                                        {qCount > 0 ? ` • ${qCount} câu` : ""}
-                                      </p>
+                                    <div className="space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-[11px] font-semibold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded border border-blue-200 truncate">
+                                          {displayCategory} • {exam.duration_minutes || 90} phút
+                                        </span>
+                                        {qCount > 0 && (
+                                          <span className="text-[11px] text-slate-500 shrink-0">
+                                            {qCount} câu
+                                          </span>
+                                        )}
+                                      </div>
                                       <h3 className="text-sm font-bold text-slate-900 line-clamp-2">
                                         {exam.title}
                                       </h3>
@@ -2729,7 +2893,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                       </span>
                     </div>
 
-                    {/* Bộ lọc nhanh theo mảng kiến thức HSA */}
                     <div className="bg-white rounded-xl p-2.5 sm:px-3.5 border border-slate-200/90 flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
                       {(
                         [
@@ -3069,7 +3232,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                     {hwList.length > 0 ? (
                                       hwAttempt ? (
                                         <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-                                          BTVN: {Number(hwAttempt.score ?? hwAttempt.points ?? 0).toFixed(1)}đ
+                                          BTVN:{" "}
+                                          {Number(
+                                            hwAttempt.score ?? hwAttempt.points ?? 0
+                                          ).toFixed(1)}
+                                          đ
                                         </span>
                                       ) : (
                                         <span className="px-2.5 py-1 rounded-md bg-[#F8FAFC] text-slate-500 border border-slate-200/90">
@@ -3081,7 +3248,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                     {testList.length > 0 ? (
                                       testAttempt ? (
                                         <span className="px-2.5 py-1 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 font-semibold">
-                                          KT: {Number(testAttempt.score ?? testAttempt.points ?? 0).toFixed(1)}đ
+                                          KT:{" "}
+                                          {Number(
+                                            testAttempt.score ?? testAttempt.points ?? 0
+                                          ).toFixed(1)}
+                                          đ
                                         </span>
                                       ) : (
                                         <span className="px-2.5 py-1 rounded-md bg-[#F8FAFC] text-slate-500 border border-slate-200/90">
