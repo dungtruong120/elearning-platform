@@ -69,17 +69,17 @@ export function Sidebar({
 
   return (
     <>
-      {/* 1. SIDEBAR DESKTOP: Tông Slate Navy dịu mắt, phân tách rõ ràng với nền nội dung */}
-      <aside className="hidden md:flex w-60 bg-[#0F172A] border-r border-slate-800 text-slate-300 flex-col shrink-0 p-4 h-screen select-none">
+      {/* 1. SIDEBAR DESKTOP: Nền xanh xám dịu (#EEF2F7) + Thẻ trắng nổi cho tab đang chọn */}
+      <aside className="hidden md:flex w-60 bg-[#EEF2F7] border-r border-slate-200/90 text-slate-700 flex-col shrink-0 p-4 h-screen select-none">
         <div className="flex items-center gap-3 px-2 mb-6 shrink-0">
-          <div className="w-9 h-9 bg-[#2563EB] text-white rounded-xl flex items-center justify-center font-black text-xs shadow-sm">
+          <div className="w-9 h-9 bg-[#1D4ED8] text-white rounded-xl flex items-center justify-center font-black text-xs shadow-xs">
             TCT
           </div>
           <div className="min-w-0">
-            <h1 className="font-bold text-[14.5px] text-white tracking-tight leading-none">
+            <h1 className="font-bold text-[14.5px] text-slate-900 tracking-tight leading-none">
               TÂM CHÍ TÀI
             </h1>
-            <p className="text-[10px] text-slate-400 font-semibold tracking-wider mt-1 uppercase">
+            <p className="text-[10px] text-slate-500 font-semibold tracking-wider mt-1 uppercase">
               Cổng Học Tập
             </p>
           </div>
@@ -88,7 +88,7 @@ export function Sidebar({
         <nav className="space-y-4 flex-1 overflow-y-auto no-scrollbar pr-0.5">
           {navGroups.map((group) => (
             <div key={group.title} className="space-y-1">
-              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 {group.title}
               </div>
               <div className="space-y-0.5">
@@ -103,14 +103,14 @@ export function Sidebar({
                       className={
                         "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all duration-150 cursor-pointer " +
                         (isActive
-                          ? "bg-[#2563EB] text-white font-semibold shadow-xs"
-                          : "text-slate-300 font-medium hover:bg-slate-800/80 hover:text-white")
+                          ? "bg-white text-[#1D4ED8] font-bold shadow-xs ring-1 ring-blue-600/15"
+                          : "text-slate-600 font-medium hover:bg-white/60 hover:text-slate-900")
                       }
                     >
                       <Icon
                         className={
                           "w-4 h-4 shrink-0 " +
-                          (isActive ? "text-white" : "text-slate-400")
+                          (isActive ? "text-[#1D4ED8]" : "text-slate-400")
                         }
                       />
                       <span className="truncate">{item.label}</span>
@@ -122,19 +122,19 @@ export function Sidebar({
           ))}
         </nav>
 
-        <div className="mt-auto pt-3 border-t border-slate-800 shrink-0 space-y-2">
-          <div className="px-3 py-2.5 bg-slate-800/70 rounded-xl border border-slate-700/70">
-            <p className="text-xs font-bold text-white truncate">
+        <div className="mt-auto pt-3 border-t border-slate-200/80 shrink-0 space-y-2">
+          <div className="px-3 py-2.5 bg-white/80 rounded-xl border border-slate-200/80">
+            <p className="text-xs font-bold text-slate-800 truncate">
               {user?.full_name || "Học sinh"}
             </p>
-            <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
               {user?.grade || "Lớp 12"}
             </p>
           </div>
           <button
             type="button"
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-all font-semibold text-xs cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-white/80 transition-all font-semibold text-xs cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5 shrink-0" />
             <span>Đăng xuất</span>
