@@ -59,7 +59,6 @@ export function Sidebar({
     }
   ];
 
-  // 5 tab cốt lõi gọn gàng cho thanh điều hướng đáy Mobile
   const mobileBottomItems = [
     { key: "overview", label: "Tổng quan", icon: LayoutDashboard },
     { key: "courses", label: "Bài học", icon: BookOpen },
@@ -70,14 +69,14 @@ export function Sidebar({
 
   return (
     <>
-      {/* 1. SIDEBAR DESKTOP TỐI GIẢN & HIỆN ĐẠI */}
-      <aside className="hidden md:flex w-60 bg-white border-r border-slate-200/90 text-slate-700 flex-col shrink-0 p-4 h-screen select-none">
+      {/* 1. SIDEBAR DESKTOP: Tông Slate Navy dịu mắt, phân tách rõ ràng với nền nội dung */}
+      <aside className="hidden md:flex w-60 bg-[#0F172A] border-r border-slate-800 text-slate-300 flex-col shrink-0 p-4 h-screen select-none">
         <div className="flex items-center gap-3 px-2 mb-6 shrink-0">
-          <div className="w-9 h-9 bg-[#1D4ED8] text-white rounded-xl flex items-center justify-center font-black text-xs shadow-2xs">
+          <div className="w-9 h-9 bg-[#2563EB] text-white rounded-xl flex items-center justify-center font-black text-xs shadow-sm">
             TCT
           </div>
           <div className="min-w-0">
-            <h1 className="font-bold text-[14.5px] text-slate-900 tracking-tight leading-none">
+            <h1 className="font-bold text-[14.5px] text-white tracking-tight leading-none">
               TÂM CHÍ TÀI
             </h1>
             <p className="text-[10px] text-slate-400 font-semibold tracking-wider mt-1 uppercase">
@@ -89,7 +88,7 @@ export function Sidebar({
         <nav className="space-y-4 flex-1 overflow-y-auto no-scrollbar pr-0.5">
           {navGroups.map((group) => (
             <div key={group.title} className="space-y-1">
-              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 {group.title}
               </div>
               <div className="space-y-0.5">
@@ -104,14 +103,14 @@ export function Sidebar({
                       className={
                         "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all duration-150 cursor-pointer " +
                         (isActive
-                          ? "bg-blue-50 text-[#1D4ED8] font-bold"
-                          : "text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900")
+                          ? "bg-[#2563EB] text-white font-semibold shadow-xs"
+                          : "text-slate-300 font-medium hover:bg-slate-800/80 hover:text-white")
                       }
                     >
                       <Icon
                         className={
                           "w-4 h-4 shrink-0 " +
-                          (isActive ? "text-[#1D4ED8]" : "text-slate-400")
+                          (isActive ? "text-white" : "text-slate-400")
                         }
                       />
                       <span className="truncate">{item.label}</span>
@@ -123,19 +122,19 @@ export function Sidebar({
           ))}
         </nav>
 
-        <div className="mt-auto pt-3 border-t border-slate-100 shrink-0 space-y-2">
-          <div className="px-3 py-2 bg-slate-50 rounded-xl border border-slate-200/70">
-            <p className="text-xs font-bold text-slate-800 truncate">
+        <div className="mt-auto pt-3 border-t border-slate-800 shrink-0 space-y-2">
+          <div className="px-3 py-2.5 bg-slate-800/70 rounded-xl border border-slate-700/70">
+            <p className="text-xs font-bold text-white truncate">
               {user?.full_name || "Học sinh"}
             </p>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+            <p className="text-[11px] text-slate-400 font-medium mt-0.5">
               {user?.grade || "Lớp 12"}
             </p>
           </div>
           <button
             type="button"
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50/70 transition-all font-semibold text-xs cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-all font-semibold text-xs cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5 shrink-0" />
             <span>Đăng xuất</span>
@@ -143,7 +142,7 @@ export function Sidebar({
         </div>
       </aside>
 
-      {/* 2. BOTTOM NAVIGATION BAR CHO MOBILE (5 MỤC CỐT LÕI) */}
+      {/* 2. BOTTOM NAVIGATION BAR CHO MOBILE */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-white/95 backdrop-blur-xl border-t border-slate-200 px-1 pt-1.5 pb-2 flex items-center justify-between select-none">
         {mobileBottomItems.map((item) => {
           const Icon = item.icon;
@@ -155,9 +154,7 @@ export function Sidebar({
               onClick={() => setActiveTab(item.key)}
               className={
                 "flex-1 flex flex-col items-center justify-center py-0.5 transition-all cursor-pointer " +
-                (isActive
-                  ? "text-[#1D4ED8]"
-                  : "text-slate-400 hover:text-slate-600")
+                (isActive ? "text-[#1D4ED8]" : "text-slate-400 hover:text-slate-600")
               }
             >
               <div className={"p-1 rounded-lg " + (isActive ? "bg-blue-50" : "")}>
