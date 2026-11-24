@@ -283,8 +283,8 @@ function MathAndImageRenderer({
                 key={idx}
                 className={
                   isDisplay
-                    ? "block my-2.5 text-center overflow-x-auto py-1 text-[16px] text-slate-900"
-                    : "inline align-baseline px-0.5 text-[15.5px] text-slate-900"
+                    ? "block my-2.5 text-center overflow-x-auto py-1 text-[16px] text-slate-900 [&_.katex]:text-[16px]"
+                    : "inline align-baseline px-0.5 text-[15.5px] leading-[1.7] text-slate-900 [&_.katex]:text-[15.5px] [&_.katex]:leading-none"
                 }
                 dangerouslySetInnerHTML={{ __html: html }}
               />
@@ -316,7 +316,12 @@ function detectPartKeyFromSection(sec: any, fallbackIndex: number): HsaPartKey {
     .toLowerCase();
 
   if (rawKey === "quant" || rawKey.includes("quant") || rawKey.includes("toan")) return "quant";
-  if (rawKey === "qual" || rawKey.includes("qual") || rawKey.includes("van") || rawKey.includes("ngon_ngu")) {
+  if (
+    rawKey === "qual" ||
+    rawKey.includes("qual") ||
+    rawKey.includes("van") ||
+    rawKey.includes("ngon_ngu")
+  ) {
     return "qual";
   }
   if (rawKey === "english" || rawKey === "eng" || rawKey.includes("anh")) return "english";
@@ -353,7 +358,11 @@ function detectPartKeyFromSection(sec: any, fallbackIndex: number): HsaPartKey {
   ) {
     return "qual";
   }
-  if (titleLower.includes("tiếng anh") || titleLower.includes("english") || titleLower.includes("ngoại ngữ")) {
+  if (
+    titleLower.includes("tiếng anh") ||
+    titleLower.includes("english") ||
+    titleLower.includes("ngoại ngữ")
+  ) {
     return "english";
   }
   if (
@@ -558,9 +567,7 @@ function parseExamIntoHsaParts(rawExam: any): Record<HsaPartKey, NormalizedHsaPa
 
       let correctAnswer = String(q?.correct_answer ?? q?.answer ?? "").trim();
       if (qType === "true_false" && !correctAnswer && normalizedOptions.length === 4) {
-        correctAnswer = normalizedOptions
-          .map((o) => (o.isTrueFalseAns ? "Đ" : "S"))
-          .join("");
+        correctAnswer = normalizedOptions.map((o) => (o.isTrueFalseAns ? "Đ" : "S")).join("");
       }
       if (qType === "multiple_choice" && !correctAnswer) {
         correctAnswer = "A";
@@ -616,7 +623,9 @@ export function HsaExamWorkspace({
   const [selectedElective, setSelectedElective] = useState<"english" | "history_geo">("english");
 
   // Tiến trình các phần đã lưu
-  const [partsProgress, setPartsProgress] = useState<Partial<Record<HsaPartKey, HsaPartProgress>>>({});
+  const [partsProgress, setPartsProgress] = useState<Partial<Record<HsaPartKey, HsaPartProgress>>>(
+    {}
+  );
 
   // State làm bài trong phòng thi thực chiến (Màn hình 2)
   const [currentAnswers, setCurrentAnswers] = useState<Record<string, string>>({});
@@ -735,11 +744,6 @@ export function HsaExamWorkspace({
   const hasHistoryGeoQuestions = useMemo(
     () => Boolean(partsMap.history_geo && partsMap.history_geo.questions.length > 0),
     [partsMap]
-  );
-
-  const hasBothElectives = useMemo(
-    () => hasEnglishQuestions && hasHistoryGeoQuestions,
-    [hasEnglishQuestions, hasHistoryGeoQuestions]
   );
 
   // Tự động chọn tổ hợp đã có dữ liệu nếu đề thi chỉ mở 1 trong 2 tổ hợp
@@ -1574,8 +1578,8 @@ export function HsaExamWorkspace({
   if (isFetchingExam) {
     return (
       <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col items-center justify-center p-6 font-sans antialiased">
-        <div className="bg-white border border-slate-200 rounded-xl p-8 max-w-md w-full text-center space-y-3 shadow-xs">
-          <Loader2 className="w-8 h-8 text-blue-700 animate-spin mx-auto" />
+        <div className="bg-white border border-slate-200 rounded-xl p-8 max-w-md w-full text-center space-y-3">
+          <Loader2 className="w-8 h-8 text-[#1D4ED8] animate-spin mx-auto" />
           <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
             Đang tải dữ liệu ca thi ĐGNL HSA...
           </h3>
@@ -1598,7 +1602,7 @@ export function HsaExamWorkspace({
           <button
             type="button"
             onClick={onBackToDashboard}
-            className="px-3.5 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
+            className="px-3.5 py-2 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4 text-slate-600" />
             <span>Thoát phòng thi</span>
@@ -1613,7 +1617,7 @@ export function HsaExamWorkspace({
             </h1>
           </div>
 
-          <div className="flex items-center gap-3 bg-slate-50 px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs">
+          <div className="flex items-center gap-3 bg-[#F8FAFC] px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs">
             <div>
               <span className="text-slate-500 font-medium">Thí sinh: </span>
               <strong className="text-slate-900 font-bold">{studentName}</strong>
@@ -1621,7 +1625,7 @@ export function HsaExamWorkspace({
             <span className="text-slate-300">|</span>
             <div>
               <span className="text-slate-500 font-medium">SBD: </span>
-              <strong className="font-mono font-bold text-blue-700">{studentSbd}</strong>
+              <strong className="font-mono font-bold text-[#1D4ED8]">{studentSbd}</strong>
             </div>
           </div>
         </header>
@@ -1632,8 +1636,8 @@ export function HsaExamWorkspace({
             {/* Tiêu đề đề thi & thông tin tổng quan */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-700 uppercase">
-                  <Layers className="w-3.5 h-3.5 text-slate-600" />
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#F8FAFC] border border-slate-200 text-[11px] font-bold text-slate-700 uppercase">
+                  <Layers className="w-3.5 h-3.5 text-[#1D4ED8]" />
                   <span>Bảng điều khiển Ca thi HSA</span>
                 </div>
                 <h2 className="text-base sm:text-lg font-bold text-slate-900">
@@ -1668,8 +1672,8 @@ export function HsaExamWorkspace({
                   </p>
                 </div>
                 {lockedElectiveKey && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold shrink-0">
-                    <Lock className="w-3.5 h-3.5" />
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#F8FAFC] border border-slate-200 text-slate-700 text-[11px] font-semibold shrink-0">
+                    <Lock className="w-3.5 h-3.5 text-slate-500" />
                     Đã khóa đổi tổ hợp sau khi bắt đầu thi
                   </span>
                 )}
@@ -1710,23 +1714,23 @@ export function HsaExamWorkspace({
                       onClick={() => handleSelectElective(item.key)}
                       className={`p-4 rounded-xl border text-left flex items-start justify-between gap-3 transition ${
                         !item.hasData
-                          ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed"
+                          ? "bg-[#F8FAFC] border-slate-200 text-slate-400 cursor-not-allowed"
                           : isSelected
-                            ? "bg-blue-50/70 border-blue-700 text-slate-900"
+                            ? "bg-blue-50/50 border-[#1D4ED8] text-slate-900"
                             : isLockedByProgress
-                              ? "bg-slate-50 border-slate-200 text-slate-400 opacity-65 cursor-not-allowed"
-                              : "bg-white border-slate-200 text-slate-800 hover:bg-slate-50 cursor-pointer"
+                              ? "bg-[#F8FAFC] border-slate-200 text-slate-400 opacity-65 cursor-not-allowed"
+                              : "bg-white border-slate-200 text-slate-800 hover:bg-[#F8FAFC] cursor-pointer"
                       }`}
                     >
                       <div className="flex items-start gap-3">
                         <span
                           className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
                             isSelected
-                              ? "border-blue-700 bg-white"
+                              ? "border-2 border-[#1D4ED8] bg-white"
                               : "border-slate-400 bg-white"
                           }`}
                         >
-                          {isSelected && <span className="w-2 h-2 rounded-full bg-blue-700" />}
+                          {isSelected && <span className="w-2 h-2 rounded-full bg-[#1D4ED8]" />}
                         </span>
                         <div className="space-y-1">
                           <div className="text-xs sm:text-sm font-bold">{item.title}</div>
@@ -1746,16 +1750,16 @@ export function HsaExamWorkspace({
 
                       <div className="shrink-0">
                         {!item.hasData ? (
-                          <span className="inline-block px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[10px] font-bold">
+                          <span className="inline-block px-2 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[10px] font-semibold">
                             Chưa mở trong đề này
                           </span>
                         ) : isLockedByProgress ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-500 text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-500 text-[10px] font-semibold">
                             <Lock className="w-3 h-3" />
                             <span>Đã khóa</span>
                           </span>
                         ) : isSelected ? (
-                          <span className="inline-block px-2.5 py-0.5 rounded bg-blue-700 text-white text-[10px] font-bold uppercase">
+                          <span className="inline-block px-2.5 py-0.5 rounded bg-[#1D4ED8] text-white text-[10px] font-bold uppercase">
                             Đang chọn
                           </span>
                         ) : (
@@ -1816,12 +1820,12 @@ export function HsaExamWorkspace({
                     <div
                       key={`${slot.slotNumber}-${slot.partKey}`}
                       className={`bg-white border rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                        hasData ? "border-slate-200" : "border-slate-200 bg-slate-50/60"
+                        hasData ? "border-slate-200" : "border-slate-200 bg-[#F8FAFC]"
                       }`}
                     >
                       <div className="space-y-1.5">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold uppercase">
+                          <span className="px-2.5 py-0.5 rounded bg-[#F8FAFC] border border-slate-200 text-slate-700 text-[11px] font-bold uppercase">
                             {slot.badge}
                           </span>
                           <h4 className="text-sm sm:text-base font-bold text-slate-900">
@@ -1837,7 +1841,7 @@ export function HsaExamWorkspace({
                               Đã hoàn thành: {prog!.score} / 50 điểm
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-[#F8FAFC] border border-slate-200 text-slate-600 text-xs font-semibold">
                               Chưa làm
                             </span>
                           )}
@@ -1882,16 +1886,16 @@ export function HsaExamWorkspace({
                           <button
                             type="button"
                             onClick={() => handleReviewPart(slot.partKey)}
-                            className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                            className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                           >
-                            <Eye className="w-4 h-4 text-blue-700" />
+                            <Eye className="w-4 h-4 text-[#1D4ED8]" />
                             <span>Xem lại đáp án phần này</span>
                           </button>
                         ) : (
                           <button
                             type="button"
                             onClick={() => handleStartPartExam(slot.partKey)}
-                            className="px-5 py-2.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                            className="px-5 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                           >
                             <Play className="w-3.5 h-3.5 fill-current" />
                             <span>Bắt đầu làm phần này</span>
@@ -1909,7 +1913,7 @@ export function HsaExamWorkspace({
               <button
                 type="button"
                 onClick={() => setConfirmResetModal(true)}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+                className="w-full sm:w-auto px-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4 text-slate-500" />
                 <span>Làm lại toàn bộ đề từ đầu</span>
@@ -1919,7 +1923,7 @@ export function HsaExamWorkspace({
                 <button
                   type="button"
                   onClick={() => setScreen("report")}
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer"
                 >
                   <FileCheck2 className="w-4 h-4" />
                   <span>Kết thúc bài thi & Xuất Phiếu Điểm HSA</span>
@@ -1932,7 +1936,7 @@ export function HsaExamWorkspace({
         {/* MODAL XÁC NHẬN LÀM LẠI TOÀN BỘ TỪ ĐẦU */}
         {confirmResetModal && (
           <div className="fixed inset-0 z-[300] bg-slate-900/50 flex items-center justify-center p-4">
-            <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4 shadow-lg">
+            <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4">
               <h3 className="text-base font-bold text-slate-900">
                 Làm lại toàn bộ đề thi từ đầu?
               </h3>
@@ -1943,7 +1947,7 @@ export function HsaExamWorkspace({
                 <button
                   type="button"
                   onClick={() => setConfirmResetModal(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold cursor-pointer"
                 >
                   Hủy
                 </button>
@@ -1974,7 +1978,7 @@ export function HsaExamWorkspace({
 
     return (
       <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-y-auto font-sans antialiased text-slate-800 p-4 sm:p-6 md:p-10">
-        <div className="max-w-4xl w-full mx-auto my-auto bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+        <div className="max-w-4xl w-full mx-auto my-auto bg-white border border-slate-200 rounded-xl overflow-hidden">
           {/* DẢI TIÊU ĐỀ XANH LÁ ĐẬM TRÊN CÙNG */}
           <div className="bg-emerald-800 text-white px-6 py-5 border-b border-emerald-900 text-center space-y-1">
             <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-200">
@@ -2058,14 +2062,14 @@ export function HsaExamWorkspace({
               </div>
 
               {/* Ô 4: Khối xám/xanh - Tên phần tự chọn đã thi */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col justify-between">
+              <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-5 flex flex-col justify-between">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-800">
                   {electiveCfg.shortTitle}
                 </div>
                 <div className="my-3">
                   {electiveProg?.completed ? (
                     <div>
-                      <span className="text-2xl sm:text-3xl font-extrabold text-blue-800">
+                      <span className="text-2xl sm:text-3xl font-extrabold text-[#1D4ED8]">
                         {electiveProg.score}
                       </span>
                       <span className="text-sm font-bold text-slate-500 ml-1">/ 50</span>
@@ -2119,7 +2123,7 @@ export function HsaExamWorkspace({
                     setReviewFilter("all");
                     setScreen("room");
                   }}
-                  className="px-5 py-2.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-2 transition cursor-pointer"
+                  className="px-5 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-2 transition cursor-pointer"
                 >
                   <Eye className="w-4 h-4" />
                   <span>Xem lại đáp án & Lời giải chi tiết</span>
@@ -2128,7 +2132,7 @@ export function HsaExamWorkspace({
                 <button
                   type="button"
                   onClick={() => setScreen("hub")}
-                  className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
+                  className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
                 >
                   <Layers className="w-4 h-4 text-slate-600" />
                   <span>Bảng điều khiển ca thi</span>
@@ -2137,7 +2141,7 @@ export function HsaExamWorkspace({
                 <button
                   type="button"
                   onClick={() => setConfirmResetModal(true)}
-                  className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
+                  className="px-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold flex items-center gap-2 transition cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4 text-slate-600" />
                   <span>Làm lại bài thi</span>
@@ -2159,7 +2163,7 @@ export function HsaExamWorkspace({
         {/* MODAL XÁC NHẬN LÀM LẠI BÀI THI */}
         {confirmResetModal && (
           <div className="fixed inset-0 z-[300] bg-slate-900/50 flex items-center justify-center p-4">
-            <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4 shadow-lg">
+            <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4">
               <h3 className="text-base font-bold text-slate-900">Làm lại toàn bộ bài thi?</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 Hệ thống sẽ xóa kết quả tạm thời hiện tại để bạn bắt đầu làm lại các phần thi từ đầu.
@@ -2168,7 +2172,7 @@ export function HsaExamWorkspace({
                 <button
                   type="button"
                   onClick={() => setConfirmResetModal(false)}
-                  className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold cursor-pointer"
                 >
                   Hủy
                 </button>
@@ -2193,12 +2197,12 @@ export function HsaExamWorkspace({
   return (
     <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-hidden font-sans antialiased text-slate-900">
       {/* HEADER TỐI GIẢN CHUẨN PHẦN MỀM THI MÁY TÍNH ĐHQGHN */}
-      <header className="h-13 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+      <header className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setScreen(isReviewMode && initialReviewMode ? "report" : "hub")}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-slate-600" />
             <span>Về bảng điều khiển ca thi</span>
@@ -2208,7 +2212,7 @@ export function HsaExamWorkspace({
             <button
               type="button"
               onClick={() => setScreen("report")}
-              className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 text-xs font-bold transition cursor-pointer"
             >
               Xem Phiếu Điểm HSA
             </button>
@@ -2225,7 +2229,7 @@ export function HsaExamWorkspace({
         {/* Chuyển nhanh giữa các phần khi ở chế độ Xem lại đáp án, hoặc hiển thị SBD */}
         <div className="flex items-center gap-2">
           {isReviewMode && availablePartKeys.length > 1 ? (
-            <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+            <div className="hidden lg:flex items-center gap-1 bg-[#F8FAFC] p-1 rounded-lg border border-slate-200">
               {availablePartKeys.map((pKey) => {
                 const isCurr = activePartKey === pKey;
                 const pSaved = partsProgress[pKey];
@@ -2239,7 +2243,7 @@ export function HsaExamWorkspace({
                     }}
                     className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
                       isCurr
-                        ? "bg-white text-blue-700 shadow-2xs"
+                        ? "bg-white text-[#1D4ED8] border border-slate-200"
                         : "text-slate-600 hover:text-slate-900"
                     }`}
                   >
@@ -2250,10 +2254,10 @@ export function HsaExamWorkspace({
               })}
             </div>
           ) : (
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600 bg-[#F8FAFC] px-3 py-1 rounded-lg border border-slate-200">
               <span>{studentName}</span>
               <span className="text-slate-300">•</span>
-              <strong className="font-mono text-blue-700">{studentSbd}</strong>
+              <strong className="font-mono text-[#1D4ED8]">{studentSbd}</strong>
             </div>
           )}
         </div>
@@ -2283,8 +2287,8 @@ export function HsaExamWorkspace({
                     onClick={() => setReviewFilter(f.key)}
                     className={`px-3 py-1 rounded text-xs font-bold border transition cursor-pointer ${
                       reviewFilter === f.key
-                        ? "bg-slate-900 text-white border-slate-900"
-                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-[#F8FAFC]"
                     }`}
                   >
                     {f.label}
@@ -2322,7 +2326,7 @@ export function HsaExamWorkspace({
                 >
                   {/* KHUNG DỮ KIỆN / NGỮ LIỆU CHUNG ĐẶT Ở ĐẦU KHỐI (NẾU LÀ CÂU HỎI CHÙM) */}
                   {hasGroupHeader && (
-                    <div className="bg-slate-50/90 border-b border-slate-200 p-4 sm:p-5 space-y-2.5">
+                    <div className="bg-[#F8FAFC] border-b border-slate-200 p-4 sm:p-5 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="px-2.5 py-0.5 rounded bg-emerald-800 text-white text-xs font-bold">
                           Dữ kiện câu hỏi chùm (Câu {firstQ.localIndex}
@@ -2351,7 +2355,7 @@ export function HsaExamWorkspace({
                                 <button
                                   type="button"
                                   onClick={() => setLightboxImageSrc(imgSrc)}
-                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:underline cursor-pointer"
+                                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1D4ED8] hover:underline cursor-pointer"
                                 >
                                   <ZoomIn className="w-3 h-3" /> Phóng to ảnh
                                 </button>
@@ -2418,11 +2422,7 @@ export function HsaExamWorkspace({
                                             : "bg-rose-50 text-rose-700 border-rose-300"
                                       }`}
                                     >
-                                      {!isAnswered
-                                        ? "Bỏ trống"
-                                        : isCorrect
-                                          ? "Đúng"
-                                          : "Sai"}
+                                      {!isAnswered ? "Bỏ trống" : isCorrect ? "Đúng" : "Sai"}
                                     </span>
                                   )}
 
@@ -2440,7 +2440,7 @@ export function HsaExamWorkspace({
                                   className={`shrink-0 px-2 py-1 rounded border text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
                                     isFlagged
                                       ? "bg-amber-50 border-amber-300 text-amber-800"
-                                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                                      : "bg-white border-slate-200 text-slate-500 hover:bg-[#F8FAFC]"
                                   }`}
                                   title="Đánh dấu câu phân vân"
                                 >
@@ -2466,7 +2466,7 @@ export function HsaExamWorkspace({
                                     const isOptCorrect =
                                       q.correctAnswer.toUpperCase() === opt.key.toUpperCase();
 
-                                    let rowStyle = "hover:bg-slate-50/80 text-slate-900";
+                                    let rowStyle = "hover:bg-[#F8FAFC] text-slate-900 rounded-md";
                                     let labelKeyStyle = "text-slate-700 font-semibold";
                                     let optionTextStyle = "text-slate-900";
 
@@ -2481,8 +2481,8 @@ export function HsaExamWorkspace({
                                         optionTextStyle = "text-rose-950 font-medium";
                                       }
                                     } else if (isSelected) {
-                                      rowStyle = "bg-blue-50/50 rounded-md";
-                                      labelKeyStyle = "text-blue-800 font-bold";
+                                      rowStyle = "bg-blue-50/40 rounded-md";
+                                      labelKeyStyle = "text-[#1D4ED8] font-bold";
                                       optionTextStyle = "text-slate-950 font-medium";
                                     }
 
@@ -2521,12 +2521,12 @@ export function HsaExamWorkspace({
                                             <span
                                               className={`w-4 h-4 rounded-full border flex items-center justify-center transition ${
                                                 isSelected
-                                                  ? "border-2 border-blue-700 bg-white"
+                                                  ? "border-2 border-[#1D4ED8] bg-white"
                                                   : "border-slate-400 bg-white"
                                               }`}
                                             >
                                               {isSelected && (
-                                                <span className="w-2 h-2 rounded-full bg-blue-700 block" />
+                                                <span className="w-2 h-2 rounded-full bg-[#1D4ED8] block" />
                                               )}
                                             </span>
                                           )}
@@ -2565,7 +2565,7 @@ export function HsaExamWorkspace({
                                           ? isCorrect
                                             ? "bg-emerald-50 border-emerald-500 text-emerald-900"
                                             : "bg-rose-50 border-rose-400 text-rose-900"
-                                          : "bg-white border-slate-300 text-slate-900 focus:border-blue-700"
+                                          : "bg-white border-slate-300 text-slate-900 focus:border-[#1D4ED8]"
                                       }`}
                                     />
                                   </div>
@@ -2582,7 +2582,7 @@ export function HsaExamWorkspace({
                               {q.type === "true_false" && (
                                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                                   <table className="w-full text-left text-xs">
-                                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
+                                    <thead className="bg-[#F8FAFC] border-b border-slate-200 text-slate-600">
                                       <tr>
                                         <th className="py-2 px-3 font-bold">Mệnh đề</th>
                                         <th className="py-2 px-3 text-center font-bold w-16">
@@ -2593,7 +2593,7 @@ export function HsaExamWorkspace({
                                         </th>
                                       </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
+                                    <tbody className="divide-y divide-slate-200">
                                       {q.options.map((opt, oIdx) => {
                                         const curChar = String(userAns || "----")[oIdx] || "-";
                                         return (
@@ -2615,7 +2615,7 @@ export function HsaExamWorkspace({
                                                 }
                                                 className={`w-5 h-5 rounded-full border mx-auto flex items-center justify-center font-bold ${
                                                   curChar === "Đ"
-                                                    ? "bg-blue-700 border-blue-700 text-white"
+                                                    ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
                                                     : "bg-white border-slate-400 text-transparent"
                                                 }`}
                                               >
@@ -2631,7 +2631,7 @@ export function HsaExamWorkspace({
                                                 }
                                                 className={`w-5 h-5 rounded-full border mx-auto flex items-center justify-center font-bold ${
                                                   curChar === "S"
-                                                    ? "bg-blue-700 border-blue-700 text-white"
+                                                    ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
                                                     : "bg-white border-slate-400 text-transparent"
                                                 }`}
                                               >
@@ -2661,7 +2661,7 @@ export function HsaExamWorkspace({
                                     <button
                                       type="button"
                                       onClick={() => setLightboxImageSrc(imgSrc)}
-                                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:underline cursor-pointer"
+                                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1D4ED8] hover:underline cursor-pointer"
                                     >
                                       <ZoomIn className="w-3 h-3" /> Bấm để phóng to
                                     </button>
@@ -2673,9 +2673,9 @@ export function HsaExamWorkspace({
 
                           {/* LỜI GIẢI CHI TIẾT DƯỚI MỖI CÂU KHI Ở CHẾ ĐỘ XEM LẠI ĐÁP ÁN */}
                           {isReviewMode && (
-                            <div className="mt-2.5 p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
+                            <div className="mt-2.5 p-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200 space-y-1.5">
                               <div className="flex items-center justify-between text-xs font-bold text-slate-800">
-                                <span className="flex items-center gap-1.5 text-blue-800">
+                                <span className="flex items-center gap-1.5 text-[#1D4ED8]">
                                   <BookOpen className="w-3.5 h-3.5" />
                                   <span>Lời giải chi tiết</span>
                                 </span>
@@ -2690,7 +2690,7 @@ export function HsaExamWorkspace({
                                 </span>
                               </div>
                               {q.solutionHtml ? (
-                                <div className="pt-1.5 border-t border-slate-200/80">
+                                <div className="pt-1.5 border-t border-slate-200">
                                   <MathAndImageRenderer
                                     content={q.solutionHtml}
                                     mediaMap={activePart?.mediaMap}
@@ -2738,7 +2738,7 @@ export function HsaExamWorkspace({
                   type="button"
                   disabled={isSubmittingPart}
                   onClick={() => setConfirmSubmitModal(true)}
-                  className="w-full py-2 px-3 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="w-full py-2 px-3 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isSubmittingPart ? (
                     <>
@@ -2755,7 +2755,7 @@ export function HsaExamWorkspace({
 
                 <div className="text-center text-[11px] font-semibold text-slate-600">
                   Đã chọn{" "}
-                  <strong className="text-blue-700">
+                  <strong className="text-[#1D4ED8]">
                     {answeredCountInActivePart}/{activePart?.questions.length || 0}
                   </strong>{" "}
                   câu
@@ -2801,7 +2801,7 @@ export function HsaExamWorkspace({
                 const correct = checkIsQuestionCorrect(q, userAns);
 
                 let btnClass =
-                  "bg-white border-slate-200 text-slate-700 hover:border-blue-500 hover:bg-slate-50";
+                  "bg-white border-slate-200 text-slate-700 hover:border-[#1D4ED8] hover:bg-[#F8FAFC]";
                 if (isReviewMode) {
                   if (!answered) {
                     btnClass = "bg-slate-100 border-slate-300 text-slate-500";
@@ -2811,7 +2811,7 @@ export function HsaExamWorkspace({
                     btnClass = "bg-rose-600 border-rose-600 text-white font-bold";
                   }
                 } else if (answered) {
-                  btnClass = "bg-blue-700 border-blue-700 text-white font-bold";
+                  btnClass = "bg-[#1D4ED8] border-[#1D4ED8] text-white font-bold";
                 }
 
                 return (
@@ -2834,16 +2834,16 @@ export function HsaExamWorkspace({
             </div>
 
             {/* Chú thích màu sắc ma trận gọn gàng */}
-            <div className="pt-2.5 border-t border-slate-100 space-y-1 text-[10px] text-slate-600">
+            <div className="pt-2.5 border-t border-slate-200 space-y-1 text-[10px] text-slate-600">
               {!isReviewMode ? (
                 <>
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-xs bg-blue-700 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-sm bg-[#1D4ED8] inline-block" />
                       <span>Đã chọn</span>
                     </span>
                     <span className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-xs bg-white border border-slate-300 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-sm bg-white border border-slate-300 inline-block" />
                       <span>Chưa làm</span>
                     </span>
                   </div>
@@ -2855,11 +2855,11 @@ export function HsaExamWorkspace({
               ) : (
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-emerald-600 inline-block" />
+                    <span className="w-2.5 h-2.5 rounded-sm bg-emerald-600 inline-block" />
                     <span>Câu đúng</span>
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-rose-600 inline-block" />
+                    <span className="w-2.5 h-2.5 rounded-sm bg-rose-600 inline-block" />
                     <span>Câu sai</span>
                   </span>
                 </div>
@@ -2872,7 +2872,7 @@ export function HsaExamWorkspace({
       {/* MODAL XÁC NHẬN NỘP PHẦN THI HIỆN TẠI */}
       {confirmSubmitModal && (
         <div className="fixed inset-0 z-[300] bg-slate-900/50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4 shadow-lg">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4">
             <h3 className="text-base font-bold text-slate-900">
               Xác nhận nộp phần thi {activePart?.shortTitle}?
             </h3>
@@ -2887,14 +2887,14 @@ export function HsaExamWorkspace({
               <button
                 type="button"
                 onClick={() => setConfirmSubmitModal(false)}
-                className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold cursor-pointer"
               >
                 Kiểm tra lại bài
               </button>
               <button
                 type="button"
                 onClick={handleSubmitCurrentPart}
-                className="px-5 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold cursor-pointer"
+                className="px-5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold cursor-pointer"
               >
                 Nộp phần thi này
               </button>
