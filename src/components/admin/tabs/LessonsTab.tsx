@@ -1,19 +1,18 @@
 "use client";
 
 import React, { useState, useRef, useMemo } from "react";
-import { 
-  Layers, 
-  BookOpen, 
-  Video, 
-  FolderPlus, 
-  Plus, 
-  Edit3, 
-  Trash2, 
-  FileText, 
-  FileUp, 
-  Link as LinkIcon, 
-  X, 
-  CheckSquare, 
+import {
+  Layers,
+  BookOpen,
+  FolderPlus,
+  Plus,
+  Edit3,
+  Trash2,
+  FileText,
+  FileUp,
+  Link as LinkIcon,
+  X,
+  CheckSquare,
   Award,
   Calendar,
   Filter,
@@ -22,17 +21,21 @@ import {
   Calculator,
   Compass,
   Sparkles,
-  Zap
+  Zap,
+  GraduationCap
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabaseClient";
 
 const AzotaExamConfigModal = dynamic<any>(
-  () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
+  () =>
+    import("@/app/admin/AzotaExamConfigModal").then(
+      (mod: any) => mod.AzotaExamConfigModal || mod.default || mod
+    ),
   { ssr: false }
 );
 
-export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong";
+export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong" | "hsa";
 
 export const SUBJECT_CATEGORY_CONFIG: Record<
   SubjectCategoryKey,
@@ -48,30 +51,37 @@ export const SUBJECT_CATEGORY_CONFIG: Record<
     label: "Đại số & Giải tích",
     shortLabel: "Đại số",
     badgeClass: "bg-blue-50 text-[#1D4ED8] border-blue-200",
-    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-sm",
-    dotClass: "bg-[#1D4ED8]",
+    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-xs",
+    dotClass: "bg-[#1D4ED8]"
   },
   hinh: {
     label: "Hình học & Oxyz",
     shortLabel: "Hình học",
     badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    activeTabClass: "bg-emerald-600 text-white border-emerald-600 shadow-sm",
-    dotClass: "bg-emerald-600",
+    activeTabClass: "bg-emerald-600 text-white border-emerald-600 shadow-xs",
+    dotClass: "bg-emerald-600"
   },
   tong_on: {
     label: "Tổng ôn toàn diện",
     shortLabel: "Tổng ôn",
     badgeClass: "bg-purple-50 text-purple-700 border-purple-200",
-    activeTabClass: "bg-purple-600 text-white border-purple-600 shadow-sm",
-    dotClass: "bg-purple-600",
+    activeTabClass: "bg-purple-600 text-white border-purple-600 shadow-xs",
+    dotClass: "bg-purple-600"
   },
   tang_cuong: {
     label: "Tăng cường & Bổ trợ",
     shortLabel: "Tăng cường",
     badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
-    activeTabClass: "bg-amber-500 text-white border-amber-500 shadow-sm",
-    dotClass: "bg-amber-500",
+    activeTabClass: "bg-amber-600 text-white border-amber-600 shadow-xs",
+    dotClass: "bg-amber-500"
   },
+  hsa: {
+    label: "Tổng ôn ĐGNL HSA",
+    shortLabel: "Tổng ôn HSA",
+    badgeClass: "bg-slate-900 text-white border-slate-900",
+    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-xs",
+    dotClass: "bg-slate-900"
+  }
 };
 
 export function normalizeSubjectCategory(
@@ -79,12 +89,16 @@ export function normalizeSubjectCategory(
   fallbackTitle?: string
 ): SubjectCategoryKey {
   const clean = String(rawCat || "").trim().toLowerCase();
+  if (clean === "hsa" || clean === "dgnl_hsa" || clean === "tong_on_hsa") return "hsa";
   if (clean === "dai" || clean === "algebra" || clean === "dai_so") return "dai";
   if (clean === "hinh" || clean === "geometry" || clean === "hinh_hoc") return "hinh";
   if (clean === "tong_on" || clean === "review" || clean === "tongon") return "tong_on";
   if (clean === "tang_cuong" || clean === "boost" || clean === "tangcuong") return "tang_cuong";
 
   const titleLower = String(fallbackTitle || "").toLowerCase();
+  if (/\bhsa\b|đgnl|dgnl|định lượng|định tính/i.test(titleLower)) {
+    return "hsa";
+  }
   if (
     titleLower.includes("hình học") ||
     titleLower.includes("oxyz") ||
@@ -126,19 +140,19 @@ export const MatrixCell = ({
   if (count > 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-0.5">
-        <button 
+        <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onView();
-          }} 
-          title={`Xem danh sách ${label} (${count})`} 
-          className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-[#1D4ED8] text-[#1D4ED8] bg-blue-50 font-black text-xs hover:bg-[#1D4ED8] hover:text-white transition-all mx-auto cursor-pointer shadow-sm select-none"
+          }}
+          title={`Xem danh sách ${label} (${count})`}
+          className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-[#1D4ED8] text-[#1D4ED8] bg-blue-50 font-black text-xs hover:bg-[#1D4ED8] hover:text-white transition-all mx-auto cursor-pointer select-none"
         >
           {count}
         </button>
         {subBadge && (
-          <span className="text-[9px] font-extrabold text-slate-400 tracking-tighter select-none">
+          <span className="text-[9px] font-bold text-slate-400 tracking-tighter select-none">
             {subBadge}
           </span>
         )}
@@ -147,14 +161,14 @@ export const MatrixCell = ({
   }
 
   return (
-    <button 
+    <button
       type="button"
       onClick={(e) => {
         e.stopPropagation();
         onAdd();
-      }} 
-      title={`Thêm ${label}`} 
-      className="w-8 h-8 flex items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-[#1D4ED8] hover:text-[#1D4ED8] hover:bg-blue-50 transition-all mx-auto cursor-pointer select-none"
+      }}
+      title={`Thêm ${label}`}
+      className="w-8 h-8 flex items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-400 hover:border-[#1D4ED8] hover:text-[#1D4ED8] hover:bg-blue-50 transition-all mx-auto cursor-pointer select-none"
     >
       <Plus className="w-3.5 h-3.5" />
     </button>
@@ -174,7 +188,9 @@ interface LessonsTabProps {
   setCreateModal: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
   setResourceModal: (modal: any) => void;
   setViewResourcesModal: (modal: any) => void;
-  setUploadMethodModal?: (modal: { lessonId: string; type: "homework_files" | "test_quizzes" } | null) => void;
+  setUploadMethodModal?: (
+    modal: { lessonId: string; type: "homework_files" | "test_quizzes" } | null
+  ) => void;
   setBoostModal: (lessonId: string | null) => void;
   setEditLessonModal: (modal: { chapterId: string; lesson: any } | null) => void;
   setEditLessonForm: (form: any) => void;
@@ -214,39 +230,25 @@ export default function LessonsTab({
   setChapters,
   onUpdateChapters,
   saveToStorage,
-  lessonModeTab,
-  setLessonModeTab,
   setCreateModal,
   setResourceModal,
   setViewResourcesModal,
   setBoostModal,
   setEditLessonModal,
   setEditLessonForm,
-  handleDeleteLesson,
-  syncStatus,
-  ...restProps
+  handleDeleteLesson
 }: LessonsTabProps) {
   const currentRealtimeMonth = useMemo(() => new Date().getMonth() + 1, []);
-  const currentRealtimeWeek = useMemo(() => Math.min(5, Math.max(1, Math.ceil(new Date().getDate() / 7))), []);
+  const currentRealtimeWeek = useMemo(
+    () => Math.min(5, Math.max(1, Math.ceil(new Date().getDate() / 7))),
+    []
+  );
 
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("all");
-  const [selectedCategoryTab, setSelectedCategoryTab] = useState<"all" | SubjectCategoryKey>("all");
+  const [selectedCategoryTab, setSelectedCategoryTab] = useState<"all" | SubjectCategoryKey>(
+    "all"
+  );
 
-  const safeOfflineCount = useMemo(() => {
-    if (!chapters || !Array.isArray(chapters)) return 0;
-    return chapters.reduce((total: number, chap: any) => {
-      return total + (chap?.lessons || []).filter((l: any) => l?.target_mode === "offline" || l?.target_mode === "all" || !l?.target_mode).length;
-    }, 0);
-  }, [chapters]);
-
-  const safeOnlineCount = useMemo(() => {
-    if (!chapters || !Array.isArray(chapters)) return 0;
-    return chapters.reduce((total: number, chap: any) => {
-      return total + (chap?.lessons || []).filter((l: any) => l?.target_mode === "online" || l?.target_mode === "all" || (!l?.target_mode && l?.format === "Zoom")).length;
-    }, 0);
-  }, [chapters]);
-
-  // ĐẾM SỐ LƯỢNG BÀI HỌC THEO 4 PHÂN MÔN (TƯƠNG ỨNG VỚI BỘ LỌC ONLINE/OFFLINE VÀ THÁNG)
   const categoryCounts = useMemo(() => {
     const counts: Record<"all" | SubjectCategoryKey, number> = {
       all: 0,
@@ -254,6 +256,7 @@ export default function LessonsTab({
       hinh: 0,
       tong_on: 0,
       tang_cuong: 0,
+      hsa: 0
     };
 
     if (!chapters || !Array.isArray(chapters)) return counts;
@@ -261,13 +264,6 @@ export default function LessonsTab({
     chapters.forEach((chap: any) => {
       const chapCat = chap?.category || chap?.subject_category || chap?.subject_type;
       (chap?.lessons || []).forEach((les: any) => {
-        if (lessonModeTab === "offline" && les?.target_mode !== "offline" && les?.target_mode !== "all") {
-          return;
-        }
-        if (lessonModeTab === "online" && les?.target_mode !== "online" && les?.target_mode !== "all") {
-          return;
-        }
-
         const lesMonth = Number(les?.assigned_month) > 0 ? Number(les.assigned_month) : 10;
         if (selectedMonthFilter !== "all" && lesMonth !== Number(selectedMonthFilter)) {
           return;
@@ -282,9 +278,8 @@ export default function LessonsTab({
     });
 
     return counts;
-  }, [chapters, lessonModeTab, selectedMonthFilter]);
+  }, [chapters, selectedMonthFilter]);
 
-  // SẮP XẾP BÀI MỚI NHẤT (THÁNG CAO HƠN, TUẦN CAO HƠN) LÊN TRÊN ĐẦU
   const computedFlattenedLessons = useMemo(() => {
     if (!chapters || !Array.isArray(chapters)) return [];
     const list: any[] = [];
@@ -298,13 +293,6 @@ export default function LessonsTab({
 
       (chap?.lessons || []).forEach((les: any) => {
         runningOriginalIndex++;
-
-        if (lessonModeTab === "offline" && les?.target_mode !== "offline" && les?.target_mode !== "all") {
-          return;
-        }
-        if (lessonModeTab === "online" && les?.target_mode !== "online" && les?.target_mode !== "all") {
-          return;
-        }
 
         const lesMonth = Number(les?.assigned_month) > 0 ? Number(les.assigned_month) : 10;
         const lesWeek = Number(les?.assigned_week) > 0 ? Number(les.assigned_week) : 1;
@@ -344,17 +332,13 @@ export default function LessonsTab({
       });
     });
 
-    // 🟢 SẮP XẾP: Tháng lớn hơn lên trước -> Tuần lớn hơn lên trước -> Ngày tạo mới hơn lên trước
     list.sort((a, b) => {
-      // 1. So sánh Tháng (Tháng 11 trước Tháng 10)
       if (b.assigned_month !== a.assigned_month) {
         return b.assigned_month - a.assigned_month;
       }
-      // 2. Cùng tháng thì so sánh Tuần (Tuần 3 trước Tuần 2, Tuần 1)
       if (b.assigned_week !== a.assigned_week) {
         return b.assigned_week - a.assigned_week;
       }
-      // 3. Cùng tuần thì bài tạo mới nhất lên trước
       if (b.createdAtTime && a.createdAtTime && b.createdAtTime !== a.createdAtTime) {
         return b.createdAtTime - a.createdAtTime;
       }
@@ -362,11 +346,9 @@ export default function LessonsTab({
     });
 
     return list;
-  }, [chapters, lessonModeTab, selectedMonthFilter, selectedCategoryTab]);
+  }, [chapters, selectedMonthFilter, selectedCategoryTab]);
 
-  const flattenedLessons = useMemo(() => {
-    return computedFlattenedLessons;
-  }, [computedFlattenedLessons]);
+  const flattenedLessons = computedFlattenedLessons;
 
   const [internalUploadModal, setInternalUploadModal] = useState<{
     lessonId: string;
@@ -377,7 +359,7 @@ export default function LessonsTab({
   } | null>(null);
 
   const [activeTestFile, setActiveTestFile] = useState<File | null>(null);
-  
+
   const uploadTargetRef = useRef<{
     lessonId: string;
     type: "homework_files" | "test_quizzes";
@@ -401,7 +383,6 @@ export default function LessonsTab({
   const [driveTitle, setDriveTitle] = useState("");
   const [driveUrl, setDriveUrl] = useState("");
 
-  // STATE MODAL SỬA CHƯƠNG TRỰC TIẾP TỪ BẢNG / THANH QUẢN LÝ
   const [editChapterModal, setEditChapterModal] = useState<{
     id: string;
     title: string;
@@ -422,7 +403,6 @@ export default function LessonsTab({
     }
   };
 
-  // CẬP NHẬT NHANH PHÂN MÔN CHO BÀI HỌC TRỰC TIẾP TRÊN BẢNG
   const handleQuickChangeLessonCategory = async (
     chapterId: string,
     lessonId: string,
@@ -437,9 +417,9 @@ export default function LessonsTab({
           return {
             ...les,
             category: newCategory,
-            subject_category: newCategory,
+            subject_category: newCategory
           };
-        }),
+        })
       };
     });
 
@@ -462,26 +442,25 @@ export default function LessonsTab({
     }
   };
 
-  // LƯU CHỈNH SỬA CHƯƠNG (TÊN CHƯƠNG + PHÂN LUỒNG + PHÂN MÔN)
   const handleSaveEditChapter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editChapterModal || !editChapterModal.title.trim()) return;
-
-    const updatedChapters = (chapters || []).map((chap: any) => {
-      if (chap?.id !== editChapterModal.id) return chap;
-      return {
-        ...chap,
-        title: editChapterModal.title.trim(),
-        target_mode: editChapterModal.target_mode,
-        category: editChapterModal.category,
-        subject_category: editChapterModal.category,
-      };
-    });
 
     const targetId = editChapterModal.id;
     const targetTitle = editChapterModal.title.trim();
     const targetMode = editChapterModal.target_mode;
     const targetCategory = editChapterModal.category;
+
+    const updatedChapters = (chapters || []).map((chap: any) => {
+      if (chap?.id !== targetId) return chap;
+      return {
+        ...chap,
+        title: targetTitle,
+        target_mode: targetMode,
+        category: targetCategory,
+        subject_category: targetCategory
+      };
+    });
 
     setEditChapterModal(null);
     if (typeof setChapters === "function") setChapters(updatedChapters);
@@ -492,7 +471,7 @@ export default function LessonsTab({
         .update({
           title: targetTitle,
           target_mode: targetMode,
-          category: targetCategory,
+          category: targetCategory
         })
         .eq("id", targetId);
     } catch (err) {
@@ -502,11 +481,13 @@ export default function LessonsTab({
     dispatchOptimisticUpdate(updatedChapters, "cập nhật chương");
   };
 
-  // 1. GẠT NHANH KHÓA / MỞ BÀI HỌC VÀ LƯU THẲNG LÊN SUPABASE
-  const handleToggleLockLesson = async (chapterId: string, lessonId: string, currentLockState: boolean) => {
+  const handleToggleLockLesson = async (
+    chapterId: string,
+    lessonId: string,
+    currentLockState: boolean
+  ) => {
     const nextLock = !currentLockState;
 
-    // Cập nhật state giao diện trước (optimistic)
     const updatedChapters = (chapters || []).map((chap: any) => {
       if (chap?.id !== chapterId) return chap;
       return {
@@ -514,24 +495,17 @@ export default function LessonsTab({
         lessons: (chap?.lessons || []).map((les: any) => {
           if (les?.id !== lessonId) return les;
           return { ...les, is_locked: nextLock };
-        }),
+        })
       };
     });
     if (typeof setChapters === "function") setChapters(updatedChapters);
 
-    // GHI TRỰC TIẾP VÀO BẢNG LESSONS TRÊN SUPABASE
     try {
-      const { error } = await supabase
+      await supabase
         .from("lessons")
         .update({ is_locked: nextLock })
         .eq("id", lessonId);
-
-      if (error) {
-        console.error("Lỗi cập nhật is_locked lên Supabase:", error);
-      }
-    } catch (err) {
-      console.error("Lỗi ghi Supabase:", err);
-    }
+    } catch {}
 
     if (typeof onUpdateChapters === "function") {
       await onUpdateChapters(updatedChapters, nextLock ? "Khóa bài học" : "Mở bài học");
@@ -540,11 +514,13 @@ export default function LessonsTab({
     }
   };
 
-  // 2. NHẬP NGÀY HỌC VÀ LƯU THẲNG LÊN SUPABASE
-  const handleChangeStudyDate = async (chapterId: string, lessonId: string, newDateStr: string) => {
+  const handleChangeStudyDate = async (
+    chapterId: string,
+    lessonId: string,
+    newDateStr: string
+  ) => {
     const cleanDate = newDateStr.trim();
 
-    // 1. Cập nhật state UI
     const updatedChapters = (chapters || []).map((chap: any) => {
       if (chap?.id !== chapterId) return chap;
       return {
@@ -552,26 +528,18 @@ export default function LessonsTab({
         lessons: (chap?.lessons || []).map((les: any) => {
           if (les?.id !== lessonId) return les;
           return { ...les, study_date: cleanDate };
-        }),
+        })
       };
     });
     if (typeof setChapters === "function") setChapters(updatedChapters);
 
-    // 2. Ghi trực tiếp vào Supabase
     try {
-      const { error } = await supabase
+      await supabase
         .from("lessons")
         .update({ study_date: cleanDate })
         .eq("id", lessonId);
+    } catch {}
 
-      if (error) {
-        console.error("Lỗi cập nhật study_date:", error.message);
-      }
-    } catch (err) {
-      console.error("Lỗi kết nối Supabase:", err);
-    }
-
-    // 3. Đồng bộ vào LocalStorage/Context
     if (typeof onUpdateChapters === "function") {
       await onUpdateChapters(updatedChapters, `ngày học ${cleanDate}`);
     } else if (typeof saveToStorage === "function") {
@@ -579,14 +547,12 @@ export default function LessonsTab({
     }
   };
 
-  // 3. ĐỔI NHANH TUẦN / THÁNG BÀI HỌC VÀ ĐỒNG BỘ XUỐNG BTVN / ĐỀ KIỂM TRA
   const handleQuickChangeLessonSchedule = async (
     chapterId: string,
     lessonId: string,
     newMonth: number,
     newWeek: number
   ) => {
-    // 1. Cập nhật state giao diện ngay lập tức
     const updatedChapters = (chapters || []).map((chap: any) => {
       if (chap?.id !== chapterId) return chap;
       return {
@@ -597,14 +563,14 @@ export default function LessonsTab({
             ? les.homework_files.map((hw: any) => ({
                 ...hw,
                 assigned_month: Number(newMonth),
-                assigned_week: Number(newWeek),
+                assigned_week: Number(newWeek)
               }))
             : [];
           const updatedTests = Array.isArray(les.test_quizzes)
             ? les.test_quizzes.map((tq: any) => ({
                 ...tq,
                 assigned_month: Number(newMonth),
-                assigned_week: Number(newWeek),
+                assigned_week: Number(newWeek)
               }))
             : [];
           return {
@@ -612,15 +578,14 @@ export default function LessonsTab({
             assigned_month: Number(newMonth),
             assigned_week: Number(newWeek),
             homework_files: updatedHw,
-            test_quizzes: updatedTests,
+            test_quizzes: updatedTests
           };
-        }),
+        })
       };
     });
 
     if (typeof setChapters === "function") setChapters(updatedChapters);
 
-    // 2. Ghi trực tiếp vào Supabase cho bảng lessons
     try {
       await supabase
         .from("lessons")
@@ -629,9 +594,7 @@ export default function LessonsTab({
           assigned_week: Number(newWeek)
         })
         .eq("id", lessonId);
-    } catch (err) {
-      console.error("Lỗi cập nhật tuần/tháng lên Supabase:", err);
-    }
+    } catch {}
 
     if (typeof onUpdateChapters === "function") {
       await onUpdateChapters(updatedChapters, `lịch học Th.${newMonth} Tuần ${newWeek}`);
@@ -647,15 +610,15 @@ export default function LessonsTab({
     const targetObj = {
       lessonId: lesson.id,
       lessonTitle: lesson.title || "Bài học",
-      type: type,
+      type,
       assignedMonth: defaultM,
-      assignedWeek: defaultW,
+      assignedWeek: defaultW
     };
     uploadTargetRef.current = {
       lessonId: lesson.id,
       type,
       assignedMonth: defaultM,
-      assignedWeek: defaultW,
+      assignedWeek: defaultW
     };
     setInternalUploadModal(targetObj);
   };
@@ -666,7 +629,7 @@ export default function LessonsTab({
       lessonId: internalUploadModal.lessonId,
       type: internalUploadModal.type,
       assignedMonth: internalUploadModal.assignedMonth || currentRealtimeMonth,
-      assignedWeek: internalUploadModal.assignedWeek || currentRealtimeWeek,
+      assignedWeek: internalUploadModal.assignedWeek || currentRealtimeWeek
     };
     uploadTargetRef.current = targetObj;
     setActiveUploadTarget(targetObj);
@@ -724,7 +687,7 @@ export default function LessonsTab({
 
     const newQuizItem = {
       id: quizId,
-      title: title,
+      title,
       duration_minutes: duration,
       is_quiz: true,
       isHomework: isHw,
@@ -734,7 +697,7 @@ export default function LessonsTab({
       sections: rawSections,
       media_map: incomingMediaMap,
       mediaMap: incomingMediaMap,
-      created_at: new Date().toISOString(),
+      created_at: new Date().toISOString()
     };
 
     const updatedChapters = (chapters || []).map((chap: any) => ({
@@ -746,9 +709,9 @@ export default function LessonsTab({
           ...les,
           assigned_month: les.assigned_month || finalMonth,
           assigned_week: les.assigned_week || finalWeek,
-          [type]: [...currentList, newQuizItem],
+          [type]: [...currentList, newQuizItem]
         };
-      }),
+      })
     }));
 
     dispatchOptimisticUpdate(
@@ -772,7 +735,7 @@ export default function LessonsTab({
       is_drive_file: true,
       assigned_month: assignedMonth || currentRealtimeMonth,
       assigned_week: assignedWeek || currentRealtimeWeek,
-      created_at: new Date().toISOString(),
+      created_at: new Date().toISOString()
     };
 
     setDriveModal(null);
@@ -790,9 +753,9 @@ export default function LessonsTab({
             les.assigned_month || assignedMonth || currentRealtimeMonth,
           assigned_week:
             les.assigned_week || assignedWeek || currentRealtimeWeek,
-          [type]: [...currentList, newItem],
+          [type]: [...currentList, newItem]
         };
-      }),
+      })
     }));
 
     dispatchOptimisticUpdate(
@@ -802,23 +765,23 @@ export default function LessonsTab({
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-300 text-left relative font-sans">
-      <input 
-        type="file" 
-        ref={pdfInputRef} 
-        accept=".pdf" 
-        className="hidden" 
+    <div className="space-y-4 text-left relative font-sans">
+      <input
+        type="file"
+        ref={pdfInputRef}
+        accept=".pdf"
+        className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) handleSelectFile(f);
           e.target.value = "";
         }}
       />
-      <input 
-        type="file" 
-        ref={docxInputRef} 
-        accept=".docx" 
-        className="hidden" 
+      <input
+        type="file"
+        ref={docxInputRef}
+        accept=".docx"
+        className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) handleSelectFile(f);
@@ -826,297 +789,211 @@ export default function LessonsTab({
         }}
       />
 
-      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC */}
-      <div className="flex flex-col gap-3 p-3.5 bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 shadow-sm">
-        {/* HÀNG 1: LỌC HÌNH THỨC LỚP + LỌC THÁNG + NÚT THÊM CHƯƠNG/BÀI HỌC */}
+      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC TỐI GIẢN */}
+      <div className="flex flex-col gap-3 p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80">
+            {/* Bộ lọc 5 phân môn: Đại số | Hình học | Tổng ôn | Tăng cường | Tổng ôn HSA */}
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setLessonModeTab("all")}
+                onClick={() => setSelectedCategoryTab("all")}
                 className={
-                  "flex items-center gap-2 px-3.5 py-2 rounded-xl font-extrabold text-xs transition-all cursor-pointer " +
-                  (lessonModeTab === "all"
-                    ? "bg-white text-[#1D4ED8] shadow-sm border border-slate-200/60"
-                    : "text-slate-600 hover:text-slate-900")
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
+                  (selectedCategoryTab === "all"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100")
                 }
               >
-                <Layers className="w-4 h-4 text-blue-600" />
-                <span>Tất cả bài học</span>
+                <Layers className="w-3.5 h-3.5" />
+                <span>Tất cả ({categoryCounts.all})</span>
               </button>
+
               <button
                 type="button"
-                onClick={() => setLessonModeTab("offline")}
+                onClick={() => setSelectedCategoryTab("dai")}
                 className={
-                  "flex items-center gap-2 px-3.5 py-2 rounded-xl font-extrabold text-xs transition-all cursor-pointer " +
-                  (lessonModeTab === "offline"
-                    ? "bg-white text-emerald-700 shadow-sm border border-slate-200/60"
-                    : "text-slate-600 hover:text-slate-900")
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
+                  (selectedCategoryTab === "dai"
+                    ? SUBJECT_CATEGORY_CONFIG.dai.activeTabClass
+                    : "bg-blue-50/60 text-[#1D4ED8] border-blue-200/80 hover:bg-blue-100/70")
                 }
               >
-                <BookOpen className="w-4 h-4 text-emerald-600" />
-                <span>Bài học Offline ({safeOfflineCount})</span>
+                <Calculator className="w-3.5 h-3.5" />
+                <span>Đại số ({categoryCounts.dai})</span>
               </button>
+
               <button
                 type="button"
-                onClick={() => setLessonModeTab("online")}
+                onClick={() => setSelectedCategoryTab("hinh")}
                 className={
-                  "flex items-center gap-2 px-3.5 py-2 rounded-xl font-extrabold text-xs transition-all cursor-pointer " +
-                  (lessonModeTab === "online"
-                    ? "bg-white text-indigo-700 shadow-sm border border-slate-200/60"
-                    : "text-slate-600 hover:text-slate-900")
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
+                  (selectedCategoryTab === "hinh"
+                    ? SUBJECT_CATEGORY_CONFIG.hinh.activeTabClass
+                    : "bg-emerald-50/60 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100/70")
                 }
               >
-                <Video className="w-4 h-4 text-indigo-600" />
-                <span>Bài học Online ({safeOnlineCount})</span>
+                <Compass className="w-3.5 h-3.5" />
+                <span>Hình học ({categoryCounts.hinh})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedCategoryTab("tong_on")}
+                className={
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
+                  (selectedCategoryTab === "tong_on"
+                    ? SUBJECT_CATEGORY_CONFIG.tong_on.activeTabClass
+                    : "bg-purple-50/60 text-purple-700 border-purple-200/80 hover:bg-purple-100/70")
+                }
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Tổng ôn ({categoryCounts.tong_on})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedCategoryTab("tang_cuong")}
+                className={
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
+                  (selectedCategoryTab === "tang_cuong"
+                    ? SUBJECT_CATEGORY_CONFIG.tang_cuong.activeTabClass
+                    : "bg-amber-50/60 text-amber-700 border-amber-200/80 hover:bg-amber-100/70")
+                }
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Tăng cường ({categoryCounts.tang_cuong})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedCategoryTab("hsa")}
+                className={
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
+                  (selectedCategoryTab === "hsa"
+                    ? SUBJECT_CATEGORY_CONFIG.hsa.activeTabClass
+                    : "bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200")
+                }
+              >
+                <GraduationCap className="w-3.5 h-3.5" />
+                <span>Tổng ôn HSA ({categoryCounts.hsa})</span>
               </button>
             </div>
 
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50/70 rounded-2xl border border-blue-200/70">
-              <Filter className="w-3.5 h-3.5 text-[#1D4ED8]" />
-              <span className="text-[11px] font-bold text-slate-600">Tháng:</span>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-200">
+              <Filter className="w-3.5 h-3.5 text-slate-500" />
               <select
                 value={selectedMonthFilter}
                 onChange={(e) => setSelectedMonthFilter(e.target.value)}
-                className="bg-transparent text-xs font-black text-[#1D4ED8] outline-none cursor-pointer"
+                className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
               >
                 <option value="all">Tất cả tháng</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                   <option key={m} value={String(m)}>
-                    Tháng {m < 10 ? "0" + m : m} {m === currentRealtimeMonth ? "(Hiện tại)" : ""}
+                    Tháng {m < 10 ? "0" + m : m}
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <button 
+          <div className="flex items-center gap-2 shrink-0">
+            <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setCreateModal({ type: "chapter" });
-              }} 
-              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer"
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
             >
               <FolderPlus className="w-4 h-4 text-[#1D4ED8]" /> Thêm Chương
             </button>
-            <button 
+            <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (!chapters || chapters.length === 0) return alert("Vui lòng thêm Chương trước!");
+                if (!chapters || chapters.length === 0)
+                  return alert("Vui lòng thêm Chương trước!");
                 setCreateModal({ type: "lesson", chapterId: chapters[0].id });
-              }} 
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-2xl shadow-sm transition cursor-pointer"
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-xs font-bold rounded-xl transition cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> Thêm Bài học mới
+              <Plus className="w-4 h-4" /> Thêm Bài học
             </button>
           </div>
         </div>
 
-        {/* HÀNG 2: THANH TAB LỌC NHANH 4 PHÂN MÔN TOÁN THPT */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-100">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mr-1 flex items-center gap-1">
-              Phân môn:
+        {/* DANH SÁCH CHƯƠNG HIỆN CÓ KÈM NHÃN PHÂN MÔN & NÚT SỬA NHANH CHƯƠNG */}
+        {Array.isArray(chapters) && chapters.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pt-2.5 border-t border-slate-100">
+            <span className="text-[10px] font-bold uppercase text-slate-400 mr-1 shrink-0">
+              Chương:
             </span>
-
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryTab("all")}
-              className={
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer " +
-                (selectedCategoryTab === "all"
-                  ? "bg-slate-900 text-white border-slate-900 shadow-xs"
-                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100")
-              }
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Tất cả phân môn</span>
-              <span
-                className={
-                  "px-1.5 py-0.2 rounded-md text-[10px] font-black " +
-                  (selectedCategoryTab === "all"
-                    ? "bg-white/20 text-white"
-                    : "bg-slate-200/80 text-slate-700")
-                }
-              >
-                {categoryCounts.all}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryTab("dai")}
-              className={
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer " +
-                (selectedCategoryTab === "dai"
-                  ? SUBJECT_CATEGORY_CONFIG.dai.activeTabClass
-                  : "bg-blue-50/60 text-[#1D4ED8] border-blue-200/80 hover:bg-blue-100/70")
-              }
-            >
-              <Calculator className="w-3.5 h-3.5" />
-              <span>Đại số</span>
-              <span
-                className={
-                  "px-1.5 py-0.2 rounded-md text-[10px] font-black " +
-                  (selectedCategoryTab === "dai"
-                    ? "bg-white/20 text-white"
-                    : "bg-blue-100 text-[#1D4ED8]")
-                }
-              >
-                {categoryCounts.dai}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryTab("hinh")}
-              className={
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer " +
-                (selectedCategoryTab === "hinh"
-                  ? SUBJECT_CATEGORY_CONFIG.hinh.activeTabClass
-                  : "bg-emerald-50/60 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100/70")
-              }
-            >
-              <Compass className="w-3.5 h-3.5" />
-              <span>Hình học</span>
-              <span
-                className={
-                  "px-1.5 py-0.2 rounded-md text-[10px] font-black " +
-                  (selectedCategoryTab === "hinh"
-                    ? "bg-white/20 text-white"
-                    : "bg-emerald-100 text-emerald-800")
-                }
-              >
-                {categoryCounts.hinh}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryTab("tong_on")}
-              className={
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer " +
-                (selectedCategoryTab === "tong_on"
-                  ? SUBJECT_CATEGORY_CONFIG.tong_on.activeTabClass
-                  : "bg-purple-50/60 text-purple-700 border-purple-200/80 hover:bg-purple-100/70")
-              }
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Tổng ôn</span>
-              <span
-                className={
-                  "px-1.5 py-0.2 rounded-md text-[10px] font-black " +
-                  (selectedCategoryTab === "tong_on"
-                    ? "bg-white/20 text-white"
-                    : "bg-purple-100 text-purple-800")
-                }
-              >
-                {categoryCounts.tong_on}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryTab("tang_cuong")}
-              className={
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer " +
-                (selectedCategoryTab === "tang_cuong"
-                  ? SUBJECT_CATEGORY_CONFIG.tang_cuong.activeTabClass
-                  : "bg-amber-50/60 text-amber-700 border-amber-200/80 hover:bg-amber-100/70")
-              }
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>Tăng cường</span>
-              <span
-                className={
-                  "px-1.5 py-0.2 rounded-md text-[10px] font-black " +
-                  (selectedCategoryTab === "tang_cuong"
-                    ? "bg-white/20 text-white"
-                    : "bg-amber-100 text-amber-800")
-                }
-              >
-                {categoryCounts.tang_cuong}
-              </span>
-            </button>
+            {chapters.map((chap: any) => {
+              const cCat = normalizeSubjectCategory(
+                chap?.category || chap?.subject_category || chap?.subject_type,
+                chap?.title
+              );
+              const cCfg = SUBJECT_CATEGORY_CONFIG[cCat];
+              const shortChapName = (chap?.title || "Chương").split(":")[0];
+              return (
+                <button
+                  key={chap.id}
+                  type="button"
+                  onClick={() =>
+                    setEditChapterModal({
+                      id: chap.id,
+                      title: chap.title || "",
+                      target_mode: chap.target_mode || "all",
+                      category: cCat
+                    })
+                  }
+                  title={`Nhấn để sửa "${chap.title}" (${cCfg.label})`}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition hover:opacity-85 cursor-pointer shrink-0 ${cCfg.badgeClass}`}
+                >
+                  <span className="truncate max-w-[110px]">{shortChapName}</span>
+                  <span className="opacity-75">• {cCfg.shortLabel}</span>
+                  <Edit3 className="w-2.5 h-2.5 opacity-70" />
+                </button>
+              );
+            })}
           </div>
-
-          {/* DANH SÁCH CHƯƠNG HIỆN CÓ KÈM NHÃN PHÂN MÔN & NÚT SỬA NHANH CHƯƠNG */}
-          {Array.isArray(chapters) && chapters.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-0.5">
-              {chapters.map((chap: any) => {
-                const cCat = normalizeSubjectCategory(
-                  chap?.category || chap?.subject_category || chap?.subject_type,
-                  chap?.title
-                );
-                const cCfg = SUBJECT_CATEGORY_CONFIG[cCat];
-                const shortChapName = (chap?.title || "Chương").split(":")[0];
-                return (
-                  <button
-                    key={chap.id}
-                    type="button"
-                    onClick={() =>
-                      setEditChapterModal({
-                        id: chap.id,
-                        title: chap.title || "",
-                        target_mode: chap.target_mode || "all",
-                        category: cCat,
-                      })
-                    }
-                    title={`Nhấn để sửa "${chap.title}" (${cCfg.label})`}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold border transition hover:opacity-85 cursor-pointer shrink-0 ${cCfg.badgeClass}`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${cCfg.dotClass}`} />
-                    <span className="truncate max-w-[90px]">{shortChapName}</span>
-                    <span className="opacity-75">({cCfg.shortLabel})</span>
-                    <Edit3 className="w-2.5 h-2.5 opacity-60" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* 2. BẢNG MATRIX NỘI DUNG BÀI HỌC */}
-      <div className="bg-white rounded-[24px] border border-slate-200/80 shadow-sm overflow-hidden w-full">
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden w-full">
         <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full min-w-[1180px] text-left border-collapse">
-            <thead className="bg-[#1D4ED8] text-white text-[11px] font-black uppercase tracking-wider">
+          <table className="w-full min-w-[1080px] text-left border-collapse">
+            <thead className="bg-slate-50 text-slate-600 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
               <tr>
-                <th className="py-4 px-3 text-center w-12 border-r border-blue-400/30">STT</th>
-                <th className="py-4 px-3 text-center w-16 border-r border-blue-400/30">Khóa</th>
-                <th className="py-4 px-4 border-r border-blue-400/30 min-w-[240px]">Nội dung bài học</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-40">Tuần / Tháng / Ngày</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-36">Chương & Phân môn</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-24">Phân luồng</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Hình thức</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-18">Video</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-18">Bài giảng</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-18">Viết tay</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">BTVN</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-20">Đề KT</th>
-                <th className="py-4 px-3 border-r border-blue-400/30 text-center w-22">Tăng cường</th>
-                <th className="py-4 px-3 text-center w-22">Thao tác</th>
+                <th className="py-3.5 px-3 text-center w-12">STT</th>
+                <th className="py-3.5 px-3 text-center w-14">Khóa</th>
+                <th className="py-3.5 px-4 min-w-[240px]">Nội dung bài học</th>
+                <th className="py-3.5 px-3 text-center w-40">Tuần / Tháng / Ngày</th>
+                <th className="py-3.5 px-3 text-center w-36">Chương & Phân môn</th>
+                <th className="py-3.5 px-3 text-center w-18">Video</th>
+                <th className="py-3.5 px-3 text-center w-18">Bài giảng</th>
+                <th className="py-3.5 px-3 text-center w-18">Viết tay</th>
+                <th className="py-3.5 px-3 text-center w-20">BTVN</th>
+                <th className="py-3.5 px-3 text-center w-20">Đề KT</th>
+                <th className="py-3.5 px-3 text-center w-22">Tăng cường</th>
+                <th className="py-3.5 px-3 text-center w-20">Thao tác</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100/80">
+            <tbody className="divide-y divide-slate-100">
               {flattenedLessons.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center text-slate-400 text-xs font-bold italic">
+                  <td
+                    colSpan={12}
+                    className="py-12 text-center text-slate-400 text-xs font-semibold italic"
+                  >
                     Không tìm thấy bài học nào khớp với bộ lọc phân môn hiện tại.
                   </td>
                 </tr>
               ) : (
                 flattenedLessons.map((les: any, idx: number) => {
                   const lesTitle = les?.title || "Bài học";
-                  const isReview =
-                    lesTitle.toLowerCase().includes("ôn tập") ||
-                    lesTitle.toLowerCase().includes("bài tập");
-
                   const lesMonth =
                     Number(les?.assigned_month) > 0 ? Number(les.assigned_month) : 10;
                   const lesWeek =
@@ -1135,65 +1012,59 @@ export default function LessonsTab({
                     <tr
                       key={les?.id || idx}
                       className={`transition-colors ${
-                        isLocked ? "bg-slate-100/60" : "hover:bg-slate-50/50 bg-white"
+                        isLocked ? "bg-slate-50/80" : "hover:bg-slate-50/60 bg-white"
                       }`}
                     >
-                      <td className="py-3.5 px-3 text-center text-slate-500 font-bold text-xs border-r border-slate-100">
+                      <td className="py-3 px-3 text-center text-slate-400 font-bold text-xs">
                         {idx + 1}
                       </td>
 
                       {/* Khóa/Mở */}
-                      <td className="py-3.5 px-2 text-center border-r border-slate-100">
+                      <td className="py-3 px-2 text-center">
                         <button
                           type="button"
                           onClick={() =>
                             handleToggleLockLesson(les.chapterId, les.id, isLocked)
                           }
-                          className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
                             isLocked
-                              ? "bg-rose-50 text-rose-600 border-rose-300 hover:bg-rose-100 shadow-xs"
-                              : "bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100"
+                              ? "bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100"
+                              : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
                           }`}
                         >
-                          {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                          {isLocked ? (
+                            <Lock className="w-3.5 h-3.5" />
+                          ) : (
+                            <Unlock className="w-3.5 h-3.5" />
+                          )}
                         </button>
                       </td>
 
-                      {/* Tên bài học + Nhãn màu Phân môn */}
-                      <td className="py-3.5 px-4 border-r border-slate-100">
+                      {/* Tên bài học + Nhãn Phân môn */}
+                      <td className="py-3 px-4">
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                          {isLocked && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[9px] font-bold uppercase rounded border border-rose-200">
-                              <Lock className="w-2.5 h-2.5" /> Đang khóa
-                            </span>
-                          )}
-
-                          {/* NHÃN MÀU PHÂN MÔN CHO BÀI HỌC */}
                           <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold uppercase rounded-md border ${catConfig.badgeClass}`}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border ${catConfig.badgeClass}`}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full ${catConfig.dotClass}`} />
                             {catConfig.shortLabel}
                           </span>
-
-                          {isReview && (
-                            <span className="inline-block px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold uppercase rounded border border-amber-200">
-                              Ôn tập
-                            </span>
-                          )}
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-[#1D4ED8] text-[10px] font-extrabold rounded-md border border-blue-200">
-                            <Calendar className="w-2.5 h-2.5" />
-                            Tuần {lesWeek} - Tháng {lesMonth < 10 ? "0" + lesMonth : lesMonth}
+                          <span className="text-[11px] font-semibold text-slate-500">
+                            Tuần {lesWeek} - Th.{lesMonth < 10 ? "0" + lesMonth : lesMonth}
                           </span>
                           {studyDate && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-extrabold rounded-md border border-emerald-200">
-                              📅 {studyDate}
+                            <span className="text-[11px] font-semibold text-blue-700">
+                              • {studyDate}
+                            </span>
+                          )}
+                          {isLocked && (
+                            <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 text-[10px] font-bold rounded border border-rose-200">
+                              Đang khóa
                             </span>
                           )}
                         </div>
                         <h4
-                          className={`font-bold text-[13px] uppercase leading-snug ${
-                            isLocked ? "text-slate-600 line-through" : "text-[#1D4ED8]"
+                          className={`font-bold text-[13.5px] leading-snug ${
+                            isLocked ? "text-slate-500 line-through" : "text-slate-900"
                           }`}
                         >
                           {lesTitle}
@@ -1201,9 +1072,9 @@ export default function LessonsTab({
                       </td>
 
                       {/* Cột Tuần / Tháng / Ngày */}
-                      <td className="py-3.5 px-3 text-center border-r border-slate-100">
-                        <div className="flex flex-col items-center gap-1.5">
-                          <div className="flex items-center justify-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200/90 w-full">
+                      <td className="py-3 px-3 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="flex items-center justify-center gap-1 w-full">
                             <select
                               value={lesWeek}
                               onChange={(e) =>
@@ -1214,8 +1085,7 @@ export default function LessonsTab({
                                   Number(e.target.value)
                                 )
                               }
-                              title="Chọn Tuần"
-                              className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-emerald-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                              className="bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 text-[11px] font-bold text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
                             >
                               {[1, 2, 3, 4, 5].map((w) => (
                                 <option key={w} value={w}>
@@ -1233,8 +1103,7 @@ export default function LessonsTab({
                                   lesWeek
                                 )
                               }
-                              title="Chọn Tháng"
-                              className="bg-white border border-slate-200 rounded-lg px-1 py-1 text-[11px] font-black text-[#1D4ED8] outline-none focus:border-[#1D4ED8] cursor-pointer"
+                              className="bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1 text-[11px] font-bold text-[#1D4ED8] outline-none focus:border-[#1D4ED8] cursor-pointer"
                             >
                               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                                 <option key={m} value={m}>
@@ -1248,31 +1117,30 @@ export default function LessonsTab({
                             type="date"
                             value={formatDateToInput(studyDate)}
                             onChange={async (e) => {
-                              const isoVal = e.target.value;
-                              const displayVal = formatInputToDisplay(isoVal);
-
+                              const displayVal = formatInputToDisplay(e.target.value);
                               const updated = (chapters || []).map((c: any) => ({
                                 ...c,
                                 lessons: (c.lessons || []).map((l: any) =>
                                   l.id === les.id ? { ...l, study_date: displayVal } : l
-                                ),
+                                )
                               }));
                               if (typeof setChapters === "function") setChapters(updated);
-
                               await handleChangeStudyDate(les.chapterId, les.id, displayVal);
                             }}
-                            className="w-full text-center text-[11px] font-bold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-[#1D4ED8] cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs"
+                            className="w-full text-center text-[11px] font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-[#1D4ED8] cursor-pointer"
                           />
                         </div>
                       </td>
 
                       {/* Cột Chương & Đổi nhanh Phân môn */}
-                      <td className="py-3.5 px-2.5 text-center border-r border-slate-100">
+                      <td className="py-3 px-2.5 text-center">
                         <div className="flex flex-col items-center gap-1">
                           <button
                             type="button"
                             onClick={() => {
-                              const foundChap = (chapters || []).find((c: any) => c.id === les.chapterId);
+                              const foundChap = (chapters || []).find(
+                                (c: any) => c.id === les.chapterId
+                              );
                               if (foundChap) {
                                 setEditChapterModal({
                                   id: foundChap.id,
@@ -1281,12 +1149,12 @@ export default function LessonsTab({
                                   category: normalizeSubjectCategory(
                                     foundChap.category || foundChap.subject_category,
                                     foundChap.title
-                                  ),
+                                  )
                                 });
                               }
                             }}
                             title={`Bấm để sửa ${les.chapterFullTitle}`}
-                            className="text-[11px] text-slate-600 hover:text-[#1D4ED8] font-bold uppercase inline-flex items-center gap-1 cursor-pointer transition"
+                            className="text-[11px] text-slate-600 hover:text-[#1D4ED8] font-bold inline-flex items-center gap-1 cursor-pointer transition"
                           >
                             <span>{les.chapterTitle}</span>
                             <Edit3 className="w-2.5 h-2.5 opacity-60" />
@@ -1302,120 +1170,167 @@ export default function LessonsTab({
                               )
                             }
                             title="Đổi nhanh phân môn bài học"
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border outline-none cursor-pointer transition ${catConfig.badgeClass}`}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold border outline-none cursor-pointer transition ${catConfig.badgeClass}`}
                           >
                             <option value="dai">Đại số</option>
                             <option value="hinh">Hình học</option>
                             <option value="tong_on">Tổng ôn</option>
                             <option value="tang_cuong">Tăng cường</option>
+                            <option value="hsa">Tổng ôn HSA</option>
                           </select>
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-3 text-center border-r border-slate-100">
-                        <span className={
-                          "inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider " +
-                          (les.target_mode === "online"
-                            ? "bg-indigo-100 text-indigo-800 border border-indigo-200"
-                            : les.target_mode === "offline"
-                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                            : "bg-blue-100 text-[#1D4ED8] border border-blue-200")
-                        }>
-                          {les.target_mode === "online" ? "Online" : les.target_mode === "offline" ? "Offline" : "Cả 2"}
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-3 text-center border-r border-slate-100 text-xs font-bold text-slate-600">
-                        {les.format || "Zoom"}
-                      </td>
-
-                      <td className="py-3.5 px-3 border-r border-slate-100">
-                        <MatrixCell 
-                          items={les.video_list} 
-                          label="Video" 
-                          onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "video_list" })} 
-                          onView={() => setViewResourcesModal({ lessonId: les.id, type: "video_list", title: "Video", items: les.video_list })} 
+                      <td className="py-3 px-2">
+                        <MatrixCell
+                          items={les.video_list}
+                          label="Video"
+                          onAdd={() =>
+                            setResourceModal({
+                              isOpen: true,
+                              lessonId: les.id,
+                              lessonTitle: les.title,
+                              type: "video_list"
+                            })
+                          }
+                          onView={() =>
+                            setViewResourcesModal({
+                              lessonId: les.id,
+                              type: "video_list",
+                              title: "Video",
+                              items: les.video_list
+                            })
+                          }
                         />
                       </td>
 
-                      <td className="py-3.5 px-3 border-r border-slate-100">
-                        <MatrixCell 
-                          items={les.lecture_files} 
-                          label="Bài giảng" 
-                          onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "lecture_files" })} 
-                          onView={() => setViewResourcesModal({ lessonId: les.id, type: "lecture_files", title: "Bài giảng", items: les.lecture_files })} 
+                      <td className="py-3 px-2">
+                        <MatrixCell
+                          items={les.lecture_files}
+                          label="Bài giảng"
+                          onAdd={() =>
+                            setResourceModal({
+                              isOpen: true,
+                              lessonId: les.id,
+                              lessonTitle: les.title,
+                              type: "lecture_files"
+                            })
+                          }
+                          onView={() =>
+                            setViewResourcesModal({
+                              lessonId: les.id,
+                              type: "lecture_files",
+                              title: "Bài giảng",
+                              items: les.lecture_files
+                            })
+                          }
                         />
                       </td>
 
-                      <td className="py-3.5 px-3 border-r border-slate-100">
-                        <MatrixCell 
-                          items={les.handwritten_notes} 
-                          label="Viết tay" 
-                          onAdd={() => setResourceModal({ isOpen: true, lessonId: les.id, lessonTitle: les.title, type: "handwritten_notes" })} 
-                          onView={() => setViewResourcesModal({ lessonId: les.id, type: "handwritten_notes", title: "Viết tay", items: les.handwritten_notes })} 
+                      <td className="py-3 px-2">
+                        <MatrixCell
+                          items={les.handwritten_notes}
+                          label="Viết tay"
+                          onAdd={() =>
+                            setResourceModal({
+                              isOpen: true,
+                              lessonId: les.id,
+                              lessonTitle: les.title,
+                              type: "handwritten_notes"
+                            })
+                          }
+                          onView={() =>
+                            setViewResourcesModal({
+                              lessonId: les.id,
+                              type: "handwritten_notes",
+                              title: "Viết tay",
+                              items: les.handwritten_notes
+                            })
+                          }
                         />
                       </td>
 
-                      <td className="py-3.5 px-3 border-r border-slate-100">
-                        <MatrixCell 
-                          items={les.homework_files} 
+                      <td className="py-3 px-2">
+                        <MatrixCell
+                          items={les.homework_files}
                           label="BTVN"
                           subBadge={scheduleTag}
-                          onAdd={() => handleOpenUploadPicker(les, "homework_files")} 
-                          onView={() => setViewResourcesModal({ lessonId: les.id, type: "homework_files", title: "BTVN", items: les.homework_files })} 
+                          onAdd={() => handleOpenUploadPicker(les, "homework_files")}
+                          onView={() =>
+                            setViewResourcesModal({
+                              lessonId: les.id,
+                              type: "homework_files",
+                              title: "BTVN",
+                              items: les.homework_files
+                            })
+                          }
                         />
                       </td>
 
-                      <td className="py-3.5 px-3 border-r border-slate-100">
-                        <MatrixCell 
-                          items={les.test_quizzes} 
+                      <td className="py-3 px-2">
+                        <MatrixCell
+                          items={les.test_quizzes}
                           label="Đề KT"
                           subBadge={scheduleTag}
-                          onAdd={() => handleOpenUploadPicker(les, "test_quizzes")} 
-                          onView={() => setViewResourcesModal({ lessonId: les.id, type: "test_quizzes", title: "Đề kiểm tra", items: les.test_quizzes })} 
+                          onAdd={() => handleOpenUploadPicker(les, "test_quizzes")}
+                          onView={() =>
+                            setViewResourcesModal({
+                              lessonId: les.id,
+                              type: "test_quizzes",
+                              title: "Đề kiểm tra",
+                              items: les.test_quizzes
+                            })
+                          }
                         />
                       </td>
 
-                      <td className="py-3.5 px-3 border-r border-slate-100">
-                        <MatrixCell 
-                          items={les.extra_resources} 
-                          label="Tăng cường" 
-                          onAdd={() => setBoostModal(les.id)} 
-                          onView={() => setViewResourcesModal({ lessonId: les.id, type: "extra_resources", title: "Tăng cường", items: les.extra_resources })} 
+                      <td className="py-3 px-2">
+                        <MatrixCell
+                          items={les.extra_resources}
+                          label="Tăng cường"
+                          onAdd={() => setBoostModal(les.id)}
+                          onView={() =>
+                            setViewResourcesModal({
+                              lessonId: les.id,
+                              type: "extra_resources",
+                              title: "Tăng cường",
+                              items: les.extra_resources
+                            })
+                          }
                         />
                       </td>
 
-                      <td className="py-3.5 px-3">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button 
+                      <td className="py-3 px-2">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
                             type="button"
-                            onClick={(e) => { 
+                            onClick={(e) => {
                               e.stopPropagation();
-                              setEditLessonModal({ chapterId: les.chapterId, lesson: les }); 
-                              setEditLessonForm({ 
-                                title: les.title, 
-                                description: les.description || "", 
-                                duration: les.duration || 45, 
-                                format: les.format || "Zoom", 
+                              setEditLessonModal({ chapterId: les.chapterId, lesson: les });
+                              setEditLessonForm({
+                                title: les.title,
+                                description: les.description || "",
+                                duration: les.duration || 45,
+                                format: les.format || "Zoom",
                                 target_mode: les.target_mode || "all",
                                 category: lesCategory,
                                 subject_category: lesCategory,
                                 assigned_month: lesMonth,
                                 assigned_week: lesWeek
-                              }); 
-                            }} 
-                            className="p-1.5 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer" 
+                              });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                             title="Sửa bài học"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
-                          <button 
+                          <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeleteLesson(les.chapterId, les.id);
-                            }} 
-                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer" 
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Xóa bài học"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1431,25 +1346,25 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 2B. MODAL SỬA NHANH CHƯƠNG (TÊN CHƯƠNG + PHÂN MÔN + PHÂN LUỒNG) */}
+      {/* 2B. MODAL SỬA NHANH CHƯƠNG (TÊN CHƯƠNG + PHÂN MÔN) */}
       {editChapterModal && (
         <div
           onClick={() => setEditChapterModal(null)}
-          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 cursor-pointer"
         >
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleSaveEditChapter}
-            className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-150 cursor-default text-left space-y-4"
+            className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl cursor-default text-left space-y-4 border border-slate-200"
           >
             <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-[#1D4ED8]" /> Chỉnh sửa Chương
+              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-[#1D4ED8]" /> Chỉnh sửa Chương
               </h3>
               <button
                 type="button"
                 onClick={() => setEditChapterModal(null)}
-                className="text-slate-400 hover:text-rose-500 cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1457,7 +1372,7 @@ export default function LessonsTab({
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Tên chương <span className="text-rose-500">*</span>
+                Tên chương *
               </label>
               <input
                 required
@@ -1466,127 +1381,54 @@ export default function LessonsTab({
                 onChange={(e) =>
                   setEditChapterModal({ ...editChapterModal, title: e.target.value })
                 }
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-xs font-semibold outline-none focus:border-[#1D4ED8]"
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-semibold outline-none focus:border-[#1D4ED8]"
               />
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Phân môn chính (Subject Category) *
+                Phân môn / Lộ trình *
               </label>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditChapterModal({ ...editChapterModal, category: "dai" })}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (editChapterModal.category === "dai"
-                      ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  📐 Đại số
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditChapterModal({ ...editChapterModal, category: "hinh" })}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (editChapterModal.category === "hinh"
-                      ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  📏 Hình học
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditChapterModal({ ...editChapterModal, category: "tong_on" })}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (editChapterModal.category === "tong_on"
-                      ? "bg-purple-50 border-purple-500 text-purple-700 ring-2 ring-purple-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  🎯 Tổng ôn
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setEditChapterModal({ ...editChapterModal, category: "tang_cuong" })
-                  }
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (editChapterModal.category === "tang_cuong"
-                      ? "bg-amber-50 border-amber-500 text-amber-700 ring-2 ring-amber-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  ⚡ Tăng cường
-                </button>
+                {(
+                  [
+                    { key: "dai", label: "Đại số (THPT)" },
+                    { key: "hinh", label: "Hình học (THPT)" },
+                    { key: "tong_on", label: "Tổng ôn (THPT)" },
+                    { key: "tang_cuong", label: "Tăng cường (THPT)" },
+                    { key: "hsa", label: "Tổng ôn ĐGNL HSA" }
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() =>
+                      setEditChapterModal({ ...editChapterModal, category: opt.key })
+                    }
+                    className={
+                      "py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer text-left " +
+                      (editChapterModal.category === opt.key
+                        ? "bg-blue-50 border-[#1D4ED8] text-[#1D4ED8]"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Phân luồng lớp (Target Mode) *
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setEditChapterModal({ ...editChapterModal, target_mode: "online" })
-                  }
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (editChapterModal.target_mode === "online"
-                      ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  Lớp Online
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setEditChapterModal({ ...editChapterModal, target_mode: "offline" })
-                  }
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (editChapterModal.target_mode === "offline"
-                      ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  Lớp Offline
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditChapterModal({ ...editChapterModal, target_mode: "all" })}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (editChapterModal.target_mode === "all"
-                      ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  Cả 2 (Full)
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end pt-3 border-t border-slate-100">
+            <div className="flex gap-2 justify-end pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setEditChapterModal(null)}
-                className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 type="submit"
-                className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer"
+                className="px-4 py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs cursor-pointer"
               >
                 Lưu thay đổi
               </button>
@@ -1597,130 +1439,144 @@ export default function LessonsTab({
 
       {/* 3. MODAL CHỌN PHƯƠNG THỨC NẠP ĐỀ THI / BTVN */}
       {internalUploadModal && (
-        <div 
-          onClick={() => setInternalUploadModal(null)} 
-          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+        <div
+          onClick={() => setInternalUploadModal(null)}
+          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 cursor-pointer"
         >
-          <div 
-            onClick={(e) => e.stopPropagation()} 
-            className="bg-white rounded-[28px] p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-150 cursor-default text-left"
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl cursor-default text-left border border-slate-200"
           >
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
               <div>
-                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                  {internalUploadModal.type === 'homework_files' ? <CheckSquare className="w-5 h-5 text-blue-600" /> : <Award className="w-5 h-5 text-emerald-600" />}
-                  <span>Thêm {internalUploadModal.type === 'homework_files' ? 'Bài tập về nhà (BTVN)' : 'Đề Kiểm Tra'}</span>
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  {internalUploadModal.type === "homework_files" ? (
+                    <CheckSquare className="w-5 h-5 text-blue-600" />
+                  ) : (
+                    <Award className="w-5 h-5 text-emerald-600" />
+                  )}
+                  <span>
+                    Thêm{" "}
+                    {internalUploadModal.type === "homework_files"
+                      ? "Bài tập về nhà (BTVN)"
+                      : "Đề Kiểm Tra"}
+                  </span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Bài học: <strong className="text-blue-700">{internalUploadModal.lessonTitle}</strong>
                 </p>
               </div>
-              <button 
-                type="button" 
-                onClick={() => setInternalUploadModal(null)} 
-                className="text-slate-400 hover:text-rose-500 cursor-pointer p-1"
+              <button
+                type="button"
+                onClick={() => setInternalUploadModal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
               >
-                <X className="w-5 h-5"/>
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 p-3.5 bg-blue-50/60 rounded-2xl border border-blue-200/80 mb-4">
+            <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200 mb-4">
               <div>
-                <label className="block text-[11px] font-extrabold text-[#1D4ED8] mb-1">
-                  Gắn vào Tháng báo cáo *
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Gắn vào Tháng *
                 </label>
                 <select
                   value={internalUploadModal.assignedMonth}
                   onChange={(e) => {
                     const m = Number(e.target.value);
-                    setInternalUploadModal((prev) => (prev ? { ...prev, assignedMonth: m } : null));
+                    setInternalUploadModal((prev) =>
+                      prev ? { ...prev, assignedMonth: m } : null
+                    );
                     if (uploadTargetRef.current) uploadTargetRef.current.assignedMonth = m;
                   }}
-                  className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-xs font-black text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
                 >
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                     <option key={m} value={m}>
-                      Tháng {m < 10 ? "0" + m : m} {m === currentRealtimeMonth ? "(Hiện tại)" : ""}
+                      Tháng {m < 10 ? "0" + m : m}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-extrabold text-[#1D4ED8] mb-1">
-                  Gắn vào Tuần trong tháng *
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Gắn vào Tuần *
                 </label>
                 <select
                   value={internalUploadModal.assignedWeek}
                   onChange={(e) => {
                     const w = Number(e.target.value);
-                    setInternalUploadModal((prev) => (prev ? { ...prev, assignedWeek: w } : null));
+                    setInternalUploadModal((prev) =>
+                      prev ? { ...prev, assignedWeek: w } : null
+                    );
                     if (uploadTargetRef.current) uploadTargetRef.current.assignedWeek = w;
                   }}
-                  className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-xs font-black text-emerald-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
                 >
                   {[1, 2, 3, 4, 5].map((w) => (
                     <option key={w} value={w}>
-                      Tuần {w} (Cột T{w}.{internalUploadModal.assignedMonth})
+                      Tuần {w}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
-            
-            <div className="flex flex-col gap-3">
-              <div 
-                onClick={() => pdfInputRef.current?.click()}
-                className="p-4 border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl hover:bg-indigo-100/60 transition cursor-pointer flex items-start gap-4 group shadow-2xs"
+
+            <div className="flex flex-col gap-2.5">
+              <div
+                onClick={() => docxInputRef.current?.click()}
+                className="p-4 border border-slate-200 bg-white rounded-xl hover:border-blue-400 hover:bg-blue-50/30 transition cursor-pointer flex items-start gap-3.5"
               >
-                <div className="p-3 bg-white text-indigo-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                  <FileText className="w-6 h-6" />
+                <div className="p-2.5 bg-blue-50 text-[#1D4ED8] rounded-lg shrink-0">
+                  <FileUp className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-indigo-950 text-[14px]">Tải lên file PDF (.pdf)</span>
-                    <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
+                  <div className="font-bold text-slate-900 text-sm">
+                    Tải lên file Word (.docx)
                   </div>
-                  <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
-                    AI Gemini quét câu hỏi và bảng đáp án chuẩn, phân đoạn trực quan.
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Bóc tách tự động câu hỏi trắc nghiệm, đúng sai, điền đáp số và hình ảnh.
                   </div>
                 </div>
               </div>
 
-              <div 
-                onClick={() => docxInputRef.current?.click()}
-                className="p-4 border border-blue-200 bg-blue-50/40 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group shadow-2xs"
+              <div
+                onClick={() => pdfInputRef.current?.click()}
+                className="p-4 border border-slate-200 bg-white rounded-xl hover:border-blue-400 hover:bg-blue-50/30 transition cursor-pointer flex items-start gap-3.5"
               >
-                <div className="p-3 bg-white text-blue-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                  <FileUp className="w-6 h-6" />
+                <div className="p-2.5 bg-slate-100 text-slate-700 rounded-lg shrink-0">
+                  <FileText className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-extrabold text-blue-950 text-[14px]">Tải lên file Word (.docx)</div>
-                  <div className="text-xs text-blue-800/80 mt-1 leading-relaxed">
-                    Bóc tách tự động các câu hỏi trắc nghiệm, đúng sai và điền đáp số.
+                  <div className="font-bold text-slate-900 text-sm">Tải lên file PDF (.pdf)</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Quét câu hỏi và bảng đáp án từ file PDF.
                   </div>
                 </div>
               </div>
-              
-              <button 
+
+              <button
                 type="button"
-                onClick={() => { 
+                onClick={() => {
                   setDriveModal({
                     lessonId: internalUploadModal.lessonId,
                     type: internalUploadModal.type,
                     assignedMonth: internalUploadModal.assignedMonth,
-                    assignedWeek: internalUploadModal.assignedWeek,
-                  }); 
-                  setInternalUploadModal(null); 
-                }} 
-                className="p-4 border border-emerald-200 bg-emerald-50/40 rounded-2xl hover:bg-emerald-100/50 transition cursor-pointer flex items-start gap-4 text-left group shadow-2xs"
+                    assignedWeek: internalUploadModal.assignedWeek
+                  });
+                  setInternalUploadModal(null);
+                }}
+                className="p-4 border border-slate-200 bg-white rounded-xl hover:border-blue-400 hover:bg-blue-50/30 transition cursor-pointer flex items-start gap-3.5 text-left"
               >
-                <div className="p-3 bg-white text-emerald-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform shrink-0">
-                  <LinkIcon className="w-6 h-6" />
+                <div className="p-2.5 bg-slate-100 text-slate-700 rounded-lg shrink-0">
+                  <LinkIcon className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-extrabold text-emerald-950 text-[14px]">Đính kèm Link Google Drive</div>
-                  <div className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
-                    Dán link chia sẻ file tài liệu để học sinh tự tải về học tập.
+                  <div className="font-bold text-slate-900 text-sm">
+                    Đính kèm Link Google Drive
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Dán link chia sẻ tài liệu PDF/Word từ Drive.
                   </div>
                 </div>
               </button>
@@ -1731,83 +1587,67 @@ export default function LessonsTab({
 
       {/* 4. MODAL NHẬP LINK DRIVE THỦ CÔNG */}
       {driveModal && (
-        <div 
-          onClick={() => setDriveModal(null)} 
-          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer"
+        <div
+          onClick={() => setDriveModal(null)}
+          className="fixed inset-0 z-[600] flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 cursor-pointer"
         >
-          <form 
-            onClick={(e) => e.stopPropagation()} 
-            onSubmit={handleSaveDriveLink} 
-            className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-150 cursor-default text-left"
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleSaveDriveLink}
+            className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl cursor-default text-left border border-slate-200"
           >
-            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-emerald-700 text-[15px] flex items-center gap-2">
-                <LinkIcon className="w-5 h-5" /> Đính kèm Link Google Drive
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                <LinkIcon className="w-4 h-4 text-[#1D4ED8]" /> Đính kèm Link Google Drive
               </h3>
-              <button type="button" onClick={() => setDriveModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer">
-                <X className="w-5 h-5"/>
+              <button
+                type="button"
+                onClick={() => setDriveModal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 p-3 bg-emerald-50/60 rounded-xl border border-emerald-200">
-                <div>
-                  <label className="block text-[11px] font-bold text-emerald-800 mb-1">Tháng *</label>
-                  <select
-                    value={driveModal.assignedMonth}
-                    onChange={(e) =>
-                      setDriveModal((prev) => (prev ? { ...prev, assignedMonth: Number(e.target.value) } : null))
-                    }
-                    className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-bold text-slate-800 outline-none"
-                  >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                      <option key={m} value={m}>Tháng {m < 10 ? "0" + m : m}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-emerald-800 mb-1">Tuần *</label>
-                  <select
-                    value={driveModal.assignedWeek}
-                    onChange={(e) =>
-                      setDriveModal((prev) => (prev ? { ...prev, assignedWeek: Number(e.target.value) } : null))
-                    }
-                    className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-bold text-slate-800 outline-none"
-                  >
-                    {[1, 2, 3, 4, 5].map((w) => (
-                      <option key={w} value={w}>Tuần {w}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề hiển thị *</label>
-                <input 
-                  required 
-                  type="text" 
-                  value={driveTitle} 
-                  onChange={e => setDriveTitle(e.target.value)} 
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Tiêu đề hiển thị *
+                </label>
+                <input
+                  required
+                  type="text"
+                  value={driveTitle}
+                  onChange={(e) => setDriveTitle(e.target.value)}
                   placeholder="VD: Phiếu bài tập tự luyện số 1..."
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-xs font-semibold focus:border-emerald-500 outline-none" 
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-semibold focus:border-[#1D4ED8] outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Link Google Drive (Chia sẻ công khai) *</label>
-                <input 
-                  required 
-                  type="url" 
-                  placeholder="https://drive.google.com/..." 
-                  value={driveUrl} 
-                  onChange={e => setDriveUrl(e.target.value)} 
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-xs font-medium focus:border-emerald-500 outline-none" 
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Link Google Drive *
+                </label>
+                <input
+                  required
+                  type="url"
+                  placeholder="https://drive.google.com/..."
+                  value={driveUrl}
+                  onChange={(e) => setDriveUrl(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-medium focus:border-[#1D4ED8] outline-none"
                 />
               </div>
             </div>
-            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
-              <button type="button" onClick={() => setDriveModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">
+            <div className="flex gap-2 justify-end pt-5 mt-5 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDriveModal(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+              >
                 Hủy
               </button>
-              <button type="submit" className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">
+              <button
+                type="submit"
+                className="px-4 py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs cursor-pointer"
+              >
                 Lưu file Drive
               </button>
             </div>
@@ -1817,14 +1657,14 @@ export default function LessonsTab({
 
       {/* 5. AZOTA EXAM CONFIG MODAL */}
       {activeTestFile && (
-        <AzotaExamConfigModal 
-          isOpen={Boolean(activeTestFile)} 
+        <AzotaExamConfigModal
+          isOpen={Boolean(activeTestFile)}
           file={activeTestFile}
-          mode="course" 
+          mode="course"
           onClose={() => {
             setActiveTestFile(null);
             setActiveUploadTarget(null);
-          }} 
+          }}
           onSave={(examData: any) => {
             handleSaveExamFromAzota(examData);
             setActiveTestFile(null);
