@@ -1,23 +1,64 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { 
-  X, Pencil, Trash2, Plus, Upload, Link as LinkIcon, 
-  ExternalLink, Video, FileText, PenTool, CheckSquare, 
-  Award, Play, FolderPlus, BookOpen, Clock, AlertCircle, 
-  Save, FileUp, Edit3, UploadCloud, CheckCircle2, FileSignature, 
-  Sparkles, RefreshCw, Loader2, Zap, Eye, RotateCcw, Calendar,
-  Check, HelpCircle, UserPlus, ChevronDown, ChevronUp, History
+import {
+  X,
+  Pencil,
+  Trash2,
+  Plus,
+  Upload,
+  Link as LinkIcon,
+  ExternalLink,
+  Video,
+  FileText,
+  PenTool,
+  CheckSquare,
+  Award,
+  Play,
+  FolderPlus,
+  BookOpen,
+  Clock,
+  AlertCircle,
+  Save,
+  FileUp,
+  Edit3,
+  UploadCloud,
+  CheckCircle2,
+  FileSignature,
+  Sparkles,
+  RefreshCw,
+  Loader2,
+  Zap,
+  Eye,
+  RotateCcw,
+  Calendar,
+  Check,
+  HelpCircle,
+  UserPlus,
+  ChevronDown,
+  ChevronUp,
+  History
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import katex from "katex";
 import { STANDARD_SHIFTS } from "@/types";
 
-export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong";
+export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong" | "hsa";
+
+const SUBJECT_CATEGORY_OPTIONS: { key: SubjectCategoryKey; label: string }[] = [
+  { key: "dai", label: "Đại số" },
+  { key: "hinh", label: "Hình học" },
+  { key: "tong_on", label: "Tổng ôn" },
+  { key: "tang_cuong", label: "Tăng cường" },
+  { key: "hsa", label: "Tổng ôn HSA" }
+];
 
 // DYNAMIC IMPORT MODAL TRÍCH XUẤT ĐỀ THI WORD & MATHTYPE
 const AzotaExamConfigModal: any = dynamic<any>(
-  () => import("@/app/admin/AzotaExamConfigModal").then((mod: any) => mod.AzotaExamConfigModal || mod.default || mod),
+  () =>
+    import("@/app/admin/AzotaExamConfigModal").then(
+      (mod: any) => mod.AzotaExamConfigModal || mod.default || mod
+    ),
   { ssr: false }
 );
 
@@ -40,12 +81,16 @@ function normalizeSubjectCategory(
   fallbackTitle?: string
 ): SubjectCategoryKey {
   const clean = String(rawCat || "").trim().toLowerCase();
+  if (clean === "hsa" || clean.includes("hsa") || clean.includes("dgnl")) return "hsa";
   if (clean === "dai" || clean === "algebra" || clean === "dai_so") return "dai";
   if (clean === "hinh" || clean === "geometry" || clean === "hinh_hoc") return "hinh";
   if (clean === "tong_on" || clean === "review" || clean === "tongon") return "tong_on";
   if (clean === "tang_cuong" || clean === "boost" || clean === "tangcuong") return "tang_cuong";
 
   const titleLower = String(fallbackTitle || "").toLowerCase();
+  if (/\bhsa\b/.test(titleLower) || titleLower.includes("đgnl")) {
+    return "hsa";
+  }
   if (
     titleLower.includes("hình học") ||
     titleLower.includes("oxyz") ||
@@ -68,7 +113,6 @@ function normalizeSubjectCategory(
 }
 
 // HÀM SỬA LỖI DÍNH LỆNH LATEX (\inftyminus, \inftyplus, v.v.) TRƯỚC KHI RENDER KATEX
-// ĐẶC BIỆT: Dùng (?![a-zA-Z]) để KHÔNG BAO GIỜ tách nhầm \infty thành \in fty
 function sanitizeLatexString(tex: string): string {
   if (!tex) return "";
   return String(tex)
@@ -114,11 +158,11 @@ function resolveSubmissionImageSrc(rawKey: string, mediaMap: Record<string, any>
   return "";
 }
 
-// COMPONENT HIỂN THỊ NỘI DUNG CÂU HỎI / ĐÁP ÁN / LỜI GIẢI (HỖ TRỢ KATEX + SỬA \inftyminus + TOKEN ẢNH + HTML)
+// COMPONENT HIỂN THỊ NỘI DUNG CÂU HỎI / ĐÁP ÁN / LỜI GIẢI
 function SubmissionRichContent({
   content,
   mediaMap = {},
-  className = "",
+  className = ""
 }: {
   content?: string;
   mediaMap?: Record<string, any>;
@@ -128,20 +172,17 @@ function SubmissionRichContent({
     if (!content) return "";
     let str = sanitizeLatexString(String(content));
 
-    // 1. Thay thế token ảnh [img:key] hoặc [img:$img_1$]
     str = str.replace(/\[img:([^\]]+)\]/gi, (_, rawKey) => {
       const src = resolveSubmissionImageSrc(rawKey, mediaMap);
       if (!src) {
         return `<span class="inline-flex items-center px-2 py-0.5 text-[11px] bg-slate-100 text-slate-500 rounded border border-slate-200">[Hình: ${rawKey}]</span>`;
       }
-      return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+      return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1" /></div>`;
     });
 
-    // 2. Chuẩn hóa \[...\] và \(...\)
     str = str.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
     str = str.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math + "$");
 
-    // 3. Render công thức toán học $$...$$ (Display Mode)
     str = str.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
       const cleanTex = sanitizeLatexString(tex.trim());
       try {
@@ -151,13 +192,12 @@ function SubmissionRichContent({
       }
     });
 
-    // 4. Render công thức toán học $...$ (Inline Mode)
     str = str.replace(/\$([^$\n]+?)\$/g, (fullMatch, tex) => {
       const cleaned = sanitizeLatexString(tex.trim());
       if (/^(?:img|image)_\d+$/i.test(cleaned)) {
         const src = resolveSubmissionImageSrc(cleaned, mediaMap);
         if (src) {
-          return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1 shadow-2xs" /></div>`;
+          return `<div class="my-2 flex justify-center"><img src="${src}" alt="Hình minh họa" class="max-h-60 max-w-full rounded-xl border border-slate-200 object-contain bg-white p-1" /></div>`;
         }
       }
       try {
@@ -167,10 +207,8 @@ function SubmissionRichContent({
       }
     });
 
-    // 5. Nếu ngoài cặp dấu $ vẫn còn sót chuỗi \inftyminus trần thì dọn sạch
     str = str.replace(/\\inftyminus/gi, "∞ -").replace(/\\infty/g, "∞");
 
-    // 6. Chuyển đổi xuống dòng nếu chuỗi chưa phải HTML phức tạp
     if (!/<(p|div|table|ul|ol|br|img)/i.test(str)) {
       str = str.replace(/\n/g, "<br/>");
     }
@@ -225,12 +263,16 @@ interface AdminModalsProps {
   saveToStorage?: (newChapters: any[], taskName?: string) => Promise<any> | void;
   createModal?: { type: "chapter" | "lesson"; chapterId?: string } | null;
   setCreateModal?: (modal: { type: "chapter" | "lesson"; chapterId?: string } | null) => void;
+  newItemCategory?: SubjectCategoryKey;
+  setNewItemCategory?: (cat: SubjectCategoryKey) => void;
   resourceModal?: any;
   setResourceModal?: (modal: any) => void;
   viewResourcesModal?: any;
   setViewResourcesModal?: (modal: any) => void;
   uploadMethodModal?: { lessonId: string; type: "homework_files" | "test_quizzes" } | null;
-  setUploadMethodModal?: (modal: { lessonId: string; type: "homework_files" | "test_quizzes" } | null) => void;
+  setUploadMethodModal?: (
+    modal: { lessonId: string; type: "homework_files" | "test_quizzes" } | null
+  ) => void;
   boostModal?: string | null;
   setBoostModal?: (lessonId: string | null) => void;
   editLessonModal?: { chapterId: string; lesson: any } | null;
@@ -242,7 +284,9 @@ interface AdminModalsProps {
   uploadMode?: "course" | "practice";
   setUploadMode?: (mode: "course" | "practice") => void;
   azotaTarget?: { lessonId: string; type: "homework_files" | "test_quizzes" } | null;
-  setAzotaTarget?: (target: { lessonId: string; type: "homework_files" | "test_quizzes" } | null) => void;
+  setAzotaTarget?: (
+    target: { lessonId: string; type: "homework_files" | "test_quizzes" } | null
+  ) => void;
   editingExamData?: any | null;
   setEditingExamData?: (data: any | null) => void;
   onSaveAzotaExam?: (examData: any) => void;
@@ -268,6 +312,8 @@ export default function AdminModals(props: AdminModalsProps) {
     saveToStorage,
     createModal = null,
     setCreateModal,
+    newItemCategory: propNewItemCategory,
+    setNewItemCategory: propSetNewItemCategory,
     resourceModal = null,
     setResourceModal,
     viewResourcesModal = null,
@@ -290,18 +336,18 @@ export default function AdminModals(props: AdminModalsProps) {
     setEditingExamData,
     onSaveAzotaExam,
     practiceExams = [],
-    savePracticeExams,
-    handleRecalculateExamScores,
     allAttempts = [],
     setAllAttempts,
-    onDeleteAttemptPermanent,
+    onDeleteAttemptPermanent
   } = props;
 
   const currentRealtimeMonth = useMemo(() => new Date().getMonth() + 1, []);
-  const currentRealtimeWeek = useMemo(() => Math.min(5, Math.max(1, Math.ceil(new Date().getDate() / 7))), []);
+  const currentRealtimeWeek = useMemo(
+    () => Math.min(5, Math.max(1, Math.ceil(new Date().getDate() / 7))),
+    []
+  );
 
   const [filterMode, setFilterMode] = useState<"all" | "online" | "offline">("all");
-  // State lưu các học sinh đang mở rộng xem lịch sử các lần thi
   const [expandedHistoryMap, setExpandedHistoryMap] = useState<Record<string, boolean>>({});
 
   const [resTitle, setResTitle] = useState<string>("");
@@ -312,23 +358,46 @@ export default function AdminModals(props: AdminModalsProps) {
   const [newItemDescription, setNewItemDescription] = useState<string>("");
   const [newItemFormat, setNewItemFormat] = useState<string>("Zoom");
   const [newItemTargetMode, setNewItemTargetMode] = useState<"online" | "offline" | "all">("all");
-  const [newItemCategory, setNewItemCategory] = useState<SubjectCategoryKey>("dai");
+  const [localNewItemCategory, setLocalNewItemCategory] = useState<SubjectCategoryKey>("dai");
   const [newItemAssignedMonth, setNewItemAssignedMonth] = useState<number>(currentRealtimeMonth);
   const [newItemAssignedWeek, setNewItemAssignedWeek] = useState<number>(currentRealtimeWeek);
 
+  const activeNewItemCategory: SubjectCategoryKey =
+    propNewItemCategory !== undefined ? propNewItemCategory : localNewItemCategory;
+
+  const updateNewItemCategory = (cat: SubjectCategoryKey) => {
+    setLocalNewItemCategory(cat);
+    if (typeof propSetNewItemCategory === "function") {
+      propSetNewItemCategory(cat);
+    }
+  };
+
   const [boostForm, setBoostForm] = useState({ title: "", type: "video", url: "", note: "" });
 
-  const [driveLinkModal, setDriveLinkModal] = useState<{ lessonId: string; type: "homework_files" | "test_quizzes" } | null>(null);
+  const [driveLinkModal, setDriveLinkModal] = useState<{
+    lessonId: string;
+    type: "homework_files" | "test_quizzes";
+  } | null>(null);
   const [driveLinkForm, setDriveLinkForm] = useState({ title: "", url: "" });
 
-  const [editResourceModal, setEditResourceModal] = useState<{ lessonId: string; type: string; item: any } | null>(null);
-  const [editResourceForm, setEditResourceForm] = useState({ title: "", url: "", type: "lecture" });
+  const [editResourceModal, setEditResourceModal] = useState<{
+    lessonId: string;
+    type: string;
+    item: any;
+  } | null>(null);
+  const [editResourceForm, setEditResourceForm] = useState({
+    title: "",
+    url: "",
+    type: "lecture"
+  });
 
-  // STATE QUẢN LÝ LUỒNG XÓA AN TOÀN 3 BƯỚC (CONFIRM -> DELETING PROGRESS -> DELETED UNDO 6S)
+  // STATE QUẢN LÝ LUỒNG XÓA AN TOÀN 3 BƯỚC
   const [deletionStateMap, setDeletionStateMap] = useState<Record<string, DeletionItemState>>({});
-  const deletionTimersRef = useRef<Record<string, { progressInterval?: any; countdownInterval?: any; commitTimeout?: any }>>({});
+  const deletionTimersRef = useRef<
+    Record<string, { progressInterval?: any; countdownInterval?: any; commitTimeout?: any }>
+  >({});
 
-  // STATE QUẢN LÝ MODAL XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH (HỖ TRỢ CHUYỂN ĐỔI GIỮA CÁC LẦN NỘP)
+  // STATE QUẢN LÝ MODAL XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH
   const [viewingSubmission, setViewingSubmission] = useState<{
     attempt: any;
     historyList?: any[];
@@ -347,9 +416,9 @@ export default function AdminModals(props: AdminModalsProps) {
           parentChap?.category || parentChap?.subject_category || parentChap?.subject_type,
           parentChap?.title
         );
-        setNewItemCategory(inheritedCat);
+        updateNewItemCategory(inheritedCat);
       } else {
-        setNewItemCategory("dai");
+        updateNewItemCategory("dai");
       }
     }
   }, [createModal, chapters]);
@@ -387,7 +456,7 @@ export default function AdminModals(props: AdminModalsProps) {
       try {
         localStorage.setItem("edunexus_course_data", JSON.stringify(newChapters));
         window.dispatchEvent(new Event("storage"));
-      } catch (e) {}
+      } catch {}
     }, 0);
   };
 
@@ -410,7 +479,9 @@ export default function AdminModals(props: AdminModalsProps) {
 
   const enhancedAttempts = useMemo(() => {
     return (azotaScoreViewModal.attempts || []).map((att: any) => {
-      const stuId = String(att.student_id || att.studentId || att.user_id || "").trim().toLowerCase();
+      const stuId = String(att.student_id || att.studentId || att.user_id || "")
+        .trim()
+        .toLowerCase();
       const rawName = String(att.student_name || att.studentName || att.full_name || "").trim();
 
       let matchedProfile = stuId ? profileMap.get(stuId) : null;
@@ -433,7 +504,9 @@ export default function AdminModals(props: AdminModalsProps) {
 
       let isOffline = false;
       if (matchedProfile) {
-        const pMode = String(matchedProfile.learning_mode || matchedProfile.study_mode || "").toLowerCase();
+        const pMode = String(
+          matchedProfile.learning_mode || matchedProfile.study_mode || ""
+        ).toLowerCase();
         isOffline = pMode === "offline";
       } else {
         const attMode = String(att.learningMode || att.learning_mode || "").toLowerCase();
@@ -448,7 +521,6 @@ export default function AdminModals(props: AdminModalsProps) {
         avatarInitials = displayName.substring(0, 2).toUpperCase();
       }
 
-      // Khóa định danh chuẩn hóa của học sinh để Group By
       const canonicalStudentKey = matchedProfile?.id
         ? String(matchedProfile.id).trim().toLowerCase()
         : normalizeText(displayName) || stuId || `anon_${att.id}`;
@@ -458,13 +530,12 @@ export default function AdminModals(props: AdminModalsProps) {
         canonicalStudentKey,
         resolvedName: displayName,
         resolvedMode: isOffline ? "offline" : "online",
-        resolvedAvatar: avatarInitials,
+        resolvedAvatar: avatarInitials
       };
     });
   }, [azotaScoreViewModal.attempts, profileMap]);
 
   // THUẬT TOÁN GROUP BY STUDENT: MỖI HỌC SINH CHỈ HIỂN THỊ 1 CARD DUY NHẤT VỚI ĐIỂM CAO NHẤT (MAX)
-  // CÁC LẦN NỘP KHÁC ĐƯỢC ĐƯA VÀO MẢNG historyAttempts ĐỂ XEM QUA DROPDOWN / ACCORDION
   const groupedStudentCards = useMemo<GroupedStudentAttemptCard[]>(() => {
     const groupMap = new Map<string, any[]>();
 
@@ -479,7 +550,6 @@ export default function AdminModals(props: AdminModalsProps) {
     const result: GroupedStudentAttemptCard[] = [];
 
     groupMap.forEach((attList, studentKey) => {
-      // Sắp xếp theo thời gian nộp từ cũ -> mới để đánh số Lần 1, Lần 2... chính xác
       const chronological = [...attList].sort((a, b) => {
         const tA = new Date(a.createdAt || a.created_at || a.submittedAt || 0).getTime();
         const tB = new Date(b.createdAt || b.created_at || b.submittedAt || 0).getTime();
@@ -488,10 +558,9 @@ export default function AdminModals(props: AdminModalsProps) {
 
       const withAttemptIndex = chronological.map((item, idx) => ({
         ...item,
-        attemptNumber: idx + 1,
+        attemptNumber: idx + 1
       }));
 
-      // Chọn lượt thi có Điểm cao nhất (MAX) làm đại diện; nếu bằng điểm thì ưu tiên lượt mới nhất
       let bestAttempt = withAttemptIndex[0];
       for (const candidate of withAttemptIndex) {
         const candScore = Number(candidate.score ?? candidate.points ?? 0);
@@ -499,21 +568,10 @@ export default function AdminModals(props: AdminModalsProps) {
         if (candScore > bestScore) {
           bestAttempt = candidate;
         } else if (candScore === bestScore) {
-          const candHasAnswers = Boolean(
-            candidate.answers && Object.keys(candidate.answers).length > 0
-          );
-          const bestHasAnswers = Boolean(
-            bestAttempt.answers && Object.keys(bestAttempt.answers).length > 0
-          );
-          if (candHasAnswers && !bestHasAnswers) {
-            bestAttempt = candidate;
-          } else {
-            bestAttempt = candidate;
-          }
+          bestAttempt = candidate;
         }
       }
 
-      // Danh sách lịch sử sắp xếp từ mới nhất -> cũ nhất để giáo viên dễ tra cứu
       const historyDescending = [...withAttemptIndex].reverse();
 
       result.push({
@@ -524,11 +582,10 @@ export default function AdminModals(props: AdminModalsProps) {
         maxScore: Number(bestAttempt.score ?? bestAttempt.points ?? 0),
         resolvedName: bestAttempt.resolvedName,
         resolvedMode: bestAttempt.resolvedMode,
-        resolvedAvatar: bestAttempt.resolvedAvatar,
+        resolvedAvatar: bestAttempt.resolvedAvatar
       });
     });
 
-    // Sắp xếp các thẻ học sinh theo Điểm cao nhất giảm dần
     return result.sort((a, b) => b.maxScore - a.maxScore);
   }, [enhancedAttempts]);
 
@@ -540,7 +597,7 @@ export default function AdminModals(props: AdminModalsProps) {
   const toggleExpandStudentHistory = (studentKey: string) => {
     setExpandedHistoryMap((prev) => ({
       ...prev,
-      [studentKey]: !prev[studentKey],
+      [studentKey]: !prev[studentKey]
     }));
   };
 
@@ -549,7 +606,9 @@ export default function AdminModals(props: AdminModalsProps) {
     const attemptId = String(att?.id || "");
     const studentId = String(att?.studentId || att?.student_id || att?.user_id || "");
     const quizId = String(att?.quizId || att?.quiz_id || att?.exam_id || "");
-    const examTitle = String(att?.examTitle || att?.exam_title || azotaScoreViewModal?.examTitle || "");
+    const examTitle = String(
+      att?.examTitle || att?.exam_title || azotaScoreViewModal?.examTitle || ""
+    );
     const createdAt = att?.createdAt || att?.created_at || "";
 
     clearTimersForAttempt(attemptId);
@@ -561,13 +620,13 @@ export default function AdminModals(props: AdminModalsProps) {
         const keysToBlock = [
           attemptId,
           `${quizId}_${studentId}_${createdAt}`,
-          createdAt ? `${studentId}_${createdAt}` : "",
+          createdAt ? `${studentId}_${createdAt}` : ""
         ].filter(Boolean);
 
         const mergedDeleted = Array.from(new Set([...deletedList, ...keysToBlock]));
         localStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(mergedDeleted));
         sessionStorage.setItem("edunexus_deleted_attempt_ids", JSON.stringify(mergedDeleted));
-      } catch (e) {}
+      } catch {}
     }
 
     if (setAzotaScoreViewModal) {
@@ -575,11 +634,16 @@ export default function AdminModals(props: AdminModalsProps) {
         ...prev,
         attempts: (prev.attempts || []).filter((a: any) => {
           if (String(a?.id || "") === attemptId) return false;
-          if (createdAt && studentId && (a?.createdAt === createdAt || a?.created_at === createdAt) && (a?.studentId === studentId || a?.student_id === studentId)) {
+          if (
+            createdAt &&
+            studentId &&
+            (a?.createdAt === createdAt || a?.created_at === createdAt) &&
+            (a?.studentId === studentId || a?.student_id === studentId)
+          ) {
             return false;
           }
           return true;
-        }),
+        })
       }));
     }
 
@@ -587,7 +651,12 @@ export default function AdminModals(props: AdminModalsProps) {
       (setAllAttempts as any)((prev: any) => {
         const updated = (prev || []).filter((a: any) => {
           if (String(a?.id || "") === attemptId) return false;
-          if (createdAt && studentId && (a?.createdAt === createdAt || a?.created_at === createdAt) && (a?.studentId === studentId || a?.student_id === studentId)) {
+          if (
+            createdAt &&
+            studentId &&
+            (a?.createdAt === createdAt || a?.created_at === createdAt) &&
+            (a?.studentId === studentId || a?.student_id === studentId)
+          ) {
             return false;
           }
           return true;
@@ -595,7 +664,7 @@ export default function AdminModals(props: AdminModalsProps) {
         if (typeof window !== "undefined") {
           try {
             localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
-          } catch (e) {}
+          } catch {}
         }
         return updated;
       });
@@ -609,7 +678,7 @@ export default function AdminModals(props: AdminModalsProps) {
             localStorage.setItem("edunexus_attempts", JSON.stringify(updated));
           }
         }
-      } catch (e) {}
+      } catch {}
     }
 
     if (typeof onDeleteAttemptPermanent === "function") {
@@ -632,23 +701,36 @@ export default function AdminModals(props: AdminModalsProps) {
           studentId,
           quizId,
           examTitle,
-          createdAt,
-        }),
+          createdAt
+        })
       });
 
       if (supabase) {
-        const tasks: Promise<any>[] = [
-          Promise.resolve(supabase.from("exam_attempts").delete().eq("id", attemptId)),
-          Promise.resolve(supabase.from("quiz_results").delete().eq("id", attemptId)),
-          Promise.resolve(supabase.from("exam_submissions").delete().eq("id", attemptId)),
-        ];
+        try {
+          await supabase.from("exam_attempts").delete().eq("id", attemptId);
+        } catch {}
+        try {
+          await supabase.from("quiz_results").delete().eq("id", attemptId);
+        } catch {}
+        try {
+          await supabase.from("exam_submissions").delete().eq("id", attemptId);
+        } catch {}
         if (createdAt && studentId) {
-          tasks.push(
-            Promise.resolve(supabase.from("exam_attempts").delete().eq("created_at", createdAt).eq("student_id", studentId)),
-            Promise.resolve(supabase.from("quiz_results").delete().eq("created_at", createdAt).eq("student_id", studentId))
-          );
+          try {
+            await supabase
+              .from("exam_attempts")
+              .delete()
+              .eq("created_at", createdAt)
+              .eq("student_id", studentId);
+          } catch {}
+          try {
+            await supabase
+              .from("quiz_results")
+              .delete()
+              .eq("created_at", createdAt)
+              .eq("student_id", studentId);
+          } catch {}
         }
-        await Promise.allSettled(tasks);
       }
 
       if (showToast) {
@@ -671,8 +753,8 @@ export default function AdminModals(props: AdminModalsProps) {
         progress: 0,
         countdown: 6,
         studentName: att.resolvedName || "Học sinh",
-        attemptObj: att,
-      },
+        attemptObj: att
+      }
     }));
   };
 
@@ -698,8 +780,8 @@ export default function AdminModals(props: AdminModalsProps) {
         progress: 12,
         countdown: 6,
         studentName: att.resolvedName || "Học sinh",
-        attemptObj: att,
-      },
+        attemptObj: att
+      }
     }));
 
     let currentProg = 12;
@@ -714,8 +796,8 @@ export default function AdminModals(props: AdminModalsProps) {
             progress: 100,
             countdown: 6,
             studentName: att.resolvedName || "Học sinh",
-            attemptObj: att,
-          },
+            attemptObj: att
+          }
         }));
 
         let secondsLeft = 6;
@@ -728,8 +810,8 @@ export default function AdminModals(props: AdminModalsProps) {
                 ...prev,
                 [attemptId]: {
                   ...prev[attemptId],
-                  countdown: secondsLeft,
-                },
+                  countdown: secondsLeft
+                }
               };
             });
           } else {
@@ -744,7 +826,7 @@ export default function AdminModals(props: AdminModalsProps) {
 
         deletionTimersRef.current[attemptId] = {
           countdownInterval,
-          commitTimeout,
+          commitTimeout
         };
       } else {
         setDeletionStateMap((prev) => {
@@ -753,8 +835,8 @@ export default function AdminModals(props: AdminModalsProps) {
             ...prev,
             [attemptId]: {
               ...prev[attemptId],
-              progress: Math.min(95, currentProg),
-            },
+              progress: Math.min(95, currentProg)
+            }
           };
         });
       }
@@ -776,16 +858,21 @@ export default function AdminModals(props: AdminModalsProps) {
     }
   };
 
-  // MỞ MODAL XEM CHI TIẾT BÀI LÀM CỦA HỌC SINH (KÈM DANH SÁCH LỊCH SỬ CÁC LẦN NỘP NẾU CÓ)
+  // MỞ MODAL XEM CHI TIẾT BÀI LÀM CỦA HỌC SINH
   const handleOpenSubmissionDetail = async (att: any, historyList?: any[]) => {
     const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
-    const attTitleNorm = normalizeText(att.examTitle || att.exam_title || azotaScoreViewModal.examTitle);
+    const attTitleNorm = normalizeText(
+      att.examTitle || att.exam_title || azotaScoreViewModal.examTitle
+    );
 
     let foundExam = (practiceExams || []).find((ex: any) => {
       if (!ex) return false;
       const exId = String(ex.id || "").trim();
       const exTitleNorm = normalizeText(ex.title);
-      return (attQuizId && exId && attQuizId === exId) || (attTitleNorm && exTitleNorm && attTitleNorm === exTitleNorm);
+      return (
+        (attQuizId && exId && attQuizId === exId) ||
+        (attTitleNorm && exTitleNorm && attTitleNorm === exTitleNorm)
+      );
     });
 
     if (!foundExam && Array.isArray(chapters)) {
@@ -795,7 +882,10 @@ export default function AdminModals(props: AdminModalsProps) {
           const matched = allQuizzes.find((q: any) => {
             const qId = String(q?.id || "").trim();
             const qTitleNorm = normalizeText(q?.title);
-            return (attQuizId && qId && attQuizId === qId) || (attTitleNorm && qTitleNorm && attTitleNorm === qTitleNorm);
+            return (
+              (attQuizId && qId && attQuizId === qId) ||
+              (attTitleNorm && qTitleNorm && attTitleNorm === qTitleNorm)
+            );
           });
           if (matched) {
             foundExam = matched;
@@ -817,7 +907,7 @@ export default function AdminModals(props: AdminModalsProps) {
         attempt: att,
         historyList: historyList || [att],
         examObj: foundExam,
-        isLoadingExam: false,
+        isLoadingExam: false
       });
       return;
     }
@@ -826,7 +916,7 @@ export default function AdminModals(props: AdminModalsProps) {
       attempt: att,
       historyList: historyList || [att],
       examObj: foundExam || null,
-      isLoadingExam: true,
+      isLoadingExam: true
     });
 
     try {
@@ -843,17 +933,17 @@ export default function AdminModals(props: AdminModalsProps) {
             attempt: att,
             historyList: historyList || [att],
             examObj: data,
-            isLoadingExam: false,
+            isLoadingExam: false
           });
           return;
         }
       }
-    } catch (e) {}
+    } catch {}
 
     setViewingSubmission((prev) => (prev ? { ...prev, isLoadingExam: false } : null));
   };
 
-  // THUẬT TOÁN ABSOLUTE ID MAPPING (ĐỐI CHIẾU CHÍNH XÁC 100% GIỮA EXAMROOMVIEW VÀ ADMINMODALS - KHÔNG BAO GIỜ LỆCH CÂU)
+  // THUẬT TOÁN ABSOLUTE ID MAPPING
   const submissionReviewData = useMemo(() => {
     if (!viewingSubmission) return null;
     const { attempt, examObj } = viewingSubmission;
@@ -879,27 +969,24 @@ export default function AdminModals(props: AdminModalsProps) {
     }
 
     const rawSections =
-      examObj?.data ||
-      examObj?.sections ||
-      attempt?.exam_data ||
-      attempt?.sections ||
-      [];
+      examObj?.data || examObj?.sections || attempt?.exam_data || attempt?.sections || [];
 
     const mediaMap: Record<string, any> = {
       ...(examObj?.media_map || {}),
       ...(examObj?.mediaMap || {}),
       ...(attempt?.media_map || {}),
-      ...(attempt?.mediaMap || {}),
+      ...(attempt?.mediaMap || {})
     };
 
-    // 1. Xây dựng danh sách phẳng (Flat List) theo đúng 100% logic của ExamRoomView.tsx
     const flatQuestions: any[] = [];
     let absoluteIndex = 0;
 
     if (Array.isArray(rawSections) && rawSections.length > 0) {
       rawSections.forEach((sec: any, secIdx: number) => {
-        if (sec?.mediaMap && typeof sec.mediaMap === "object") Object.assign(mediaMap, sec.mediaMap);
-        if (sec?.media_map && typeof sec.media_map === "object") Object.assign(mediaMap, sec.media_map);
+        if (sec?.mediaMap && typeof sec.mediaMap === "object")
+          Object.assign(mediaMap, sec.mediaMap);
+        if (sec?.media_map && typeof sec.media_map === "object")
+          Object.assign(mediaMap, sec.media_map);
 
         const secType =
           sec?.section_type ||
@@ -907,14 +994,15 @@ export default function AdminModals(props: AdminModalsProps) {
           (sec?.section_title && /đúng\s*sai/i.test(sec.section_title)
             ? "true_false"
             : sec?.section_title && /trả\s*lời\s*ngắn|điền/i.test(sec.section_title)
-            ? "short_answer"
-            : "multiple_choice");
+              ? "short_answer"
+              : "multiple_choice");
 
         const secQuestions = Array.isArray(sec?.questions) ? sec.questions : [];
         secQuestions.forEach((q: any, qIdxInSec: number) => {
           absoluteIndex++;
           if (q?.mediaMap && typeof q.mediaMap === "object") Object.assign(mediaMap, q.mediaMap);
-          if (q?.media_map && typeof q.media_map === "object") Object.assign(mediaMap, q.media_map);
+          if (q?.media_map && typeof q.media_map === "object")
+            Object.assign(mediaMap, q.media_map);
 
           const qType = q?.type || secType || "multiple_choice";
           const effectiveId = String(q?.id || `q-${absoluteIndex}`).trim();
@@ -927,7 +1015,7 @@ export default function AdminModals(props: AdminModalsProps) {
             secIdx,
             qIdxInSec,
             sectionTitle: sec?.section_title || "",
-            qType,
+            qType
           });
         });
       });
@@ -943,12 +1031,11 @@ export default function AdminModals(props: AdminModalsProps) {
           secIdx: 0,
           qIdxInSec: absoluteIndex - 1,
           sectionTitle: "",
-          qType: q?.type || "multiple_choice",
+          qType: q?.type || "multiple_choice"
         });
       });
     }
 
-    // 2. Tạo bảng tra cứu key chuẩn hóa (chỉ tra cứu theo Key định danh, KHÔNG lấy bừa theo vị trí mảng Object.values)
     const normalizedKeyMap: Record<string, any> = {};
     if (!Array.isArray(rawUserAnswers)) {
       Object.entries(rawUserAnswers).forEach(([k, v]) => {
@@ -961,7 +1048,7 @@ export default function AdminModals(props: AdminModalsProps) {
     const questionsList: any[] = [];
 
     flatQuestions.forEach((q) => {
-      const idx = q.absoluteIndex; // 1..N (Khớp tuyệt đối với qIdx của ExamRoomView)
+      const idx = q.absoluteIndex;
 
       const priorityKeys = [
         q.effectiveId,
@@ -974,7 +1061,7 @@ export default function AdminModals(props: AdminModalsProps) {
         `cau-${idx}`,
         String(idx),
         `${q.secIdx}_${q.qIdxInSec}`,
-        `${q.secIdx}-${q.qIdxInSec}`,
+        `${q.secIdx}-${q.qIdxInSec}`
       ].filter(Boolean);
 
       let stuAns: any = undefined;
@@ -1001,11 +1088,10 @@ export default function AdminModals(props: AdminModalsProps) {
         qId: q.effectiveId,
         globalOrder: idx,
         stuAns,
-        correctRaw,
+        correctRaw
       });
     });
 
-    // 3. Fallback thông minh cho các lượt nộp cũ trước đây bị thiếu trường answers trong DB
     const hasAnyRecordedAnswer = questionsList.some(
       (q) => q.stuAns !== undefined && q.stuAns !== null && q.stuAns !== ""
     );
@@ -1022,7 +1108,9 @@ export default function AdminModals(props: AdminModalsProps) {
       questionsList.forEach((q, idx) => {
         const isSimulatedCorrect = idx < targetCorrect;
         if (q.qType === "true_false") {
-          const cleanAns = (q.correctRaw || "ĐĐĐĐ").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          const cleanAns = (q.correctRaw || "ĐĐĐĐ")
+            .replace(/[^A-Za-zĐđSsTtFf]/g, "")
+            .toUpperCase();
           const tfObj: Record<string, string> = {};
           ["a", "b", "c", "d"].forEach((k, i) => {
             const c = cleanAns[i] || "Đ";
@@ -1040,7 +1128,6 @@ export default function AdminModals(props: AdminModalsProps) {
       });
     }
 
-    // 4. Đánh giá trạng thái Đúng / Sai / Bỏ trống cho từng câu
     questionsList.forEach((q) => {
       const { qType, stuAns, correctRaw } = q;
       let status: "correct" | "wrong" | "skipped" = "skipped";
@@ -1063,7 +1150,9 @@ export default function AdminModals(props: AdminModalsProps) {
         const options = Array.isArray(q?.options) ? q.options : [];
         const expectedMap: Record<string, boolean> = {};
         options.forEach((opt: any, i: number) => {
-          const k = String(opt?.key || ["a", "b", "c", "d"][i] || i).toLowerCase().replace(/[^a-d]/g, "");
+          const k = String(opt?.key || ["a", "b", "c", "d"][i] || i)
+            .toLowerCase()
+            .replace(/[^a-d]/g, "");
           if (typeof opt?.is_true_false_ans === "boolean") {
             expectedMap[k] = opt.is_true_false_ans;
           }
@@ -1076,10 +1165,16 @@ export default function AdminModals(props: AdminModalsProps) {
               expectedMap[k] = ch === "Đ" || ch === "D" || ch === "T";
             });
           } else {
-            const parts = correctRaw.split(/[,;/|-]+/).map((s: string) => s.trim().toUpperCase());
+            const parts = correctRaw
+              .split(/[,;/|-]+/)
+              .map((s: string) => s.trim().toUpperCase());
             ["a", "b", "c", "d"].forEach((k, i) => {
               if (parts[i]) {
-                expectedMap[k] = parts[i].startsWith("Đ") || parts[i] === "D" || parts[i] === "T" || parts[i] === "TRUE";
+                expectedMap[k] =
+                  parts[i].startsWith("Đ") ||
+                  parts[i] === "D" ||
+                  parts[i] === "T" ||
+                  parts[i] === "TRUE";
               }
             });
           }
@@ -1145,13 +1240,22 @@ export default function AdminModals(props: AdminModalsProps) {
         if (!stuStr) {
           status = "skipped";
         } else {
-          const normStu = stuStr.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
-          const normCorr = correctRaw.replace(/\s+/g, "").replace(/,/g, ".").replace(/[−–—]/g, "-").toLowerCase();
+          const normStu = stuStr
+            .replace(/\s+/g, "")
+            .replace(/,/g, ".")
+            .replace(/[−–—]/g, "-")
+            .toLowerCase();
+          const normCorr = correctRaw
+            .replace(/\s+/g, "")
+            .replace(/,/g, ".")
+            .replace(/[−–—]/g, "-")
+            .toLowerCase();
           status = normStu === normCorr ? "correct" : "wrong";
         }
       } else {
         q.qType = "multiple_choice";
-        const stuStr = stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
+        const stuStr =
+          stuAns !== undefined && stuAns !== null ? String(stuAns).trim().toUpperCase() : "";
         const corrStr = correctRaw.toUpperCase();
         stuDisplay = stuStr || "Bỏ trống";
         correctDisplay = corrStr || "A";
@@ -1178,7 +1282,7 @@ export default function AdminModals(props: AdminModalsProps) {
       correctCount,
       wrongCount,
       skippedCount,
-      totalCount: questionsList.length,
+      totalCount: questionsList.length
     };
   }, [viewingSubmission]);
 
@@ -1186,49 +1290,60 @@ export default function AdminModals(props: AdminModalsProps) {
     e.preventDefault();
     if (!resTitle.trim() || !resUrl.trim() || !resourceModal) return;
 
-    const newResource = cleanResourceMediaPayload({ 
-      id: "res-" + Date.now(), 
-      title: resTitle.trim(), 
-      url: resUrl.trim(), 
+    const newResource = cleanResourceMediaPayload({
+      id: "res-" + Date.now(),
+      title: resTitle.trim(),
+      url: resUrl.trim(),
       type: resourceModal.type === "video_list" ? vidType : undefined,
       assigned_month: currentRealtimeMonth,
       assigned_week: currentRealtimeWeek
     });
 
-    const newChapters = (chapters || []).map((chap: any) => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === resourceModal.lessonId) { 
-          return { ...les, [resourceModal.type]: [...(les[resourceModal.type] || []), newResource] }; 
-        } 
-        return les; 
-      }) 
+    const newChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === resourceModal.lessonId) {
+          return {
+            ...les,
+            [resourceModal.type]: [...(les[resourceModal.type] || []), newResource]
+          };
+        }
+        return les;
+      })
     }));
 
-    setResTitle(""); 
-    setResUrl(""); 
+    setResTitle("");
+    setResUrl("");
     setVidType("lecture");
-    if (setResourceModal) setResourceModal(null); 
+    if (setResourceModal) setResourceModal(null);
 
-    dispatchOptimisticUpdate(newChapters); 
+    dispatchOptimisticUpdate(newChapters);
   };
 
   const handleDeleteResource = (lessonId: string, resType: string, resId: string) => {
     if (!confirm("Xác nhận xóa tài nguyên này?")) return;
 
     if (viewResourcesModal && setViewResourcesModal) {
-      setViewResourcesModal((prev: any) => prev ? {
-        ...prev,
-        items: (prev.items || []).filter((i: any) => i?.id !== resId)
-      } : null);
+      setViewResourcesModal((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              items: (prev.items || []).filter((i: any) => i?.id !== resId)
+            }
+          : null
+      );
     }
 
-    const newChapters = (chapters || []).map((chap: any) => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => les?.id === lessonId ? { 
-        ...les, 
-        [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId) 
-      } : les) 
+    const newChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) =>
+        les?.id === lessonId
+          ? {
+              ...les,
+              [resType]: (les[resType] || []).filter((r: any) => r?.id !== resId)
+            }
+          : les
+      )
     }));
 
     dispatchOptimisticUpdate(newChapters);
@@ -1238,39 +1353,51 @@ export default function AdminModals(props: AdminModalsProps) {
     e.preventDefault();
     if (!editResourceModal || !editResourceForm.title.trim()) return;
 
-    const newChapters = (chapters || []).map((chap: any) => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === editResourceModal.lessonId) { 
-          return { 
-            ...les, 
-            [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) => 
-              r?.id === editResourceModal.item.id ? { 
-                ...r, 
-                title: editResourceForm.title.trim(), 
-                url: editResourceForm.url?.trim() || r.url,
-                type: editResourceModal.type === "video_list" ? editResourceForm.type : r.type
-              } : r 
+    const newChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === editResourceModal.lessonId) {
+          return {
+            ...les,
+            [editResourceModal.type]: (les[editResourceModal.type] || []).map((r: any) =>
+              r?.id === editResourceModal.item.id
+                ? {
+                    ...r,
+                    title: editResourceForm.title.trim(),
+                    url: editResourceForm.url?.trim() || r.url,
+                    type:
+                      editResourceModal.type === "video_list" ? editResourceForm.type : r.type
+                  }
+                : r
             )
-          }; 
-        } 
-        return les; 
-      }) 
+          };
+        }
+        return les;
+      })
     }));
 
     if (viewResourcesModal && setViewResourcesModal) {
-      setViewResourcesModal((prev: any) => prev ? {
-        ...prev,
-        items: (prev.items || []).map((i: any) => i?.id === editResourceModal.item.id ? { 
-          ...i, 
-          title: editResourceForm.title.trim(), 
-          url: editResourceForm.url?.trim() || i.url,
-          type: editResourceModal.type === "video_list" ? editResourceForm.type : i.type
-        } : i)
-      } : null);
+      setViewResourcesModal((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              items: (prev.items || []).map((i: any) =>
+                i?.id === editResourceModal.item.id
+                  ? {
+                      ...i,
+                      title: editResourceForm.title.trim(),
+                      url: editResourceForm.url?.trim() || i.url,
+                      type:
+                        editResourceModal.type === "video_list" ? editResourceForm.type : i.type
+                    }
+                  : i
+              )
+            }
+          : null
+      );
     }
 
-    setEditResourceModal(null); 
+    setEditResourceModal(null);
     dispatchOptimisticUpdate(newChapters);
   };
 
@@ -1278,29 +1405,32 @@ export default function AdminModals(props: AdminModalsProps) {
     e.preventDefault();
     if (!driveLinkModal || !driveLinkForm.title.trim() || !driveLinkForm.url.trim()) return;
 
-    const newItem = { 
-      id: "drive-" + Date.now(), 
-      title: driveLinkForm.title.trim(), 
-      url: driveLinkForm.url.trim(), 
-      is_quiz: false, 
+    const newItem = {
+      id: "drive-" + Date.now(),
+      title: driveLinkForm.title.trim(),
+      url: driveLinkForm.url.trim(),
+      is_quiz: false,
       is_drive_file: true,
       assigned_month: currentRealtimeMonth,
       assigned_week: currentRealtimeWeek
     };
 
-    const newChapters = (chapters || []).map((chap: any) => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === driveLinkModal.lessonId) { 
-          return { ...les, [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem] }; 
-        } 
-        return les; 
-      }) 
+    const newChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === driveLinkModal.lessonId) {
+          return {
+            ...les,
+            [driveLinkModal.type]: [...(les[driveLinkModal.type] || []), newItem]
+          };
+        }
+        return les;
+      })
     }));
 
-    setDriveLinkModal(null); 
-    setDriveLinkForm({ title: "", url: "" }); 
-    dispatchOptimisticUpdate(newChapters); 
+    setDriveLinkModal(null);
+    setDriveLinkForm({ title: "", url: "" });
+    dispatchOptimisticUpdate(newChapters);
   };
 
   const handleAddBoost = (e: React.FormEvent) => {
@@ -1308,65 +1438,133 @@ export default function AdminModals(props: AdminModalsProps) {
     if (!boostModal || !boostForm.title.trim() || !boostForm.url.trim()) return;
 
     const newBoost = { id: "boost-" + Date.now(), ...boostForm };
-    const newChapters = (chapters || []).map((chap: any) => ({ 
-      ...chap, 
-      lessons: (chap?.lessons || []).map((les: any) => { 
-        if (les?.id === boostModal) { 
-          return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] }; 
-        } 
-        return les; 
-      }) 
+    const newChapters = (chapters || []).map((chap: any) => ({
+      ...chap,
+      lessons: (chap?.lessons || []).map((les: any) => {
+        if (les?.id === boostModal) {
+          return { ...les, extra_resources: [...(les.extra_resources || []), newBoost] };
+        }
+        return les;
+      })
     }));
 
-    if (setBoostModal) setBoostModal(null); 
-    setBoostForm({ title: "", type: "video", url: "", note: "" }); 
-    dispatchOptimisticUpdate(newChapters); 
+    if (setBoostModal) setBoostModal(null);
+    setBoostForm({ title: "", type: "video", url: "", note: "" });
+    dispatchOptimisticUpdate(newChapters);
   };
 
-  const handleCreateNewItem = (e: React.FormEvent) => {
+  const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim() || !createModal) return;
 
+    const resolvedCat: SubjectCategoryKey = activeNewItemCategory || "dai";
     let newChapters = [...(chapters || [])];
+
     if (createModal.type === "chapter") {
-      newChapters.push({ 
-        id: "chap-" + Date.now(), 
-        title: newItemTitle.trim(), 
-        target_mode: newItemTargetMode, 
-        category: newItemCategory,
-        subject_category: newItemCategory,
-        lessons: [] 
-      });
+      const newChapterId = "chap-" + Date.now();
+      const newChapterObj = {
+        id: newChapterId,
+        title: newItemTitle.trim(),
+        target_mode: newItemTargetMode,
+        category: resolvedCat,
+        subject_category: resolvedCat,
+        lessons: []
+      };
+      newChapters.push(newChapterObj);
+
+      if (supabase) {
+        try {
+          const { error } = await supabase.from("chapters").upsert({
+            id: newChapterId,
+            title: newChapterObj.title,
+            category: resolvedCat,
+            course_id: "11111111-1111-1111-1111-111111111111"
+          });
+          if (error) {
+            await supabase.from("chapters").upsert({
+              id: newChapterId,
+              title: newChapterObj.title,
+              course_id: "11111111-1111-1111-1111-111111111111"
+            });
+          }
+        } catch (err) {
+          console.error("Lỗi đồng bộ tạo chương mới lên Supabase:", err);
+        }
+      }
     } else if (createModal.type === "lesson" && createModal.chapterId) {
-      newChapters = newChapters.map((chap: any) => chap?.id === createModal.chapterId ? {
-        ...chap, lessons: [...(chap.lessons || []), {
-          id: "les-" + Date.now(), 
-          title: newItemTitle.trim(), 
-          description: newItemDescription.trim(), 
-          duration: 45, 
-          format: newItemFormat, 
-          target_mode: newItemTargetMode,
-          category: newItemCategory,
-          subject_category: newItemCategory,
-          assigned_month: newItemAssignedMonth,
-          assigned_week: newItemAssignedWeek,
-          lecture_files: [], 
-          homework_files: [], 
-          handwritten_notes: [], 
-          video_list: [], 
-          test_quizzes: [], 
-          extra_resources: []
-        }]
-      } : chap);
+      const newLessonId = "les-" + Date.now();
+      const targetChapterId = createModal.chapterId;
+      const newLessonObj = {
+        id: newLessonId,
+        chapter_id: targetChapterId,
+        title: newItemTitle.trim(),
+        description: newItemDescription.trim(),
+        duration: 45,
+        format: newItemFormat,
+        target_mode: newItemTargetMode,
+        category: resolvedCat,
+        subject_category: resolvedCat,
+        assigned_month: newItemAssignedMonth,
+        assigned_week: newItemAssignedWeek,
+        lecture_files: [],
+        homework_files: [],
+        handwritten_notes: [],
+        video_list: [],
+        test_quizzes: [],
+        extra_resources: []
+      };
+
+      newChapters = newChapters.map((chap: any) =>
+        chap?.id === targetChapterId
+          ? {
+              ...chap,
+              lessons: [...(chap.lessons || []), newLessonObj]
+            }
+          : chap
+      );
+
+      if (supabase) {
+        try {
+          const { error } = await supabase.from("lessons").upsert({
+            id: newLessonId,
+            chapter_id: targetChapterId,
+            title: newLessonObj.title,
+            description: newLessonObj.description,
+            duration: newLessonObj.duration,
+            target_mode: newLessonObj.target_mode,
+            category: resolvedCat,
+            assigned_month: newLessonObj.assigned_month,
+            assigned_week: newLessonObj.assigned_week,
+            video_list: [],
+            lecture_files: []
+          });
+          if (error) {
+            await supabase.from("lessons").upsert({
+              id: newLessonId,
+              chapter_id: targetChapterId,
+              title: newLessonObj.title,
+              description: newLessonObj.description,
+              duration: newLessonObj.duration,
+              target_mode: newLessonObj.target_mode,
+              assigned_month: newLessonObj.assigned_month,
+              assigned_week: newLessonObj.assigned_week,
+              video_list: [],
+              lecture_files: []
+            });
+          }
+        } catch (err) {
+          console.error("Lỗi đồng bộ tạo bài học mới lên Supabase:", err);
+        }
+      }
     }
 
-    if (setCreateModal) setCreateModal(null); 
-    setNewItemTitle(""); 
-    setNewItemDescription(""); 
+    if (setCreateModal) setCreateModal(null);
+    setNewItemTitle("");
+    setNewItemDescription("");
     setNewItemFormat("Zoom");
     setNewItemTargetMode("all");
-    setNewItemCategory("dai");
-    dispatchOptimisticUpdate(newChapters); 
+    updateNewItemCategory("dai");
+    dispatchOptimisticUpdate(newChapters);
   };
 
   const handleEditLessonSubmit = async (e: React.FormEvent) => {
@@ -1381,19 +1579,26 @@ export default function AdminModals(props: AdminModalsProps) {
     const updatedPayload = {
       ...editLessonForm,
       category: resolvedCat,
-      subject_category: resolvedCat,
+      subject_category: resolvedCat
     };
 
-    const newChapters = (chapters || []).map((chap: any) => chap?.id === editLessonModal.chapterId ? {
-      ...chap, lessons: (chap?.lessons || []).map((les: any) => les?.id === editLessonModal.lesson.id ? { ...les, ...updatedPayload } : les)
-    } : chap);
+    const newChapters = (chapters || []).map((chap: any) =>
+      chap?.id === editLessonModal.chapterId
+        ? {
+            ...chap,
+            lessons: (chap?.lessons || []).map((les: any) =>
+              les?.id === editLessonModal.lesson.id ? { ...les, ...updatedPayload } : les
+            )
+          }
+        : chap
+    );
 
     const targetLessonId = editLessonModal.lesson.id;
-    if (setEditLessonModal) setEditLessonModal(null); 
+    if (setEditLessonModal) setEditLessonModal(null);
 
     if (supabase && targetLessonId) {
       try {
-        await supabase
+        const { error } = await supabase
           .from("lessons")
           .update({
             title: updatedPayload.title.trim(),
@@ -1403,20 +1608,33 @@ export default function AdminModals(props: AdminModalsProps) {
             target_mode: updatedPayload.target_mode || "all",
             category: resolvedCat,
             assigned_month: Number(updatedPayload.assigned_month) || currentRealtimeMonth,
-            assigned_week: Number(updatedPayload.assigned_week) || currentRealtimeWeek,
+            assigned_week: Number(updatedPayload.assigned_week) || currentRealtimeWeek
           })
           .eq("id", targetLessonId);
+        if (error) {
+          await supabase
+            .from("lessons")
+            .update({
+              title: updatedPayload.title.trim(),
+              description: updatedPayload.description || "",
+              duration: updatedPayload.duration || 45,
+              target_mode: updatedPayload.target_mode || "all",
+              assigned_month: Number(updatedPayload.assigned_month) || currentRealtimeMonth,
+              assigned_week: Number(updatedPayload.assigned_week) || currentRealtimeWeek
+            })
+            .eq("id", targetLessonId);
+        }
       } catch (err) {
         console.error("Lỗi đồng bộ chỉnh sửa bài học lên Supabase:", err);
       }
     }
 
-    dispatchOptimisticUpdate(newChapters); 
+    dispatchOptimisticUpdate(newChapters);
   };
 
   return (
     <>
-      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA (GROUP BY HỌC SINH - 1 CARD / 1 HỌC SINH VỚI ĐIỂM MAX + XEM LỊCH SỬ N LẦN) */}
+      {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA */}
       {azotaScoreViewModal?.isOpen && (
         <div
           onClick={(e) => {
@@ -1426,38 +1644,44 @@ export default function AdminModals(props: AdminModalsProps) {
           }}
           className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs cursor-pointer font-sans"
         >
-          <div className="bg-white rounded-[24px] max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] cursor-default animate-in zoom-in-95 duration-150 text-left">
-            <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-100 flex items-start justify-between relative bg-white">
+          <div className="bg-white rounded-2xl max-w-5xl w-full border border-slate-200/90 overflow-hidden flex flex-col max-h-[90vh] cursor-default text-left">
+            <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-200/90 flex items-start justify-between relative bg-white">
               <div>
-                <span className="px-2.5 py-0.5 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-bold uppercase tracking-wider border border-blue-100">
+                <span className="px-2.5 py-0.5 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-bold uppercase tracking-wider border border-blue-200">
                   GIAO DIỆN CHẤM THI & QUẢN LÝ ĐIỂM AZOTA
                 </span>
-                <h2 className="text-base sm:text-lg font-extrabold text-slate-900 mt-1 tracking-tight">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 mt-1 tracking-tight">
                   {azotaScoreViewModal.examTitle}
                 </h2>
               </div>
               <button
                 type="button"
-                onClick={() => setAzotaScoreViewModal && setAzotaScoreViewModal({ isOpen: false, examTitle: "", attempts: [] })}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                onClick={() =>
+                  setAzotaScoreViewModal &&
+                  setAzotaScoreViewModal({ isOpen: false, examTitle: "", attempts: [] })
+                }
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="px-4 sm:px-6 py-2.5 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="px-4 sm:px-6 py-2.5 bg-[#F8FAFC] border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-800">
-                  Danh sách học sinh nộp bài ({filteredGroupedCards.length} học sinh • {enhancedAttempts.length} lượt nộp)
+                  Danh sách học sinh nộp bài ({filteredGroupedCards.length} học sinh •{" "}
+                  {enhancedAttempts.length} lượt nộp)
                 </span>
               </div>
 
-              <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
+              <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200/90">
                 <button
                   type="button"
                   onClick={() => setFilterMode("all")}
-                  className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                    filterMode === "all" ? "bg-[#1D4ED8] text-white shadow-2xs" : "text-slate-500 hover:text-slate-900"
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    filterMode === "all"
+                      ? "bg-[#1D4ED8] text-white"
+                      : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
                   Tất cả ({groupedStudentCards.length})
@@ -1465,8 +1689,10 @@ export default function AdminModals(props: AdminModalsProps) {
                 <button
                   type="button"
                   onClick={() => setFilterMode("online")}
-                  className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                    filterMode === "online" ? "bg-indigo-600 text-white shadow-2xs" : "text-slate-500 hover:text-slate-900"
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    filterMode === "online"
+                      ? "bg-[#1D4ED8] text-white"
+                      : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
                   Online ({groupedStudentCards.filter((c) => c.resolvedMode === "online").length})
@@ -1474,8 +1700,10 @@ export default function AdminModals(props: AdminModalsProps) {
                 <button
                   type="button"
                   onClick={() => setFilterMode("offline")}
-                  className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                    filterMode === "offline" ? "bg-emerald-600 text-white shadow-2xs" : "text-slate-500 hover:text-slate-900"
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    filterMode === "offline"
+                      ? "bg-[#1D4ED8] text-white"
+                      : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
                   Offline ({groupedStudentCards.filter((c) => c.resolvedMode === "offline").length})
@@ -1483,9 +1711,9 @@ export default function AdminModals(props: AdminModalsProps) {
               </div>
             </div>
 
-            <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/30">
+            <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 bg-[#F8FAFC]">
               {filteredGroupedCards.length === 0 ? (
-                <div className="py-16 text-center text-slate-400 text-xs font-semibold italic">
+                <div className="py-16 text-center text-slate-400 text-xs font-medium italic">
                   Chưa có học sinh nào nộp bài trong phân hệ này.
                 </div>
               ) : (
@@ -1503,11 +1731,14 @@ export default function AdminModals(props: AdminModalsProps) {
                       ? new Date(submitDate).toLocaleDateString("vi-VN", {
                           day: "2-digit",
                           month: "2-digit",
-                          year: "2-digit",
+                          year: "2-digit"
                         })
                       : "08/10/26";
                     const formattedTime = submitDate
-                      ? new Date(submitDate).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+                      ? new Date(submitDate).toLocaleTimeString("vi-VN", {
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })
                       : "10:40";
 
                     const isHistoryExpanded = Boolean(expandedHistoryMap[card.studentKey]);
@@ -1516,7 +1747,7 @@ export default function AdminModals(props: AdminModalsProps) {
                       return (
                         <div
                           key={attemptId}
-                          className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-2.5 rounded-xl flex items-center justify-between gap-2 shadow-2xs animate-in fade-in duration-150"
+                          className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-2.5 rounded-xl flex items-center justify-between gap-2"
                         >
                           <div className="flex items-center gap-1.5 min-w-0">
                             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1527,7 +1758,7 @@ export default function AdminModals(props: AdminModalsProps) {
                           <button
                             type="button"
                             onClick={() => handleUndoDeleteAttempt(attemptId)}
-                            className="px-2.5 py-1 bg-white hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-300 rounded-lg font-bold text-[11px] transition flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
+                            className="px-2.5 py-1 bg-white hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-300 rounded-lg font-bold text-[11px] transition flex items-center gap-1 shrink-0 cursor-pointer"
                           >
                             <RotateCcw className="w-3 h-3" />
                             <span>Hoàn tác ({delState.countdown}s)</span>
@@ -1540,7 +1771,7 @@ export default function AdminModals(props: AdminModalsProps) {
                       return (
                         <div
                           key={attemptId}
-                          className="p-3 rounded-xl border border-rose-200 bg-rose-50/60 flex flex-col justify-center gap-2 shadow-2xs animate-in fade-in duration-150"
+                          className="p-3 rounded-xl border border-rose-200 bg-rose-50/60 flex flex-col justify-center gap-2"
                         >
                           <div className="flex items-center justify-between text-xs font-bold text-rose-800">
                             <span className="flex items-center gap-1.5 truncate">
@@ -1562,10 +1793,10 @@ export default function AdminModals(props: AdminModalsProps) {
                     return (
                       <div
                         key={card.studentKey || attemptId}
-                        className="relative p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow hover:border-slate-300 transition-all flex flex-col justify-between text-left gap-2"
+                        className="relative p-3 rounded-xl border border-slate-200/90 bg-white hover:border-slate-300 transition-all flex flex-col justify-between text-left gap-2"
                       >
                         {delState?.step === "confirm" && (
-                          <div className="absolute top-2 right-2 z-20 bg-white border border-rose-200 shadow-lg rounded-xl p-2.5 flex items-center gap-2 animate-in zoom-in-95 duration-100">
+                          <div className="absolute top-2 right-2 z-20 bg-white border border-rose-200 rounded-xl p-2.5 flex items-center gap-2 shadow-sm">
                             <span className="text-[11px] font-bold text-slate-800 whitespace-nowrap">
                               Xóa bài thi này?
                             </span>
@@ -1579,17 +1810,16 @@ export default function AdminModals(props: AdminModalsProps) {
                             <button
                               type="button"
                               onClick={() => handleConfirmStartDelete(att)}
-                              className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] transition cursor-pointer shadow-2xs"
+                              className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] transition cursor-pointer"
                             >
                               Xóa
                             </button>
                           </div>
                         )}
 
-                        {/* HÀNG 1: AVATAR + TÊN HỌC SINH + BADGE + ĐIỂM CAO NHẤT (MAX) */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center shrink-0 uppercase">
+                            <div className="w-8 h-8 rounded-full bg-[#F8FAFC] border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center shrink-0 uppercase">
                               {avatarText}
                             </div>
                             <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
@@ -1599,13 +1829,7 @@ export default function AdminModals(props: AdminModalsProps) {
                               >
                                 {displayName}
                               </h4>
-                              <span
-                                className={`text-[9px] px-1.5 py-0.5 font-bold tracking-wider rounded uppercase border ${
-                                  isOffline
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                    : "bg-indigo-50 text-indigo-700 border-indigo-200"
-                                }`}
-                              >
+                              <span className="text-[9px] px-1.5 py-0.5 font-semibold tracking-wider rounded uppercase border bg-[#F8FAFC] text-slate-600 border-slate-200">
                                 {isOffline ? "OFFLINE" : "ONLINE"}
                               </span>
                             </div>
@@ -1613,11 +1837,15 @@ export default function AdminModals(props: AdminModalsProps) {
 
                           <div className="flex items-center gap-1 shrink-0">
                             <span
-                              className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md flex items-center gap-1"
-                              title={card.totalCount > 1 ? `Điểm cao nhất trong ${card.totalCount} lần thi` : "Điểm bài thi"}
+                              className="text-xs font-bold text-[#1D4ED8] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md flex items-center gap-1"
+                              title={
+                                card.totalCount > 1
+                                  ? `Điểm cao nhất trong ${card.totalCount} lần thi`
+                                  : "Điểm bài thi"
+                              }
                             >
                               {card.totalCount > 1 && (
-                                <span className="text-[9px] font-extrabold text-rose-500 uppercase">MAX</span>
+                                <span className="text-[9px] font-bold uppercase">MAX</span>
                               )}
                               <span>{scoreVal.toFixed(2)}đ</span>
                             </span>
@@ -1632,32 +1860,25 @@ export default function AdminModals(props: AdminModalsProps) {
                           </div>
                         </div>
 
-                        {/* HÀNG 2: METADATA + NÚT MỞ RỘNG XEM LỊCH SỬ CÁC LẦN THI (N LẦN) */}
                         <div className="text-[11px] text-slate-500 flex items-center justify-between gap-1.5 flex-wrap py-1 border-y border-slate-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="inline-flex items-center gap-0.5">
-                              <span>⏱</span>
-                              <strong className="text-slate-700 font-semibold">
-                                {att.timeSpent || att.time_spent || "15 phút"}
-                              </strong>
-                            </span>
+                            <strong className="text-slate-700 font-semibold">
+                              {att.timeSpent || att.time_spent || "15 phút"}
+                            </strong>
                             <span className="text-slate-300">•</span>
-                            <span className="inline-flex items-center gap-0.5">
-                              <span>📅</span>
-                              <strong className="text-slate-700 font-semibold">
-                                {formattedTime} {formattedDate}
-                              </strong>
-                            </span>
+                            <strong className="text-slate-700 font-semibold">
+                              {formattedTime} {formattedDate}
+                            </strong>
                           </div>
 
                           {card.totalCount > 1 ? (
                             <button
                               type="button"
                               onClick={() => toggleExpandStudentHistory(card.studentKey)}
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer border ${
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer border ${
                                 isHistoryExpanded
-                                  ? "bg-indigo-600 text-white border-indigo-600"
-                                  : "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                                  ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
+                                  : "bg-[#F8FAFC] text-slate-700 border-slate-200 hover:bg-slate-100"
                               }`}
                             >
                               <History className="w-3 h-3" />
@@ -1669,36 +1890,36 @@ export default function AdminModals(props: AdminModalsProps) {
                               )}
                             </button>
                           ) : (
-                            <span className="font-semibold text-slate-500 text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
+                            <span className="font-medium text-slate-500 text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
                               Lần 1
                             </span>
                           )}
                         </div>
 
-                        {/* NGĂN KÉO LỊCH SỬ CÁC LẦN THI (HIỂN THỊ KHI BẤM XEM LỊCH SỬ N LẦN) */}
                         {card.totalCount > 1 && isHistoryExpanded && (
-                          <div className="bg-slate-50/90 rounded-xl p-2 border border-slate-200/80 space-y-1.5 animate-in fade-in duration-150">
-                            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-1 flex items-center justify-between">
+                          <div className="bg-[#F8FAFC] rounded-lg p-2 border border-slate-200/80 space-y-1.5">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1 flex items-center justify-between">
                               <span>Chi tiết {card.totalCount} lần nộp bài</span>
-                              <span>Điểm cao nhất: {scoreVal.toFixed(2)}đ</span>
+                              <span>MAX: {scoreVal.toFixed(2)}đ</span>
                             </div>
                             <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-0.5">
                               {card.historyAttempts.map((hAtt: any) => {
                                 const hId = String(hAtt.id || "");
                                 const hScore = Number(hAtt.score ?? hAtt.points ?? 0);
                                 const isBest = hId === attemptId;
-                                const hDateRaw = hAtt.createdAt || hAtt.created_at || hAtt.submittedAt;
+                                const hDateRaw =
+                                  hAtt.createdAt || hAtt.created_at || hAtt.submittedAt;
                                 const hDateStr = hDateRaw
                                   ? new Date(hDateRaw).toLocaleDateString("vi-VN", {
                                       day: "2-digit",
                                       month: "2-digit",
-                                      year: "2-digit",
+                                      year: "2-digit"
                                     })
                                   : "08/10/26";
                                 const hTimeStr = hDateRaw
                                   ? new Date(hDateRaw).toLocaleTimeString("vi-VN", {
                                       hour: "2-digit",
-                                      minute: "2-digit",
+                                      minute: "2-digit"
                                     })
                                   : "10:40";
 
@@ -1707,33 +1928,34 @@ export default function AdminModals(props: AdminModalsProps) {
                                     key={hId || hAtt.attemptNumber}
                                     className={`px-2 py-1.5 rounded-lg border text-[11px] flex items-center justify-between gap-1.5 ${
                                       isBest
-                                        ? "bg-white border-blue-200 shadow-2xs"
+                                        ? "bg-white border-blue-200"
                                         : "bg-white/70 border-slate-200/70"
                                     }`}
                                   >
                                     <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-bold text-slate-700">
+                                      <span className="font-semibold text-slate-700">
                                         Lần {hAtt.attemptNumber}
                                       </span>
                                       {isBest && (
-                                        <span className="px-1 py-0.2 bg-amber-100 text-amber-800 border border-amber-200 rounded text-[9px] font-black">
+                                        <span className="px-1 py-0.2 bg-blue-50 text-[#1D4ED8] border border-blue-200 rounded text-[9px] font-bold">
                                           MAX
                                         </span>
                                       )}
                                       <span className="text-[10px] text-slate-400">
-                                        {hTimeStr} {hDateStr} • {hAtt.timeSpent || hAtt.time_spent || "15p"}
+                                        {hTimeStr} {hDateStr}
                                       </span>
                                     </div>
 
                                     <div className="flex items-center gap-1 shrink-0">
-                                      <span className="font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 text-[10px]">
+                                      <span className="font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
                                         {hScore.toFixed(2)}đ
                                       </span>
                                       <button
                                         type="button"
-                                        onClick={() => handleOpenSubmissionDetail(hAtt, card.historyAttempts)}
-                                        className="px-1.5 py-0.5 bg-blue-50 hover:bg-[#1D4ED8] text-[#1D4ED8] hover:text-white rounded text-[10px] font-bold transition cursor-pointer"
-                                        title={`Xem bài làm Lần ${hAtt.attemptNumber}`}
+                                        onClick={() =>
+                                          handleOpenSubmissionDetail(hAtt, card.historyAttempts)
+                                        }
+                                        className="px-1.5 py-0.5 bg-blue-50 hover:bg-[#1D4ED8] text-[#1D4ED8] hover:text-white rounded text-[10px] font-semibold transition cursor-pointer"
                                       >
                                         Xem
                                       </button>
@@ -1741,7 +1963,6 @@ export default function AdminModals(props: AdminModalsProps) {
                                         type="button"
                                         onClick={() => handleConfirmStartDelete(hAtt)}
                                         className="p-0.5 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
-                                        title={`Xóa Lần ${hAtt.attemptNumber}`}
                                       >
                                         <Trash2 className="w-3 h-3" />
                                       </button>
@@ -1753,7 +1974,6 @@ export default function AdminModals(props: AdminModalsProps) {
                           </div>
                         )}
 
-                        {/* HÀNG 3: GHI CHÚ NHẬN XÉT + NÚT XEM BÀI LÀM */}
                         <div className="flex items-center justify-between gap-2 pt-0.5">
                           <div className="flex items-center gap-1 min-w-0 flex-1">
                             <span
@@ -1765,7 +1985,10 @@ export default function AdminModals(props: AdminModalsProps) {
                             <button
                               type="button"
                               onClick={async () => {
-                                const note = prompt("Nhập nhận xét cho học sinh:", att.feedback || "");
+                                const note = prompt(
+                                  "Nhập nhận xét cho học sinh:",
+                                  att.feedback || ""
+                                );
                                 if (note !== null) {
                                   att.feedback = note;
                                   if (setAzotaScoreViewModal) {
@@ -1773,7 +1996,7 @@ export default function AdminModals(props: AdminModalsProps) {
                                       ...prev,
                                       attempts: (prev.attempts || []).map((a: any) =>
                                         a?.id === att.id ? { ...a, feedback: note } : a
-                                      ),
+                                      )
                                     }));
                                   }
                                   try {
@@ -1783,10 +2006,10 @@ export default function AdminModals(props: AdminModalsProps) {
                                       body: JSON.stringify({
                                         action: "update_attempt_feedback",
                                         attemptId: att.id,
-                                        feedback: note,
-                                      }),
+                                        feedback: note
+                                      })
                                     });
-                                  } catch (e) {}
+                                  } catch {}
                                   if (showToast) showToast("Đã lưu nhận xét!", "success");
                                 }
                               }}
@@ -1800,7 +2023,7 @@ export default function AdminModals(props: AdminModalsProps) {
                           <button
                             type="button"
                             onClick={() => handleOpenSubmissionDetail(att, card.historyAttempts)}
-                            className="bg-blue-50 text-[#1D4ED8] hover:bg-[#1D4ED8] hover:text-white transition-all text-xs font-medium px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 cursor-pointer border border-blue-200/70"
+                            className="bg-blue-50 text-[#1D4ED8] hover:bg-[#1D4ED8] hover:text-white transition-all text-xs font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0 cursor-pointer border border-blue-200"
                           >
                             <Eye className="w-3.5 h-3.5" />
                             <span>Xem bài làm</span>
@@ -1816,7 +2039,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 1B. MODAL CON: XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH (HEADER COMPACT ~56PX + ABSOLUTE ID MAPPING CHỐNG LỆCH CÂU) */}
+      {/* 1B. MODAL CON: XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH */}
       {viewingSubmission && (
         <div
           onClick={(e) => {
@@ -1826,22 +2049,23 @@ export default function AdminModals(props: AdminModalsProps) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] cursor-default animate-in zoom-in-95 duration-150 text-left"
+            className="bg-white rounded-2xl max-w-4xl w-full border border-slate-200/90 overflow-hidden flex flex-col max-h-[94vh] cursor-default text-left"
           >
-            {/* HEADER COMPACT 1 DÒNG DUY NHẤT (~56PX) */}
-            <div className="px-4 py-2.5 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="px-4 py-2.5 bg-white border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded text-[10px] font-black uppercase tracking-wider shrink-0">
+                <span className="px-2 py-0.5 bg-blue-50 text-[#1D4ED8] border border-blue-200 rounded text-[10px] font-bold uppercase tracking-wider shrink-0">
                   Bài làm
                 </span>
-                <span className="font-extrabold text-sm text-slate-900 truncate max-w-[160px] sm:max-w-[220px]">
+                <span className="font-bold text-sm text-slate-900 truncate max-w-[160px] sm:max-w-[220px]">
                   {viewingSubmission.attempt.resolvedName || "Học sinh"}
                 </span>
-                <span className="text-xs font-black text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md shrink-0">
-                  {Number(viewingSubmission.attempt.score ?? viewingSubmission.attempt.points ?? 0).toFixed(2)}đ
+                <span className="text-xs font-bold text-[#1D4ED8] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md shrink-0">
+                  {Number(
+                    viewingSubmission.attempt.score ?? viewingSubmission.attempt.points ?? 0
+                  ).toFixed(2)}
+                  đ
                 </span>
 
-                {/* NẾU HỌC SINH CÓ NHIỀU LẦN THI: CHO PHÉP CHUYỂN NHANH GIỮA CÁC LẦN NỘP NGAY TRÊN HEADER */}
                 {viewingSubmission.historyList && viewingSubmission.historyList.length > 1 && (
                   <select
                     value={String(viewingSubmission.attempt.id || "")}
@@ -1853,38 +2077,36 @@ export default function AdminModals(props: AdminModalsProps) {
                         setViewingSubmission((prev) => (prev ? { ...prev, attempt: found } : null));
                       }
                     }}
-                    className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded-md text-[11px] font-bold text-slate-700 outline-none cursor-pointer"
+                    className="px-2 py-0.5 bg-[#F8FAFC] border border-slate-200 rounded-md text-[11px] font-semibold text-slate-700 outline-none cursor-pointer"
                   >
                     {viewingSubmission.historyList.map((hItem: any) => (
                       <option key={hItem.id} value={String(hItem.id || "")}>
-                        Lần {hItem.attemptNumber || 1} ({Number(hItem.score ?? hItem.points ?? 0).toFixed(2)}đ)
+                        Lần {hItem.attemptNumber || 1} (
+                        {Number(hItem.score ?? hItem.points ?? 0).toFixed(2)}đ)
                       </option>
                     ))}
                   </select>
                 )}
 
-                <span className="hidden md:inline text-xs text-slate-400 font-semibold truncate max-w-[180px]">
+                <span className="hidden md:inline text-xs text-slate-400 font-medium truncate max-w-[180px]">
                   • {azotaScoreViewModal.examTitle}
                 </span>
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
-                  ✓ Đúng: {submissionReviewData?.correctCount ?? 0}
+                <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold">
+                  Đúng: {submissionReviewData?.correctCount ?? 0}
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold">
-                  ✕ Sai: {submissionReviewData?.wrongCount ?? 0}
+                <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-semibold">
+                  Sai: {submissionReviewData?.wrongCount ?? 0}
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-bold">
-                  ○ Trống: {submissionReviewData?.skippedCount ?? 0}
-                </span>
-                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-slate-500 font-semibold px-1.5">
-                  ⏱ {viewingSubmission.attempt.timeSpent || viewingSubmission.attempt.time_spent || "15p"}
+                <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-semibold">
+                  Trống: {submissionReviewData?.skippedCount ?? 0}
                 </span>
                 <button
                   type="button"
                   onClick={() => setViewingSubmission(null)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer ml-1"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer ml-1"
                   title="Đóng"
                 >
                   <X className="w-4 h-4" />
@@ -1892,35 +2114,35 @@ export default function AdminModals(props: AdminModalsProps) {
               </div>
             </div>
 
-            {/* DANH SÁCH CÂU HỎI & ĐỐI CHIẾU ĐÁP ÁN */}
-            <div className="p-3 sm:p-5 overflow-y-auto custom-scrollbar flex-1 space-y-3 bg-slate-50/50">
+            <div className="p-3 sm:p-5 overflow-y-auto custom-scrollbar flex-1 space-y-3 bg-[#F8FAFC]">
               {viewingSubmission.isLoadingExam ? (
-                <div className="py-16 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs font-bold">
+                <div className="py-16 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs font-semibold">
                   <Loader2 className="w-6 h-6 animate-spin text-[#1D4ED8]" />
                   <span>Đang tải cấu trúc đề thi và bài làm chi tiết...</span>
                 </div>
               ) : !submissionReviewData || submissionReviewData.questionsList.length === 0 ? (
-                <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
-                  <p className="text-xs font-bold text-slate-700">
-                    Bảng đáp án học sinh đã chọn:
-                  </p>
+                <div className="bg-white border border-slate-200/90 rounded-xl p-5 space-y-3">
+                  <p className="text-xs font-bold text-slate-700">Bảng đáp án học sinh đã chọn:</p>
                   {Object.keys(submissionReviewData?.rawUserAnswers || {}).length === 0 ? (
                     <p className="text-xs text-slate-400 italic">
-                      Lượt nộp bài này đạt {Number(viewingSubmission.attempt.score ?? 0).toFixed(2)} điểm. Hiện chưa tìm thấy đề thi gốc tương ứng để hiển thị nội dung câu hỏi.
+                      Lượt nộp bài này đạt {Number(viewingSubmission.attempt.score ?? 0).toFixed(2)}{" "}
+                      điểm. Hiện chưa tìm thấy đề thi gốc tương ứng để hiển thị nội dung câu hỏi.
                     </p>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                      {Object.entries(submissionReviewData?.rawUserAnswers || {}).map(([k, v], i) => (
-                        <div
-                          key={k || i}
-                          className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
-                        >
-                          <span className="font-bold text-slate-500">{k}:</span>
-                          <span className="font-black text-[#1D4ED8]">
-                            {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                          </span>
-                        </div>
-                      ))}
+                      {Object.entries(submissionReviewData?.rawUserAnswers || {}).map(
+                        ([k, v], i) => (
+                          <div
+                            key={k || i}
+                            className="p-2.5 rounded-lg border border-slate-200 bg-[#F8FAFC] flex items-center justify-between text-xs"
+                          >
+                            <span className="font-semibold text-slate-500">{k}:</span>
+                            <span className="font-bold text-[#1D4ED8]">
+                              {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                            </span>
+                          </div>
+                        )
+                      )}
                     </div>
                   )}
                 </div>
@@ -1933,36 +2155,36 @@ export default function AdminModals(props: AdminModalsProps) {
                   return (
                     <div
                       key={q.qId || index}
-                      className={`p-3.5 rounded-2xl border bg-white shadow-2xs transition ${
+                      className={`p-3.5 rounded-xl border bg-white transition ${
                         isCorrect
                           ? "border-emerald-200"
                           : isWrong
-                          ? "border-rose-200"
-                          : "border-slate-200"
+                            ? "border-rose-200"
+                            : "border-slate-200/90"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-100">
                         <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] font-black text-xs border border-blue-200">
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] font-bold text-xs border border-blue-200">
                             Câu {q.globalOrder}
                           </span>
                           {q.sectionTitle && (
-                            <span className="text-[11px] font-semibold text-slate-400 truncate max-w-[240px]">
+                            <span className="text-[11px] font-medium text-slate-400 truncate max-w-[240px]">
                               {q.sectionTitle}
                             </span>
                           )}
                         </div>
 
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase border ${
                             isCorrect
                               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                               : isWrong
-                              ? "bg-rose-50 text-rose-700 border-rose-200"
-                              : "bg-slate-100 text-slate-600 border-slate-200"
+                                ? "bg-rose-50 text-rose-700 border-rose-200"
+                                : "bg-slate-100 text-slate-600 border-slate-200"
                           }`}
                         >
-                          {isCorrect ? "✓ Chính xác" : isWrong ? "✕ Chọn sai" : "○ Bỏ trống"}
+                          {isCorrect ? "Chính xác" : isWrong ? "Chọn sai" : "Bỏ trống"}
                         </span>
                       </div>
 
@@ -1977,96 +2199,104 @@ export default function AdminModals(props: AdminModalsProps) {
                           <img
                             src={resolveSubmissionImageSrc(q.image, mediaMap)}
                             alt="Hình câu hỏi"
-                            className="max-h-56 rounded-xl border border-slate-200 object-contain bg-white p-1"
+                            className="max-h-56 rounded-lg border border-slate-200 object-contain bg-white p-1"
                           />
                         </div>
                       )}
 
-                      {q.qType === "multiple_choice" && Array.isArray(q.options) && q.options.length > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
-                          {q.options.map((opt: any, oIdx: number) => {
-                            const optKey = String(opt?.key || ["A", "B", "C", "D"][oIdx] || "").trim().toUpperCase();
-                            const stuPicked = String(q.stuAns || "").trim().toUpperCase() === optKey;
-                            const isRightOpt = String(q.correctDisplay || "").trim().toUpperCase() === optKey;
+                      {q.qType === "multiple_choice" &&
+                        Array.isArray(q.options) &&
+                        q.options.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
+                            {q.options.map((opt: any, oIdx: number) => {
+                              const optKey = String(opt?.key || ["A", "B", "C", "D"][oIdx] || "")
+                                .trim()
+                                .toUpperCase();
+                              const stuPicked =
+                                String(q.stuAns || "").trim().toUpperCase() === optKey;
+                              const isRightOpt =
+                                String(q.correctDisplay || "").trim().toUpperCase() === optKey;
 
-                            let boxStyle = "border-slate-200 bg-slate-50/60 text-slate-700";
-                            if (isRightOpt) {
-                              boxStyle = "border-emerald-400 bg-emerald-50/90 text-emerald-900 font-bold ring-1 ring-emerald-400/30";
-                            } else if (stuPicked && !isRightOpt) {
-                              boxStyle = "border-rose-400 bg-rose-50/90 text-rose-900 font-bold ring-1 ring-rose-400/30";
-                            }
+                              let boxStyle = "border-slate-200 bg-[#F8FAFC] text-slate-700";
+                              if (isRightOpt) {
+                                boxStyle =
+                                  "border-emerald-300 bg-emerald-50/70 text-emerald-900 font-semibold";
+                              } else if (stuPicked && !isRightOpt) {
+                                boxStyle =
+                                  "border-rose-300 bg-rose-50/70 text-rose-900 font-semibold";
+                              }
 
-                            return (
-                              <div
-                                key={optKey || oIdx}
-                                className={`p-2 rounded-xl border text-xs flex items-start gap-2 ${boxStyle}`}
-                              >
-                                <span
-                                  className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${
-                                    isRightOpt
-                                      ? "bg-emerald-600 text-white"
-                                      : stuPicked
-                                      ? "bg-rose-600 text-white"
-                                      : "bg-white border border-slate-300 text-slate-600"
-                                  }`}
+                              return (
+                                <div
+                                  key={optKey || oIdx}
+                                  className={`p-2 rounded-lg border text-xs flex items-start gap-2 ${boxStyle}`}
                                 >
-                                  {optKey}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                  <SubmissionRichContent
-                                    content={opt?.text_html || opt?.text || ""}
-                                    mediaMap={mediaMap}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {q.qType === "true_false" && Array.isArray(q.options) && q.options.length > 0 && (
-                        <div className="space-y-1.5 my-2">
-                          {q.options.map((opt: any, oIdx: number) => {
-                            const optKey = String(opt?.key || ["a", "b", "c", "d"][oIdx] || "").trim();
-                            return (
-                              <div
-                                key={optKey || oIdx}
-                                className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs flex items-start justify-between gap-3"
-                              >
-                                <div className="flex items-start gap-2 min-w-0">
-                                  <span className="font-black text-slate-700 shrink-0">{optKey})</span>
-                                  <SubmissionRichContent
-                                    content={opt?.text_html || opt?.text || ""}
-                                    mediaMap={mediaMap}
-                                  />
-                                </div>
-                                {typeof opt?.is_true_false_ans === "boolean" && (
                                   <span
-                                    className={`px-2 py-0.5 rounded text-[10px] font-black shrink-0 ${
-                                      opt.is_true_false_ans
-                                        ? "bg-emerald-100 text-emerald-800"
-                                        : "bg-amber-100 text-amber-800"
+                                    className={`w-5 h-5 rounded flex items-center justify-center text-[11px] font-bold shrink-0 ${
+                                      isRightOpt
+                                        ? "bg-emerald-600 text-white"
+                                        : stuPicked
+                                          ? "bg-rose-600 text-white"
+                                          : "bg-white border border-slate-300 text-slate-600"
                                     }`}
                                   >
-                                    Đáp án: {opt.is_true_false_ans ? "Đúng" : "Sai"}
+                                    {optKey}
                                   </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                                  <div className="flex-1 min-w-0">
+                                    <SubmissionRichContent
+                                      content={opt?.text_html || opt?.text || ""}
+                                      mediaMap={mediaMap}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                      {q.qType === "true_false" &&
+                        Array.isArray(q.options) &&
+                        q.options.length > 0 && (
+                          <div className="space-y-1.5 my-2">
+                            {q.options.map((opt: any, oIdx: number) => {
+                              const optKey = String(
+                                opt?.key || ["a", "b", "c", "d"][oIdx] || ""
+                              ).trim();
+                              return (
+                                <div
+                                  key={optKey || oIdx}
+                                  className="p-2 rounded-lg border border-slate-200 bg-[#F8FAFC] text-xs flex items-start justify-between gap-3"
+                                >
+                                  <div className="flex items-start gap-2 min-w-0">
+                                    <span className="font-bold text-slate-700 shrink-0">
+                                      {optKey})
+                                    </span>
+                                    <SubmissionRichContent
+                                      content={opt?.text_html || opt?.text || ""}
+                                      mediaMap={mediaMap}
+                                    />
+                                  </div>
+                                  {typeof opt?.is_true_false_ans === "boolean" && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold shrink-0 bg-white border border-slate-200 text-slate-700">
+                                      Đáp án: {opt.is_true_false_ans ? "Đúng" : "Sai"}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
 
                       <div className="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-slate-500 font-medium">Học sinh chọn:</span>
                           <span
-                            className={`px-2 py-0.5 rounded-md font-extrabold border ${
+                            className={`px-2 py-0.5 rounded font-semibold border ${
                               isCorrect
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                 : isWrong
-                                ? "bg-rose-50 text-rose-700 border-rose-300"
-                                : "bg-slate-100 text-slate-600 border-slate-300"
+                                  ? "bg-rose-50 text-rose-700 border-rose-200"
+                                  : "bg-slate-100 text-slate-600 border-slate-200"
                             }`}
                           >
                             {q.stuDisplay}
@@ -2075,16 +2305,16 @@ export default function AdminModals(props: AdminModalsProps) {
 
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500 font-medium">Đáp án đúng:</span>
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-extrabold">
+                          <span className="px-2 py-0.5 rounded bg-emerald-600 text-white font-semibold">
                             {q.correctDisplay}
                           </span>
                         </div>
                       </div>
 
                       {(q.solution_html || q.solution || q.explanation) && (
-                        <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700">
-                          <div className="font-extrabold text-amber-800 mb-1 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        <div className="mt-2.5 p-2.5 rounded-lg bg-[#F8FAFC] border border-slate-200 text-xs text-slate-700">
+                          <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8]" />
                             <span>Lời giải chi tiết:</span>
                           </div>
                           <SubmissionRichContent
@@ -2104,34 +2334,52 @@ export default function AdminModals(props: AdminModalsProps) {
 
       {/* 2. MODAL THÊM TÀI NGUYÊN */}
       {resourceModal && (
-        <div 
-          onClick={() => setResourceModal && setResourceModal(null)} 
+        <div
+          onClick={() => setResourceModal && setResourceModal(null)}
           className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-md p-6 shadow-xl cursor-default text-left">
-            <h3 className="font-bold text-[15px] mb-4 text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
-              {resourceModal.type === "video_list" ? <Video className="w-4 h-4 text-blue-600" /> : <FileText className="w-4 h-4 text-indigo-600" />}
-              <span>Thêm {resourceModal.type === "video_list" ? "Video" : "Tài liệu"} cho {resourceModal.lessonTitle}</span>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+          >
+            <h3 className="font-bold text-[15px] mb-4 text-slate-900 border-b border-slate-200/90 pb-3 flex items-center gap-2">
+              {resourceModal.type === "video_list" ? (
+                <Video className="w-4 h-4 text-[#1D4ED8]" />
+              ) : (
+                <FileText className="w-4 h-4 text-[#1D4ED8]" />
+              )}
+              <span>
+                Thêm {resourceModal.type === "video_list" ? "Video" : "Tài liệu"} cho{" "}
+                {resourceModal.lessonTitle}
+              </span>
             </h3>
             <form onSubmit={handleAddResource} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Tiêu đề hiển thị *</label>
-                <input 
-                  required 
-                  value={resTitle} 
-                  onChange={e => setResTitle(e.target.value)} 
-                  placeholder={resourceModal.type === "video_list" ? "VD: Video bài giảng phần 1" : "VD: Tài liệu viết tay"} 
-                  className="w-full border border-slate-300 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm"
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tiêu đề hiển thị *
+                </label>
+                <input
+                  required
+                  value={resTitle}
+                  onChange={(e) => setResTitle(e.target.value)}
+                  placeholder={
+                    resourceModal.type === "video_list"
+                      ? "VD: Video bài giảng phần 1"
+                      : "VD: Tài liệu viết tay"
+                  }
+                  className="w-full border border-slate-200/90 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm"
                 />
               </div>
 
               {resourceModal.type === "video_list" && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Phân loại Video *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Phân loại Video *
+                  </label>
                   <select
                     value={vidType}
-                    onChange={e => setVidType(e.target.value as any)}
-                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm font-bold text-slate-800 bg-white cursor-pointer"
+                    onChange={(e) => setVidType(e.target.value as any)}
+                    className="w-full border border-slate-200/90 p-2.5 rounded-xl text-sm font-semibold text-slate-800 bg-white cursor-pointer"
                   >
                     <option value="lecture">Video Bài Giảng (Lý thuyết)</option>
                     <option value="homework_solution">Video Chữa BTVN (Chi tiết)</option>
@@ -2140,22 +2388,31 @@ export default function AdminModals(props: AdminModalsProps) {
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Link (URL YouTube / Google Drive) *</label>
-                <input 
-                  required 
-                  type="url" 
-                  value={resUrl} 
-                  onChange={e => setResUrl(e.target.value)} 
-                  placeholder="https://..." 
-                  className="w-full border border-slate-300 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm"
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Link (URL YouTube / Google Drive) *
+                </label>
+                <input
+                  required
+                  type="url"
+                  value={resUrl}
+                  onChange={(e) => setResUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full border border-slate-200/90 p-2.5 rounded-xl focus:border-[#1D4ED8] outline-none text-sm"
                 />
               </div>
 
               <div className="flex gap-2 justify-end pt-2">
-                <button type="button" onClick={() => setResourceModal && setResourceModal(null)} className="px-4 py-2 text-slate-600 bg-slate-100 rounded-xl text-xs font-bold cursor-pointer">
+                <button
+                  type="button"
+                  onClick={() => setResourceModal && setResourceModal(null)}
+                  className="px-4 py-2 text-slate-600 bg-slate-100 rounded-xl text-xs font-semibold cursor-pointer"
+                >
                   Hủy
                 </button>
-                <button type="submit" className="bg-[#1D4ED8] hover:bg-[#1E40AF] text-white px-5 py-2 rounded-xl text-xs font-bold shadow-sm cursor-pointer">
+                <button
+                  type="submit"
+                  className="bg-[#1D4ED8] hover:bg-blue-800 text-white px-5 py-2 rounded-xl text-xs font-semibold cursor-pointer"
+                >
                   Lưu tài nguyên
                 </button>
               </div>
@@ -2166,54 +2423,91 @@ export default function AdminModals(props: AdminModalsProps) {
 
       {/* 3. MODAL XEM CHI TIẾT TÀI NGUYÊN */}
       {viewResourcesModal && (
-        <div 
+        <div
           onClick={() => setViewResourcesModal && setViewResourcesModal(null)}
           className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col max-h-[80vh] overflow-hidden animate-in zoom-in-95 duration-200 cursor-default text-left">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl w-full max-w-lg border border-slate-200/90 flex flex-col max-h-[80vh] overflow-hidden cursor-default text-left"
+          >
+            <div className="px-6 py-4 border-b border-slate-200/90 flex justify-between items-center bg-[#F8FAFC]">
+              <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
                 Danh sách {viewResourcesModal.title} ({(viewResourcesModal.items || []).length})
               </h3>
-              <button onClick={() => setViewResourcesModal && setViewResourcesModal(null)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer">
-                <X className="w-5 h-5"/>
+              <button
+                onClick={() => setViewResourcesModal && setViewResourcesModal(null)}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
-              {(!viewResourcesModal.items || viewResourcesModal.items.length === 0) ? (
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-2.5 custom-scrollbar">
+              {!viewResourcesModal.items || viewResourcesModal.items.length === 0 ? (
                 <p className="text-center text-slate-400 text-sm py-4">Chưa có tài nguyên nào.</p>
               ) : (
                 viewResourcesModal.items.map((item: any) => (
-                  <div key={item.id} className="flex flex-col gap-2 p-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-[#1D4ED8]/50 transition-colors group">
+                  <div
+                    key={item.id}
+                    className="flex flex-col gap-2 p-3.5 bg-white border border-slate-200/90 rounded-xl hover:border-slate-300 transition-colors"
+                  >
                     <div className="flex justify-between items-start gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="font-bold text-slate-800 text-[13px] truncate">{item.title}</h4>
+                          <h4 className="font-semibold text-slate-800 text-[13px] truncate">
+                            {item.title}
+                          </h4>
                           {viewResourcesModal.type === "video_list" && (
-                            <span className={"px-2 py-0.5 text-[9px] font-black uppercase rounded-md tracking-wider " + (
-                              item.type === "homework_solution"
-                                ? "bg-amber-100 text-amber-800 border border-amber-300"
-                                : "bg-blue-100 text-blue-800 border border-blue-300"
-                            )}>
+                            <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-[#F8FAFC] text-slate-700 border border-slate-200">
                               {item.type === "homework_solution" ? "Chữa BTVN" : "Bài Giảng"}
                             </span>
                           )}
-                          {item.is_drive_file && <span className="px-2 py-0.5 text-[9px] bg-indigo-100 text-indigo-700 font-bold uppercase rounded-md shrink-0">Drive</span>}
-                          {viewResourcesModal.type === 'extra_resources' && <span className="px-2 py-0.5 text-[9px] bg-amber-100 text-amber-700 font-bold uppercase rounded-md shrink-0">Tăng cường</span>}
+                          {item.is_drive_file && (
+                            <span className="px-2 py-0.5 text-[10px] bg-blue-50 text-[#1D4ED8] font-semibold rounded shrink-0">
+                              Drive
+                            </span>
+                          )}
                         </div>
-                        {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-500 hover:underline truncate block mt-1">{item.url}</a>}
+                        {item.url && (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-[#1D4ED8] hover:underline truncate block mt-1"
+                          >
+                            {item.url}
+                          </a>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => {
-                          setEditResourceModal({ lessonId: viewResourcesModal.lessonId, type: viewResourcesModal.type, item });
-                          setEditResourceForm({ title: item.title, url: item.url || "", type: item.type || "lecture" });
-                        }} className="p-2 text-slate-300 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer shrink-0" title="Chỉnh sửa">
+                        <button
+                          onClick={() => {
+                            setEditResourceModal({
+                              lessonId: viewResourcesModal.lessonId,
+                              type: viewResourcesModal.type,
+                              item
+                            });
+                            setEditResourceForm({
+                              title: item.title,
+                              url: item.url || "",
+                              type: item.type || "lecture"
+                            });
+                          }}
+                          className="p-2 text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                          title="Chỉnh sửa"
+                        >
                           <Edit3 className="w-4 h-4" />
                         </button>
-                        <button 
-                          onClick={() => handleDeleteResource(viewResourcesModal.lessonId, viewResourcesModal.type, item.id)} 
-                          className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                        <button
+                          onClick={() =>
+                            handleDeleteResource(
+                              viewResourcesModal.lessonId,
+                              viewResourcesModal.type,
+                              item.id
+                            )
+                          }
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
                           title="Xóa ngay lập tức"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -2225,22 +2519,29 @@ export default function AdminModals(props: AdminModalsProps) {
               )}
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50/50">
-              <button 
+            <div className="p-4 border-t border-slate-200/90 bg-[#F8FAFC]">
+              <button
                 onClick={() => {
                   const currentType = viewResourcesModal.type;
                   const currentLessonId = viewResourcesModal.lessonId;
                   if (setViewResourcesModal) setViewResourcesModal(null);
 
-                  if (currentType === 'homework_files' || currentType === 'test_quizzes') {
-                    if (setUploadMethodModal) setUploadMethodModal({ lessonId: currentLessonId, type: currentType as any });
-                  } else if (currentType === 'extra_resources') {
+                  if (currentType === "homework_files" || currentType === "test_quizzes") {
+                    if (setUploadMethodModal)
+                      setUploadMethodModal({ lessonId: currentLessonId, type: currentType as any });
+                  } else if (currentType === "extra_resources") {
                     if (setBoostModal) setBoostModal(currentLessonId);
                   } else {
-                    if (setResourceModal) setResourceModal({ isOpen: true, lessonId: currentLessonId, lessonTitle: "bài học", type: currentType });
+                    if (setResourceModal)
+                      setResourceModal({
+                        isOpen: true,
+                        lessonId: currentLessonId,
+                        lessonTitle: "bài học",
+                        type: currentType
+                      });
                   }
                 }}
-                className="w-full py-3 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white text-[13px] font-bold rounded-xl transition shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-blue-800 text-white text-[13px] font-semibold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Plus className="w-4 h-4" /> Thêm tài liệu
               </button>
@@ -2251,28 +2552,54 @@ export default function AdminModals(props: AdminModalsProps) {
 
       {/* 4. MODAL SỬA TÀI NGUYÊN */}
       {editResourceModal && (
-        <div 
-          onClick={() => setEditResourceModal(null)} 
+        <div
+          onClick={() => setEditResourceModal(null)}
           className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditResourceSubmit} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
-            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2"><Edit3 className="w-5 h-5 text-[#1D4ED8]" /> Sửa thông tin tài liệu</h3>
-              <button type="button" onClick={() => setEditResourceModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleEditResourceSubmit}
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+          >
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
+              <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-[#1D4ED8]" /> Sửa thông tin tài liệu
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditResourceModal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề tài liệu</label>
-                <input required type="text" value={editResourceForm.title} onChange={e => setEditResourceForm({...editResourceForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Tiêu đề tài liệu
+                </label>
+                <input
+                  required
+                  type="text"
+                  value={editResourceForm.title}
+                  onChange={(e) =>
+                    setEditResourceForm({ ...editResourceForm, title: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                />
               </div>
-              
+
               {editResourceModal.type === "video_list" && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân loại Video *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Phân loại Video *
+                  </label>
                   <select
                     value={editResourceForm.type}
-                    onChange={e => setEditResourceForm({ ...editResourceForm, type: e.target.value as any })}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-[#1D4ED8] bg-white cursor-pointer"
+                    onChange={(e) =>
+                      setEditResourceForm({ ...editResourceForm, type: e.target.value as any })
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] bg-white cursor-pointer"
                   >
                     <option value="lecture">Video Bài Giảng (Lý thuyết)</option>
                     <option value="homework_solution">Video Chữa BTVN (Chi tiết)</option>
@@ -2282,14 +2609,35 @@ export default function AdminModals(props: AdminModalsProps) {
 
               {(!editResourceModal.item?.is_quiz || editResourceModal.item?.is_drive_file) && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Đường dẫn (URL / Link Drive / YouTube)</label>
-                  <input required type="url" value={editResourceForm.url} onChange={e => setEditResourceForm({...editResourceForm, url: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Đường dẫn (URL / Link Drive / YouTube)
+                  </label>
+                  <input
+                    required
+                    type="url"
+                    value={editResourceForm.url}
+                    onChange={(e) =>
+                      setEditResourceForm({ ...editResourceForm, url: e.target.value })
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                  />
                 </div>
               )}
             </div>
-            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
-              <button type="button" onClick={() => setEditResourceModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
-              <button type="submit" className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu thay đổi</button>
+            <div className="flex gap-2.5 justify-end pt-5 mt-5 border-t border-slate-200/90">
+              <button
+                type="button"
+                onClick={() => setEditResourceModal(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Lưu thay đổi
+              </button>
             </div>
           </form>
         </div>
@@ -2297,82 +2645,121 @@ export default function AdminModals(props: AdminModalsProps) {
 
       {/* 5. MODAL CHỌN PHƯƠNG THỨC THÊM BTVN / ĐỀ KIỂM TRA */}
       {uploadMethodModal && (
-        <div 
-          onClick={() => setUploadMethodModal && setUploadMethodModal(null)} 
+        <div
+          onClick={() => setUploadMethodModal && setUploadMethodModal(null)}
           className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer font-sans"
         >
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-[28px] p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
-            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl p-6 w-full max-w-lg border border-slate-200/90 cursor-default text-left"
+          >
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-200/90">
               <div>
-                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                  Thêm {uploadMethodModal.type === 'homework_files' ? 'Bài tập về nhà (BTVN)' : 'Đề Kiểm Tra'}
+                <h3 className="font-bold text-slate-900 text-base">
+                  Thêm{" "}
+                  {uploadMethodModal.type === "homework_files"
+                    ? "Bài tập về nhà (BTVN)"
+                    : "Đề Kiểm Tra"}
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Chọn phương thức nạp đề thi để hệ thống tự động bóc tách</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Chọn phương thức nạp đề thi để hệ thống tự động bóc tách
+                </p>
               </div>
-              <button type="button" onClick={() => setUploadMethodModal && setUploadMethodModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer p-1"><X className="w-5 h-5"/></button>
+              <button
+                type="button"
+                onClick={() => setUploadMethodModal && setUploadMethodModal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            
+
             <div className="flex flex-col gap-3 mt-4">
-              <label className="relative p-4 border-2 border-indigo-200 bg-indigo-50/50 rounded-2xl hover:bg-indigo-100/60 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
-                <div className="p-3 bg-white text-indigo-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
-                  <FileText className="w-6 h-6" />
+              <label className="relative p-4 border border-blue-200 bg-blue-50/40 rounded-xl hover:bg-blue-50/80 transition cursor-pointer flex items-start gap-3.5">
+                <div className="p-2.5 bg-white text-[#1D4ED8] rounded-lg border border-blue-100">
+                  <FileText className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-indigo-950 text-[14px]">Tải lên file PDF (.pdf)</span>
-                    <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white font-black text-[9px] uppercase tracking-wider">Khuyên Dùng</span>
+                    <span className="font-bold text-slate-900 text-sm">
+                      Tải lên file PDF (.pdf)
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-[#1D4ED8] text-white font-semibold text-[10px]">
+                      Khuyên dùng
+                    </span>
                   </div>
-                  <div className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
-                    AI Gemini Vision sẽ quét trang PDF trực tiếp, khôi phục 100% MathType, phân số, căn thức và toạ độ Oxyz mà không bị trượt byte.
+                  <div className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Quét trang PDF trực tiếp, khôi phục MathType, phân số, căn thức và toạ độ Oxyz.
                   </div>
                 </div>
-                <input type="file" accept=".pdf" className="hidden" onChange={(e) => {
-                  if (e.target.files?.[0]) {
-                    if (setTestFile) setTestFile(e.target.files[0]);
-                    if (setUploadMode) setUploadMode("course");
-                    if (setAzotaTarget) setAzotaTarget({ lessonId: uploadMethodModal.lessonId, type: uploadMethodModal.type });
-                    if (setUploadMethodModal) setUploadMethodModal(null);
-                  }
-                  e.target.value = '';
-                }}/>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      if (setTestFile) setTestFile(e.target.files[0]);
+                      if (setUploadMode) setUploadMode("course");
+                      if (setAzotaTarget)
+                        setAzotaTarget({
+                          lessonId: uploadMethodModal.lessonId,
+                          type: uploadMethodModal.type
+                        });
+                      if (setUploadMethodModal) setUploadMethodModal(null);
+                    }
+                    e.target.value = "";
+                  }}
+                />
               </label>
 
-              <label className="relative p-4 border border-blue-200 bg-blue-50/40 rounded-2xl hover:bg-blue-100/50 transition cursor-pointer flex items-start gap-4 group shadow-2xs">
-                <div className="p-3 bg-white text-blue-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
-                  <FileUp className="w-6 h-6" />
+              <label className="relative p-4 border border-slate-200/90 bg-[#F8FAFC] rounded-xl hover:bg-slate-100/70 transition cursor-pointer flex items-start gap-3.5">
+                <div className="p-2.5 bg-white text-[#1D4ED8] rounded-lg border border-slate-200">
+                  <FileUp className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-extrabold text-blue-950 text-[14px]">Tải lên file Word (.docx)</div>
-                  <div className="text-xs text-blue-800/80 mt-1 leading-relaxed">
-                    Hệ thống sẽ trích xuất nhanh cấu trúc văn bản và thẻ ảnh đồ thị từ file Word gốc.
+                  <div className="font-bold text-slate-900 text-sm">
+                    Tải lên file Word (.docx)
+                  </div>
+                  <div className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Trích xuất nhanh cấu trúc văn bản và thẻ ảnh đồ thị từ file Word gốc.
                   </div>
                 </div>
-                <input type="file" accept=".docx" className="hidden" onChange={(e) => {
-                  if (e.target.files?.[0]) {
-                    if (setTestFile) setTestFile(e.target.files[0]);
-                    if (setUploadMode) setUploadMode("course");
-                    if (setAzotaTarget) setAzotaTarget({ lessonId: uploadMethodModal.lessonId, type: uploadMethodModal.type });
-                    if (setUploadMethodModal) setUploadMethodModal(null);
-                  }
-                  e.target.value = '';
-                }}/>
+                <input
+                  type="file"
+                  accept=".docx"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      if (setTestFile) setTestFile(e.target.files[0]);
+                      if (setUploadMode) setUploadMode("course");
+                      if (setAzotaTarget)
+                        setAzotaTarget({
+                          lessonId: uploadMethodModal.lessonId,
+                          type: uploadMethodModal.type
+                        });
+                      if (setUploadMethodModal) setUploadMethodModal(null);
+                    }
+                    e.target.value = "";
+                  }}
+                />
               </label>
-              
-              <button 
+
+              <button
                 type="button"
-                onClick={() => { 
-                  setDriveLinkModal(uploadMethodModal); 
-                  if (setUploadMethodModal) setUploadMethodModal(null); 
-                }} 
-                className="p-4 border border-emerald-200 bg-emerald-50/40 rounded-2xl hover:bg-emerald-100/50 transition cursor-pointer flex items-start gap-4 text-left group shadow-2xs"
+                onClick={() => {
+                  setDriveLinkModal(uploadMethodModal);
+                  if (setUploadMethodModal) setUploadMethodModal(null);
+                }}
+                className="p-4 border border-slate-200/90 bg-[#F8FAFC] rounded-xl hover:bg-slate-100/70 transition cursor-pointer flex items-start gap-3.5 text-left"
               >
-                <div className="p-3 bg-white text-emerald-600 rounded-xl shadow-xs group-hover:scale-105 transition-transform">
-                  <LinkIcon className="w-6 h-6" />
+                <div className="p-2.5 bg-white text-slate-700 rounded-lg border border-slate-200">
+                  <LinkIcon className="w-5 h-5" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-extrabold text-emerald-950 text-[14px]">Đính kèm Link Google Drive</div>
-                  <div className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
-                    Dán link file PDF/Word để học sinh tải về hoặc tự làm thủ công (không chấm tự động).
+                  <div className="font-bold text-slate-900 text-sm">Đính kèm Link Google Drive</div>
+                  <div className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Dán link file PDF/Word để học sinh tải về hoặc tự làm thủ công (không chấm tự
+                    động).
                   </div>
                 </div>
               </button>
@@ -2383,28 +2770,68 @@ export default function AdminModals(props: AdminModalsProps) {
 
       {/* 6. MODAL ĐÍNH KÈM LINK DRIVE CHO BTVN / ĐỀ KIỂM TRA */}
       {driveLinkModal && (
-        <div 
-          onClick={() => setDriveLinkModal(null)} 
+        <div
+          onClick={() => setDriveLinkModal(null)}
           className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 cursor-pointer font-sans"
         >
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleAddDriveFile} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
-            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-emerald-700 text-[15px] flex items-center gap-2"><LinkIcon className="w-5 h-5" /> Đính kèm Link Google Drive</h3>
-              <button type="button" onClick={() => setDriveLinkModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleAddDriveFile}
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+          >
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
+              <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
+                <LinkIcon className="w-4 h-4 text-[#1D4ED8]" /> Đính kèm Link Google Drive
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDriveLinkModal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề (VD: File đề luyện tập 1)</label>
-                <input required type="text" value={driveLinkForm.title} onChange={e => setDriveLinkForm({...driveLinkForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-emerald-500 outline-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Tiêu đề (VD: File đề luyện tập 1)
+                </label>
+                <input
+                  required
+                  type="text"
+                  value={driveLinkForm.title}
+                  onChange={(e) => setDriveLinkForm({ ...driveLinkForm, title: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Link Google Drive (Chia sẻ công khai)</label>
-                <input required type="url" placeholder="https://drive.google.com/..." value={driveLinkForm.url} onChange={e => setDriveLinkForm({...driveLinkForm, url: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-emerald-500 outline-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Link Google Drive (Chia sẻ công khai)
+                </label>
+                <input
+                  required
+                  type="url"
+                  placeholder="https://drive.google.com/..."
+                  value={driveLinkForm.url}
+                  onChange={(e) => setDriveLinkForm({ ...driveLinkForm, url: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                />
               </div>
             </div>
-            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
-              <button type="button" onClick={() => setDriveLinkModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
-              <button type="submit" className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu file Drive</button>
+            <div className="flex gap-2.5 justify-end pt-5 mt-5 border-t border-slate-200/90">
+              <button
+                type="button"
+                onClick={() => setDriveLinkModal(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Lưu file Drive
+              </button>
             </div>
           </form>
         </div>
@@ -2412,66 +2839,133 @@ export default function AdminModals(props: AdminModalsProps) {
 
       {/* 7. MODAL THÊM TÀI LIỆU TĂNG CƯỜNG */}
       {boostModal && (
-        <div 
-          onClick={() => setBoostModal && setBoostModal(null)} 
+        <div
+          onClick={() => setBoostModal && setBoostModal(null)}
           className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
         >
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleAddBoost} className="bg-white rounded-[24px] w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left">
-            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-amber-600 text-[15px] flex items-center gap-2"><Zap className="w-5 h-5 fill-amber-500" /> Thêm tài liệu tăng cường</h3>
-              <button type="button" onClick={() => setBoostModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleAddBoost}
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+          >
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
+              <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
+                <Zap className="w-4 h-4 text-[#1D4ED8]" /> Thêm tài liệu tăng cường
+              </h3>
+              <button
+                type="button"
+                onClick={() => setBoostModal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề</label>
-                <input required type="text" value={boostForm.title} onChange={e => setBoostForm({...boostForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Tiêu đề</label>
+                <input
+                  required
+                  type="text"
+                  value={boostForm.title}
+                  onChange={(e) => setBoostForm({ ...boostForm, title: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Loại tài liệu</label>
-                <select value={boostForm.type} onChange={e => setBoostForm({...boostForm, type: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none bg-white cursor-pointer">
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Loại tài liệu
+                </label>
+                <select
+                  value={boostForm.type}
+                  onChange={(e) => setBoostForm({ ...boostForm, type: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white cursor-pointer"
+                >
                   <option value="video">Video bài giảng (YouTube/Drive)</option>
                   <option value="document">Tài liệu / File đề PDF (Drive)</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Link / URL truy cập</label>
-                <input required type="url" placeholder="https://..." value={boostForm.url} onChange={e => setBoostForm({...boostForm, url: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Link / URL truy cập
+                </label>
+                <input
+                  required
+                  type="url"
+                  placeholder="https://..."
+                  value={boostForm.url}
+                  onChange={(e) => setBoostForm({ ...boostForm, url: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Ghi chú (Tùy chọn)</label>
-                <textarea rows={2} value={boostForm.note} onChange={e => setBoostForm({...boostForm, note: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-amber-500 outline-none resize-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Ghi chú (Tùy chọn)
+                </label>
+                <textarea
+                  rows={2}
+                  value={boostForm.note}
+                  onChange={(e) => setBoostForm({ ...boostForm, note: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none resize-none"
+                />
               </div>
             </div>
-            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
-              <button type="button" onClick={() => setBoostModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
-              <button type="submit" className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu tăng cường</button>
+            <div className="flex gap-2.5 justify-end pt-5 mt-5 border-t border-slate-200/90">
+              <button
+                type="button"
+                onClick={() => setBoostModal(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Lưu tăng cường
+              </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI (BỔ SUNG CỤM NÚT CHỌN 4 PHÂN MÔN + THÁNG & TUẦN) */}
+      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI (5 PHÂN MÔN TỐI GIẢN GỒM CẢ TỔNG ÔN HSA) */}
       {createModal && (
-        <div 
-          onClick={() => setCreateModal && setCreateModal(null)} 
-          className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl cursor-pointer font-sans"
+        <div
+          onClick={() => setCreateModal && setCreateModal(null)}
+          className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs cursor-pointer font-sans"
         >
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleCreateNewItem} className="bg-white/95 backdrop-blur-2xl rounded-[32px] w-full max-w-md p-8 shadow-2xl border border-white/50 space-y-4 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar">
-            <h3 className="font-extrabold text-slate-900 text-[17px] border-b border-slate-200/60 pb-3.5 tracking-tight">
-              {createModal.type === "chapter" ? "Thêm Chương Mới" : "Thêm Bài Học Mới"}
-            </h3>
-            
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleCreateNewItem}
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 space-y-4 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200/90 pb-3">
+              <h3 className="font-bold text-slate-900 text-base">
+                {createModal.type === "chapter" ? "Thêm Chương Mới" : "Thêm Bài Học Mới"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCreateModal && setCreateModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
             {createModal.type === "lesson" && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Chọn chương chứa bài học <span className="text-rose-500">*</span></label>
-                <select 
-                  value={createModal.chapterId || ""} 
-                  onChange={e => {
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Chọn chương chứa bài học <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={createModal.chapterId || ""}
+                  onChange={(e) => {
                     const nextChapId = e.target.value;
-                    if (setCreateModal) setCreateModal({ ...createModal, chapterId: nextChapId });
+                    if (setCreateModal)
+                      setCreateModal({ ...createModal, chapterId: nextChapId });
                     const foundChap = (chapters || []).find((c: any) => c.id === nextChapId);
                     if (foundChap) {
-                      setNewItemCategory(
+                      updateNewItemCategory(
                         normalizeSubjectCategory(
                           foundChap.category || foundChap.subject_category,
                           foundChap.title
@@ -2479,189 +2973,170 @@ export default function AdminModals(props: AdminModalsProps) {
                       );
                     }
                   }}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-xs font-semibold outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white cursor-pointer"
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-xs font-semibold outline-none focus:border-[#1D4ED8] bg-white cursor-pointer"
                 >
                   {(chapters || []).map((c: any) => (
-                    <option key={c.id} value={c.id}>{c.title}</option>
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
                   ))}
                 </select>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Tên {createModal.type === "chapter" ? "chương" : "bài học"} <span className="text-rose-500">*</span></label>
-              <input autoFocus required type="text" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} placeholder={createModal.type === "chapter" ? "VD: Chương 1: Ứng dụng đạo hàm..." : "VD: Bài 1: Tính đơn điệu của hàm số..."} className="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-xs font-semibold outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm" />
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Tên {createModal.type === "chapter" ? "chương" : "bài học"}{" "}
+                <span className="text-rose-500">*</span>
+              </label>
+              <input
+                autoFocus
+                required
+                type="text"
+                value={newItemTitle}
+                onChange={(e) => setNewItemTitle(e.target.value)}
+                placeholder={
+                  createModal.type === "chapter"
+                    ? "VD: Chương 1: Ứng dụng đạo hàm..."
+                    : "VD: Bài 1: Tính đơn điệu của hàm số..."
+                }
+                className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-xs font-medium outline-none focus:border-[#1D4ED8] transition-all"
+              />
             </div>
 
-            {/* CỤM CHỌN 1 TRONG 4 PHÂN MÔN CHO CẢ CHƯƠNG VÀ BÀI HỌC */}
+            {/* CỤM CHỌN 5 PHÂN MÔN TỐI GIẢN: ĐẠI SỐ / HÌNH HỌC / TỔNG ÔN / TĂNG CƯỜNG / TỔNG ÔN HSA */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Phân môn Toán THPT (Subject Category) <span className="text-rose-500">*</span>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Phân môn <span className="text-rose-500">*</span>
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setNewItemCategory("dai")}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (newItemCategory === "dai"
-                      ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  📐 Đại số
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewItemCategory("hinh")}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (newItemCategory === "hinh"
-                      ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  📏 Hình học
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewItemCategory("tong_on")}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (newItemCategory === "tong_on"
-                      ? "bg-purple-50 border-purple-500 text-purple-700 ring-2 ring-purple-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  🎯 Tổng ôn
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewItemCategory("tang_cuong")}
-                  className={
-                    "py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " +
-                    (newItemCategory === "tang_cuong"
-                      ? "bg-amber-50 border-amber-500 text-amber-700 ring-2 ring-amber-500/20 shadow-xs"
-                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                  }
-                >
-                  ⚡ Tăng cường
-                </button>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {SUBJECT_CATEGORY_OPTIONS.map((opt) => {
+                  const isActive = activeNewItemCategory === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => updateNewItemCategory(opt.key)}
+                      className={
+                        "py-2 px-3 rounded-lg text-xs font-semibold border transition cursor-pointer " +
+                        (isActive
+                          ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
+                          : "bg-[#F8FAFC] border-slate-200/90 text-slate-700 hover:bg-slate-100")
+                      }
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {createModal.type === "chapter" && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân luồng chương (Target Mode) *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Phân luồng chương *
+                </label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewItemTargetMode("online")}
-                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                      newItemTargetMode === "online"
-                        ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                    )}
-                  >
-                    Lớp Online
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewItemTargetMode("offline")}
-                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                      newItemTargetMode === "offline"
-                        ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                    )}
-                  >
-                    Lớp Offline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewItemTargetMode("all")}
-                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                      newItemTargetMode === "all"
-                        ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                    )}
-                  >
-                    Cả 2 (Full)
-                  </button>
+                  {(
+                    [
+                      { key: "online", label: "Lớp Online" },
+                      { key: "offline", label: "Lớp Offline" },
+                      { key: "all", label: "Cả 2 (Full)" }
+                    ] as const
+                  ).map((m) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => setNewItemTargetMode(m.key)}
+                      className={
+                        "py-2 px-3 rounded-lg text-xs font-semibold border transition cursor-pointer " +
+                        (newItemTargetMode === m.key
+                          ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
+                          : "bg-[#F8FAFC] border-slate-200/90 text-slate-700 hover:bg-slate-100")
+                      }
+                    >
+                      {m.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
-            
+
             {createModal.type === "lesson" && (
               <>
-                <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/50 rounded-2xl border border-blue-200/70">
+                <div className="grid grid-cols-2 gap-3 p-3 bg-[#F8FAFC] rounded-xl border border-slate-200/90">
                   <div>
-                    <label className="block text-[11px] font-extrabold text-[#1D4ED8] mb-1">Tháng báo cáo *</label>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Tháng báo cáo *
+                    </label>
                     <select
                       value={newItemAssignedMonth}
-                      onChange={e => setNewItemAssignedMonth(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-blue-200 rounded-xl text-xs font-bold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
+                      onChange={(e) => setNewItemAssignedMonth(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
                     >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-                        <option key={m} value={m}>Tháng {m < 10 ? "0" + m : m}</option>
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                        <option key={m} value={m}>
+                          Tháng {m < 10 ? "0" + m : m}
+                        </option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-extrabold text-[#1D4ED8] mb-1">Tuần trong tháng *</label>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Tuần trong tháng *
+                    </label>
                     <select
                       value={newItemAssignedWeek}
-                      onChange={e => setNewItemAssignedWeek(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-blue-200 rounded-xl text-xs font-bold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
+                      onChange={(e) => setNewItemAssignedWeek(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
                     >
-                      {[1, 2, 3, 4, 5].map(w => (
-                        <option key={w} value={w}>Tuần {w} (T{w}.{newItemAssignedMonth})</option>
+                      {[1, 2, 3, 4, 5].map((w) => (
+                        <option key={w} value={w}>
+                          Tuần {w} (T{w}.{newItemAssignedMonth})
+                        </option>
                       ))}
                     </select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân luồng bài học (Target Mode) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Phân luồng bài học *
+                  </label>
                   <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setNewItemTargetMode("online")}
-                      className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                        newItemTargetMode === "online"
-                          ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
-                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                      )}
-                    >
-                      Lớp Online
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewItemTargetMode("offline")}
-                      className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                        newItemTargetMode === "offline"
-                          ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
-                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                      )}
-                    >
-                      Lớp Offline
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewItemTargetMode("all")}
-                      className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                        newItemTargetMode === "all"
-                          ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                      )}
-                    >
-                      Cả 2 (Full)
-                    </button>
+                    {(
+                      [
+                        { key: "online", label: "Lớp Online" },
+                        { key: "offline", label: "Lớp Offline" },
+                        { key: "all", label: "Cả 2 (Full)" }
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => setNewItemTargetMode(m.key)}
+                        className={
+                          "py-2 px-3 rounded-lg text-xs font-semibold border transition cursor-pointer " +
+                          (newItemTargetMode === m.key
+                            ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
+                            : "bg-[#F8FAFC] border-slate-200/90 text-slate-700 hover:bg-slate-100")
+                        }
+                      >
+                        {m.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Hình thức giảng dạy</label>
-                  <select value={newItemFormat} onChange={e => setNewItemFormat(e.target.value)} className="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-xs outline-none focus:border-[#1D4ED8] transition-all shadow-sm bg-white cursor-pointer">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Hình thức giảng dạy
+                  </label>
+                  <select
+                    value={newItemFormat}
+                    onChange={(e) => setNewItemFormat(e.target.value)}
+                    className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-xs outline-none focus:border-[#1D4ED8] bg-white cursor-pointer"
+                  >
                     <option value="Zoom">Zoom / Google Meet</option>
                     <option value="Video">Video quay sẵn</option>
                     <option value="Facebook">Facebook Group</option>
@@ -2670,194 +3145,232 @@ export default function AdminModals(props: AdminModalsProps) {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Mô tả bài học</label>
-                  <textarea rows={2} value={newItemDescription} onChange={e => setNewItemDescription(e.target.value)} placeholder="Nội dung hướng dẫn học..." className="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-xs outline-none focus:border-[#1D4ED8] focus:ring-1 focus:ring-[#1D4ED8] transition-all shadow-sm resize-none" />
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Mô tả bài học
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={newItemDescription}
+                    onChange={(e) => setNewItemDescription(e.target.value)}
+                    placeholder="Nội dung hướng dẫn học..."
+                    className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-xs outline-none focus:border-[#1D4ED8] resize-none"
+                  />
                 </div>
               </>
             )}
-            <div className="flex gap-3 justify-end pt-3">
-              <button type="button" onClick={() => setCreateModal && setCreateModal(null)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-2xl text-xs font-bold text-slate-700 transition-colors cursor-pointer">Hủy</button>
-              <button type="submit" className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-2xl text-xs font-bold shadow-md transition-colors cursor-pointer">Thêm mới</button>
+
+            <div className="flex gap-2.5 justify-end pt-3 border-t border-slate-200/90">
+              <button
+                type="button"
+                onClick={() => setCreateModal && setCreateModal(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Thêm mới
+              </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* 9. MODAL CHỈNH SỬA BÀI HỌC (BỔ SUNG CỤM NÚT CHỌN 4 PHÂN MÔN + THÁNG & TUẦN) */}
+      {/* 9. MODAL CHỈNH SỬA BÀI HỌC (5 PHÂN MÔN TỐI GIẢN GỒM CẢ TỔNG ÔN HSA) */}
       {editLessonModal && editLessonForm && (
-        <div 
-          onClick={() => setEditLessonModal && setEditLessonModal(null)} 
-          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm cursor-pointer font-sans"
+        <div
+          onClick={() => setEditLessonModal && setEditLessonModal(null)}
+          className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs cursor-pointer font-sans"
         >
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleEditLessonSubmit} className="bg-white rounded-[24px] w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar">
-            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-slate-900 text-[15px] flex items-center gap-2"><Edit3 className="w-5 h-5 text-[#1D4ED8]" /> Chỉnh sửa bài học</h3>
-              <button type="button" onClick={() => setEditLessonModal && setEditLessonModal(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5"/></button>
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleEditLessonSubmit}
+            className="bg-white rounded-2xl w-full max-w-lg p-6 border border-slate-200/90 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar"
+          >
+            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
+              <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-[#1D4ED8]" /> Chỉnh sửa bài học
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditLessonModal && setEditLessonModal(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Tiêu đề bài học</label>
-                <input required type="text" value={editLessonForm.title} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, title: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Tiêu đề bài học
+                </label>
+                <input
+                  required
+                  type="text"
+                  value={editLessonForm.title}
+                  onChange={(e) =>
+                    setEditLessonForm &&
+                    setEditLessonForm({ ...editLessonForm, title: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                />
               </div>
 
-              {/* CỤM NÚT CHỌN 1 TRONG 4 PHÂN MÔN TRONG MODAL SỬA BÀI HỌC */}
+              {/* CỤM NÚT CHỌN 5 PHÂN MÔN TỐI GIẢN TRONG MODAL SỬA BÀI HỌC */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Phân môn Toán THPT (Subject Category) *
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Phân môn *
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditLessonForm &&
-                      setEditLessonForm({
-                        ...editLessonForm,
-                        category: "dai",
-                        subject_category: "dai",
-                      })
-                    }
-                    className={
-                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
-                      ((editLessonForm.category || editLessonForm.subject_category || "dai") === "dai"
-                        ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                    }
-                  >
-                    📐 Đại số
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditLessonForm &&
-                      setEditLessonForm({
-                        ...editLessonForm,
-                        category: "hinh",
-                        subject_category: "hinh",
-                      })
-                    }
-                    className={
-                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
-                      ((editLessonForm.category || editLessonForm.subject_category) === "hinh"
-                        ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                    }
-                  >
-                    📏 Hình học
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditLessonForm &&
-                      setEditLessonForm({
-                        ...editLessonForm,
-                        category: "tong_on",
-                        subject_category: "tong_on",
-                      })
-                    }
-                    className={
-                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
-                      ((editLessonForm.category || editLessonForm.subject_category) === "tong_on"
-                        ? "bg-purple-50 border-purple-500 text-purple-700 ring-2 ring-purple-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                    }
-                  >
-                    🎯 Tổng ôn
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditLessonForm &&
-                      setEditLessonForm({
-                        ...editLessonForm,
-                        category: "tang_cuong",
-                        subject_category: "tang_cuong",
-                      })
-                    }
-                    className={
-                      "py-2 px-2.5 rounded-xl text-xs font-black border transition cursor-pointer " +
-                      ((editLessonForm.category || editLessonForm.subject_category) === "tang_cuong"
-                        ? "bg-amber-50 border-amber-500 text-amber-700 ring-2 ring-amber-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100")
-                    }
-                  >
-                    ⚡ Tăng cường
-                  </button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {SUBJECT_CATEGORY_OPTIONS.map((opt) => {
+                    const currentCat = normalizeSubjectCategory(
+                      editLessonForm.category || editLessonForm.subject_category,
+                      editLessonForm.title
+                    );
+                    const isActive = currentCat === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() =>
+                          setEditLessonForm &&
+                          setEditLessonForm({
+                            ...editLessonForm,
+                            category: opt.key,
+                            subject_category: opt.key
+                          })
+                        }
+                        className={
+                          "py-2 px-3 rounded-lg text-xs font-semibold border transition cursor-pointer " +
+                          (isActive
+                            ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
+                            : "bg-[#F8FAFC] border-slate-200/90 text-slate-700 hover:bg-slate-100")
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/50 rounded-2xl border border-blue-200/70">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-[#F8FAFC] rounded-xl border border-slate-200/90">
                 <div>
-                  <label className="block text-[11px] font-extrabold text-[#1D4ED8] mb-1">Tháng báo cáo (BTVN/KT) *</label>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Tháng báo cáo (BTVN/KT) *
+                  </label>
                   <select
                     value={editLessonForm.assigned_month || currentRealtimeMonth}
-                    onChange={e => setEditLessonForm && setEditLessonForm({ ...editLessonForm, assigned_month: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-blue-200 rounded-xl text-xs font-bold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
+                    onChange={(e) =>
+                      setEditLessonForm &&
+                      setEditLessonForm({
+                        ...editLessonForm,
+                        assigned_month: Number(e.target.value)
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
                   >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-                      <option key={m} value={m}>Tháng {m < 10 ? "0" + m : m}</option>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                      <option key={m} value={m}>
+                        Tháng {m < 10 ? "0" + m : m}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-extrabold text-[#1D4ED8] mb-1">Tuần trong tháng *</label>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Tuần trong tháng *
+                  </label>
                   <select
                     value={editLessonForm.assigned_week || currentRealtimeWeek}
-                    onChange={e => setEditLessonForm && setEditLessonForm({ ...editLessonForm, assigned_week: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-blue-200 rounded-xl text-xs font-bold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
+                    onChange={(e) =>
+                      setEditLessonForm &&
+                      setEditLessonForm({
+                        ...editLessonForm,
+                        assigned_week: Number(e.target.value)
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-800 bg-white outline-none focus:border-[#1D4ED8] cursor-pointer"
                   >
-                    {[1, 2, 3, 4, 5].map(w => (
-                      <option key={w} value={w}>Tuần {w} (T{w}.{editLessonForm.assigned_month || currentRealtimeMonth})</option>
+                    {[1, 2, 3, 4, 5].map((w) => (
+                      <option key={w} value={w}>
+                        Tuần {w} (T{w}.{editLessonForm.assigned_month || currentRealtimeMonth})
+                      </option>
                     ))}
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Phân luồng bài học (Target Mode) *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Phân luồng bài học *
+                </label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditLessonForm && setEditLessonForm({ ...editLessonForm, target_mode: "online" })}
-                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                      editLessonForm.target_mode === "online"
-                        ? "bg-indigo-50 border-indigo-500 text-indigo-700 ring-2 ring-indigo-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                    )}
-                  >
-                    Lớp Online
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditLessonForm && setEditLessonForm({ ...editLessonForm, target_mode: "offline" })}
-                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                      editLessonForm.target_mode === "offline"
-                        ? "bg-emerald-50 border-emerald-500 text-emerald-700 ring-2 ring-emerald-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                    )}
-                  >
-                    Lớp Offline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditLessonForm && setEditLessonForm({ ...editLessonForm, target_mode: "all" })}
-                    className={"py-2 px-3 rounded-xl text-xs font-black border transition cursor-pointer " + (
-                      editLessonForm.target_mode === "all" || !editLessonForm.target_mode
-                        ? "bg-blue-50 border-blue-500 text-[#1D4ED8] ring-2 ring-blue-500/20 shadow-xs"
-                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                    )}
-                  >
-                    Cả 2 (Full)
-                  </button>
+                  {(
+                    [
+                      { key: "online", label: "Lớp Online" },
+                      { key: "offline", label: "Lớp Offline" },
+                      { key: "all", label: "Cả 2 (Full)" }
+                    ] as const
+                  ).map((m) => {
+                    const isActive =
+                      editLessonForm.target_mode === m.key ||
+                      (m.key === "all" && !editLessonForm.target_mode);
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() =>
+                          setEditLessonForm &&
+                          setEditLessonForm({ ...editLessonForm, target_mode: m.key })
+                        }
+                        className={
+                          "py-2 px-3 rounded-lg text-xs font-semibold border transition cursor-pointer " +
+                          (isActive
+                            ? "bg-[#1D4ED8] border-[#1D4ED8] text-white"
+                            : "bg-[#F8FAFC] border-slate-200/90 text-slate-700 hover:bg-slate-100")
+                        }
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Thời lượng (phút)</label>
-                  <input required type="number" value={editLessonForm.duration} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, duration: parseInt(e.target.value) || 0})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none" />
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Thời lượng (phút)
+                  </label>
+                  <input
+                    required
+                    type="number"
+                    value={editLessonForm.duration}
+                    onChange={(e) =>
+                      setEditLessonForm &&
+                      setEditLessonForm({
+                        ...editLessonForm,
+                        duration: parseInt(e.target.value) || 0
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Hình thức</label>
-                  <select value={editLessonForm.format} onChange={e => setEditLessonForm({...editLessonForm, format: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white cursor-pointer">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Hình thức
+                  </label>
+                  <select
+                    value={editLessonForm.format}
+                    onChange={(e) =>
+                      setEditLessonForm &&
+                      setEditLessonForm({ ...editLessonForm, format: e.target.value })
+                    }
+                    className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none bg-white cursor-pointer"
+                  >
                     <option value="Zoom">Zoom</option>
                     <option value="Facebook">Facebook Group</option>
                     <option value="Video">Video quay sẵn</option>
@@ -2866,13 +3379,32 @@ export default function AdminModals(props: AdminModalsProps) {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Mô tả</label>
-                <textarea rows={2} value={editLessonForm.description} onChange={e => setEditLessonForm && setEditLessonForm({...editLessonForm, description: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:border-[#1D4ED8] outline-none resize-none" />
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Mô tả</label>
+                <textarea
+                  rows={2}
+                  value={editLessonForm.description}
+                  onChange={(e) =>
+                    setEditLessonForm &&
+                    setEditLessonForm({ ...editLessonForm, description: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 border border-slate-200/90 rounded-xl text-sm focus:border-[#1D4ED8] outline-none resize-none"
+                />
               </div>
             </div>
-            <div className="flex gap-3 justify-end pt-5 mt-5 border-t border-slate-100">
-              <button type="button" onClick={() => setEditLessonModal && setEditLessonModal(null)} className="px-5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer">Hủy</button>
-              <button type="submit" className="px-5 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer">Lưu thay đổi</button>
+            <div className="flex gap-2.5 justify-end pt-5 mt-5 border-t border-slate-200/90">
+              <button
+                type="button"
+                onClick={() => setEditLessonModal && setEditLessonModal(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white font-semibold rounded-xl text-xs cursor-pointer"
+              >
+                Lưu thay đổi
+              </button>
             </div>
           </form>
         </div>
@@ -2880,28 +3412,33 @@ export default function AdminModals(props: AdminModalsProps) {
 
       {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA */}
       {testFile && (
-        <AzotaExamConfigModal 
-          isOpen={Boolean(testFile)} 
+        <AzotaExamConfigModal
+          isOpen={Boolean(testFile)}
           file={testFile}
-          initialData={editingExamData ? {
-            title: editingExamData.title,
-            category: editingExamData.category,
-            duration_minutes: editingExamData.duration_minutes,
-            sections: editingExamData.data || editingExamData.sections,
-            mediaMap: editingExamData.media_map || editingExamData.mediaMap
-          } : undefined}
-          mode={uploadMode || "course"} 
-          onClose={() => { 
-            if (setTestFile) setTestFile(null); 
-            if (setEditingExamData) setEditingExamData(null); 
+          initialData={
+            editingExamData
+              ? {
+                  title: editingExamData.title,
+                  category: editingExamData.category,
+                  exam_format: editingExamData.exam_format,
+                  duration_minutes: editingExamData.duration_minutes,
+                  sections: editingExamData.data || editingExamData.sections,
+                  mediaMap: editingExamData.media_map || editingExamData.mediaMap
+                }
+              : undefined
+          }
+          mode={uploadMode || "course"}
+          onClose={() => {
+            if (setTestFile) setTestFile(null);
+            if (setEditingExamData) setEditingExamData(null);
             if (setAzotaTarget) setAzotaTarget(null);
-          }} 
+          }}
           onSave={(examData: any) => {
             if (typeof onSaveAzotaExam === "function") {
               onSaveAzotaExam(examData);
             }
-            if (setTestFile) setTestFile(null); 
-            if (setEditingExamData) setEditingExamData(null); 
+            if (setTestFile) setTestFile(null);
+            if (setEditingExamData) setEditingExamData(null);
             if (setAzotaTarget) setAzotaTarget(null);
           }}
         />
