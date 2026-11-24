@@ -3,7 +3,6 @@
 import React, { useState, useRef, useMemo } from "react";
 import {
   Layers,
-  BookOpen,
   FolderPlus,
   Plus,
   Edit3,
@@ -14,7 +13,6 @@ import {
   X,
   CheckSquare,
   Award,
-  Calendar,
   Filter,
   Lock,
   Unlock,
@@ -50,37 +48,37 @@ export const SUBJECT_CATEGORY_CONFIG: Record<
   dai: {
     label: "Đại số & Giải tích",
     shortLabel: "Đại số",
-    badgeClass: "bg-blue-50 text-[#1D4ED8] border-blue-200",
-    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-xs",
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8]",
     dotClass: "bg-[#1D4ED8]"
   },
   hinh: {
     label: "Hình học & Oxyz",
     shortLabel: "Hình học",
-    badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    activeTabClass: "bg-emerald-600 text-white border-emerald-600 shadow-xs",
-    dotClass: "bg-emerald-600"
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8]",
+    dotClass: "bg-[#1D4ED8]"
   },
   tong_on: {
     label: "Tổng ôn toàn diện",
     shortLabel: "Tổng ôn",
-    badgeClass: "bg-purple-50 text-purple-700 border-purple-200",
-    activeTabClass: "bg-purple-600 text-white border-purple-600 shadow-xs",
-    dotClass: "bg-purple-600"
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8]",
+    dotClass: "bg-[#1D4ED8]"
   },
   tang_cuong: {
     label: "Tăng cường & Bổ trợ",
     shortLabel: "Tăng cường",
-    badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
-    activeTabClass: "bg-amber-600 text-white border-amber-600 shadow-xs",
-    dotClass: "bg-amber-500"
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
+    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8]",
+    dotClass: "bg-[#1D4ED8]"
   },
   hsa: {
     label: "Tổng ôn ĐGNL HSA",
     shortLabel: "Tổng ôn HSA",
-    badgeClass: "bg-slate-900 text-white border-slate-900",
-    activeTabClass: "bg-slate-900 text-white border-slate-900 shadow-xs",
-    dotClass: "bg-slate-900"
+    badgeClass: "bg-blue-50 text-[#1D4ED8] border-blue-200",
+    activeTabClass: "bg-[#1D4ED8] text-white border-[#1D4ED8]",
+    dotClass: "bg-[#1D4ED8]"
   }
 };
 
@@ -430,9 +428,7 @@ export default function LessonsTab({
         .from("lessons")
         .update({ category: newCategory })
         .eq("id", lessonId);
-    } catch (err) {
-      console.error("Lỗi cập nhật phân môn lên Supabase:", err);
-    }
+    } catch {}
 
     const catLabel = SUBJECT_CATEGORY_CONFIG[newCategory]?.shortLabel || newCategory;
     if (typeof onUpdateChapters === "function") {
@@ -474,9 +470,7 @@ export default function LessonsTab({
           category: targetCategory
         })
         .eq("id", targetId);
-    } catch (err) {
-      console.error("Lỗi cập nhật chương lên Supabase:", err);
-    }
+    } catch {}
 
     dispatchOptimisticUpdate(updatedChapters, "cập nhật chương");
   };
@@ -764,6 +758,15 @@ export default function LessonsTab({
     );
   };
 
+  const filterButtons = [
+    { key: "all" as const, label: "Tất cả", count: categoryCounts.all, icon: Layers },
+    { key: "dai" as const, label: "Đại số", count: categoryCounts.dai, icon: Calculator },
+    { key: "hinh" as const, label: "Hình học", count: categoryCounts.hinh, icon: Compass },
+    { key: "tong_on" as const, label: "Tổng ôn", count: categoryCounts.tong_on, icon: Sparkles },
+    { key: "tang_cuong" as const, label: "Tăng cường", count: categoryCounts.tang_cuong, icon: Zap },
+    { key: "hsa" as const, label: "Tổng ôn HSA", count: categoryCounts.hsa, icon: GraduationCap }
+  ];
+
   return (
     <div className="space-y-4 text-left relative font-sans">
       <input
@@ -789,103 +792,39 @@ export default function LessonsTab({
         }}
       />
 
-      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC TỐI GIẢN */}
+      {/* 1. THANH ĐIỀU HƯỚNG BỘ LỌC TỐI GIẢN (1 TÔNG XANH + TRUNG TÍNH) */}
       <div className="flex flex-col gap-3 p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Bộ lọc 5 phân môn: Đại số | Hình học | Tổng ôn | Tăng cường | Tổng ôn HSA */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryTab("all")}
-                className={
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
-                  (selectedCategoryTab === "all"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100")
-                }
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Tất cả ({categoryCounts.all})</span>
-              </button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {filterButtons.map((btn) => {
+              const Icon = btn.icon;
+              const isSelected = selectedCategoryTab === btn.key;
+              return (
+                <button
+                  key={btn.key}
+                  type="button"
+                  onClick={() => setSelectedCategoryTab(btn.key)}
+                  className={
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer " +
+                    (isSelected
+                      ? "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-2xs"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900")
+                  }
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>
+                    {btn.label} ({btn.count})
+                  </span>
+                </button>
+              );
+            })}
 
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryTab("dai")}
-                className={
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
-                  (selectedCategoryTab === "dai"
-                    ? SUBJECT_CATEGORY_CONFIG.dai.activeTabClass
-                    : "bg-blue-50/60 text-[#1D4ED8] border-blue-200/80 hover:bg-blue-100/70")
-                }
-              >
-                <Calculator className="w-3.5 h-3.5" />
-                <span>Đại số ({categoryCounts.dai})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryTab("hinh")}
-                className={
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
-                  (selectedCategoryTab === "hinh"
-                    ? SUBJECT_CATEGORY_CONFIG.hinh.activeTabClass
-                    : "bg-emerald-50/60 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100/70")
-                }
-              >
-                <Compass className="w-3.5 h-3.5" />
-                <span>Hình học ({categoryCounts.hinh})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryTab("tong_on")}
-                className={
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
-                  (selectedCategoryTab === "tong_on"
-                    ? SUBJECT_CATEGORY_CONFIG.tong_on.activeTabClass
-                    : "bg-purple-50/60 text-purple-700 border-purple-200/80 hover:bg-purple-100/70")
-                }
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Tổng ôn ({categoryCounts.tong_on})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryTab("tang_cuong")}
-                className={
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
-                  (selectedCategoryTab === "tang_cuong"
-                    ? SUBJECT_CATEGORY_CONFIG.tang_cuong.activeTabClass
-                    : "bg-amber-50/60 text-amber-700 border-amber-200/80 hover:bg-amber-100/70")
-                }
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>Tăng cường ({categoryCounts.tang_cuong})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryTab("hsa")}
-                className={
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer " +
-                  (selectedCategoryTab === "hsa"
-                    ? SUBJECT_CATEGORY_CONFIG.hsa.activeTabClass
-                    : "bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200")
-                }
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>Tổng ôn HSA ({categoryCounts.hsa})</span>
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-200 ml-1">
               <Filter className="w-3.5 h-3.5 text-slate-500" />
               <select
                 value={selectedMonthFilter}
                 onChange={(e) => setSelectedMonthFilter(e.target.value)}
-                className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                className="bg-transparent text-xs font-semibold text-slate-700 outline-none cursor-pointer"
               >
                 <option value="all">Tất cả tháng</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
@@ -923,7 +862,7 @@ export default function LessonsTab({
           </div>
         </div>
 
-        {/* DANH SÁCH CHƯƠNG HIỆN CÓ KÈM NHÃN PHÂN MÔN & NÚT SỬA NHANH CHƯƠNG */}
+        {/* DANH SÁCH CHƯƠNG HIỆN CÓ (NHÃN TRUNG TÍNH SẠCH SẼ) */}
         {Array.isArray(chapters) && chapters.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pt-2.5 border-t border-slate-100">
             <span className="text-[10px] font-bold uppercase text-slate-400 mr-1 shrink-0">
@@ -949,11 +888,11 @@ export default function LessonsTab({
                     })
                   }
                   title={`Nhấn để sửa "${chap.title}" (${cCfg.label})`}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition hover:opacity-85 cursor-pointer shrink-0 ${cCfg.badgeClass}`}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition hover:border-blue-300 cursor-pointer shrink-0 ${cCfg.badgeClass}`}
                 >
-                  <span className="truncate max-w-[110px]">{shortChapName}</span>
-                  <span className="opacity-75">• {cCfg.shortLabel}</span>
-                  <Edit3 className="w-2.5 h-2.5 opacity-70" />
+                  <span className="truncate max-w-[120px]">{shortChapName}</span>
+                  <span className="opacity-70">• {cCfg.shortLabel}</span>
+                  <Edit3 className="w-2.5 h-2.5 opacity-60" />
                 </button>
               );
             })}
@@ -1019,7 +958,6 @@ export default function LessonsTab({
                         {idx + 1}
                       </td>
 
-                      {/* Khóa/Mở */}
                       <td className="py-3 px-2 text-center">
                         <button
                           type="button"
@@ -1040,11 +978,10 @@ export default function LessonsTab({
                         </button>
                       </td>
 
-                      {/* Tên bài học + Nhãn Phân môn */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
                           <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border ${catConfig.badgeClass}`}
+                            className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded border ${catConfig.badgeClass}`}
                           >
                             {catConfig.shortLabel}
                           </span>
@@ -1071,7 +1008,6 @@ export default function LessonsTab({
                         </h4>
                       </td>
 
-                      {/* Cột Tuần / Tháng / Ngày */}
                       <td className="py-3 px-3 text-center">
                         <div className="flex flex-col items-center gap-1">
                           <div className="flex items-center justify-center gap-1 w-full">
@@ -1132,7 +1068,6 @@ export default function LessonsTab({
                         </div>
                       </td>
 
-                      {/* Cột Chương & Đổi nhanh Phân môn */}
                       <td className="py-3 px-2.5 text-center">
                         <div className="flex flex-col items-center gap-1">
                           <button
@@ -1346,7 +1281,7 @@ export default function LessonsTab({
         </div>
       </div>
 
-      {/* 2B. MODAL SỬA NHANH CHƯƠNG (TÊN CHƯƠNG + PHÂN MÔN) */}
+      {/* 2B. MODAL SỬA NHANH CHƯƠNG */}
       {editChapterModal && (
         <div
           onClick={() => setEditChapterModal(null)}
