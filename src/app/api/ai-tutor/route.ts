@@ -164,7 +164,7 @@ Bài học: ${questionContext.lessonTitle}
         // Không truyền thinkingConfig để tránh lỗi 400 BadRequest
         const configToSend: any = {
           temperature: 0.2,
-          maxOutputTokens: 700,
+          maxOutputTokens: 2500,
         };
 
         if (!isGemma) {
