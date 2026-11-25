@@ -73,15 +73,17 @@ export function normalizeSubjectCategory(
   rawCat?: string | null,
   fallbackTitle?: string
 ): SubjectCategoryKey {
-  const clean = String(rawCat || "").trim().toLowerCase();
-  if (clean === "hsa" || clean.includes("hsa") || clean.includes("dgnl")) return "hsa";
+  const clean = String(rawCat || "").normalize("NFC").trim().toLowerCase();
+  if (clean === "hsa" || clean.includes("hsa") || clean.includes("đgnl") || clean.includes("dgnl")) {
+    return "hsa";
+  }
   if (clean === "dai" || clean === "algebra" || clean === "dai_so") return "dai";
   if (clean === "hinh" || clean === "geometry" || clean === "hinh_hoc") return "hinh";
   if (clean === "tong_on" || clean === "review" || clean === "tongon") return "tong_on";
   if (clean === "tang_cuong" || clean === "boost" || clean === "tangcuong") return "tang_cuong";
 
-  const titleLower = String(fallbackTitle || "").toLowerCase();
-  if (/\bhsa\b/.test(titleLower) || titleLower.includes("đgnl")) {
+  const titleLower = String(fallbackTitle || "").normalize("NFC").toLowerCase();
+  if (titleLower.includes("hsa") || titleLower.includes("đgnl") || titleLower.includes("dgnl")) {
     return "hsa";
   }
   if (
@@ -109,13 +111,16 @@ export function normalizeSubjectCategory(
 }
 
 /**
- * NHẬN DIỆN CHÍNH XÁC ĐỀ THI ĐÁNH GIÁ NĂNG LỰC HSA (ĐHQGHN)
+ * NHẬN DIỆN CHÍNH XÁC & TUYỆT ĐỐI ĐỀ THI ĐÁNH GIÁ NĂNG LỰC HSA (ĐHQGHN)
  */
 function isHsaExamItem(exam?: any, attempt?: any): boolean {
   if (!exam && !attempt) return false;
 
-  const rawFormat = String(exam?.exam_format || attempt?.exam_format || "").trim().toLowerCase();
-  if (rawFormat === "thpt") return false;
+  const rawFormat = String(exam?.exam_format || attempt?.exam_format || "")
+    .normalize("NFC")
+    .trim()
+    .toLowerCase();
+
   if (
     exam?.isHsa === true ||
     rawFormat === "hsa" ||
@@ -125,21 +130,27 @@ function isHsaExamItem(exam?: any, attempt?: any): boolean {
     return true;
   }
 
-  const catStr = String(exam?.category || attempt?.category || "").toUpperCase();
-  const titleStr = String(
+  const catNorm = String(exam?.category || attempt?.category || "")
+    .normalize("NFC")
+    .toLowerCase();
+  const titleNorm = String(
     exam?.title ||
       attempt?.examTitle ||
       attempt?.exam_title ||
       attempt?.quizTitle ||
       attempt?.quiz_title ||
       ""
-  ).toUpperCase();
+  )
+    .normalize("NFC")
+    .toLowerCase();
 
   if (
-    catStr.includes("ĐGNL HSA") ||
-    catStr.includes("HSA") ||
-    titleStr.includes("ĐGNL HSA") ||
-    /\bHSA\b/.test(titleStr)
+    catNorm.includes("hsa") ||
+    catNorm.includes("đgnl") ||
+    catNorm.includes("dgnl") ||
+    titleNorm.includes("hsa") ||
+    titleNorm.includes("đgnl") ||
+    titleNorm.includes("dgnl")
   ) {
     return true;
   }
@@ -160,6 +171,19 @@ function isHsaExamItem(exam?: any, attempt?: any): boolean {
   }
 
   return false;
+}
+
+/**
+ * KIỂM TRA BẢN GHI LƯỢT LÀM BÀI CÓ ĐIỂM THẬT HỢP LỆ HAY CHƯA
+ */
+function hasValidAttemptScore(att?: any): boolean {
+  if (!att) return false;
+  return (
+    att.score !== undefined &&
+    att.score !== null &&
+    String(att.score).trim() !== "" &&
+    !isNaN(Number(att.score))
+  );
 }
 
 /**
@@ -1421,7 +1445,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     );
   }, [flatHsaLessons, searchQuery]);
 
-  // PHÂN TÁCH 2 NHÓM ĐỀ THI: ĐỀ THPT (LOẠI BỎ ĐỀ KIỂM TRA ĐỊNH KỲ & BTVN) & ĐỀ ĐGNL HSA
+  // PHÂN TÁCH TUYỆT ĐỐI 2 NHÓM ĐỀ THI: ĐỀ THPT (LOẠI BỎ 100% HSA, ĐỀ KT ĐỊNH KỲ & BTVN) & ĐỀ ĐGNL HSA
   const thptPracticeExams = useMemo(() => {
     return (practiceExams || []).filter((e: any) => {
       const tMode = (e?.target_mode || "all").toLowerCase();
@@ -1500,7 +1524,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
       const doneCount = targetIds.filter((id) =>
         myAttempts.some((a) => {
-          const aId = String(a.quizId || a.quiz_id || "").trim().toLowerCase();
+          if (!hasValidAttemptScore(a)) return false;
+          const aId = String(a.quizId || a.quiz_id || a.exam_id || "").trim().toLowerCase();
           return aId === id;
         })
       ).length;
@@ -1523,6 +1548,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
       return (
         (myAttempts || []).find((a) => {
+          if (!hasValidAttemptScore(a)) return false;
+
           const aQuizId = String(a.quizId || a.quiz_id || a.exam_id || "")
             .trim()
             .toLowerCase();
@@ -1566,12 +1593,12 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         (les.homework_files || []).forEach((hw: any) => {
           totalHw++;
           const att = findAttemptForLesson(hw, les.title, true);
-          if (att) submittedHw++;
+          if (hasValidAttemptScore(att)) submittedHw++;
         });
         (les.test_quizzes || []).forEach((tq: any) => {
           totalTest++;
           const att = findAttemptForLesson(tq, les.title, false);
-          if (att) completedTest++;
+          if (hasValidAttemptScore(att)) completedTest++;
         });
       });
     });
@@ -1591,9 +1618,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     };
   }, [thptChapters, findAttemptForLesson]);
 
-  // VIỆC CẦN LÀM NGAY: TÁCH BIỆT RÕ 2 NHÓM
-  // Nhóm 1: BTVN & Kiểm tra chưa làm của 2 buổi học gần nhất (Tuần này & Tuần trước) kèm hạn +7 ngày
-  // Nhóm 2: Tối đa 4 đề thi mới chưa làm ([Luyện đề THPT] hoặc [Phòng luyện HSA]) kèm ngày đăng
+  // VIỆC CẦN LÀM NGAY: TÁCH BIỆT RÕ 2 NHÓM & CHỈ ẨN KHI ĐÃ CÓ ĐIỂM THẬT HỢP LỆ
   const { recentLessonTodoItems, newPracticeTodoItems } = useMemo(() => {
     const allUnlockedLessons: any[] = [];
     allNormalizedChapters.forEach((chap: any) => {
@@ -1630,12 +1655,12 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       (les.homework_files || []).forEach((hw: any) => {
         if (!hw) return;
         const att = findAttemptForLesson(hw, les.title, true);
-        if (!att) {
+        if (!hasValidAttemptScore(att)) {
           lessonTasks.push({
             key: `hw-${les.id}-${hw.id}`,
             lesson: les,
-            title: hw.title || "Bài tập về nhà",
-            subtitle: les.title,
+            title: `BTVN + ${les.title}`,
+            subtitle: hw.title || "Bài tập về nhà",
             badgeText: `${trackLabel} • BTVN`,
             dueLabel: dueInfo ? dueInfo.label : fallbackPeriod,
             isOverdue: Boolean(dueInfo?.isOverdue),
@@ -1647,7 +1672,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       (les.test_quizzes || []).forEach((tq: any) => {
         if (!tq) return;
         const att = findAttemptForLesson(tq, les.title, false);
-        if (!att) {
+        if (!hasValidAttemptScore(att)) {
           lessonTasks.push({
             key: `tq-${les.id}-${tq.id}`,
             lesson: les,
@@ -1662,11 +1687,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       });
     });
 
-    const combinedCandidateExams = [...hsaPracticeExams, ...thptPracticeExams].sort((a: any, b: any) => {
-      const tA = a?.created_at || a?.createdAt ? new Date(a.created_at || a.createdAt).getTime() : 0;
-      const tB = b?.created_at || b?.createdAt ? new Date(b.created_at || b.createdAt).getTime() : 0;
-      return tB - tA;
-    });
+    const combinedCandidateExams = [...hsaPracticeExams, ...thptPracticeExams].sort(
+      (a: any, b: any) => {
+        const tA = a?.created_at || a?.createdAt ? new Date(a.created_at || a.createdAt).getTime() : 0;
+        const tB = b?.created_at || b?.createdAt ? new Date(b.created_at || b.createdAt).getTime() : 0;
+        return tB - tA;
+      }
+    );
 
     const examTasks: {
       key: string;
@@ -1682,13 +1709,14 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       if (!ex?.id) continue;
       const exId = String(ex.id).trim().toLowerCase();
       const exTitleNorm = normalizeStr(ex.title || "");
-      const hasAttempted = myAttempts.some((a) => {
+      const hasScoredAttempt = myAttempts.some((a) => {
+        if (!hasValidAttemptScore(a)) return false;
         const aId = String(a.quizId || a.quiz_id || a.exam_id || "").trim().toLowerCase();
         const aTitle = normalizeStr(a.quizTitle || a.examTitle || a.title || "");
         return (exId && aId === exId) || (exTitleNorm && aTitle === exTitleNorm);
       });
 
-      if (!hasAttempted) {
+      if (!hasScoredAttempt) {
         const isHsa = isHsaExamItem(ex);
         const createdRaw = ex.created_at || ex.createdAt;
         const createdDate = createdRaw ? new Date(createdRaw) : null;
@@ -2801,7 +2829,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                 )}
 
                 {/* ================================================================= */}
-                {/* TAB 3: `practice` (LUYỆN ĐỀ THPT — LOẠI BỎ ĐỀ KT ĐỊNH KỲ & BTVN)   */}
+                {/* TAB 3: `practice` (LUYỆN ĐỀ THPT — LOẠI BỎ 100% HSA, KT & BTVN)   */}
                 {/* ================================================================= */}
                 {activeTab === "practice" && (
                   <div className="max-w-6xl mx-auto space-y-4 text-left">
@@ -3282,13 +3310,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
                                   <div className="flex items-center gap-3 shrink-0 text-xs">
                                     {hwList.length > 0 ? (
-                                      hwAttempt ? (
+                                      hasValidAttemptScore(hwAttempt) ? (
                                         <span className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-                                          BTVN:{" "}
-                                          {Number(
-                                            hwAttempt.score ?? hwAttempt.points ?? 0
-                                          ).toFixed(1)}
-                                          đ
+                                          BTVN: {Number(hwAttempt.score).toFixed(1)}đ
                                         </span>
                                       ) : (
                                         <span className="px-2.5 py-1 rounded-md bg-[#F8FAFC] text-slate-500 border border-slate-200/90">
@@ -3298,13 +3322,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                     ) : null}
 
                                     {testList.length > 0 ? (
-                                      testAttempt ? (
+                                      hasValidAttemptScore(testAttempt) ? (
                                         <span className="px-2.5 py-1 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 font-semibold">
-                                          KT:{" "}
-                                          {Number(
-                                            testAttempt.score ?? testAttempt.points ?? 0
-                                          ).toFixed(1)}
-                                          đ
+                                          KT: {Number(testAttempt.score).toFixed(1)}đ
                                         </span>
                                       ) : (
                                         <span className="px-2.5 py-1 rounded-md bg-[#F8FAFC] text-slate-500 border border-slate-200/90">
