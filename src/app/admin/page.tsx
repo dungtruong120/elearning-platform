@@ -14,7 +14,6 @@ import {
   PanelLeftOpen,
   Camera
 } from "lucide-react";
-import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabaseClient";
 import { AdminTab } from "@/types/admin";
 import AdminStudentReportPanel from "@/components/admin/AdminStudentReportPanel";
@@ -281,7 +280,7 @@ function safeSavePracticeExamsToStorage(examsList: any[]) {
   }
   try {
     localStorage.setItem("edunexus_practice_exams", JSON.stringify(examsList));
-  } catch (e) {
+  } catch {
     const lightweightExams = examsList.map((ex: any) => ({
       id: ex?.id,
       title: ex?.title,
@@ -770,53 +769,80 @@ function AdminDashboardContent() {
 
           const nowIso = new Date().toISOString();
 
-          // 1. Lưu từng chương vào bảng chapters (gửi kèm category)
+          // 1. Lưu từng chương vào bảng chapters (gửi kèm category + fallback nếu thiếu cột)
           for (const chap of cleanCoursesData) {
-            const chapCategory = chap.category || "dai";
-            const { error: chapErr } = await supabase.from("chapters").upsert({
-              id: String(chap.id),
-              title: chap.title,
-              category: chapCategory,
-              course_id: "11111111-1111-1111-1111-111111111111"
-            });
-            if (chapErr) {
-              await supabase.from("chapters").upsert({
+            const chapCategory = chap.category || chap.subject_category || "dai";
+            try {
+              const { error: chapErr } = await supabase.from("chapters").upsert({
                 id: String(chap.id),
                 title: chap.title,
+                category: chapCategory,
                 course_id: "11111111-1111-1111-1111-111111111111"
               });
+              if (chapErr) {
+                await supabase.from("chapters").upsert({
+                  id: String(chap.id),
+                  title: chap.title,
+                  course_id: "11111111-1111-1111-1111-111111111111"
+                });
+              }
+            } catch {
+              try {
+                await supabase.from("chapters").upsert({
+                  id: String(chap.id),
+                  title: chap.title,
+                  course_id: "11111111-1111-1111-1111-111111111111"
+                });
+              } catch {}
             }
 
-            // 2. Lưu từng bài học con vào bảng lessons (gửi kèm category)
+            // 2. Lưu từng bài học con vào bảng lessons (gửi kèm category + fallback nếu thiếu cột)
             if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
               for (const les of chap.lessons) {
-                const lesCategory = les.category || chapCategory;
-                const { error: lesErr } = await supabase.from("lessons").upsert({
-                  id: String(les.id),
-                  chapter_id: String(chap.id),
-                  title: les.title,
-                  description: les.description || "",
-                  target_mode: les.target_mode || "all",
-                  category: lesCategory,
-                  duration: Number(les.duration) || 45,
-                  assigned_month: Number(les.assigned_month) || 10,
-                  assigned_week: Number(les.assigned_week) || 1,
-                  video_list: les.video_list || [],
-                  lecture_files: les.lecture_files || []
-                });
-                if (lesErr) {
-                  await supabase.from("lessons").upsert({
+                const lesCategory = les.category || les.subject_category || chapCategory;
+                try {
+                  const { error: lesErr } = await supabase.from("lessons").upsert({
                     id: String(les.id),
                     chapter_id: String(chap.id),
                     title: les.title,
                     description: les.description || "",
                     target_mode: les.target_mode || "all",
+                    category: lesCategory,
                     duration: Number(les.duration) || 45,
                     assigned_month: Number(les.assigned_month) || 10,
                     assigned_week: Number(les.assigned_week) || 1,
                     video_list: les.video_list || [],
                     lecture_files: les.lecture_files || []
                   });
+                  if (lesErr) {
+                    await supabase.from("lessons").upsert({
+                      id: String(les.id),
+                      chapter_id: String(chap.id),
+                      title: les.title,
+                      description: les.description || "",
+                      target_mode: les.target_mode || "all",
+                      duration: Number(les.duration) || 45,
+                      assigned_month: Number(les.assigned_month) || 10,
+                      assigned_week: Number(les.assigned_week) || 1,
+                      video_list: les.video_list || [],
+                      lecture_files: les.lecture_files || []
+                    });
+                  }
+                } catch {
+                  try {
+                    await supabase.from("lessons").upsert({
+                      id: String(les.id),
+                      chapter_id: String(chap.id),
+                      title: les.title,
+                      description: les.description || "",
+                      target_mode: les.target_mode || "all",
+                      duration: Number(les.duration) || 45,
+                      assigned_month: Number(les.assigned_month) || 10,
+                      assigned_week: Number(les.assigned_week) || 1,
+                      video_list: les.video_list || [],
+                      lecture_files: les.lecture_files || []
+                    });
+                  } catch {}
                 }
 
                 // 2.1 CHỈ LƯU VÀO BẢNG homeworks KHI CÓ DỮ LIỆU CÂU HỎI THẬT (CHỐNG GHI ĐÈ RỖNG [])
@@ -858,29 +884,43 @@ function AdminDashboardContent() {
             }
           }
 
-          // 3. Lưu bản sao nhẹ (chỉ vỏ metadata, bỏ ruột câu hỏi nặng) vào curriculum_data để tiết kiệm Egress
-          const lightweightCurriculum = cleanCoursesData.map((chap: any) => ({
-            ...chap,
-            category: chap.category || "dai",
-            lessons: (chap.lessons || []).map((les: any) => ({
-              ...les,
-              category: les.category || chap.category || "dai",
-              homework_files: (les.homework_files || []).map((hw: any) => ({
-                id: hw.id,
-                title: hw.title,
-                url: hw.url,
-                duration_minutes: hw.duration_minutes,
-                is_quiz: hw.is_quiz,
-                is_drive_file: hw.is_drive_file
-              }))
-            }))
-          }));
+          // 3. Lưu bản sao nhẹ (giữ đầy đủ category & subject_category, bỏ ruột câu hỏi nặng) vào curriculum_data
+          const lightweightCurriculum = cleanCoursesData.map((chap: any) => {
+            const chapCategory = chap.category || chap.subject_category || "dai";
+            return {
+              ...chap,
+              category: chapCategory,
+              subject_category: chapCategory,
+              lessons: (chap.lessons || []).map((les: any) => {
+                const lesCategory = les.category || les.subject_category || chapCategory;
+                return {
+                  ...les,
+                  category: lesCategory,
+                  subject_category: lesCategory,
+                  homework_files: (les.homework_files || []).map((hw: any) => ({
+                    id: hw.id,
+                    title: hw.title,
+                    url: hw.url,
+                    duration_minutes: hw.duration_minutes,
+                    is_quiz: hw.is_quiz,
+                    is_drive_file: hw.is_drive_file
+                  }))
+                };
+              })
+            };
+          });
 
           await supabase.from("curriculum_data").upsert({
             id: "main_curriculum",
             chapters: lightweightCurriculum,
             updated_at: nowIso
           });
+
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_course_data", JSON.stringify(lightweightCurriculum));
+            } catch {}
+          }
 
           setSyncStatus({
             isSyncing: true,
@@ -1366,28 +1406,73 @@ function AdminDashboardContent() {
       loadDeletedBlacklistFromStorage();
 
       try {
-        const [chapsRes, lessWithCatRes, sessRes, notifRes, hwRes] = await Promise.allSettled([
-          supabase.from("chapters").select("*").order("created_at", { ascending: true }),
-          supabase
-            .from("lessons")
-            .select(
-              "id, chapter_id, title, description, duration, target_mode, category, assigned_month, assigned_week, study_date, is_locked, created_at"
-            )
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("sessions")
-            .select(
-              "id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at"
-            )
-            .order("created_at", { ascending: false })
-            .limit(50),
-          supabase
-            .from("system_notifications")
-            .select("id, title, content, type, createdAt, created_at")
-            .order("created_at", { ascending: false })
-            .limit(50),
-          supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
-        ]);
+        const [chapsRes, lessWithCatRes, curriculumRes, sessRes, notifRes, hwRes] =
+          await Promise.allSettled([
+            supabase.from("chapters").select("*").order("created_at", { ascending: true }),
+            supabase
+              .from("lessons")
+              .select(
+                "id, chapter_id, title, description, duration, target_mode, category, assigned_month, assigned_week, study_date, is_locked, created_at"
+              )
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("curriculum_data")
+              .select("chapters")
+              .eq("id", "main_curriculum")
+              .maybeSingle(),
+            supabase
+              .from("sessions")
+              .select(
+                "id, title, date, isoDate, shiftId, shiftName, timeSlot, meetingUrl, audience, target_mode, room, created_at"
+              )
+              .order("created_at", { ascending: false })
+              .limit(50),
+            supabase
+              .from("system_notifications")
+              .select("id, title, content, type, createdAt, created_at")
+              .order("created_at", { ascending: false })
+              .limit(50),
+            supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
+          ]);
+
+        // Bảng tra cứu phân môn (category) lấy bù từ curriculum_data và localStorage
+        const fallbackChapCatMap = new Map<string, string>();
+        const fallbackLesCatMap = new Map<string, string>();
+
+        if (typeof window !== "undefined") {
+          try {
+            const rawLocal = localStorage.getItem("edunexus_course_data");
+            if (rawLocal) {
+              const parsedLocal = JSON.parse(rawLocal);
+              if (Array.isArray(parsedLocal)) {
+                parsedLocal.forEach((c: any) => {
+                  const cCat = c?.category || c?.subject_category;
+                  if (c?.id && cCat) fallbackChapCatMap.set(String(c.id), String(cCat));
+                  (c?.lessons || []).forEach((l: any) => {
+                    const lCat = l?.category || l?.subject_category;
+                    if (l?.id && lCat) fallbackLesCatMap.set(String(l.id), String(lCat));
+                  });
+                });
+              }
+            }
+          } catch {}
+        }
+
+        const curriculumChapters =
+          curriculumRes.status === "fulfilled" &&
+          !curriculumRes.value.error &&
+          Array.isArray(curriculumRes.value.data?.chapters)
+            ? curriculumRes.value.data.chapters
+            : [];
+
+        curriculumChapters.forEach((c: any) => {
+          const cCat = c?.category || c?.subject_category;
+          if (c?.id && cCat) fallbackChapCatMap.set(String(c.id), String(cCat));
+          (c?.lessons || []).forEach((l: any) => {
+            const lCat = l?.category || l?.subject_category;
+            if (l?.id && lCat) fallbackLesCatMap.set(String(l.id), String(lCat));
+          });
+        });
 
         let dbLessons: any[] | null = null;
         if (
@@ -1397,13 +1482,17 @@ function AdminDashboardContent() {
         ) {
           dbLessons = lessWithCatRes.value.data;
         } else {
-          const { data: fallbackLessons } = await supabase
-            .from("lessons")
-            .select(
-              "id, chapter_id, title, description, duration, target_mode, assigned_month, assigned_week, study_date, is_locked, created_at"
-            )
-            .order("created_at", { ascending: false });
-          dbLessons = Array.isArray(fallbackLessons) ? fallbackLessons : [];
+          try {
+            const { data: fallbackLessons } = await supabase
+              .from("lessons")
+              .select(
+                "id, chapter_id, title, description, duration, target_mode, assigned_month, assigned_week, study_date, is_locked, created_at"
+              )
+              .order("created_at", { ascending: false });
+            dbLessons = Array.isArray(fallbackLessons) ? fallbackLessons : [];
+          } catch {
+            dbLessons = [];
+          }
         }
 
         if (
@@ -1419,47 +1508,59 @@ function AdminDashboardContent() {
               : [];
 
           const assembled = dbChapters.map((chap: any) => {
-            const chapCategory = chap.category || "dai";
+            const chapCategory =
+              chap.category ||
+              chap.subject_category ||
+              fallbackChapCatMap.get(String(chap.id)) ||
+              "dai";
+
             return {
               id: chap.id,
               title: chap.title,
               category: chapCategory,
+              subject_category: chapCategory,
               target_mode: chap.target_mode || "all",
               lessons: (dbLessons || [])
                 .filter((l: any) => l.chapter_id === chap.id)
-                .map((l: any) => ({
-                  id: l.id,
-                  chapter_id: chap.id,
-                  title: l.title,
-                  description: l.description || "",
-                  duration: l.duration || 45,
-                  format: "Zoom",
-                  target_mode: l.target_mode || "all",
-                  category: l.category || chapCategory,
-                  assigned_month: Number(l.assigned_month) || 10,
-                  assigned_week: Number(l.assigned_week) || 1,
-                  study_date: l.study_date || "",
-                  is_locked: Boolean(l.is_locked),
-                  video_list: l.video_list || [],
-                  lecture_files: l.lecture_files || [],
-                  homework_files: allHomeworks.filter((h: any) => h.lesson_id === l.id),
-                  test_quizzes: l.test_quizzes || []
-                }))
+                .map((l: any) => {
+                  const lesCategory =
+                    l.category ||
+                    l.subject_category ||
+                    fallbackLesCatMap.get(String(l.id)) ||
+                    chapCategory;
+
+                  return {
+                    id: l.id,
+                    chapter_id: chap.id,
+                    title: l.title,
+                    description: l.description || "",
+                    duration: l.duration || 45,
+                    format: "Zoom",
+                    target_mode: l.target_mode || "all",
+                    category: lesCategory,
+                    subject_category: lesCategory,
+                    assigned_month: Number(l.assigned_month) || 10,
+                    assigned_week: Number(l.assigned_week) || 1,
+                    study_date: l.study_date || "",
+                    is_locked: Boolean(l.is_locked),
+                    video_list: l.video_list || [],
+                    lecture_files: l.lecture_files || [],
+                    homework_files: allHomeworks.filter((h: any) => h.lesson_id === l.id),
+                    test_quizzes: l.test_quizzes || []
+                  };
+                })
             };
           });
           setChapters(assembled);
           latestChaptersRef.current = assembled;
-        } else {
-          const { data: fallbackCurriculum } = await supabase
-            .from("curriculum_data")
-            .select("chapters")
-            .eq("id", "main_curriculum")
-            .maybeSingle();
-
-          if (fallbackCurriculum?.chapters && Array.isArray(fallbackCurriculum.chapters)) {
-            setChapters(fallbackCurriculum.chapters);
-            latestChaptersRef.current = fallbackCurriculum.chapters;
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_course_data", JSON.stringify(assembled));
+            } catch {}
           }
+        } else if (curriculumChapters.length > 0) {
+          setChapters(curriculumChapters);
+          latestChaptersRef.current = curriculumChapters;
         }
 
         if (
@@ -1690,6 +1791,7 @@ function AdminDashboardContent() {
         id: "chap-" + Date.now(),
         title: newItemTitle.trim(),
         category: resolvedCategory,
+        subject_category: resolvedCategory,
         target_mode: newItemTargetMode,
         lessons: []
       });
@@ -1708,6 +1810,7 @@ function AdminDashboardContent() {
                   format: newItemFormat || "Zoom",
                   target_mode: newItemTargetMode,
                   category: resolvedCategory,
+                  subject_category: resolvedCategory,
                   lecture_files: [],
                   homework_files: [],
                   handwritten_notes: [],
@@ -2679,7 +2782,7 @@ function AdminDashboardContent() {
 
   if (!mounted) {
     return (
-      <div className="min-h-screen flex bg-[#F8FAFC] font-sans text-slate-800 relative">
+      <div className="min-h-screen flex bg-[#F1F5F9] font-sans text-slate-800 relative">
         <aside className="hidden lg:flex w-64 bg-[#1D4ED8] border-r border-blue-800 text-white/90 flex-col shrink-0 p-5">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 bg-white text-[#1D4ED8] rounded-xl flex items-center justify-center font-bold text-sm">
@@ -2695,7 +2798,7 @@ function AdminDashboardContent() {
             </div>
           </div>
         </aside>
-        <main className="flex-1 flex items-center justify-center bg-[#F8FAFC]">
+        <main className="flex-1 flex items-center justify-center bg-[#F1F5F9]">
           <div className="flex items-center gap-3 text-slate-600 font-semibold text-sm bg-white px-6 py-4 rounded-xl border border-slate-200/90">
             <div className="w-5 h-5 border-2 border-[#1D4ED8] border-t-transparent rounded-full animate-spin"></div>
             Đang khởi tạo hệ thống quản trị...
@@ -2706,7 +2809,7 @@ function AdminDashboardContent() {
   }
 
   return (
-    <div className="min-h-screen w-full flex bg-[#F8FAFC] font-sans text-slate-800 relative selection:bg-blue-500/20 overflow-x-hidden">
+    <div className="min-h-screen w-full flex bg-[#F1F5F9] font-sans text-slate-800 relative selection:bg-blue-500/20 overflow-x-hidden">
       <AnimatePresence>
         {toastNotification && (
           <motion.div
@@ -2824,7 +2927,7 @@ function AdminDashboardContent() {
           }}
         />
 
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 custom-scrollbar bg-[#F8FAFC]">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 custom-scrollbar bg-[#F1F5F9]">
           {activeTab === "lessons" && (
             <div className="space-y-4">
               {!syncStatus.isSyncing && syncStatus.type === "idle" && (
@@ -3160,7 +3263,7 @@ class AdminErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-12 flex flex-col items-center justify-center font-sans">
+        <div className="min-h-screen bg-[#F1F5F9] p-6 md:p-12 flex flex-col items-center justify-center font-sans">
           <div className="bg-white border border-rose-200 rounded-xl p-8 max-w-2xl w-full">
             <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-xl mb-4">
               !
