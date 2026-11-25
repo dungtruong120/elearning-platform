@@ -101,9 +101,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 3. CHỌN MODEL GEMINI CHÍNH THỨC & TỐI ƯU CHI PHÍ
-    const primaryModel = imageBase64 ? "gemini-2.5-flash" : "gemini-2.5-flash-lite";
-    const fallbackModel = "gemini-2.5-flash";
+    // 3. DÙNG MODEL GEMINI-3.8-FLASH THEO ĐÚNG YÊU CẦU TỪ GOOGLE AI STUDIO
+    const primaryModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+    const fallbackModel = "gemini-3.8-flash";
 
     // 4. QUY TẮC KÝ HIỆU TOÁN HỌC CHUẨN VIỆT NAM & CHỐNG LẠC ĐỀ
     const vietnamMathStandard = `
@@ -196,31 +196,15 @@ Bài học: ${questionContext.lessonTitle}
       });
     }
 
-    let response;
-    let modelActuallyUsed = primaryModel;
-
-    try {
-      response = await ai.models.generateContent({
-        model: primaryModel,
-        contents: formattedContents,
-        config: {
-          systemInstruction,
-          temperature: 0.25,
-          maxOutputTokens: 1200,
-        },
-      });
-    } catch {
-      modelActuallyUsed = fallbackModel;
-      response = await ai.models.generateContent({
-        model: fallbackModel,
-        contents: formattedContents,
-        config: {
-          systemInstruction,
-          temperature: 0.25,
-          maxOutputTokens: 1200,
-        },
-      });
-    }
+    const response = await ai.models.generateContent({
+      model: primaryModel,
+      contents: formattedContents,
+      config: {
+        systemInstruction,
+        temperature: 0.25,
+        maxOutputTokens: 1200,
+      },
+    });
 
     const totalTokensUsed = response.usageMetadata?.totalTokenCount || 500;
 
@@ -238,7 +222,7 @@ Bài học: ${questionContext.lessonTitle}
 
     return NextResponse.json({
       reply: response.text || "Trợ giảng AI chưa thể phân tích câu này, em thử hỏi lại nhé!",
-      modelUsed: modelActuallyUsed,
+      modelUsed: fallbackModel,
     });
   } catch (error: any) {
     console.error("Lỗi AI Tutor API:", error);
