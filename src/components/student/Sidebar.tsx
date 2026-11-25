@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   BookOpen,
   Calendar,
@@ -10,7 +10,9 @@ import {
   LogOut,
   LayoutDashboard,
   Sparkles,
-  Layers
+  Layers,
+  MoreHorizontal,
+  X
 } from "lucide-react";
 import { Profile } from "@/types";
 
@@ -28,6 +30,8 @@ export function Sidebar({
   setActiveTab,
   onLogout
 }: SidebarProps) {
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+
   const navGroups = [
     {
       title: "Chung",
@@ -59,17 +63,25 @@ export function Sidebar({
     }
   ];
 
-  const mobileBottomItems = [
+  const mobilePrimaryItems = [
     { key: "overview", label: "Tổng quan", icon: LayoutDashboard },
     { key: "courses", label: "Bài học", icon: BookOpen },
     { key: "practice", label: "Luyện đề", icon: Target },
-    { key: "hsa_courses", label: "Tổng ôn HSA", icon: Layers },
+    { key: "hsa_courses", label: "Ôn HSA", icon: Layers },
     { key: "hsa_practice", label: "Thi HSA", icon: Sparkles }
   ];
 
+  const mobileSecondaryItems = [
+    { key: "schedule", label: "Lịch học", icon: Calendar },
+    { key: "progress", label: "Tiến trình học tập", icon: BarChart2 },
+    { key: "leaderboard", label: "Bảng xếp hạng", icon: Trophy }
+  ];
+
+  const isSecondaryTabActive = ["schedule", "progress", "leaderboard"].includes(activeTab);
+
   return (
     <>
-      {/* 1. SIDEBAR DESKTOP: Tông Xanh TCT đồng bộ logo (#1E40AF -> #1D4ED8), gọn gàng, thanh thoát */}
+      {/* 1. SIDEBAR DESKTOP */}
       <aside className="hidden md:flex w-60 bg-gradient-to-b from-[#1E40AF] to-[#1D4ED8] border-r border-blue-800/40 text-white flex-col shrink-0 p-4 h-screen select-none">
         <div className="flex items-center gap-3 px-2 mb-6 shrink-0">
           <div className="w-9 h-9 bg-white text-[#1E40AF] rounded-xl flex items-center justify-center font-black text-xs shadow-xs">
@@ -142,16 +154,19 @@ export function Sidebar({
         </div>
       </aside>
 
-      {/* 2. BOTTOM NAVIGATION BAR CHO MOBILE */}
+      {/* 2. BOTTOM NAVIGATION BAR CHO MOBILE (5 TAB CHÍNH + NÚT THÊM) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-white/95 backdrop-blur-xl border-t border-slate-200 px-1 pt-1.5 pb-2 flex items-center justify-between select-none">
-        {mobileBottomItems.map((item) => {
+        {mobilePrimaryItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.key;
           return (
             <button
               key={item.key}
               type="button"
-              onClick={() => setActiveTab(item.key)}
+              onClick={() => {
+                setIsMobileMoreOpen(false);
+                setActiveTab(item.key);
+              }}
               className={
                 "flex-1 flex flex-col items-center justify-center py-0.5 transition-all cursor-pointer " +
                 (isActive ? "text-[#1D4ED8]" : "text-slate-400 hover:text-slate-600")
@@ -171,7 +186,106 @@ export function Sidebar({
             </button>
           );
         })}
+
+        <button
+          type="button"
+          onClick={() => setIsMobileMoreOpen((prev) => !prev)}
+          className={
+            "flex-1 flex flex-col items-center justify-center py-0.5 transition-all cursor-pointer " +
+            (isSecondaryTabActive || isMobileMoreOpen
+              ? "text-[#1D4ED8]"
+              : "text-slate-400 hover:text-slate-600")
+          }
+        >
+          <div
+            className={
+              "p-1 rounded-lg " +
+              (isSecondaryTabActive || isMobileMoreOpen ? "bg-blue-50" : "")
+            }
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </div>
+          <span
+            className={
+              "text-[9.5px] tracking-tight mt-0.5 leading-none " +
+              (isSecondaryTabActive || isMobileMoreOpen ? "font-bold" : "font-medium")
+            }
+          >
+            Thêm
+          </span>
+        </button>
       </nav>
+
+      {/* 3. NGĂN KÉO "THÊM" TRÊN MOBILE (CHỨA LỊCH HỌC, TIẾN TRÌNH, XẾP HẠNG, ĐĂNG XUẤT) */}
+      {isMobileMoreOpen && (
+        <div
+          onClick={() => setIsMobileMoreOpen(false)}
+          className="md:hidden fixed inset-0 z-[95] bg-slate-900/40 backdrop-blur-2xs flex items-end pb-16"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full bg-white rounded-t-2xl border-t border-slate-200 p-4 space-y-3 shadow-xl"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div>
+                <p className="text-xs font-bold text-slate-900">
+                  {user?.full_name || "Học sinh"}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {user?.grade || "Lớp 12"} • Tiện ích mở rộng
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileMoreOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {mobileSecondaryItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(item.key);
+                      setIsMobileMoreOpen(false);
+                    }}
+                    className={
+                      "p-3 rounded-xl border flex flex-col items-center justify-center gap-1.5 text-center transition cursor-pointer " +
+                      (isActive
+                        ? "bg-blue-50 border-blue-200 text-[#1D4ED8] font-bold"
+                        : "bg-slate-50/70 border-slate-200/80 text-slate-700 font-semibold hover:bg-slate-100")
+                    }
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span className="text-[11px] leading-tight">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsMobileMoreOpen(false);
+                if (confirm("Bạn có chắc chắn muốn đăng xuất?")) {
+                  onLogout?.();
+                }
+              }}
+              className="w-full py-2.5 rounded-xl border border-rose-200 bg-rose-50/60 text-rose-600 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Đăng xuất tài khoản</span>
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
