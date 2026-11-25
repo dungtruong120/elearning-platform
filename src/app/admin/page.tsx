@@ -86,6 +86,38 @@ function mergeHomeworkFilesWithDrive(dbHwList: any[], ...fallbackHwLists: any[][
   return result;
 }
 
+function buildLightweightCurriculumPayload(coursesData: any[]): any[] {
+  return (Array.isArray(coursesData) ? coursesData : []).map((chap: any) => {
+    const chapCategory = chap.category || chap.subject_category || "dai";
+    return {
+      ...chap,
+      category: chapCategory,
+      subject_category: chapCategory,
+      lessons: (chap.lessons || []).map((les: any) => {
+        const lesCategory = les.category || les.subject_category || chapCategory;
+        return {
+          ...les,
+          category: lesCategory,
+          subject_category: lesCategory,
+          video_list: Array.isArray(les.video_list) ? les.video_list : [],
+          lecture_files: Array.isArray(les.lecture_files) ? les.lecture_files : [],
+          handwritten_notes: Array.isArray(les.handwritten_notes) ? les.handwritten_notes : [],
+          test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
+          extra_resources: Array.isArray(les.extra_resources) ? les.extra_resources : [],
+          homework_files: (les.homework_files || []).map((hw: any) => ({
+            id: hw.id,
+            title: hw.title,
+            url: hw.url,
+            duration_minutes: hw.duration_minutes,
+            is_quiz: hw.is_quiz,
+            is_drive_file: hw.is_drive_file
+          }))
+        };
+      })
+    };
+  });
+}
+
 function normalizeStudentProfile(raw: any): any {
   if (!raw) return raw;
   const rawMode = String(
@@ -838,7 +870,7 @@ function AdminDashboardContent() {
               } catch {}
             }
 
-            // 2. Lưu từng bài học vào bảng lessons đầy đủ 5 mảng tài liệu + fallback an toàn khi thiếu cột
+            // 2. Lưu từng bài học vào bảng lessons (luôn gửi kèm category + subject_category + 5 mảng tài liệu với fallback an toàn)
             if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
               for (const les of chap.lessons) {
                 const lesCategory = les.category || les.subject_category || chapCategory;
@@ -863,24 +895,45 @@ function AdminDashboardContent() {
                 };
 
                 try {
+                  // Tier 1: Đầy đủ category + subject_category + 5 mảng tài liệu
                   const { error: tier1Err } = await supabase.from("lessons").upsert({
                     ...baseLessonRow,
                     category: lesCategory,
+                    subject_category: lesCategory,
                     ...allMediaCols
                   });
                   if (tier1Err) {
+                    // Tier 2: Bỏ subject_category, giữ category + 5 mảng tài liệu
                     const { error: tier2Err } = await supabase.from("lessons").upsert({
                       ...baseLessonRow,
+                      category: lesCategory,
                       ...allMediaCols
                     });
                     if (tier2Err) {
+                      // Tier 3: Giữ 5 mảng tài liệu (nếu thiếu cột category)
                       const { error: tier3Err } = await supabase.from("lessons").upsert({
                         ...baseLessonRow,
-                        video_list: allMediaCols.video_list,
-                        lecture_files: allMediaCols.lecture_files
+                        ...allMediaCols
                       });
                       if (tier3Err) {
-                        await supabase.from("lessons").upsert(baseLessonRow);
+                        // Tier 4: Giữ category + video_list + lecture_files
+                        const { error: tier4Err } = await supabase.from("lessons").upsert({
+                          ...baseLessonRow,
+                          category: lesCategory,
+                          video_list: allMediaCols.video_list,
+                          lecture_files: allMediaCols.lecture_files
+                        });
+                        if (tier4Err) {
+                          // Tier 5: Tối giản video_list + lecture_files hoặc core
+                          const { error: tier5Err } = await supabase.from("lessons").upsert({
+                            ...baseLessonRow,
+                            video_list: allMediaCols.video_list,
+                            lecture_files: allMediaCols.lecture_files
+                          });
+                          if (tier5Err) {
+                            await supabase.from("lessons").upsert(baseLessonRow);
+                          }
+                        }
                       }
                     }
                   }
@@ -937,38 +990,8 @@ function AdminDashboardContent() {
             }
           }
 
-          // 3. Lưu đầy đủ cây chương/bài học/5 mảng tài liệu + file Drive BTVN vào curriculum_data
-          const lightweightCurriculum = cleanCoursesData.map((chap: any) => {
-            const chapCategory = chap.category || chap.subject_category || "dai";
-            return {
-              ...chap,
-              category: chapCategory,
-              subject_category: chapCategory,
-              lessons: (chap.lessons || []).map((les: any) => {
-                const lesCategory = les.category || les.subject_category || chapCategory;
-                return {
-                  ...les,
-                  category: lesCategory,
-                  subject_category: lesCategory,
-                  video_list: Array.isArray(les.video_list) ? les.video_list : [],
-                  lecture_files: Array.isArray(les.lecture_files) ? les.lecture_files : [],
-                  handwritten_notes: Array.isArray(les.handwritten_notes)
-                    ? les.handwritten_notes
-                    : [],
-                  test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
-                  extra_resources: Array.isArray(les.extra_resources) ? les.extra_resources : [],
-                  homework_files: (les.homework_files || []).map((hw: any) => ({
-                    id: hw.id,
-                    title: hw.title,
-                    url: hw.url,
-                    duration_minutes: hw.duration_minutes,
-                    is_quiz: hw.is_quiz,
-                    is_drive_file: hw.is_drive_file
-                  }))
-                };
-              })
-            };
-          });
+          // 3. Lưu đầy đủ cây chương/bài học/category mới nhất/5 mảng tài liệu + file Drive BTVN vào curriculum_data
+          const lightweightCurriculum = buildLightweightCurriculumPayload(cleanCoursesData);
 
           await supabase.from("curriculum_data").upsert({
             id: "main_curriculum",
@@ -1579,9 +1602,9 @@ function AdminDashboardContent() {
 
           const assembled = dbChapters.map((chap: any) => {
             const chapCategory =
+              fallbackChapCatMap.get(String(chap.id)) ||
               chap.category ||
               chap.subject_category ||
-              fallbackChapCatMap.get(String(chap.id)) ||
               "dai";
 
             return {
@@ -1596,12 +1619,10 @@ function AdminDashboardContent() {
                   const cloudLes = cloudLesMap.get(String(l.id));
                   const localLes = localLesMap.get(String(l.id));
                   const lesCategory =
-                    l.category ||
-                    l.subject_category ||
                     cloudLes?.category ||
                     cloudLes?.subject_category ||
-                    localLes?.category ||
-                    localLes?.subject_category ||
+                    l.category ||
+                    l.subject_category ||
                     chapCategory;
 
                   return {
@@ -1957,19 +1978,59 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin bài học!", "success");
   };
 
+  /**
+   * XÓA THẬT BÀI HỌC TRÊN SUPABASE (`homeworks` + `lessons`) & CẬP NHẬT NGAY `curriculum_data`
+   */
   const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
+
+    const cleanLessonId = String(lessonId || "").trim();
     const newChapters = (chapters || []).map((chap) => {
       if (chap?.id === chapterId) {
         return {
           ...chap,
-          lessons: (chap?.lessons || []).filter((l: any) => l?.id !== lessonId)
+          lessons: (chap?.lessons || []).filter((l: any) => String(l?.id) !== cleanLessonId)
         };
       }
       return chap;
     });
-    syncCoursesToSupabase(newChapters, "bài học");
-    showToast("Đã xóa bài học!", "success");
+
+    latestChaptersRef.current = newChapters;
+    setChapters(newChapters);
+
+    try {
+      await supabase.from("homeworks").delete().eq("lesson_id", cleanLessonId);
+    } catch (err) {
+      console.warn("Lỗi xóa homeworks của bài học:", err);
+    }
+
+    try {
+      await supabase.from("lessons").delete().eq("id", cleanLessonId);
+    } catch (err) {
+      console.warn("Lỗi xóa lesson trên Supabase:", err);
+    }
+
+    const nowIso = new Date().toISOString();
+    const immediateCurriculum = buildLightweightCurriculumPayload(newChapters);
+
+    try {
+      await supabase.from("curriculum_data").upsert({
+        id: "main_curriculum",
+        chapters: immediateCurriculum,
+        updated_at: nowIso
+      });
+    } catch (err) {
+      console.warn("Lỗi cập nhật curriculum_data sau khi xóa bài học:", err);
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("edunexus_course_data", JSON.stringify(immediateCurriculum));
+      } catch {}
+    }
+
+    await syncCoursesToSupabase(newChapters, "bài học");
+    showToast("Đã xóa vĩnh viễn bài học khỏi hệ thống!", "success");
   };
 
   const handleAddResource = async (e: React.FormEvent) => {
