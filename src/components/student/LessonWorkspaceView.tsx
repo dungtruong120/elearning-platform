@@ -248,6 +248,22 @@ export function LessonWorkspaceView({
     return { quizHomeworks: quizList, driveHomeworks: driveList };
   }, [lesson?.homework_files]);
 
+  // Tách Đề kiểm tra định kỳ thành 2 nhóm rõ ràng: Đề làm trực tuyến & File đề tải về (PDF/Drive)
+  const { quizTests, driveTests } = useMemo(() => {
+    const allTests = Array.isArray(lesson?.test_quizzes) ? lesson.test_quizzes : [];
+    const quizList: any[] = [];
+    const driveList: any[] = [];
+
+    allTests.forEach((test: any) => {
+      if (!test) return;
+      const isDrive = test.is_drive_file === true || test.is_quiz === false;
+      if (isDrive) driveList.push(test);
+      else quizList.push(test);
+    });
+
+    return { quizTests: quizList, driveTests: driveList };
+  }, [lesson?.test_quizzes]);
+
   const lectureFiles = useMemo(
     () => (Array.isArray(lesson?.lecture_files) ? lesson.lecture_files : []),
     [lesson?.lecture_files]
@@ -430,6 +446,7 @@ export function LessonWorkspaceView({
   }
 
   const totalHomeworkCount = quizHomeworks.length + driveHomeworks.length;
+  const totalTestCount = quizTests.length + driveTests.length;
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#F1F5F9] antialiased text-slate-800 tracking-tight flex flex-col overflow-hidden">
@@ -806,7 +823,7 @@ export function LessonWorkspaceView({
                           href={hw.url || "#"}
                           target="_blank"
                           rel="noreferrer"
-                          className="p-2.5 bg-[#F8FAFC] hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-200 rounded-xl transition flex items-center justify-between gap-2.5 group"
+                          className="p-3 bg-[#F8FAFC] hover:bg-white border border-slate-200/90 hover:border-blue-200 rounded-xl transition flex items-center justify-between gap-2.5 group"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <FileText className="w-4 h-4 text-[#1D4ED8] shrink-0" />
@@ -831,112 +848,158 @@ export function LessonWorkspaceView({
               )}
             </div>
 
-            {/* KHỐI 2: ĐỀ KIỂM TRA ĐỊNH KỲ */}
-            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 space-y-2.5">
+            {/* KHỐI 2: ĐỀ KIỂM TRA ĐỊNH KỲ (TÁCH RÕ 2 NHÓM: ĐỀ TRỰC TUYẾN & FILE TẢI VỀ) */}
+            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                   <Award className="w-3.5 h-3.5 text-[#1D4ED8]" /> Đề kiểm tra định kỳ
                 </h3>
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700">
-                  {(lesson?.test_quizzes || []).length}
+                  {totalTestCount}
                 </span>
               </div>
 
-              {!lesson?.test_quizzes || lesson.test_quizzes.length === 0 ? (
+              {totalTestCount === 0 ? (
                 <p className="text-center text-slate-400 text-xs py-3 font-normal italic">
                   Chưa có đề kiểm tra định kỳ.
                 </p>
               ) : (
-                <div className="space-y-2.5">
-                  {lesson.test_quizzes.map((test: any, idx: number) => {
-                    const bestTestAttempt = findBestAttemptForQuizItem(test);
-                    const isPaperDone =
-                      bestTestAttempt?.submission_type === "paper" ||
-                      Boolean(bestTestAttempt?.paper_scan_url) ||
-                      Boolean(bestTestAttempt?.omr_raw_data);
+                <div className="space-y-3">
+                  {/* Nhóm 1: Đề kiểm tra làm trực tuyến */}
+                  {quizTests.length > 0 && (
+                    <div className="space-y-2">
+                      {driveTests.length > 0 && (
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Đề kiểm tra làm trực tuyến
+                        </p>
+                      )}
+                      {quizTests.map((test: any, idx: number) => {
+                        const bestTestAttempt = findBestAttemptForQuizItem(test);
+                        const isPaperDone =
+                          bestTestAttempt?.submission_type === "paper" ||
+                          Boolean(bestTestAttempt?.paper_scan_url) ||
+                          Boolean(bestTestAttempt?.omr_raw_data);
 
-                    return (
-                      <div
-                        key={test.id || idx}
-                        className="p-3 rounded-xl border border-slate-200/90 bg-[#F8FAFC] hover:bg-white transition-all space-y-2"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <h4 className="font-semibold text-xs text-slate-800 line-clamp-1">
-                            {test.title || `Đề kiểm tra ${idx + 1}`}
-                          </h4>
-                          {bestTestAttempt ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#1D4ED8] border border-blue-200 shrink-0 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" />
-                              {Number(
-                                bestTestAttempt.score ?? bestTestAttempt.points ?? 0
-                              ).toFixed(1)}
-                              đ
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 shrink-0">
-                              Đề KT
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenExamEntry(test, false)}
-                            className="w-full py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        return (
+                          <div
+                            key={test.id || idx}
+                            className="p-3 rounded-xl border border-slate-200/90 bg-[#F8FAFC] hover:bg-white transition-all space-y-2"
                           >
-                            <Play className="w-3 h-3 fill-white" />
-                            <span>
-                              {bestTestAttempt ? "Thi lại Đề KT" : "Vào phòng thi kiểm tra"}
-                            </span>
-                          </button>
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className="font-semibold text-xs text-slate-800 line-clamp-1">
+                                {test.title || `Đề kiểm tra ${idx + 1}`}
+                              </h4>
+                              {bestTestAttempt ? (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#1D4ED8] border border-blue-200 shrink-0 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  {Number(
+                                    bestTestAttempt.score ?? bestTestAttempt.points ?? 0
+                                  ).toFixed(1)}
+                                  đ
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 shrink-0">
+                                  Đề KT
+                                </span>
+                              )}
+                            </div>
 
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handlePrintSheetForQuiz(test, false)}
-                              className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                              title="In phiếu trả lời A4 tương ứng với Đề kiểm tra này"
-                            >
-                              <Printer className="w-3 h-3 text-slate-500" />
-                              <span>In phiếu giấy</span>
-                            </button>
+                            <div className="space-y-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenExamEntry(test, false)}
+                                className="w-full py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <Play className="w-3 h-3 fill-white" />
+                                <span>
+                                  {bestTestAttempt ? "Thi lại Đề KT" : "Vào phòng thi kiểm tra"}
+                                </span>
+                              </button>
 
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const resolved = await resolveFullExamData(test, false);
-                                setIsEntryHomework(false);
-                                setActivePaperScanExam(resolved);
-                              }}
-                              className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                              title="Chụp hoặc tải ảnh phiếu Đề kiểm tra đã làm trên giấy"
-                            >
-                              <Camera className="w-3 h-3 text-slate-500" />
-                              <span>Quét phiếu giấy</span>
-                            </button>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintSheetForQuiz(test, false)}
+                                  className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                  title="In phiếu trả lời A4 tương ứng với Đề kiểm tra này"
+                                >
+                                  <Printer className="w-3 h-3 text-slate-500" />
+                                  <span>In phiếu giấy</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const resolved = await resolveFullExamData(test, false);
+                                    setIsEntryHomework(false);
+                                    setActivePaperScanExam(resolved);
+                                  }}
+                                  className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                  title="Chụp hoặc tải ảnh phiếu Đề kiểm tra đã làm trên giấy"
+                                >
+                                  <Camera className="w-3 h-3 text-slate-500" />
+                                  <span>Quét phiếu giấy</span>
+                                </button>
+                              </div>
+
+                              {bestTestAttempt && isPaperDone && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const resolved = await resolveFullExamData(test, false);
+                                    setReviewingPaperAttempt({
+                                      attempt: bestTestAttempt,
+                                      exam: resolved
+                                    });
+                                  }}
+                                  className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                >
+                                  <Eye className="w-3 h-3" /> Xem lại phiếu đã chấm (
+                                  {Number(bestTestAttempt.score).toFixed(1)}đ)
+                                </button>
+                              )}
+                            </div>
                           </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                          {bestTestAttempt && isPaperDone && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const resolved = await resolveFullExamData(test, false);
-                                setReviewingPaperAttempt({
-                                  attempt: bestTestAttempt,
-                                  exam: resolved
-                                });
-                              }}
-                              className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              <Eye className="w-3 h-3" /> Xem lại phiếu đã chấm (
-                              {Number(bestTestAttempt.score).toFixed(1)}đ)
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {/* Nhóm 2: File đề kiểm tra tải về (PDF / Drive) */}
+                  {driveTests.length > 0 && (
+                    <div className="space-y-1.5">
+                      {quizTests.length > 0 && (
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          File đề kiểm tra tải về
+                        </p>
+                      )}
+                      {driveTests.map((test: any, idx: number) => (
+                        <a
+                          key={test.id || idx}
+                          href={test.url || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-3 bg-[#F8FAFC] hover:bg-white border border-slate-200/90 hover:border-blue-200 rounded-xl transition flex items-center justify-between gap-2.5 group"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <FileText className="w-4 h-4 text-[#1D4ED8] shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-slate-800 group-hover:text-[#1D4ED8] truncate">
+                                {test.title || "File đề kiểm tra"}
+                              </p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                File đề kiểm tra (PDF / Drive)
+                              </p>
+                            </div>
+                          </div>
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#1D4ED8] shrink-0">
+                            <span>Mở file</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
