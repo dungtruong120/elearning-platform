@@ -73,6 +73,57 @@ export const SUBJECT_CATEGORY_CONFIG: Record<
   }
 };
 
+function pickFirstNonEmptyArray(...candidates: any[]): any[] {
+  for (const cand of candidates) {
+    if (Array.isArray(cand) && cand.length > 0) return cand;
+  }
+  return [];
+}
+
+/**
+ * Ghép danh sách đề trắc nghiệm từ bảng `homeworks` với các file BTVN dạng link Google Drive / PDF
+ * (`is_drive_file: true` hoặc `is_quiz === false`) để không bao giờ bị mất file Drive.
+ */
+function mergeHomeworkFilesWithDrive(dbHwList: any[], ...fallbackHwLists: any[][]): any[] {
+  const result: any[] = [];
+  const seenIds = new Set<string>();
+  const seenDriveUrls = new Set<string>();
+
+  (Array.isArray(dbHwList) ? dbHwList : []).forEach((h) => {
+    if (!h) return;
+    const idKey = String(h.id || "").trim();
+    if (idKey) seenIds.add(idKey);
+    result.push(h);
+  });
+
+  fallbackHwLists.forEach((list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((h) => {
+      if (!h) return;
+      const isDrive = h.is_drive_file === true || h.is_quiz === false;
+      if (!isDrive) return;
+      const idKey = String(h.id || "").trim();
+      const urlKey = String(h.url || "").trim();
+      if (idKey && seenIds.has(idKey)) return;
+      if (urlKey && seenDriveUrls.has(urlKey)) return;
+      if (idKey) seenIds.add(idKey);
+      if (urlKey) seenDriveUrls.add(urlKey);
+      result.push(h);
+    });
+  });
+
+  return result;
+}
+
+function findLessonInChaptersTree(chaptersList: any[], lessonId: string): any | null {
+  if (!Array.isArray(chaptersList) || !lessonId) return null;
+  for (const chap of chaptersList) {
+    const found = (chap?.lessons || []).find((l: any) => String(l?.id) === String(lessonId));
+    if (found) return found;
+  }
+  return null;
+}
+
 export function normalizeSubjectCategory(
   rawCat?: string | null,
   fallbackTitle?: string
@@ -476,6 +527,98 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return null;
   });
 
+  /**
+   * HÀM HỢP NHẤT ĐẦY ĐỦ 100% TÀI LIỆU CỦA 1 BÀI HỌC TỪ 3 NGUỒN:
+   * `lessons` + `curriculum_data` (`main_curriculum`) + `homeworks`
+   */
+  const fetchFullLessonMerged = useCallback(async (baseLesson: any): Promise<any> => {
+    if (!baseLesson?.id) return baseLesson;
+    const targetLessonId = String(baseLesson.id);
+
+    const [lessonFullRes, curriculumRes, hwRes] = await Promise.allSettled([
+      supabase
+        .from("lessons")
+        .select(
+          "description, video_list, lecture_files, handwritten_notes, test_quizzes, extra_resources"
+        )
+        .eq("id", targetLessonId)
+        .maybeSingle(),
+      supabase
+        .from("curriculum_data")
+        .select("chapters")
+        .eq("id", "main_curriculum")
+        .maybeSingle(),
+      supabase
+        .from("homeworks")
+        .select("id, lesson_id, title, duration_minutes, is_quiz")
+        .eq("lesson_id", targetLessonId)
+    ]);
+
+    let lessonRow: any = null;
+    if (lessonFullRes.status === "fulfilled" && !lessonFullRes.value.error) {
+      lessonRow = lessonFullRes.value.data;
+    } else {
+      try {
+        const { data: fallbackRow } = await supabase
+          .from("lessons")
+          .select("description, video_list, lecture_files")
+          .eq("id", targetLessonId)
+          .maybeSingle();
+        lessonRow = fallbackRow;
+      } catch {}
+    }
+
+    const curriculumChapters =
+      curriculumRes.status === "fulfilled" &&
+      !curriculumRes.value.error &&
+      Array.isArray(curriculumRes.value.data?.chapters)
+        ? curriculumRes.value.data.chapters
+        : [];
+    const cloudLes = findLessonInChaptersTree(curriculumChapters, targetLessonId);
+
+    const hwData =
+      hwRes.status === "fulfilled" && !hwRes.value.error && Array.isArray(hwRes.value.data)
+        ? hwRes.value.data
+        : [];
+
+    return {
+      ...baseLesson,
+      ...(cloudLes || {}),
+      ...(lessonRow || {}),
+      description: lessonRow?.description || cloudLes?.description || baseLesson?.description || "",
+      video_list: pickFirstNonEmptyArray(
+        lessonRow?.video_list,
+        cloudLes?.video_list,
+        baseLesson?.video_list
+      ),
+      lecture_files: pickFirstNonEmptyArray(
+        lessonRow?.lecture_files,
+        cloudLes?.lecture_files,
+        baseLesson?.lecture_files
+      ),
+      handwritten_notes: pickFirstNonEmptyArray(
+        lessonRow?.handwritten_notes,
+        cloudLes?.handwritten_notes,
+        baseLesson?.handwritten_notes
+      ),
+      test_quizzes: pickFirstNonEmptyArray(
+        lessonRow?.test_quizzes,
+        cloudLes?.test_quizzes,
+        baseLesson?.test_quizzes
+      ),
+      extra_resources: pickFirstNonEmptyArray(
+        lessonRow?.extra_resources,
+        cloudLes?.extra_resources,
+        baseLesson?.extra_resources
+      ),
+      homework_files: mergeHomeworkFilesWithDrive(
+        hwData,
+        cloudLes?.homework_files,
+        baseLesson?.homework_files
+      )
+    };
+  }, []);
+
   useEffect(() => {
     if (!selectedLesson?.id) return;
     let isCancelled = false;
@@ -483,15 +626,10 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
     (async () => {
       try {
-        const { data } = await supabase
-          .from("homeworks")
-          .select("id, lesson_id, title, duration_minutes, is_quiz")
-          .eq("lesson_id", targetLessonId);
-
-        if (isCancelled || !Array.isArray(data)) return;
+        const refreshed = await fetchFullLessonMerged(selectedLesson);
+        if (isCancelled) return;
         setSelectedLesson((prev: any) => {
           if (!prev || prev.id !== targetLessonId) return prev;
-          const refreshed = { ...prev, homework_files: data };
           try {
             sessionStorage.setItem("tct_active_lesson", JSON.stringify(refreshed));
           } catch {}
@@ -503,7 +641,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return () => {
       isCancelled = true;
     };
-  }, [selectedLesson?.id]);
+  }, [selectedLesson?.id, fetchFullLessonMerged]);
 
   const [examRoom, setExamRoom] = useState<any | null>(() => {
     if (typeof window !== "undefined") {
@@ -738,11 +876,10 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
   /**
    * TẢI DỮ LIỆU DASHBOARD VỚI LỚP ĐỆM sessionStorage 5 PHÚT (`tct_dashboard_cache_v1`)
-   * - Chỉ gọi lại Supabase khi: hết 5 phút, học sinh vừa nộp bài mới, hoặc bấm nút làm mới.
+   * - Merge đầy đủ 5 mảng tài liệu + file Drive BTVN từ `curriculum_data` (`main_curriculum`).
    */
   const fetchAuthAndData = useCallback(
     async (forceRefresh: boolean = false) => {
-      // Đồng bộ nhanh lịch sử làm bài cục bộ & thời gian học
       const readLocalAttempts = (): any[] => {
         if (typeof window === "undefined") return [];
         try {
@@ -857,14 +994,14 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       let latestExamsForCache: any[] | null = null;
       let latestNotifsForCache: any[] | null = null;
 
-      // 1. TẢI TOÀN BỘ CHƯƠNG, BÀI HỌC, BTVN & ĐỒNG BỘ PHÂN MÔN TỪ curriculum_data
+      // 1. TẢI TOÀN BỘ CHƯƠNG, BÀI HỌC, BTVN & MERGE ĐẦY ĐỦ 5 MẢNG TÀI LIỆU TỪ curriculum_data
       try {
-        const [chapsRes, lessonsWithCatRes, curriculumRes, hwRes] = await Promise.allSettled([
+        const [chapsRes, lessonsFullRes, curriculumRes, hwRes] = await Promise.allSettled([
           supabase.from("chapters").select("*").order("created_at", { ascending: true }),
           supabase
             .from("lessons")
             .select(
-              "id, chapter_id, title, target_mode, category, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
+              "id, chapter_id, title, description, duration, target_mode, category, created_at, assigned_month, assigned_week, is_locked, study_date, video_list, lecture_files, handwritten_notes, test_quizzes, extra_resources"
             )
             .order("created_at", { ascending: false }),
           supabase
@@ -880,20 +1017,30 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
         let dbLessons: any[] | null = null;
         if (
-          lessonsWithCatRes.status === "fulfilled" &&
-          !lessonsWithCatRes.value.error &&
-          Array.isArray(lessonsWithCatRes.value.data)
+          lessonsFullRes.status === "fulfilled" &&
+          !lessonsFullRes.value.error &&
+          Array.isArray(lessonsFullRes.value.data)
         ) {
-          dbLessons = lessonsWithCatRes.value.data;
+          dbLessons = lessonsFullRes.value.data;
         } else {
           try {
-            const { data: lessonsFallback } = await supabase
+            const { data: lessonsFallback1, error: err1 } = await supabase
               .from("lessons")
               .select(
-                "id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
+                "id, chapter_id, title, description, duration, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date, video_list, lecture_files"
               )
               .order("created_at", { ascending: false });
-            dbLessons = lessonsFallback;
+            if (!err1 && Array.isArray(lessonsFallback1)) {
+              dbLessons = lessonsFallback1;
+            } else {
+              const { data: lessonsFallback2 } = await supabase
+                .from("lessons")
+                .select(
+                  "id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date"
+                )
+                .order("created_at", { ascending: false });
+              dbLessons = lessonsFallback2 || [];
+            }
           } catch {
             dbLessons = [];
           }
@@ -912,15 +1059,15 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
             : [];
 
         const cloudChapCatMap = new Map<string, string>();
-        const cloudLesCatMap = new Map<string, string>();
+        const cloudLesMap = new Map<string, any>();
         const localCatMap = new Map<string, string>();
+        const localLesMap = new Map<string, any>();
 
         curriculumChapters.forEach((c: any) => {
           const cCat = c?.category || c?.subject_category;
           if (c?.id && cCat) cloudChapCatMap.set(String(c.id), String(cCat));
           (c?.lessons || []).forEach((l: any) => {
-            const lCat = l?.category || l?.subject_category;
-            if (l?.id && lCat) cloudLesCatMap.set(String(l.id), String(lCat));
+            if (l?.id) cloudLesMap.set(String(l.id), l);
           });
         });
 
@@ -935,8 +1082,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                     localCatMap.set(String(c.id), c.category || c.subject_category);
                   }
                   (c?.lessons || []).forEach((l: any) => {
-                    if (l?.id && (l?.category || l?.subject_category)) {
-                      localCatMap.set(String(l.id), l.category || l.subject_category);
+                    if (l?.id) {
+                      localLesMap.set(String(l.id), l);
+                      if (l?.category || l?.subject_category) {
+                        localCatMap.set(String(l.id), l.category || l.subject_category);
+                      }
                     }
                   });
                 });
@@ -961,19 +1111,54 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
               lessons: (dbLessons || [])
                 .filter((les: any) => les.chapter_id === chap.id)
                 .map((les: any) => {
+                  const cloudLes = cloudLesMap.get(String(les.id));
+                  const localLes = localLesMap.get(String(les.id));
                   const rawLesCat =
                     les?.category ||
                     les?.subject_category ||
-                    cloudLesCatMap.get(String(les.id)) ||
+                    cloudLes?.category ||
+                    cloudLes?.subject_category ||
                     localCatMap.get(String(les.id)) ||
                     rawChapCat;
                   const lesCat = normalizeSubjectCategory(rawLesCat, les?.title || chap?.title);
                   return {
                     ...les,
+                    description:
+                      les?.description || cloudLes?.description || localLes?.description || "",
+                    duration: les?.duration || cloudLes?.duration || 45,
+                    format: cloudLes?.format || localLes?.format || "Zoom",
                     category: lesCat,
                     subject_category: lesCat,
-                    test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
-                    homework_files: dbHomeworks.filter((hw: any) => hw.lesson_id === les.id)
+                    video_list: pickFirstNonEmptyArray(
+                      les?.video_list,
+                      cloudLes?.video_list,
+                      localLes?.video_list
+                    ),
+                    lecture_files: pickFirstNonEmptyArray(
+                      les?.lecture_files,
+                      cloudLes?.lecture_files,
+                      localLes?.lecture_files
+                    ),
+                    handwritten_notes: pickFirstNonEmptyArray(
+                      les?.handwritten_notes,
+                      cloudLes?.handwritten_notes,
+                      localLes?.handwritten_notes
+                    ),
+                    test_quizzes: pickFirstNonEmptyArray(
+                      les?.test_quizzes,
+                      cloudLes?.test_quizzes,
+                      localLes?.test_quizzes
+                    ),
+                    extra_resources: pickFirstNonEmptyArray(
+                      les?.extra_resources,
+                      cloudLes?.extra_resources,
+                      localLes?.extra_resources
+                    ),
+                    homework_files: mergeHomeworkFilesWithDrive(
+                      dbHomeworks.filter((hw: any) => hw.lesson_id === les.id),
+                      cloudLes?.homework_files,
+                      localLes?.homework_files
+                    )
                   };
                 })
             };
@@ -1176,42 +1361,42 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("storage", handleStorageUpdated);
 
+    const refreshCurrentSelectedLesson = () => {
+      setSelectedLesson((prev: any) => {
+        if (!prev?.id) return prev;
+        const targetId = prev.id;
+        (async () => {
+          try {
+            const refreshed = await fetchFullLessonMerged(prev);
+            setSelectedLesson((cur: any) => {
+              if (!cur || cur.id !== targetId) return cur;
+              try {
+                sessionStorage.setItem("tct_active_lesson", JSON.stringify(refreshed));
+              } catch {}
+              return refreshed;
+            });
+          } catch {}
+        })();
+        return prev;
+      });
+    };
+
     const channelCourses = supabase
       .channel("student-offline-global-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "lessons" }, () =>
-        fetchAuthAndData(true)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "lessons" }, () => {
+        fetchAuthAndData(true);
+        refreshCurrentSelectedLesson();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "chapters" }, () =>
         fetchAuthAndData(true)
       )
-      .on("postgres_changes", { event: "*", schema: "public", table: "curriculum_data" }, () =>
-        fetchAuthAndData(true)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "curriculum_data" }, () => {
+        fetchAuthAndData(true);
+        refreshCurrentSelectedLesson();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "homeworks" }, () => {
         fetchAuthAndData(true);
-        setSelectedLesson((prev: any) => {
-          if (!prev?.id) return prev;
-          const targetId = prev.id;
-          (async () => {
-            try {
-              const { data } = await supabase
-                .from("homeworks")
-                .select("id, lesson_id, title, duration_minutes, is_quiz")
-                .eq("lesson_id", targetId);
-              if (Array.isArray(data)) {
-                setSelectedLesson((cur: any) => {
-                  if (!cur || cur.id !== targetId) return cur;
-                  const refreshed = { ...cur, homework_files: data };
-                  try {
-                    sessionStorage.setItem("tct_active_lesson", JSON.stringify(refreshed));
-                  } catch {}
-                  return refreshed;
-                });
-              }
-            } catch {}
-          })();
-          return prev;
-        });
+        refreshCurrentSelectedLesson();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () =>
         fetchAuthAndData(true)
@@ -1278,7 +1463,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("storage", handleStorageUpdated);
     };
-  }, [fetchAuthAndData, profile?.id, onLogout]);
+  }, [fetchAuthAndData, fetchFullLessonMerged, profile?.id, onLogout]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1442,7 +1627,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       setActiveTab("courses");
       if (item.quizId) {
         const foundLesson = findLessonByQuizId(item.quizId);
-        if (foundLesson) setSelectedLesson(foundLesson);
+        if (foundLesson) handleOpenLesson(foundLesson);
       }
     } else if (item.actionType === "new_hsa_practice") {
       setActiveTab("hsa_practice");
@@ -1660,6 +1845,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const getLessonCompletionStatus = useCallback(
     (lesson: any) => {
       const hwIds = (lesson.homework_files || [])
+        .filter((h: any) => h && h.is_quiz !== false && !h.is_drive_file)
         .map((h: any) => String(h.id || "").trim().toLowerCase())
         .filter(Boolean);
       const testIds = (lesson.test_quizzes || [])
@@ -1738,6 +1924,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     thptChapters.forEach((chap: any) => {
       (chap.lessons || []).forEach((les: any) => {
         (les.homework_files || []).forEach((hw: any) => {
+          if (!hw || hw.is_drive_file || hw.is_quiz === false) return;
           totalHw++;
           const att = findAttemptForLesson(hw, les.title, true);
           if (hasValidAttemptScore(att)) submittedHw++;
@@ -1800,7 +1987,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       const fallbackPeriod = `Tuần ${lesWeek} • Tháng ${lesMonth < 10 ? "0" + lesMonth : lesMonth}`;
 
       (les.homework_files || []).forEach((hw: any) => {
-        if (!hw) return;
+        if (!hw || hw.is_drive_file || hw.is_quiz === false) return;
         const att = findAttemptForLesson(hw, les.title, true);
         if (!hasValidAttemptScore(att)) {
           lessonTasks.push({
@@ -1992,26 +2179,12 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     }
 
     try {
-      const { data: lessonData } = await supabase
-        .from("lessons")
-        .select("lecture_files, handwritten_notes, test_quizzes, extra_resources, description")
-        .eq("id", les.id)
-        .maybeSingle();
-
-      const { data: hwData } = await supabase
-        .from("homeworks")
-        .select("id, lesson_id, title, duration_minutes, is_quiz")
-        .eq("lesson_id", les.id);
-
-      const fullLesson = {
-        ...les,
-        ...(lessonData || {}),
-        homework_files: hwData || []
-      };
-
+      const fullLesson = await fetchFullLessonMerged(les);
       setSelectedLesson(fullLesson);
       if (typeof window !== "undefined") {
-        sessionStorage.setItem("tct_active_lesson", JSON.stringify(fullLesson));
+        try {
+          sessionStorage.setItem("tct_active_lesson", JSON.stringify(fullLesson));
+        } catch {}
       }
     } catch (err) {
       console.error("Lỗi tải bài học:", err);
@@ -2627,7 +2800,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                           <div>
                             <div className="px-4 py-2 bg-[#F8FAFC]/80 border-b border-slate-100 flex items-center justify-between">
                               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                                BTVN & Kiểm tra (2 buổi học gần nhất)
+                                BTVN &amp; Kiểm tra (2 buổi học gần nhất)
                               </span>
                               <span className="text-[11px] font-semibold text-slate-400">
                                 {recentLessonTodoItems.length} bài chưa làm
@@ -2636,7 +2809,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
                             {recentLessonTodoItems.length === 0 ? (
                               <div className="px-4 py-3 text-xs text-slate-400">
-                                Bạn đã hoàn thành hết BTVN & bài kiểm tra của 2 buổi học gần nhất.
+                                Bạn đã hoàn thành hết BTVN &amp; bài kiểm tra của 2 buổi học gần
+                                nhất.
                               </div>
                             ) : (
                               <div className="divide-y divide-slate-100">
@@ -2751,7 +2925,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                               </div>
                               <div>
                                 <h3 className="text-sm font-bold text-slate-900">
-                                  Ôn thi THPT (Bài học & Luyện đề)
+                                  Ôn thi THPT (Bài học &amp; Luyện đề)
                                 </h3>
                                 <p className="text-xs text-slate-500">
                                   {thptChapters.length} chương • {thptPracticeExams.length} đề luyện
@@ -2772,7 +2946,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                             </div>
                             <p className="text-[11px] text-slate-500">
                               Hoàn thành {progressStats.completedTasks}/{progressStats.totalTasks}{" "}
-                              nhiệm vụ BTVN & Kiểm tra
+                              nhiệm vụ BTVN &amp; Kiểm tra
                             </p>
                           </div>
                         </div>
@@ -2852,7 +3026,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div>
                         <h2 className="text-base font-bold text-slate-900">
-                          Bài học & Kiểm tra THPT
+                          Bài học &amp; Kiểm tra THPT
                         </h2>
                         <p className="text-xs text-slate-500">
                           Toàn bộ chương trình học từ đầu năm đến hiện tại để bạn ôn tập và xem lại
@@ -2914,6 +3088,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                     const status = getLessonCompletionStatus(les);
                                     const docCount =
                                       (les.lecture_files?.length || 0) +
+                                      (les.handwritten_notes?.length || 0) +
+                                      (les.extra_resources?.length || 0) +
                                       (les.homework_files?.length || 0);
                                     const isLocked = Boolean(les.is_locked);
                                     const lesMonth = Number(les.assigned_month) || 10;
@@ -2938,7 +3114,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                             {les.title}
                                           </h4>
                                           <p className="text-xs text-slate-500">
-                                            {studyDate} • Tuần {lesWeek} • {docCount} tài liệu &
+                                            {studyDate} • Tuần {lesWeek} • {docCount} tài liệu &amp;
                                             BTVN
                                           </p>
                                         </div>
@@ -3126,7 +3302,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                         onClick={() => setWorkspacePracticeExam(exam)}
                                         className="px-3 py-2 bg-white hover:bg-[#F8FAFC] text-slate-700 rounded-lg border border-slate-200/90 text-xs font-semibold transition cursor-pointer shrink-0"
                                       >
-                                        Tài liệu & Chữa đề
+                                        Tài liệu &amp; Chữa đề
                                       </button>
                                       <button
                                         type="button"
@@ -3186,6 +3362,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                           const status = getLessonCompletionStatus(les);
                           const docCount =
                             (les.lecture_files?.length || 0) +
+                            (les.handwritten_notes?.length || 0) +
+                            (les.extra_resources?.length || 0) +
                             (les.homework_files?.length || 0);
                           const isLocked = Boolean(les.is_locked);
                           const lesMonth = Number(les.assigned_month) || 10;
@@ -3210,7 +3388,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                                   {les.title}
                                 </h4>
                                 <p className="text-xs text-slate-500">
-                                  {studyDate} • Tuần {lesWeek} • {docCount} tài liệu & BTVN
+                                  {studyDate} • Tuần {lesWeek} • {docCount} tài liệu &amp; BTVN
                                 </p>
                               </div>
 
@@ -3459,7 +3637,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
                           <div className="divide-y divide-slate-100">
                             {(chap.lessons || []).map((les: any, lIdx: number) => {
-                              const hwList = les.homework_files || [];
+                              const hwList = (les.homework_files || []).filter(
+                                (h: any) => h && h.is_quiz !== false && !h.is_drive_file
+                              );
                               const testList = les.test_quizzes || [];
                               const hwAttempt = findAttemptForLesson(hwList[0], les.title, true);
                               const testAttempt = findAttemptForLesson(
