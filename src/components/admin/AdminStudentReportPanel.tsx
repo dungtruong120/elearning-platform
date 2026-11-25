@@ -276,13 +276,235 @@ function detectIsHsaAttemptOrExam(att?: any, examMeta?: any): { isHsa: boolean; 
 
   const metaMax = Number(att?.answers?.__hsa_meta?.maxPossibleScore);
   if (!isNaN(metaMax) && metaMax >= 50) {
-    return { isHsa: true, maxScore: Math.min(150, metaMax) };
+    return { isHsa: true, maxScore: metaMax > 50 ? 150 : 50 };
   }
   const sc = Number(att?.score ?? att?.points ?? 0);
   if (sc > 50) return { isHsa: true, maxScore: 150 };
   const partsCount = Number(examMeta?.hsa_parts_count || 0);
-  if (partsCount > 0) return { isHsa: true, maxScore: Math.min(150, partsCount * 50) };
+  if (partsCount > 1) return { isHsa: true, maxScore: 150 };
   return { isHsa: true, maxScore: 50 };
+}
+
+function extractHsaPartKey(att: any): string | null {
+  const meta = att?.answers?.__hsa_meta;
+  if (meta?.partKey) return String(meta.partKey).trim().toLowerCase();
+  if (meta?.partId) return String(meta.partId).trim().toLowerCase();
+  if (meta?.partIndex !== undefined && meta?.partIndex !== null) {
+    return `part_${meta.partIndex}`;
+  }
+  if (meta?.sectionKey) return String(meta.sectionKey).trim().toLowerCase();
+
+  const titleNorm = normalizeText(
+    att?.examTitle || att?.exam_title || att?.quizTitle || att?.quiz_title || att?.title || ""
+  );
+  if (
+    titleNorm.includes("phần 1") ||
+    titleNorm.includes("phan 1") ||
+    titleNorm.includes("định lượng") ||
+    titleNorm.includes("dinh luong")
+  ) {
+    return "part_1";
+  }
+  if (
+    titleNorm.includes("phần 2") ||
+    titleNorm.includes("phan 2") ||
+    titleNorm.includes("định tính") ||
+    titleNorm.includes("dinh tinh")
+  ) {
+    return "part_2";
+  }
+  if (
+    titleNorm.includes("phần 3") ||
+    titleNorm.includes("phan 3") ||
+    titleNorm.includes("khoa học") ||
+    titleNorm.includes("khoa hoc") ||
+    titleNorm.includes("tiếng anh") ||
+    titleNorm.includes("tieng anh")
+  ) {
+    return "part_3";
+  }
+  return null;
+}
+
+function getAttemptTimestampMs(att: any): number {
+  const rawTime = att?.createdAt || att?.created_at || att?.submittedAt || att?.updated_at;
+  const ts = rawTime ? new Date(rawTime).getTime() : 0;
+  return isNaN(ts) ? 0 : ts;
+}
+
+/**
+ * TRA CỨU ĐIỂM THẬT CỦA 1 HỌC SINH CHO ĐÚNG 1 ĐỀ TRONG KHO ĐỀ (THPT HOẶC ĐGNL HSA).
+ * TRẢ VỀ null NẾU HỌC SINH CHƯA LÀM ĐỀ ĐÓ.
+ */
+function resolveStudentPracticeExamSummary(
+  exam: any,
+  stuAttempts: any[],
+  rowIdPrefix: string = "class-exam"
+): DailyPracticeExamSummaryItem | null {
+  if (!exam || !Array.isArray(stuAttempts) || stuAttempts.length === 0) return null;
+
+  const examIdRaw = String(exam.id || "").trim();
+  const examIdNorm = examIdRaw.toLowerCase();
+  const examTitleRaw = String(exam.title || "Đề luyện thi").trim();
+  const examTitleNorm = normalizeText(examTitleRaw);
+  const { isHsa } = detectIsHsaAttemptOrExam(undefined, exam);
+
+  const matchedAttempts = stuAttempts.filter((att: any) => {
+    if (!att) return false;
+    const isHw = Boolean(att.type === "homework" || att.isHomework || att.is_homework);
+    if (isHw) return false;
+
+    const rawScore = att.score ?? att.points;
+    if (rawScore === undefined || rawScore === null || String(rawScore).trim() === "") {
+      return false;
+    }
+    if (isNaN(Number(rawScore))) return false;
+
+    const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "")
+      .trim()
+      .toLowerCase();
+    const metaExamId = String(
+      att.answers?.__hsa_meta?.examId || att.answers?.__hsa_meta?.parentExamId || ""
+    )
+      .trim()
+      .toLowerCase();
+    const attTitleNorm = normalizeText(
+      att.examTitle || att.exam_title || att.quizTitle || att.quiz_title || att.title || ""
+    );
+
+    const idMatched =
+      Boolean(examIdNorm) &&
+      (attQuizId === examIdNorm ||
+        metaExamId === examIdNorm ||
+        (isHsa &&
+          (attQuizId.startsWith(`${examIdNorm}_`) || attQuizId.startsWith(`${examIdNorm}-`))));
+
+    const titleMatched =
+      Boolean(examTitleNorm) &&
+      Boolean(attTitleNorm) &&
+      (attTitleNorm === examTitleNorm ||
+        attTitleNorm.includes(examTitleNorm) ||
+        (examTitleNorm.length >= 6 && examTitleNorm.includes(attTitleNorm)));
+
+    return idMatched || titleMatched;
+  });
+
+  if (matchedAttempts.length === 0) return null;
+
+  const sortedByNewest = [...matchedAttempts].sort(
+    (a, b) => getAttemptTimestampMs(b) - getAttemptTimestampMs(a)
+  );
+
+  if (isHsa) {
+    // 1. Ưu tiên lượt thi tổng hợp/hoàn chỉnh mới nhất nếu có (tổng điểm > 50 hoặc đã làm >= 2 phần trong 1 lượt)
+    const completeCombinedAttempts = sortedByNewest.filter((att) => {
+      const sc = Number(att.score ?? att.points ?? 0);
+      const completedParts = att?.answers?.__hsa_meta?.completedParts;
+      const partScores = att?.answers?.__hsa_meta?.partScores;
+      const metaPartsLen = Array.isArray(completedParts)
+        ? completedParts.length
+        : partScores && typeof partScores === "object"
+          ? Object.keys(partScores).length
+          : 0;
+      return sc > 50 || metaPartsLen > 1;
+    });
+
+    if (completeCombinedAttempts.length > 0) {
+      const latestComplete = completeCombinedAttempts[0];
+      const sc = Number(latestComplete.score ?? latestComplete.points ?? 0);
+      const metaMax = Number(latestComplete?.answers?.__hsa_meta?.maxPossibleScore || 0);
+      const maxScore = sc > 50 || metaMax > 50 ? 150 : 50;
+
+      return {
+        id: `${rowIdPrefix}-${examIdRaw}`,
+        title: examTitleRaw,
+        isHsa: true,
+        score: Number(sc.toFixed(1)),
+        maxScore,
+        completedDate: formatDateDDMMYYYY(
+          latestComplete.createdAt || latestComplete.created_at || Date.now()
+        )
+      };
+    }
+
+    // 2. Nếu học sinh nộp riêng từng phần của cùng 1 đề HSA -> tự động cộng điểm các phần khác nhau
+    const latestByPart = new Map<string, any>();
+    for (const att of sortedByNewest) {
+      const pKey = extractHsaPartKey(att);
+      if (pKey && !latestByPart.has(pKey)) {
+        latestByPart.set(pKey, att);
+      }
+    }
+
+    if (latestByPart.size > 1) {
+      let totalScore = 0;
+      let latestTs = 0;
+      latestByPart.forEach((att) => {
+        totalScore += Number(att.score ?? att.points ?? 0);
+        latestTs = Math.max(latestTs, getAttemptTimestampMs(att));
+      });
+      const finalScore = Math.min(150, totalScore);
+      const maxScore = finalScore > 50 || latestByPart.size >= 3 ? 150 : 50;
+
+      return {
+        id: `${rowIdPrefix}-${examIdRaw}`,
+        title: examTitleRaw,
+        isHsa: true,
+        score: Number(finalScore.toFixed(1)),
+        maxScore,
+        completedDate: formatDateDDMMYYYY(latestTs || Date.now())
+      };
+    }
+
+    // 3. Trường hợp làm 1 phần / 1 lượt thi HSA -> lấy lượt mới nhất
+    const latestAttempt = sortedByNewest[0];
+    const sc = Number(latestAttempt.score ?? latestAttempt.points ?? 0);
+    const metaMax = Number(latestAttempt?.answers?.__hsa_meta?.maxPossibleScore || 0);
+    const maxScore = sc > 50 || metaMax > 50 ? 150 : 50;
+
+    return {
+      id: `${rowIdPrefix}-${examIdRaw}`,
+      title: examTitleRaw,
+      isHsa: true,
+      score: Number(sc.toFixed(1)),
+      maxScore,
+      completedDate: formatDateDDMMYYYY(
+        latestAttempt.createdAt || latestAttempt.created_at || Date.now()
+      )
+    };
+  }
+
+  // Đề THPT thông thường -> lấy điểm cao nhất (thang 10)
+  let bestAttempt = sortedByNewest[0];
+  let bestScore = Number(bestAttempt.score ?? bestAttempt.points ?? 0);
+
+  for (const att of sortedByNewest) {
+    const sc = Number(att.score ?? att.points ?? 0);
+    if (sc > bestScore) {
+      bestScore = sc;
+      bestAttempt = att;
+    }
+  }
+
+  return {
+    id: `${rowIdPrefix}-${examIdRaw}`,
+    title: examTitleRaw,
+    isHsa: false,
+    score: Number(bestScore.toFixed(1)),
+    maxScore: 10,
+    completedDate: formatDateDDMMYYYY(bestAttempt.createdAt || bestAttempt.created_at || Date.now())
+  };
+}
+
+function getExamBadgeText(exam: any): { isHsa: boolean; label: string } {
+  const { isHsa } = detectIsHsaAttemptOrExam(undefined, exam);
+  if (!isHsa) {
+    return { isHsa: false, label: "THPT • 10đ" };
+  }
+  const partsCount = Number(exam?.hsa_parts_count || 0);
+  if (partsCount === 1) return { isHsa: true, label: "ĐGNL HSA • 50đ" };
+  if (partsCount >= 3) return { isHsa: true, label: "ĐGNL HSA • 150đ" };
+  return { isHsa: true, label: "ĐGNL HSA • 50đ/150đ" };
 }
 
 function formatAttemptTimestampShort(rawDate: any): string {
@@ -1405,7 +1627,14 @@ export function generateVirtualOMRSheet(
       const stuKey = qMeta.p1StudentKey || "";
       const corKey = qMeta.p1CorrectKey || "";
       ["A", "B", "C", "D"].forEach((optKey) => {
-        const pos = getCanonicalBubblePosition(1, qMeta.localNum, optKey, undefined, undefined, blueprint);
+        const pos = getCanonicalBubblePosition(
+          1,
+          qMeta.localNum,
+          optKey,
+          undefined,
+          undefined,
+          blueprint
+        );
         if (stuKey && optKey === stuKey) {
           bubbleCoordinates.push({
             id: `p1_q${qMeta.localNum}_${optKey}`,
@@ -1469,6 +1698,15 @@ export default function AdminStudentReportPanel({
   >("all");
   const [includeCoverSummaryPage, setIncludeCoverSummaryPage] = useState<boolean>(true);
 
+  // GIÁO VIÊN CHỦ ĐỘNG CHỌN CÁC ĐỀ LUYỆN THI / ĐGNL HSA ĐƯA VÀO BÁO CÁO CHO CẢ LỚP (MẶC ĐỊNH RỖNG [])
+  const [selectedReportExamIds, setSelectedReportExamIds] = useState<string[]>([]);
+  const [showReportExamSelectorModal, setShowReportExamSelectorModal] = useState<boolean>(false);
+  const [reportExamSearch, setReportExamSearch] = useState<string>("");
+
+  // MODAL CHỌN ĐỀ RIÊNG TỪ KHO ĐỀ CHO TỪNG HỌC SINH
+  const [showStudentExamPickerModal, setShowStudentExamPickerModal] = useState<boolean>(false);
+  const [studentExamPickerSearch, setStudentExamPickerSearch] = useState<string>("");
+
   const [selectedAttemptIdOverride, setSelectedAttemptIdOverride] = useState<string | null>(null);
 
   const [cachedExamsMap, setCachedExamsMap] = useState<Record<string, any>>(() => ({
@@ -1491,6 +1729,7 @@ export default function AdminStudentReportPanel({
         teacherComment?: string;
         homeworkStatus?: "completed" | "missing" | "late";
         practiceExamList?: DailyPracticeExamSummaryItem[];
+        removedClassExamIds?: string[];
         exportPages?: 1 | 2;
       }
     >
@@ -2195,8 +2434,49 @@ export default function AdminStudentReportPanel({
     autoPreviousHomeworkSource
   ]);
 
+  // MAP KHO ĐỀ LUYỆN THI THEO ID ĐỂ TRA CỨU NHANH
+  const practiceExamsById = useMemo(() => {
+    const map = new Map<string, any>();
+    (practiceExams || []).forEach((pe: any) => {
+      if (!pe) return;
+      const id = String(pe.id || "").trim();
+      if (id) map.set(id, pe);
+    });
+    return map;
+  }, [practiceExams]);
+
+  const selectedReportExamObjects = useMemo(() => {
+    return selectedReportExamIds
+      .map((id) => practiceExamsById.get(id))
+      .filter(Boolean);
+  }, [selectedReportExamIds, practiceExamsById]);
+
+  const filteredClassReportExams = useMemo(() => {
+    const q = normalizeText(reportExamSearch);
+    return (practiceExams || []).filter((pe: any) => {
+      if (!pe) return false;
+      if (!q) return true;
+      const t = normalizeText(pe.title || "");
+      const c = normalizeText(pe.category || "");
+      return t.includes(q) || c.includes(q);
+    });
+  }, [practiceExams, reportExamSearch]);
+
+  const handleToggleReportExamId = useCallback((examId: string) => {
+    const cleanId = String(examId || "").trim();
+    if (!cleanId) return;
+
+    setSelectedReportExamIds((prev) => {
+      const exists = prev.includes(cleanId);
+      if (exists) {
+        return prev.filter((id) => id !== cleanId);
+      }
+      return [...prev, cleanId];
+    });
+  }, []);
+
   /**
-   * ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (MẶC ĐỊNH 1 TRANG A4 + ĐỒNG BỘ DANH SÁCH LUYỆN ĐỀ THPT & ĐGNL HSA)
+   * ENGINE TÍNH ĐIỂM BÁO CÁO NGÀY (MẶC ĐỊNH 1 TRANG A4 + CHỈ TRA CỨU ĐÚNG CÁC ĐỀ GIÁO VIÊN ĐÃ CHỌN)
    */
   const computeStudentDailyScoreRecord = useCallback(
     (
@@ -2235,7 +2515,6 @@ export default function AdminStudentReportPanel({
 
       let bestHwAttempt: any = null;
       const candidateDailyTestAttempts: any[] = [];
-      const practiceBestByQuizKey = new Map<string, DailyPracticeExamSummaryItem>();
 
       const currentSessionTestTitles = new Set<string>();
       currentSessionLessons.forEach((m) => {
@@ -2312,27 +2591,42 @@ export default function AdminStudentReportPanel({
         if (isValidDailyTest) {
           candidateDailyTestAttempts.push(att);
         }
-
-        // Gom toàn bộ Đề luyện thi THPT & ĐGNL HSA trong tháng hiện tại vào mảng practiceExamList
-        const isPracticeCandidate = !isHw && !isValidDailyTest && !meta?.isTest && month === dailyMonth;
-        if (isPracticeCandidate && !isNaN(sc)) {
-          const { isHsa, maxScore } = detectIsHsaAttemptOrExam(att, meta?.rawObj);
-          const dedupKey = qId || qTitle || String(att.id || Math.random());
-          const prev = practiceBestByQuizKey.get(dedupKey);
-          const prevScoreNum = prev ? Number(prev.score) : -1;
-
-          if (!prev || sc >= prevScoreNum) {
-            practiceBestByQuizKey.set(dedupKey, {
-              id: String(att.id || dedupKey),
-              title: rawTitle || (isHsa ? "Đề thi thử ĐGNL HSA" : "Đề luyện thi THPT"),
-              isHsa,
-              score: Number(sc.toFixed(1)),
-              maxScore,
-              completedDate: formatDateDDMMYYYY(att.createdAt || att.created_at || Date.now())
-            });
-          }
-        }
       });
+
+      // CHỈ TRA CỨU ĐIỂM THẬT CHO ĐÚNG CÁC ĐỀ GIÁO VIÊN ĐÃ CHỌN TRONG `selectedReportExamIds`
+      const ov = dailyStudentOverrides[stuId] || {};
+      const removedClassSet = new Set(ov.removedClassExamIds || []);
+      const selectedClassRowIdsSet = new Set(
+        selectedReportExamIds.map((id) => `class-exam-${id}`)
+      );
+
+      const autoSelectedPracticeList: DailyPracticeExamSummaryItem[] = [];
+      for (const examId of selectedReportExamIds) {
+        if (removedClassSet.has(examId)) continue;
+        const examObj = practiceExamsById.get(examId);
+        if (!examObj) continue;
+        const resolved = resolveStudentPracticeExamSummary(examObj, stuAttempts, "class-exam");
+        // Nếu học sinh CHƯA LÀM đề đó -> bỏ qua, không chèn dòng điểm giả
+        if (resolved) {
+          autoSelectedPracticeList.push(resolved);
+        }
+      }
+
+      let finalPracticeExamList: DailyPracticeExamSummaryItem[] = autoSelectedPracticeList;
+      if (ov.practiceExamList !== undefined) {
+        // Giữ lại các dòng thủ công / đã chỉnh sửa của học sinh, lọc bỏ đề lớp đã bị giáo viên bỏ tích
+        const keptRows = ov.practiceExamList.filter((item) => {
+          if (item.id.startsWith("class-exam-")) {
+            return selectedClassRowIdsSet.has(item.id);
+          }
+          return true;
+        });
+        const existingIds = new Set(keptRows.map((item) => item.id));
+        const newlyAddedClassRows = autoSelectedPracticeList.filter(
+          (item) => !existingIds.has(item.id)
+        );
+        finalPracticeExamList = [...keptRows, ...newlyAddedClassRows];
+      }
 
       const sortedTestAttemptOptions: CandidateAttemptOption[] = candidateDailyTestAttempts
         .map((att: any, idx: number) => {
@@ -2384,8 +2678,6 @@ export default function AdminStudentReportPanel({
         ? String(student.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6)
         : dirInfo?.sbd || "000001";
 
-      const ov = dailyStudentOverrides[stuId] || {};
-
       const hwScore =
         ov.homeworkScore !== undefined
           ? ov.homeworkScore.trim() === ""
@@ -2403,10 +2695,6 @@ export default function AdminStudentReportPanel({
           : bestDailyTestAttempt
             ? Number(bestDailyTestAttempt.score ?? bestDailyTestAttempt.points ?? 0)
             : null;
-
-      const autoPracticeExamList = Array.from(practiceBestByQuizKey.values());
-      const finalPracticeExamList =
-        ov.practiceExamList !== undefined ? ov.practiceExamList : autoPracticeExamList;
 
       // Câu nhận xét tự động súc tích, tự nhiên, không dính tiền tố chương trùng lặp
       const defaultComment =
@@ -2488,7 +2776,9 @@ export default function AdminStudentReportPanel({
       dailyWeek,
       dailyStudentOverrides,
       overrideTopicTitle,
-      autoSyncedTopicTitle
+      autoSyncedTopicTitle,
+      selectedReportExamIds,
+      practiceExamsById
     ]
   );
 
@@ -2614,35 +2904,106 @@ export default function AdminStudentReportPanel({
     selectedAttemptIdOverride
   ]);
 
+  // LẤY TOÀN BỘ LƯỢT NỘP CỦA HỌC SINH HIỆN TẠI ĐỂ PHỤC VỤ MODAL "+ CHỌN TỪ KHO ĐỀ"
+  const currentStudentAttemptsForPicker = useMemo(() => {
+    if (!currentStudent) return [];
+    const stuId = String(currentStudent.id || "").trim();
+    const stuName = normalizeText(currentStudent.full_name || currentStudent.name || "");
+    const dirInfo = sbdDirectoryMap.get(stuId);
+    const fixedSbd =
+      (currentStudent.sbd
+        ? String(currentStudent.sbd).replace(/\D/g, "").padStart(6, "0").slice(-6)
+        : dirInfo?.sbd) || "";
+
+    return combinedAllAttempts.filter((att: any) => {
+      if (!att) return false;
+      const aStuId = String(att.studentId || att.student_id || att.user_id || "").trim();
+      const aStuName = normalizeText(att.studentName || att.student_name || att.full_name || "");
+      const aSbd = String(
+        att.omr_raw_data?.detected_sbd ||
+          att.answers?.__paper_omr_meta?.detected_sbd ||
+          att.sbd ||
+          att.detected_sbd ||
+          ""
+      ).trim();
+      return (
+        (stuId && aStuId === stuId) ||
+        (stuName && aStuName === stuName) ||
+        (fixedSbd && fixedSbd !== "000001" && aSbd === fixedSbd)
+      );
+    });
+  }, [currentStudent, combinedAllAttempts, sbdDirectoryMap]);
+
+  const filteredStudentPickerExams = useMemo(() => {
+    const q = normalizeText(studentExamPickerSearch);
+    return (practiceExams || []).filter((pe: any) => {
+      if (!pe) return false;
+      if (!q) return true;
+      const t = normalizeText(pe.title || "");
+      const c = normalizeText(pe.category || "");
+      return t.includes(q) || c.includes(q);
+    });
+  }, [practiceExams, studentExamPickerSearch]);
+
   const handleUpdateStudentPracticeList = (
     studentId: string,
-    updater: (list: DailyPracticeExamSummaryItem[]) => DailyPracticeExamSummaryItem[]
+    updater: (list: DailyPracticeExamSummaryItem[]) => DailyPracticeExamSummaryItem[],
+    removedClassExamId?: string
   ) => {
-    const baseList =
-      dailyStudentOverrides[studentId]?.practiceExamList ??
-      currentStudentDailyData?.practiceExamList ??
-      [];
-    setDailyStudentOverrides((prev) => ({
-      ...prev,
-      [studentId]: {
-        ...(prev[studentId] || {}),
-        practiceExamList: updater(baseList)
-      }
-    }));
+    const baseList = currentStudentDailyData?.practiceExamList ?? [];
+    setDailyStudentOverrides((prev) => {
+      const prevStu = prev[studentId] || {};
+      const nextRemoved = removedClassExamId
+        ? Array.from(new Set([...(prevStu.removedClassExamIds || []), removedClassExamId]))
+        : prevStu.removedClassExamIds;
+      return {
+        ...prev,
+        [studentId]: {
+          ...prevStu,
+          practiceExamList: updater(baseList),
+          removedClassExamIds: nextRemoved
+        }
+      };
+    });
   };
 
-  const handleAddDailyPracticeRow = (studentId: string, isHsa: boolean) => {
+  // THÊM DÒNG TRỐNG NHẬP TAY CHO TỪNG HỌC SINH (KHI CHẤM NGOÀI GIẤY)
+  const handleAddManualBlankPracticeRow = (studentId: string) => {
     handleUpdateStudentPracticeList(studentId, (list) => [
       ...list,
       {
-        id: `daily-prac-${Date.now()}`,
-        title: isHsa ? "Đề thi thử ĐGNL HSA" : "Đề luyện thi THPT",
-        isHsa,
-        score: isHsa ? 40 : 8.5,
-        maxScore: isHsa ? 50 : 10,
+        id: `manual-prac-${Date.now()}`,
+        title: "",
+        isHsa: false,
+        score: "",
+        maxScore: 10,
         completedDate: customDateStr
       }
     ]);
+  };
+
+  // CHỌN THÊM 1 ĐỀ CÓ SẴN TỪ KHO ĐỀ CHO HỌC SINH HIỆN TẠI VÀ TỰ ĐỘNG KÉO ĐIỂM THẬT NẾU ĐÃ LÀM
+  const handlePickExistingExamForStudent = (studentId: string, exam: any) => {
+    if (!exam) return;
+    const resolvedReal = resolveStudentPracticeExamSummary(
+      exam,
+      currentStudentAttemptsForPicker,
+      `student-exam-${Date.now()}`
+    );
+    const { isHsa, maxScore } = detectIsHsaAttemptOrExam(undefined, exam);
+
+    const newRow: DailyPracticeExamSummaryItem = resolvedReal || {
+      id: `student-exam-${Date.now()}-${String(exam.id || "")}`,
+      title: String(exam.title || "Đề luyện thi").trim(),
+      isHsa,
+      score: "",
+      maxScore,
+      completedDate: customDateStr
+    };
+
+    handleUpdateStudentPracticeList(studentId, (list) => [...list, newRow]);
+    setShowStudentExamPickerModal(false);
+    setStudentExamPickerSearch("");
   };
 
   const handleExportClassDailyPDF = (onlyCurrentStudent: boolean = false) => {
@@ -3697,7 +4058,7 @@ export default function AdminStudentReportPanel({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 pt-2 border-t border-slate-100 items-end">
-            <div className="md:col-span-8">
+            <div className="md:col-span-5">
               <label className="block text-[11px] font-semibold text-slate-600 mb-1 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-[#1D4ED8]" />
                 <span>Bài BTVN đối soát trong buổi học:</span>
@@ -3725,7 +4086,28 @@ export default function AdminStudentReportPanel({
               </select>
             </div>
 
-            <div className="md:col-span-4 flex items-center justify-end">
+            <div className="md:col-span-4">
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1 flex items-center gap-1">
+                <Award className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                <span>Đề Luyện thi / ĐGNL HSA cho cả lớp:</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowReportExamSelectorModal(true)}
+                className={`w-full px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center justify-between gap-2 cursor-pointer ${
+                  selectedReportExamIds.length > 0
+                    ? "bg-blue-50 border-[#1D4ED8] text-[#1D4ED8]"
+                    : "bg-[#F8FAFC] border-slate-200 hover:border-[#1D4ED8] text-slate-700"
+                }`}
+              >
+                <span className="truncate">
+                  + Chọn đề Luyện thi / ĐGNL HSA đưa vào báo cáo ({selectedReportExamIds.length} đề)
+                </span>
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+              </button>
+            </div>
+
+            <div className="md:col-span-3 flex items-center md:justify-end pb-1">
               <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer">
                 <input
                   type="checkbox"
@@ -3737,6 +4119,44 @@ export default function AdminStudentReportPanel({
               </label>
             </div>
           </div>
+
+          {/* CÁC THẺ PILL HIỂN THỊ ĐỀ ĐANG ĐƯỢC CHỌN CHO CẢ LỚP */}
+          {selectedReportExamObjects.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+              <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                Đang đồng bộ điểm ({selectedReportExamObjects.length} đề):
+              </span>
+              {selectedReportExamObjects.map((exam: any) => {
+                const badge = getExamBadgeText(exam);
+                return (
+                  <span
+                    key={exam.id}
+                    className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-[11px] font-semibold text-[#003399]"
+                  >
+                    <span className="max-w-[220px] truncate">{exam.title}</span>
+                    <span className="px-1.5 py-0.2 rounded bg-white border border-blue-200 text-[10px] font-bold text-[#1D4ED8]">
+                      {badge.label}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleReportExamId(String(exam.id))}
+                      className="p-0.5 rounded-full hover:bg-blue-200/70 text-[#1D4ED8] cursor-pointer"
+                      title="Bỏ chọn đề này"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setSelectedReportExamIds([])}
+                className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 ml-1 cursor-pointer"
+              >
+                Bỏ chọn tất cả
+              </button>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -3764,7 +4184,8 @@ export default function AdminStudentReportPanel({
             </div>
 
             <div className="text-[11px] text-slate-500 font-semibold">
-              BTVN đối soát: <strong className="text-slate-800">{effectiveHomeworkTarget.displayTitle}</strong>
+              BTVN đối soát:{" "}
+              <strong className="text-slate-800">{effectiveHomeworkTarget.displayTitle}</strong>
             </div>
           </div>
         </div>
@@ -3967,9 +4388,7 @@ export default function AdminStudentReportPanel({
                       }}
                       className="px-2.5 py-1 rounded-lg bg-white border border-blue-300 text-xs font-bold text-blue-900 outline-none cursor-pointer"
                     >
-                      <option value="">
-                        Điểm cao nhất: {bestCandidateAttempt.score}đ
-                      </option>
+                      <option value="">Điểm cao nhất: {bestCandidateAttempt.score}đ</option>
                       {availableTestAttemptsForCurrent.map((attOpt, idx) => (
                         <option key={`${attOpt.id}_${idx}`} value={attOpt.id}>
                           Lần nộp lúc {attOpt.createdAtText}: {attOpt.score}đ
@@ -4049,9 +4468,7 @@ export default function AdminStudentReportPanel({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
-                    <span className="text-[11px] font-bold text-slate-600">
-                      Ý thức làm BTVN:
-                    </span>
+                    <span className="text-[11px] font-bold text-slate-600">Ý thức làm BTVN:</span>
                     <div className="flex items-center gap-1.5">
                       {[
                         { key: "completed", label: "Hoàn thành đầy đủ" },
@@ -4086,7 +4503,7 @@ export default function AdminStudentReportPanel({
                   </div>
                 </div>
 
-                {/* BẢNG LUYỆN ĐỀ (THPT & ĐGNL HSA) TRONG KỲ — CHO PHÉP CHỈNH SỬA / THÊM / XÓA */}
+                {/* BẢNG LUYỆN ĐỀ (THPT & ĐGNL HSA) TRONG KỲ — CHỌN TỪ KHO ĐỀ HOẶC NHẬP TAY */}
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-xs font-bold uppercase text-slate-800 flex items-center gap-1.5">
@@ -4096,21 +4513,19 @@ export default function AdminStudentReportPanel({
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() =>
-                          handleAddDailyPracticeRow(currentStudentDailyData.studentId, false)
-                        }
-                        className="px-2.5 py-1 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                        onClick={() => setShowStudentExamPickerModal(true)}
+                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
                       >
-                        <Plus className="w-3 h-3 text-[#1D4ED8]" /> Thêm đề THPT
+                        <Plus className="w-3 h-3" /> Chọn từ kho đề
                       </button>
                       <button
                         type="button"
                         onClick={() =>
-                          handleAddDailyPracticeRow(currentStudentDailyData.studentId, true)
+                          handleAddManualBlankPracticeRow(currentStudentDailyData.studentId)
                         }
-                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                        className="px-2.5 py-1 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
                       >
-                        <Plus className="w-3 h-3" /> Thêm đề HSA
+                        <Plus className="w-3 h-3 text-[#1D4ED8]" /> Nhập tay
                       </button>
                     </div>
                   </div>
@@ -4131,7 +4546,9 @@ export default function AdminStudentReportPanel({
                         currentStudentDailyData.practiceExamList.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="py-5 text-center text-slate-400 italic text-xs">
-                              Học sinh chưa có điểm đề THPT / ĐGNL HSA trong kỳ (bảng này sẽ tự động ẩn trên phiếu in).
+                              {selectedReportExamIds.length === 0
+                                ? "Chưa chọn đề Luyện thi / ĐGNL HSA cho kỳ báo cáo (bảng này sẽ tự động ẩn trên phiếu in)."
+                                : "Học sinh chưa làm các đề đã chọn ở trên (tự động bỏ qua, bảng này sẽ ẩn trên phiếu in)."}
                             </td>
                           </tr>
                         ) : (
@@ -4141,6 +4558,7 @@ export default function AdminStudentReportPanel({
                                 <input
                                   type="text"
                                   value={item.title}
+                                  placeholder="Nhập tên đề thi..."
                                   onChange={(e) =>
                                     handleUpdateStudentPracticeList(
                                       currentStudentDailyData.studentId,
@@ -4202,6 +4620,7 @@ export default function AdminStudentReportPanel({
                                     type="number"
                                     step="0.1"
                                     value={item.score}
+                                    placeholder="--"
                                     onChange={(e) =>
                                       handleUpdateStudentPracticeList(
                                         currentStudentDailyData.studentId,
@@ -4241,12 +4660,17 @@ export default function AdminStudentReportPanel({
                               <td className="py-2 px-2 text-center">
                                 <button
                                   type="button"
-                                  onClick={() =>
+                                  onClick={() => {
+                                    const classPrefix = "class-exam-";
+                                    const removedClassId = item.id.startsWith(classPrefix)
+                                      ? item.id.slice(classPrefix.length)
+                                      : undefined;
                                     handleUpdateStudentPracticeList(
                                       currentStudentDailyData.studentId,
-                                      (list) => list.filter((r) => r.id !== item.id)
-                                    )
-                                  }
+                                      (list) => list.filter((r) => r.id !== item.id),
+                                      removedClassId
+                                    );
+                                  }}
                                   className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -4700,6 +5124,233 @@ export default function AdminStudentReportPanel({
 
           <div className="pt-2 border-t border-slate-200 text-center text-[11px] font-bold text-slate-500">
             {TCT_BRANDING_FOOTER_TEXT}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHỌN ĐỀ LUYỆN THI / ĐGNL HSA CHO CẢ LỚP */}
+      {showReportExamSelectorModal && (
+        <div
+          onClick={() => setShowReportExamSelectorModal(false)}
+          className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-5 bg-slate-950/60 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full max-w-2xl rounded-2xl border border-slate-200 flex flex-col max-h-[82vh] overflow-hidden text-left"
+          >
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-[#F8FAFC]">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Chọn đề Luyện thi / ĐGNL HSA đưa vào báo cáo ({selectedReportExamIds.length} đề)
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Hệ thống sẽ chỉ kéo điểm thật của các đề bạn tích chọn. Học sinh chưa làm đề nào sẽ tự động bỏ qua.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReportExamSelectorModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 border-b border-slate-100 flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={reportExamSearch}
+                  onChange={(e) => setReportExamSearch(e.target.value)}
+                  placeholder="Tìm nhanh tên đề THPT hoặc ĐGNL HSA..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-[#F8FAFC] border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-[#1D4ED8] focus:bg-white"
+                />
+              </div>
+              {selectedReportExamIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedReportExamIds([])}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer shrink-0"
+                >
+                  Bỏ chọn tất cả
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar">
+              {filteredClassReportExams.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs italic">
+                  Không tìm thấy đề nào trong kho đề luyện thi.
+                </div>
+              ) : (
+                filteredClassReportExams.map((exam: any) => {
+                  const examId = String(exam.id || "").trim();
+                  const isChecked = selectedReportExamIds.includes(examId);
+                  const badge = getExamBadgeText(exam);
+
+                  return (
+                    <div
+                      key={examId}
+                      onClick={() => handleToggleReportExamId(examId)}
+                      className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${
+                        isChecked
+                          ? "bg-blue-50/80 border-[#1D4ED8]"
+                          : "bg-white border-slate-200 hover:bg-[#F8FAFC]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {isChecked ? (
+                          <CheckSquare className="w-4 h-4 text-[#1D4ED8] shrink-0" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-300 shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-slate-800 truncate">
+                            {exam.title || "Đề luyện thi"}
+                          </div>
+                          {exam.category && (
+                            <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                              {exam.category}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 border ${
+                          badge.isHsa
+                            ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                            : "bg-slate-100 text-slate-700 border-slate-200"
+                        }`}
+                      >
+                        [{badge.label}]
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-3 border-t border-slate-100 bg-[#F8FAFC] flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-600">
+                Đã chọn <strong className="text-[#003399]">{selectedReportExamIds.length}</strong> đề
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowReportExamSelectorModal(false)}
+                className="px-4 py-1.5 rounded-lg bg-[#003399] hover:bg-blue-800 text-white text-xs font-bold cursor-pointer"
+              >
+                Xong &amp; Đồng bộ điểm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHỌN ĐỀ RIÊNG TỪ KHO ĐỀ CHO TỪNG HỌC SINH */}
+      {showStudentExamPickerModal && currentStudentDailyData && (
+        <div
+          onClick={() => setShowStudentExamPickerModal(false)}
+          className="fixed inset-0 z-[115] flex items-center justify-center p-3 sm:p-5 bg-slate-950/60 backdrop-blur-xs"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full max-w-2xl rounded-2xl border border-slate-200 flex flex-col max-h-[82vh] overflow-hidden text-left"
+          >
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-[#F8FAFC]">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Chọn đề từ kho cho em {currentStudentDailyData.studentName}
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Tự động kéo điểm thật nếu học sinh đã nộp bài trên hệ thống, hoặc thêm dòng để nhập điểm chấm giấy.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStudentExamPickerModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 border-b border-slate-100">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={studentExamPickerSearch}
+                  onChange={(e) => setStudentExamPickerSearch(e.target.value)}
+                  placeholder="Tìm tên đề THPT hoặc ĐGNL HSA..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-[#F8FAFC] border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-[#1D4ED8] focus:bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar">
+              {filteredStudentPickerExams.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs italic">
+                  Không tìm thấy đề phù hợp trong kho đề.
+                </div>
+              ) : (
+                filteredStudentPickerExams.map((exam: any) => {
+                  const examId = String(exam.id || "").trim();
+                  const badge = getExamBadgeText(exam);
+                  const previewScore = resolveStudentPracticeExamSummary(
+                    exam,
+                    currentStudentAttemptsForPicker,
+                    "preview"
+                  );
+
+                  return (
+                    <div
+                      key={examId}
+                      onClick={() =>
+                        handlePickExistingExamForStudent(currentStudentDailyData.studentId, exam)
+                      }
+                      className="p-3 rounded-xl border border-slate-200 bg-white hover:border-[#1D4ED8] hover:bg-blue-50/40 transition cursor-pointer flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-xs text-slate-800 truncate">
+                          {exam.title || "Đề luyện thi"}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
+                              badge.isHsa
+                                ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                                : "bg-slate-100 text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            [{badge.label}]
+                          </span>
+                          {exam.category && (
+                            <span className="text-[11px] text-slate-500 truncate">
+                              {exam.category}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        {previewScore ? (
+                          <span className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-[#003399] font-bold text-xs">
+                            {previewScore.score}/{previewScore.maxScore}
+                            {previewScore.isHsa ? "đ" : ""}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-500 font-semibold text-[11px]">
+                            Chưa làm
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
