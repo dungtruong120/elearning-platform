@@ -33,10 +33,14 @@ import {
   Eye,
   Lock,
   GraduationCap,
-  Calendar
+  Calendar,
+  RefreshCw
 } from "lucide-react";
 
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
+
+const DASHBOARD_CACHE_KEY = "tct_dashboard_cache_v1";
+const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 phút
 
 export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong" | "hsa";
 
@@ -520,6 +524,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   });
 
   const [isTabChanging, setIsTabChanging] = useState<boolean>(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState<boolean>(false);
 
   const setActiveTab = useCallback(
     (newTab: string) => {
@@ -546,6 +551,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [chapters, setChapters] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
+        const sessionRaw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+        if (sessionRaw) {
+          const parsedSession = JSON.parse(sessionRaw);
+          if (Array.isArray(parsedSession?.chapters) && parsedSession.chapters.length > 0) {
+            return parsedSession.chapters;
+          }
+        }
         const saved = localStorage.getItem("edunexus_course_data");
         if (saved) return JSON.parse(saved);
       } catch {}
@@ -566,6 +578,13 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   const [practiceExams, setPracticeExams] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
+        const sessionRaw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+        if (sessionRaw) {
+          const parsedSession = JSON.parse(sessionRaw);
+          if (Array.isArray(parsedSession?.practiceExams)) {
+            return parsedSession.practiceExams;
+          }
+        }
         const saved = localStorage.getItem("edunexus_practice_exams");
         if (saved) return JSON.parse(saved);
       } catch {}
@@ -575,6 +594,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
   const [isLoadingExams, setIsLoadingExams] = useState<boolean>(() => {
     if (typeof window !== "undefined") {
+      const sessionRaw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+      if (sessionRaw) return false;
       const saved = localStorage.getItem("edunexus_practice_exams");
       return !saved;
     }
@@ -659,6 +680,32 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       (Array.isArray(examObj.sections) && examObj.sections.length > 0);
     if (hasLoaded) return examObj;
 
+    // Kiểm tra cache đề thi theo quizId trong localStorage trước khi gọi Supabase
+    if (typeof window !== "undefined") {
+      try {
+        const cachedRaw = localStorage.getItem(`tct_exam_cache_${examObj.id}`);
+        if (cachedRaw) {
+          const parsed = JSON.parse(cachedRaw);
+          if (
+            parsed &&
+            ((Array.isArray(parsed.data) && parsed.data.length > 0) ||
+              (Array.isArray(parsed.sections) && parsed.sections.length > 0))
+          ) {
+            const enriched = {
+              ...examObj,
+              ...parsed,
+              data: parsed.data || parsed.sections || [],
+              sections: parsed.sections || parsed.data || []
+            };
+            setPracticeExams((prev) =>
+              prev.map((item) => (String(item?.id) === String(examObj.id) ? enriched : item))
+            );
+            return enriched;
+          }
+        }
+      } catch {}
+    }
+
     try {
       const { data: row } = await supabase
         .from("practice_exams")
@@ -673,6 +720,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           data: row.data || examObj.data || [],
           sections: row.data || examObj.sections || []
         };
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(`tct_exam_cache_${examObj.id}`, JSON.stringify(enriched));
+          } catch {}
+        }
         setPracticeExams((prev) =>
           prev.map((item) => (String(item?.id) === String(examObj.id) ? enriched : item))
         );
@@ -684,336 +736,417 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     return examObj;
   }, []);
 
-  const fetchAuthAndData = useCallback(async () => {
-    if (profile?.id) {
-      try {
-        const { data: freshProfile } = await supabase
-          .from("profiles")
-          .select(
-            "id, student_code, full_name, email, phone, school, grade, role, learning_mode, status, approval_status, is_approved"
-          )
-          .eq("id", profile.id)
-          .maybeSingle();
-
-        if (freshProfile) {
-          const isLocked =
-            freshProfile.status === "rejected" ||
-            freshProfile.status === "locked" ||
-            freshProfile.approval_status === "rejected" ||
-            freshProfile.is_approved === false;
-
-          if (isLocked) {
-            localStorage.removeItem("tct_current_user");
-            localStorage.removeItem("edunexus_current_user");
-            sessionStorage.clear();
-            alert(
-              "⚠️ Quyền truy cập của bạn đã bị khóa bởi Ban quản trị. Vui lòng liên hệ trung tâm để được hỗ trợ!"
-            );
-            if (onLogout) {
-              onLogout();
-            } else {
-              window.location.href = "/";
-            }
-            return;
-          }
-
-          const cleanCode = freshProfile.student_code
-            ? String(freshProfile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6)
-            : "";
-
-          setProfile((prev: any) => {
-            const updated = {
-              ...prev,
-              ...freshProfile,
-              student_code: cleanCode || prev?.student_code || "000001",
-              sbd: cleanCode || prev?.sbd || "000001"
-            };
-            if (typeof window !== "undefined") {
-              try {
-                localStorage.setItem("tct_current_user", JSON.stringify(updated));
-                localStorage.setItem("edunexus_current_user", JSON.stringify(updated));
-              } catch {}
-            }
-            return updated;
-          });
-        }
-      } catch (e) {
-        console.warn("Lỗi làm mới profile:", e);
-      }
-    }
-
-    // 1. TẢI TOÀN BỘ CHƯƠNG, BÀI HỌC, BTVN & ĐỒNG BỘ PHÂN MÔN TỪ curriculum_data
-    try {
-      const [chapsRes, lessonsWithCatRes, curriculumRes, hwRes] = await Promise.allSettled([
-        supabase.from("chapters").select("*").order("created_at", { ascending: true }),
-        supabase
-          .from("lessons")
-          .select(
-            "id, chapter_id, title, target_mode, category, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
-          )
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("curriculum_data")
-          .select("chapters")
-          .eq("id", "main_curriculum")
-          .maybeSingle(),
-        supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
-      ]);
-
-      const dbChapters =
-        chapsRes.status === "fulfilled" && !chapsRes.value.error ? chapsRes.value.data : null;
-
-      let dbLessons: any[] | null = null;
-      if (
-        lessonsWithCatRes.status === "fulfilled" &&
-        !lessonsWithCatRes.value.error &&
-        Array.isArray(lessonsWithCatRes.value.data)
-      ) {
-        dbLessons = lessonsWithCatRes.value.data;
-      } else {
+  /**
+   * TẢI DỮ LIỆU DASHBOARD VỚI LỚP ĐỆM sessionStorage 5 PHÚT (`tct_dashboard_cache_v1`)
+   * - Chỉ gọi lại Supabase khi: hết 5 phút, học sinh vừa nộp bài mới, hoặc bấm nút làm mới.
+   */
+  const fetchAuthAndData = useCallback(
+    async (forceRefresh: boolean = false) => {
+      // Đồng bộ nhanh lịch sử làm bài cục bộ & thời gian học
+      const readLocalAttempts = (): any[] => {
+        if (typeof window === "undefined") return [];
         try {
-          const { data: lessonsFallback } = await supabase
+          const savedAttempts = localStorage.getItem("edunexus_attempts");
+          if (savedAttempts) {
+            const parsed = JSON.parse(savedAttempts);
+            if (Array.isArray(parsed)) return parsed;
+          }
+        } catch {}
+        return [];
+      };
+
+      if (typeof window !== "undefined") {
+        const studySecs = parseInt(
+          localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0",
+          10
+        );
+        setTotalStudySeconds(studySecs);
+      }
+
+      // Kiểm tra lớp đệm 5 phút trong sessionStorage
+      if (!forceRefresh && typeof window !== "undefined") {
+        try {
+          const rawCache = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+          if (rawCache) {
+            const parsedCache = JSON.parse(rawCache);
+            const isFresh =
+              parsedCache &&
+              typeof parsedCache.timestamp === "number" &&
+              Date.now() - parsedCache.timestamp < DASHBOARD_CACHE_TTL_MS;
+
+            if (
+              isFresh &&
+              Array.isArray(parsedCache.chapters) &&
+              parsedCache.chapters.length > 0 &&
+              Array.isArray(parsedCache.practiceExams)
+            ) {
+              setChapters(parsedCache.chapters);
+              setPracticeExams(parsedCache.practiceExams);
+              if (Array.isArray(parsedCache.sysNotifications)) {
+                setSysNotifications(parsedCache.sysNotifications);
+              }
+              const localAtts = readLocalAttempts();
+              if (localAtts.length > 0) {
+                setAllAttempts(localAtts);
+              }
+              setIsLoadingExams(false);
+              return;
+            }
+          }
+        } catch {}
+      }
+
+      if (profile?.id) {
+        try {
+          const { data: freshProfile } = await supabase
+            .from("profiles")
+            .select(
+              "id, student_code, full_name, email, phone, school, grade, role, learning_mode, status, approval_status, is_approved"
+            )
+            .eq("id", profile.id)
+            .maybeSingle();
+
+          if (freshProfile) {
+            const isLocked =
+              freshProfile.status === "rejected" ||
+              freshProfile.status === "locked" ||
+              freshProfile.approval_status === "rejected" ||
+              freshProfile.is_approved === false;
+
+            if (isLocked) {
+              localStorage.removeItem("tct_current_user");
+              localStorage.removeItem("edunexus_current_user");
+              sessionStorage.clear();
+              alert(
+                "⚠️ Quyền truy cập của bạn đã bị khóa bởi Ban quản trị. Vui lòng liên hệ trung tâm để được hỗ trợ!"
+              );
+              if (onLogout) {
+                onLogout();
+              } else {
+                window.location.href = "/";
+              }
+              return;
+            }
+
+            const cleanCode = freshProfile.student_code
+              ? String(freshProfile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6)
+              : "";
+
+            setProfile((prev: any) => {
+              const updated = {
+                ...prev,
+                ...freshProfile,
+                student_code: cleanCode || prev?.student_code || "000001",
+                sbd: cleanCode || prev?.sbd || "000001"
+              };
+              if (typeof window !== "undefined") {
+                try {
+                  localStorage.setItem("tct_current_user", JSON.stringify(updated));
+                  localStorage.setItem("edunexus_current_user", JSON.stringify(updated));
+                } catch {}
+              }
+              return updated;
+            });
+          }
+        } catch (e) {
+          console.warn("Lỗi làm mới profile:", e);
+        }
+      }
+
+      let latestChaptersForCache: any[] | null = null;
+      let latestExamsForCache: any[] | null = null;
+      let latestNotifsForCache: any[] | null = null;
+
+      // 1. TẢI TOÀN BỘ CHƯƠNG, BÀI HỌC, BTVN & ĐỒNG BỘ PHÂN MÔN TỪ curriculum_data
+      try {
+        const [chapsRes, lessonsWithCatRes, curriculumRes, hwRes] = await Promise.allSettled([
+          supabase.from("chapters").select("*").order("created_at", { ascending: true }),
+          supabase
             .from("lessons")
             .select(
-              "id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
+              "id, chapter_id, title, target_mode, category, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
             )
-            .order("created_at", { ascending: false });
-          dbLessons = lessonsFallback;
-        } catch {
-          dbLessons = [];
-        }
-      }
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("curriculum_data")
+            .select("chapters")
+            .eq("id", "main_curriculum")
+            .maybeSingle(),
+          supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
+        ]);
 
-      const dbHomeworks =
-        hwRes.status === "fulfilled" && !hwRes.value.error && Array.isArray(hwRes.value.data)
-          ? hwRes.value.data
-          : [];
+        const dbChapters =
+          chapsRes.status === "fulfilled" && !chapsRes.value.error ? chapsRes.value.data : null;
 
-      const curriculumChapters =
-        curriculumRes.status === "fulfilled" &&
-        !curriculumRes.value.error &&
-        Array.isArray(curriculumRes.value.data?.chapters)
-          ? curriculumRes.value.data.chapters
-          : [];
-
-      // Bảng tra cứu phân môn từ curriculum_data + localStorage
-      const cloudChapCatMap = new Map<string, string>();
-      const cloudLesCatMap = new Map<string, string>();
-      const localCatMap = new Map<string, string>();
-
-      curriculumChapters.forEach((c: any) => {
-        const cCat = c?.category || c?.subject_category;
-        if (c?.id && cCat) cloudChapCatMap.set(String(c.id), String(cCat));
-        (c?.lessons || []).forEach((l: any) => {
-          const lCat = l?.category || l?.subject_category;
-          if (l?.id && lCat) cloudLesCatMap.set(String(l.id), String(lCat));
-        });
-      });
-
-      if (typeof window !== "undefined") {
-        try {
-          const rawSaved = localStorage.getItem("edunexus_course_data");
-          if (rawSaved) {
-            const parsedSaved = JSON.parse(rawSaved);
-            if (Array.isArray(parsedSaved)) {
-              parsedSaved.forEach((c: any) => {
-                if (c?.id && (c?.category || c?.subject_category)) {
-                  localCatMap.set(String(c.id), c.category || c.subject_category);
-                }
-                (c?.lessons || []).forEach((l: any) => {
-                  if (l?.id && (l?.category || l?.subject_category)) {
-                    localCatMap.set(String(l.id), l.category || l.subject_category);
-                  }
-                });
-              });
-            }
+        let dbLessons: any[] | null = null;
+        if (
+          lessonsWithCatRes.status === "fulfilled" &&
+          !lessonsWithCatRes.value.error &&
+          Array.isArray(lessonsWithCatRes.value.data)
+        ) {
+          dbLessons = lessonsWithCatRes.value.data;
+        } else {
+          try {
+            const { data: lessonsFallback } = await supabase
+              .from("lessons")
+              .select(
+                "id, chapter_id, title, target_mode, created_at, assigned_month, assigned_week, is_locked, study_date, test_quizzes"
+              )
+              .order("created_at", { ascending: false });
+            dbLessons = lessonsFallback;
+          } catch {
+            dbLessons = [];
           }
-        } catch {}
-      }
+        }
 
-      if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
-        const formattedChapters = dbChapters.map((chap: any) => {
-          const rawChapCat =
-            chap?.category ||
-            chap?.subject_category ||
-            cloudChapCatMap.get(String(chap.id)) ||
-            localCatMap.get(String(chap.id));
-          const chapCat = normalizeSubjectCategory(rawChapCat, chap?.title);
+        const dbHomeworks =
+          hwRes.status === "fulfilled" && !hwRes.value.error && Array.isArray(hwRes.value.data)
+            ? hwRes.value.data
+            : [];
 
-          return {
-            ...chap,
-            category: chapCat,
-            subject_category: chapCat,
-            lessons: (dbLessons || [])
-              .filter((les: any) => les.chapter_id === chap.id)
-              .map((les: any) => {
-                const rawLesCat =
-                  les?.category ||
-                  les?.subject_category ||
-                  cloudLesCatMap.get(String(les.id)) ||
-                  localCatMap.get(String(les.id)) ||
-                  rawChapCat;
-                const lesCat = normalizeSubjectCategory(rawLesCat, les?.title || chap?.title);
-                return {
-                  ...les,
-                  category: lesCat,
-                  subject_category: lesCat,
-                  test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
-                  homework_files: dbHomeworks.filter((hw: any) => hw.lesson_id === les.id)
-                };
-              })
-          };
+        const curriculumChapters =
+          curriculumRes.status === "fulfilled" &&
+          !curriculumRes.value.error &&
+          Array.isArray(curriculumRes.value.data?.chapters)
+            ? curriculumRes.value.data.chapters
+            : [];
+
+        const cloudChapCatMap = new Map<string, string>();
+        const cloudLesCatMap = new Map<string, string>();
+        const localCatMap = new Map<string, string>();
+
+        curriculumChapters.forEach((c: any) => {
+          const cCat = c?.category || c?.subject_category;
+          if (c?.id && cCat) cloudChapCatMap.set(String(c.id), String(cCat));
+          (c?.lessons || []).forEach((l: any) => {
+            const lCat = l?.category || l?.subject_category;
+            if (l?.id && lCat) cloudLesCatMap.set(String(l.id), String(lCat));
+          });
         });
 
-        setChapters(formattedChapters);
         if (typeof window !== "undefined") {
           try {
-            localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
+            const rawSaved = localStorage.getItem("edunexus_course_data");
+            if (rawSaved) {
+              const parsedSaved = JSON.parse(rawSaved);
+              if (Array.isArray(parsedSaved)) {
+                parsedSaved.forEach((c: any) => {
+                  if (c?.id && (c?.category || c?.subject_category)) {
+                    localCatMap.set(String(c.id), c.category || c.subject_category);
+                  }
+                  (c?.lessons || []).forEach((l: any) => {
+                    if (l?.id && (l?.category || l?.subject_category)) {
+                      localCatMap.set(String(l.id), l.category || l.subject_category);
+                    }
+                  });
+                });
+              }
+            }
           } catch {}
         }
-      } else if (curriculumChapters.length > 0) {
-        setChapters(curriculumChapters);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem("edunexus_course_data", JSON.stringify(curriculumChapters));
-          } catch {}
-        }
-      }
-    } catch (e) {
-      console.error("Lỗi tải chương trình học & BTVN:", e);
-    }
 
-    // 2. TẢI DANH SÁCH ĐỀ LUYỆN THI SIÊU NHẸ (BỎ CỘT data ĐỂ KHÔNG TỐN EGRESS)
-    try {
-      setIsLoadingExams(true);
-      let dbExams: any[] | null = null;
-      const { data: examsWithMeta, error: metaErr } = await supabase
-        .from("practice_exams")
-        .select(
-          "id, title, category, exam_format, hsa_parts_count, duration_minutes, created_at, target_mode, allowViewFile, driveUrl"
-        )
-        .order("created_at", { ascending: false });
+        if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
+          const formattedChapters = dbChapters.map((chap: any) => {
+            const rawChapCat =
+              chap?.category ||
+              chap?.subject_category ||
+              cloudChapCatMap.get(String(chap.id)) ||
+              localCatMap.get(String(chap.id));
+            const chapCat = normalizeSubjectCategory(rawChapCat, chap?.title);
 
-      if (!metaErr && Array.isArray(examsWithMeta)) {
-        dbExams = examsWithMeta;
-      } else {
-        const { data: examsFallback } = await supabase
-          .from("practice_exams")
-          .select(
-            "id, title, category, duration_minutes, created_at, target_mode, allowViewFile, driveUrl"
-          )
-          .order("created_at", { ascending: false });
-        dbExams = examsFallback;
-      }
-
-      if (dbExams && Array.isArray(dbExams)) {
-        setPracticeExams((prev) => {
-          const prevMap = new Map<string, any>();
-          prev.forEach((p) => {
-            if (p?.id) prevMap.set(String(p.id), p);
-          });
-          return dbExams!.map((ex: any) => {
-            const cached = prevMap.get(String(ex.id));
             return {
-              ...cached,
-              ...ex,
-              data: ex.data || cached?.data,
-              sections: ex.data || ex.sections || cached?.sections
+              ...chap,
+              category: chapCat,
+              subject_category: chapCat,
+              lessons: (dbLessons || [])
+                .filter((les: any) => les.chapter_id === chap.id)
+                .map((les: any) => {
+                  const rawLesCat =
+                    les?.category ||
+                    les?.subject_category ||
+                    cloudLesCatMap.get(String(les.id)) ||
+                    localCatMap.get(String(les.id)) ||
+                    rawChapCat;
+                  const lesCat = normalizeSubjectCategory(rawLesCat, les?.title || chap?.title);
+                  return {
+                    ...les,
+                    category: lesCat,
+                    subject_category: lesCat,
+                    test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
+                    homework_files: dbHomeworks.filter((hw: any) => hw.lesson_id === les.id)
+                  };
+                })
             };
           });
-        });
-        if (typeof window !== "undefined") {
-          try {
-            const slimForCache = dbExams.map((ex: any) => ({
-              id: ex.id,
-              title: ex.title,
-              category: ex.category,
-              exam_format: ex.exam_format,
-              hsa_parts_count: ex.hsa_parts_count,
-              duration_minutes: ex.duration_minutes,
-              created_at: ex.created_at,
-              target_mode: ex.target_mode,
-              allowViewFile: ex.allowViewFile,
-              driveUrl: ex.driveUrl
-            }));
-            localStorage.setItem("edunexus_practice_exams", JSON.stringify(slimForCache));
-          } catch {}
+
+          latestChaptersForCache = formattedChapters;
+          setChapters(formattedChapters);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_course_data", JSON.stringify(formattedChapters));
+            } catch {}
+          }
+        } else if (curriculumChapters.length > 0) {
+          latestChaptersForCache = curriculumChapters;
+          setChapters(curriculumChapters);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_course_data", JSON.stringify(curriculumChapters));
+            } catch {}
+          }
         }
+      } catch (e) {
+        console.error("Lỗi tải chương trình học & BTVN:", e);
       }
-    } catch {
-    } finally {
-      setIsLoadingExams(false);
-    }
 
-    try {
-      const { data: dbNotifs } = await supabase
-        .from("system_notifications")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (dbNotifs && Array.isArray(dbNotifs)) {
-        setSysNotifications(dbNotifs);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
-          } catch {}
-        }
-      }
-    } catch {}
-
-    // Đồng bộ lịch sử thi
-    const mergedAttempts: any[] = [];
-    if (typeof window !== "undefined") {
+      // 2. TẢI DANH SÁCH ĐỀ LUYỆN THI SIÊU NHẸ (BỎ CỘT data ĐỂ KHÔNG TỐN EGRESS)
       try {
-        const savedAttempts = localStorage.getItem("edunexus_attempts");
-        if (savedAttempts) {
-          const parsed = JSON.parse(savedAttempts);
-          if (Array.isArray(parsed)) mergedAttempts.push(...parsed);
+        setIsLoadingExams(true);
+        let dbExams: any[] | null = null;
+        const { data: examsWithMeta, error: metaErr } = await supabase
+          .from("practice_exams")
+          .select(
+            "id, title, category, exam_format, hsa_parts_count, duration_minutes, created_at, target_mode, allowViewFile, driveUrl"
+          )
+          .order("created_at", { ascending: false });
+
+        if (!metaErr && Array.isArray(examsWithMeta)) {
+          dbExams = examsWithMeta;
+        } else {
+          const { data: examsFallback } = await supabase
+            .from("practice_exams")
+            .select(
+              "id, title, category, duration_minutes, created_at, target_mode, allowViewFile, driveUrl"
+            )
+            .order("created_at", { ascending: false });
+          dbExams = examsFallback;
+        }
+
+        if (dbExams && Array.isArray(dbExams)) {
+          const slimForCache = dbExams.map((ex: any) => ({
+            id: ex.id,
+            title: ex.title,
+            category: ex.category,
+            exam_format: ex.exam_format,
+            hsa_parts_count: ex.hsa_parts_count,
+            duration_minutes: ex.duration_minutes,
+            created_at: ex.created_at,
+            target_mode: ex.target_mode,
+            allowViewFile: ex.allowViewFile,
+            driveUrl: ex.driveUrl
+          }));
+          latestExamsForCache = slimForCache;
+
+          setPracticeExams((prev) => {
+            const prevMap = new Map<string, any>();
+            prev.forEach((p) => {
+              if (p?.id) prevMap.set(String(p.id), p);
+            });
+            return dbExams!.map((ex: any) => {
+              const cached = prevMap.get(String(ex.id));
+              return {
+                ...cached,
+                ...ex,
+                data: ex.data || cached?.data,
+                sections: ex.data || ex.sections || cached?.sections
+              };
+            });
+          });
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_practice_exams", JSON.stringify(slimForCache));
+            } catch {}
+          }
+        }
+      } catch {
+      } finally {
+        setIsLoadingExams(false);
+      }
+
+      try {
+        const { data: dbNotifs } = await supabase
+          .from("system_notifications")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (dbNotifs && Array.isArray(dbNotifs)) {
+          latestNotifsForCache = dbNotifs;
+          setSysNotifications(dbNotifs);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("edunexus_system_notifications", JSON.stringify(dbNotifs));
+            } catch {}
+          }
         }
       } catch {}
-    }
 
-    try {
-      const { data: cloudAttempts } = await supabase
-        .from("exam_attempts")
-        .select(
-          "id, quiz_id, exam_id, quiz_title, exam_title, student_id, student_name, full_name, score, points, created_at, is_homework, type, submission_type"
-        )
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (cloudAttempts && Array.isArray(cloudAttempts)) {
-        const seenIds = new Set(mergedAttempts.map((a: any) => String(a?.id || "")));
-        cloudAttempts.forEach((ca: any) => {
-          const cid = String(ca?.id || "");
-          if (cid && !seenIds.has(cid)) {
-            seenIds.add(cid);
-            mergedAttempts.push(ca);
-          }
-        });
-      }
-    } catch {}
-
-    if (mergedAttempts.length > 0) {
-      setAllAttempts(mergedAttempts);
-      if (typeof window !== "undefined") {
+      // Lưu lớp đệm 5 phút vào sessionStorage (`tct_dashboard_cache_v1`)
+      if (typeof window !== "undefined" && latestChaptersForCache && latestExamsForCache) {
         try {
-          localStorage.setItem("edunexus_attempts", JSON.stringify(mergedAttempts));
+          sessionStorage.setItem(
+            DASHBOARD_CACHE_KEY,
+            JSON.stringify({
+              timestamp: Date.now(),
+              chapters: latestChaptersForCache,
+              practiceExams: latestExamsForCache,
+              sysNotifications: latestNotifsForCache || []
+            })
+          );
         } catch {}
       }
-    }
 
-    if (typeof window !== "undefined") {
-      const studySecs = parseInt(
-        localStorage.getItem("edunexus_study_time_" + (profile?.id || "default")) || "0",
-        10
-      );
-      setTotalStudySeconds(studySecs);
+      // Đồng bộ lịch sử thi
+      const mergedAttempts: any[] = readLocalAttempts();
+
+      try {
+        const { data: cloudAttempts } = await supabase
+          .from("exam_attempts")
+          .select(
+            "id, quiz_id, exam_id, quiz_title, exam_title, student_id, student_name, full_name, score, points, created_at, is_homework, type, submission_type"
+          )
+          .order("created_at", { ascending: false })
+          .limit(100);
+
+        if (cloudAttempts && Array.isArray(cloudAttempts)) {
+          const seenIds = new Set(mergedAttempts.map((a: any) => String(a?.id || "")));
+          cloudAttempts.forEach((ca: any) => {
+            const cid = String(ca?.id || "");
+            if (cid && !seenIds.has(cid)) {
+              seenIds.add(cid);
+              mergedAttempts.push(ca);
+            }
+          });
+        }
+      } catch {}
+
+      if (mergedAttempts.length > 0) {
+        setAllAttempts(mergedAttempts);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("edunexus_attempts", JSON.stringify(mergedAttempts));
+          } catch {}
+        }
+      }
+    },
+    [profile?.id, onLogout]
+  );
+
+  const handleManualRefreshDashboard = async () => {
+    setIsManualRefreshing(true);
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+      }
+      await fetchAuthAndData(true);
+      setOfflineToast("Đã cập nhật dữ liệu mới nhất!");
+      setTimeout(() => setOfflineToast(""), 2500);
+    } finally {
+      setIsManualRefreshing(false);
     }
-  }, [profile?.id, onLogout]);
+  };
 
   useEffect(() => {
-    fetchAuthAndData();
+    fetchAuthAndData(false);
 
     const handlePopState = () => {
       if (typeof window !== "undefined") {
@@ -1026,22 +1159,36 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       }
     };
 
+    const handleStorageUpdated = () => {
+      if (typeof window !== "undefined") {
+        try {
+          const savedAttempts = localStorage.getItem("edunexus_attempts");
+          if (savedAttempts) {
+            const parsed = JSON.parse(savedAttempts);
+            if (Array.isArray(parsed)) {
+              setAllAttempts(parsed);
+            }
+          }
+        } catch {}
+      }
+    };
+
     window.addEventListener("popstate", handlePopState);
-    window.addEventListener("storage", fetchAuthAndData);
+    window.addEventListener("storage", handleStorageUpdated);
 
     const channelCourses = supabase
       .channel("student-offline-global-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "lessons" }, () =>
-        fetchAuthAndData()
+        fetchAuthAndData(true)
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "chapters" }, () =>
-        fetchAuthAndData()
+        fetchAuthAndData(true)
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "curriculum_data" }, () =>
-        fetchAuthAndData()
+        fetchAuthAndData(true)
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "homeworks" }, () => {
-        fetchAuthAndData();
+        fetchAuthAndData(true);
         setSelectedLesson((prev: any) => {
           if (!prev?.id) return prev;
           const targetId = prev.id;
@@ -1067,10 +1214,10 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () =>
-        fetchAuthAndData()
+        fetchAuthAndData(true)
       )
       .on("postgres_changes", { event: "*", schema: "public", table: "system_notifications" }, () =>
-        fetchAuthAndData()
+        fetchAuthAndData(true)
       )
       .subscribe();
 
@@ -1129,7 +1276,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
       supabase.removeChannel(channelSecurity);
       supabase.removeChannel(channelBroadcastSecurity);
       window.removeEventListener("popstate", handlePopState);
-      window.removeEventListener("storage", fetchAuthAndData);
+      window.removeEventListener("storage", handleStorageUpdated);
     };
   }, [fetchAuthAndData, profile?.id, onLogout]);
 
@@ -1823,7 +1970,10 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     (attemptRecord: ExamAttempt) => {
       const scannedExam = activePaperScanState?.exam;
       setActivePaperScanState(null);
-      fetchAuthAndData();
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+      }
+      fetchAuthAndData(true);
       if (attemptRecord && scannedExam) {
         setPaperReviewAttemptState({
           attempt: attemptRecord,
@@ -1976,7 +2126,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         profile={profile!}
         onBack={() => {
           setPaperReviewAttemptState(null);
-          fetchAuthAndData();
+          fetchAuthAndData(false);
         }}
       />
     );
@@ -1990,12 +2140,15 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         isHomework={activeDigitalSheetExam.isHomework}
         onBack={() => {
           setActiveDigitalSheetExam(null);
-          fetchAuthAndData();
+          fetchAuthAndData(false);
         }}
         onSubmitted={(attemptRecord) => {
           const submittedEx = activeDigitalSheetExam.exam;
           setActiveDigitalSheetExam(null);
-          fetchAuthAndData();
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+          }
+          fetchAuthAndData(true);
           setPaperReviewAttemptState({
             attempt: attemptRecord,
             exam: submittedEx
@@ -2077,7 +2230,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
             if (typeof window !== "undefined") {
               sessionStorage.removeItem("tct_active_exam_room");
             }
-            fetchAuthAndData();
+            fetchAuthAndData(false);
           }}
         />
       );
@@ -2097,7 +2250,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
           if (typeof window !== "undefined") {
             sessionStorage.removeItem("tct_active_exam_room");
           }
-          fetchAuthAndData();
+          fetchAuthAndData(false);
         }}
       />
     );
@@ -2122,7 +2275,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
               if (typeof window !== "undefined") {
                 sessionStorage.removeItem("tct_active_lesson");
               }
-              fetchAuthAndData();
+              fetchAuthAndData(false);
             }}
             onStartQuiz={async (
               qId: string,
@@ -2248,6 +2401,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
               if (typeof window !== "undefined") {
                 sessionStorage.setItem("tct_active_exam_room", JSON.stringify(examRoomPayload));
                 sessionStorage.setItem("edunexus_active_exam", JSON.stringify(examRoomPayload));
+                try {
+                  localStorage.setItem(`tct_exam_cache_${qId}`, JSON.stringify(examRoomPayload));
+                } catch {}
                 try {
                   const qList = JSON.parse(localStorage.getItem("edunexus_quizzes") || "[]");
                   localStorage.setItem(
@@ -2377,7 +2533,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                 {/* ================================================================= */}
                 {activeTab === "overview" && (
                   <div className="w-full max-w-5xl mx-auto space-y-4 text-left">
-                    {/* KHỐI 1: THANH CHÀO MỪNG 1 DÒNG GỌN GÀNG */}
+                    {/* KHỐI 1: THANH CHÀO MỪNG 1 DÒNG GỌN GÀNG + NÚT LÀM MỚI */}
                     <div className="bg-white rounded-xl p-4 border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 min-w-0">
                         <span className="text-sm font-bold text-slate-900">
@@ -2424,9 +2580,22 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2 text-xs text-slate-500 shrink-0">
-                        <Clock className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Hôm nay: {formattedStudyTimeToday}</span>
+                      <div className="flex items-center gap-3 text-xs text-slate-500 shrink-0">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Hôm nay: {formattedStudyTimeToday}</span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isManualRefreshing}
+                          onClick={handleManualRefreshDashboard}
+                          className="p-1.5 rounded-lg border border-slate-200/90 bg-[#F8FAFC] hover:bg-slate-100 text-slate-600 hover:text-[#1D4ED8] transition cursor-pointer disabled:opacity-50"
+                          title="Làm mới dữ liệu"
+                        >
+                          <RefreshCw
+                            className={`w-3.5 h-3.5 ${isManualRefreshing ? "animate-spin" : ""}`}
+                          />
+                        </button>
                       </div>
                     </div>
 
