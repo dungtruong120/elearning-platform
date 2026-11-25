@@ -44,6 +44,48 @@ function normalizeText(str: any): string {
     .trim();
 }
 
+function pickFirstNonEmptyArray(...candidates: any[]): any[] {
+  for (const cand of candidates) {
+    if (Array.isArray(cand) && cand.length > 0) return cand;
+  }
+  return [];
+}
+
+/**
+ * Ghép danh sách đề trắc nghiệm từ bảng `homeworks` với các file BTVN dạng link Google Drive / PDF
+ * (`is_drive_file: true` hoặc `is_quiz === false`) để không bao giờ bị ghi đè mất file Drive.
+ */
+function mergeHomeworkFilesWithDrive(dbHwList: any[], ...fallbackHwLists: any[][]): any[] {
+  const result: any[] = [];
+  const seenIds = new Set<string>();
+  const seenDriveUrls = new Set<string>();
+
+  (Array.isArray(dbHwList) ? dbHwList : []).forEach((h) => {
+    if (!h) return;
+    const idKey = String(h.id || "").trim();
+    if (idKey) seenIds.add(idKey);
+    result.push(h);
+  });
+
+  fallbackHwLists.forEach((list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((h) => {
+      if (!h) return;
+      const isDrive = h.is_drive_file === true || h.is_quiz === false;
+      if (!isDrive) return;
+      const idKey = String(h.id || "").trim();
+      const urlKey = String(h.url || "").trim();
+      if (idKey && seenIds.has(idKey)) return;
+      if (urlKey && seenDriveUrls.has(urlKey)) return;
+      if (idKey) seenIds.add(idKey);
+      if (urlKey) seenDriveUrls.add(urlKey);
+      result.push(h);
+    });
+  });
+
+  return result;
+}
+
 function normalizeStudentProfile(raw: any): any {
   if (!raw) return raw;
   const rawMode = String(
@@ -796,59 +838,70 @@ function AdminDashboardContent() {
               } catch {}
             }
 
-            // 2. Lưu từng bài học con vào bảng lessons (gửi kèm category + fallback nếu thiếu cột)
+            // 2. Lưu từng bài học vào bảng lessons đầy đủ 5 mảng tài liệu + fallback an toàn khi thiếu cột
             if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
               for (const les of chap.lessons) {
                 const lesCategory = les.category || les.subject_category || chapCategory;
+                const baseLessonRow = {
+                  id: String(les.id),
+                  chapter_id: String(chap.id),
+                  title: les.title,
+                  description: les.description || "",
+                  target_mode: les.target_mode || "all",
+                  duration: Number(les.duration) || 45,
+                  assigned_month: Number(les.assigned_month) || 10,
+                  assigned_week: Number(les.assigned_week) || 1
+                };
+                const allMediaCols = {
+                  video_list: Array.isArray(les.video_list) ? les.video_list : [],
+                  lecture_files: Array.isArray(les.lecture_files) ? les.lecture_files : [],
+                  handwritten_notes: Array.isArray(les.handwritten_notes)
+                    ? les.handwritten_notes
+                    : [],
+                  test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
+                  extra_resources: Array.isArray(les.extra_resources) ? les.extra_resources : []
+                };
+
                 try {
-                  const { error: lesErr } = await supabase.from("lessons").upsert({
-                    id: String(les.id),
-                    chapter_id: String(chap.id),
-                    title: les.title,
-                    description: les.description || "",
-                    target_mode: les.target_mode || "all",
+                  const { error: tier1Err } = await supabase.from("lessons").upsert({
+                    ...baseLessonRow,
                     category: lesCategory,
-                    duration: Number(les.duration) || 45,
-                    assigned_month: Number(les.assigned_month) || 10,
-                    assigned_week: Number(les.assigned_week) || 1,
-                    video_list: les.video_list || [],
-                    lecture_files: les.lecture_files || []
+                    ...allMediaCols
                   });
-                  if (lesErr) {
-                    await supabase.from("lessons").upsert({
-                      id: String(les.id),
-                      chapter_id: String(chap.id),
-                      title: les.title,
-                      description: les.description || "",
-                      target_mode: les.target_mode || "all",
-                      duration: Number(les.duration) || 45,
-                      assigned_month: Number(les.assigned_month) || 10,
-                      assigned_week: Number(les.assigned_week) || 1,
-                      video_list: les.video_list || [],
-                      lecture_files: les.lecture_files || []
+                  if (tier1Err) {
+                    const { error: tier2Err } = await supabase.from("lessons").upsert({
+                      ...baseLessonRow,
+                      ...allMediaCols
                     });
+                    if (tier2Err) {
+                      const { error: tier3Err } = await supabase.from("lessons").upsert({
+                        ...baseLessonRow,
+                        video_list: allMediaCols.video_list,
+                        lecture_files: allMediaCols.lecture_files
+                      });
+                      if (tier3Err) {
+                        await supabase.from("lessons").upsert(baseLessonRow);
+                      }
+                    }
                   }
                 } catch {
                   try {
                     await supabase.from("lessons").upsert({
-                      id: String(les.id),
-                      chapter_id: String(chap.id),
-                      title: les.title,
-                      description: les.description || "",
-                      target_mode: les.target_mode || "all",
-                      duration: Number(les.duration) || 45,
-                      assigned_month: Number(les.assigned_month) || 10,
-                      assigned_week: Number(les.assigned_week) || 1,
-                      video_list: les.video_list || [],
-                      lecture_files: les.lecture_files || []
+                      ...baseLessonRow,
+                      video_list: allMediaCols.video_list,
+                      lecture_files: allMediaCols.lecture_files
                     });
-                  } catch {}
+                  } catch {
+                    try {
+                      await supabase.from("lessons").upsert(baseLessonRow);
+                    } catch {}
+                  }
                 }
 
                 // 2.1 CHỈ LƯU VÀO BẢNG homeworks KHI CÓ DỮ LIỆU CÂU HỎI THẬT (CHỐNG GHI ĐÈ RỖNG [])
                 if (Array.isArray(les.homework_files) && les.homework_files.length > 0) {
                   for (const hw of les.homework_files) {
-                    if (hw?.is_drive_file) continue;
+                    if (hw?.is_drive_file || hw?.is_quiz === false) continue;
                     const hwData =
                       Array.isArray(hw.data) && hw.data.length > 0
                         ? hw.data
@@ -884,7 +937,7 @@ function AdminDashboardContent() {
             }
           }
 
-          // 3. Lưu bản sao nhẹ (giữ đầy đủ category & subject_category, bỏ ruột câu hỏi nặng) vào curriculum_data
+          // 3. Lưu đầy đủ cây chương/bài học/5 mảng tài liệu + file Drive BTVN vào curriculum_data
           const lightweightCurriculum = cleanCoursesData.map((chap: any) => {
             const chapCategory = chap.category || chap.subject_category || "dai";
             return {
@@ -897,6 +950,13 @@ function AdminDashboardContent() {
                   ...les,
                   category: lesCategory,
                   subject_category: lesCategory,
+                  video_list: Array.isArray(les.video_list) ? les.video_list : [],
+                  lecture_files: Array.isArray(les.lecture_files) ? les.lecture_files : [],
+                  handwritten_notes: Array.isArray(les.handwritten_notes)
+                    ? les.handwritten_notes
+                    : [],
+                  test_quizzes: Array.isArray(les.test_quizzes) ? les.test_quizzes : [],
+                  extra_resources: Array.isArray(les.extra_resources) ? les.extra_resources : [],
                   homework_files: (les.homework_files || []).map((hw: any) => ({
                     id: hw.id,
                     title: hw.title,
@@ -1406,13 +1466,13 @@ function AdminDashboardContent() {
       loadDeletedBlacklistFromStorage();
 
       try {
-        const [chapsRes, lessWithCatRes, curriculumRes, sessRes, notifRes, hwRes] =
+        const [chapsRes, lessFullRes, curriculumRes, sessRes, notifRes, hwRes] =
           await Promise.allSettled([
             supabase.from("chapters").select("*").order("created_at", { ascending: true }),
             supabase
               .from("lessons")
               .select(
-                "id, chapter_id, title, description, duration, target_mode, category, assigned_month, assigned_week, study_date, is_locked, created_at"
+                "id, chapter_id, title, description, duration, target_mode, category, assigned_month, assigned_week, study_date, is_locked, video_list, lecture_files, handwritten_notes, test_quizzes, extra_resources, created_at"
               )
               .order("created_at", { ascending: false }),
             supabase
@@ -1435,9 +1495,10 @@ function AdminDashboardContent() {
             supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
           ]);
 
-        // Bảng tra cứu phân môn (category) lấy bù từ curriculum_data và localStorage
+        // Bảng tra cứu bù dữ liệu (category + 5 mảng tài liệu + file Drive BTVN) từ curriculum_data & localStorage
         const fallbackChapCatMap = new Map<string, string>();
-        const fallbackLesCatMap = new Map<string, string>();
+        const localLesMap = new Map<string, any>();
+        const cloudLesMap = new Map<string, any>();
 
         if (typeof window !== "undefined") {
           try {
@@ -1449,8 +1510,7 @@ function AdminDashboardContent() {
                   const cCat = c?.category || c?.subject_category;
                   if (c?.id && cCat) fallbackChapCatMap.set(String(c.id), String(cCat));
                   (c?.lessons || []).forEach((l: any) => {
-                    const lCat = l?.category || l?.subject_category;
-                    if (l?.id && lCat) fallbackLesCatMap.set(String(l.id), String(lCat));
+                    if (l?.id) localLesMap.set(String(l.id), l);
                   });
                 });
               }
@@ -1469,27 +1529,37 @@ function AdminDashboardContent() {
           const cCat = c?.category || c?.subject_category;
           if (c?.id && cCat) fallbackChapCatMap.set(String(c.id), String(cCat));
           (c?.lessons || []).forEach((l: any) => {
-            const lCat = l?.category || l?.subject_category;
-            if (l?.id && lCat) fallbackLesCatMap.set(String(l.id), String(lCat));
+            if (l?.id) cloudLesMap.set(String(l.id), l);
           });
         });
 
         let dbLessons: any[] | null = null;
         if (
-          lessWithCatRes.status === "fulfilled" &&
-          !lessWithCatRes.value.error &&
-          Array.isArray(lessWithCatRes.value.data)
+          lessFullRes.status === "fulfilled" &&
+          !lessFullRes.value.error &&
+          Array.isArray(lessFullRes.value.data)
         ) {
-          dbLessons = lessWithCatRes.value.data;
+          dbLessons = lessFullRes.value.data;
         } else {
+          // Fallback 1: bỏ các cột có thể chưa tồn tại trên DB
           try {
-            const { data: fallbackLessons } = await supabase
+            const { data: fallbackTier1, error: err1 } = await supabase
               .from("lessons")
               .select(
-                "id, chapter_id, title, description, duration, target_mode, assigned_month, assigned_week, study_date, is_locked, created_at"
+                "id, chapter_id, title, description, duration, target_mode, assigned_month, assigned_week, study_date, is_locked, video_list, lecture_files, created_at"
               )
               .order("created_at", { ascending: false });
-            dbLessons = Array.isArray(fallbackLessons) ? fallbackLessons : [];
+            if (!err1 && Array.isArray(fallbackTier1)) {
+              dbLessons = fallbackTier1;
+            } else {
+              const { data: fallbackTier2 } = await supabase
+                .from("lessons")
+                .select(
+                  "id, chapter_id, title, description, duration, target_mode, assigned_month, assigned_week, study_date, is_locked, created_at"
+                )
+                .order("created_at", { ascending: false });
+              dbLessons = Array.isArray(fallbackTier2) ? fallbackTier2 : [];
+            }
           } catch {
             dbLessons = [];
           }
@@ -1523,19 +1593,25 @@ function AdminDashboardContent() {
               lessons: (dbLessons || [])
                 .filter((l: any) => l.chapter_id === chap.id)
                 .map((l: any) => {
+                  const cloudLes = cloudLesMap.get(String(l.id));
+                  const localLes = localLesMap.get(String(l.id));
                   const lesCategory =
                     l.category ||
                     l.subject_category ||
-                    fallbackLesCatMap.get(String(l.id)) ||
+                    cloudLes?.category ||
+                    cloudLes?.subject_category ||
+                    localLes?.category ||
+                    localLes?.subject_category ||
                     chapCategory;
 
                   return {
                     id: l.id,
                     chapter_id: chap.id,
                     title: l.title,
-                    description: l.description || "",
-                    duration: l.duration || 45,
-                    format: "Zoom",
+                    description:
+                      l.description || cloudLes?.description || localLes?.description || "",
+                    duration: l.duration || cloudLes?.duration || 45,
+                    format: cloudLes?.format || localLes?.format || "Zoom",
                     target_mode: l.target_mode || "all",
                     category: lesCategory,
                     subject_category: lesCategory,
@@ -1543,10 +1619,36 @@ function AdminDashboardContent() {
                     assigned_week: Number(l.assigned_week) || 1,
                     study_date: l.study_date || "",
                     is_locked: Boolean(l.is_locked),
-                    video_list: l.video_list || [],
-                    lecture_files: l.lecture_files || [],
-                    homework_files: allHomeworks.filter((h: any) => h.lesson_id === l.id),
-                    test_quizzes: l.test_quizzes || []
+                    video_list: pickFirstNonEmptyArray(
+                      l.video_list,
+                      cloudLes?.video_list,
+                      localLes?.video_list
+                    ),
+                    lecture_files: pickFirstNonEmptyArray(
+                      l.lecture_files,
+                      cloudLes?.lecture_files,
+                      localLes?.lecture_files
+                    ),
+                    handwritten_notes: pickFirstNonEmptyArray(
+                      l.handwritten_notes,
+                      cloudLes?.handwritten_notes,
+                      localLes?.handwritten_notes
+                    ),
+                    test_quizzes: pickFirstNonEmptyArray(
+                      l.test_quizzes,
+                      cloudLes?.test_quizzes,
+                      localLes?.test_quizzes
+                    ),
+                    extra_resources: pickFirstNonEmptyArray(
+                      l.extra_resources,
+                      cloudLes?.extra_resources,
+                      localLes?.extra_resources
+                    ),
+                    homework_files: mergeHomeworkFilesWithDrive(
+                      allHomeworks.filter((h: any) => h.lesson_id === l.id),
+                      cloudLes?.homework_files,
+                      localLes?.homework_files
+                    )
                   };
                 })
             };
@@ -1956,7 +2058,9 @@ function AdminDashboardContent() {
       String(resId || "").startsWith("exam-") ||
       String(resId || "").startsWith("hw-");
 
-    if (isHomeworkItem && resId) {
+    const isDriveHomework = String(resId || "").startsWith("drive-");
+
+    if (isHomeworkItem && !isDriveHomework && resId) {
       try {
         const { error } = await supabase
           .from("homeworks")
