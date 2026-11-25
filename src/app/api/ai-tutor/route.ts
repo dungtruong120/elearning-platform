@@ -74,10 +74,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Ưu tiên model tốc độ cao nhất lên đầu để phản hồi < 1.5s
-    const candidateModels = imageBase64
-      ? ["gemini-3.8-flash", "gemini-3.5-flash"]
-      : ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
+    // Chỉ dùng các model thế hệ mới đang mở cho key của bạn (tránh 404 model cũ)
+    const candidateModels = Array.from(
+      new Set(
+        [
+          process.env.GEMINI_MODEL,
+          "gemini-3.5-flash-lite",
+          "gemini-3.6-flash",
+          "gemini-3.8-flash",
+          "gemma-3-27b-it",
+        ].filter(Boolean) as string[]
+      )
+    );
 
     const vietnamMathStandard = `
 QUY TẮC BẮT BUỘC:
@@ -106,7 +114,6 @@ Bài học: ${questionContext.lessonTitle}
 Bài học: ${questionContext.lessonTitle}
 Đề bài: ${questionContext.questionText}${optionsBlock}${solutionBlock}`;
 
-    // Chỉ lấy 4 tin nhắn gần nhất để giảm payload & tăng tốc xử lý
     const recentMessages = messages.slice(-4);
     const formattedContents: any[] = recentMessages.map((msg, idx) => {
       const isLastUserMsg = idx === recentMessages.length - 1 && msg.role === "user";
@@ -144,29 +151,44 @@ Bài học: ${questionContext.lessonTitle}
     for (const modelName of candidateModels) {
       try {
         modelActuallyUsed = modelName;
+        const isGemma = modelName.startsWith("gemma");
+
+        const contentsToSend = isGemma
+          ? [
+              { role: "user", parts: [{ text: systemInstruction }] },
+              { role: "model", parts: [{ text: "Đã hiểu, em sẵn sàng hỗ trợ." }] },
+              ...formattedContents,
+            ]
+          : formattedContents;
+
+        // Không truyền thinkingConfig để tránh lỗi 400 BadRequest
+        const configToSend: any = {
+          temperature: 0.2,
+          maxOutputTokens: 700,
+        };
+
+        if (!isGemma) {
+          configToSend.systemInstruction = systemInstruction;
+        }
+
         response = await ai.models.generateContent({
           model: modelName,
-          contents: formattedContents,
-          config: {
-            systemInstruction,
-            temperature: 0.2,
-            maxOutputTokens: 700,
-            thinkingConfig: { thinkingBudget: 0 },
-          },
+          contents: contentsToSend,
+          config: configToSend,
         });
-        if (response) break;
+
+        if (response?.text) break;
       } catch (err: any) {
         lastError = err;
       }
     }
 
-    if (!response) {
-      throw lastError || new Error("Không thể kết nối tới model Gemini.");
+    if (!response || !response.text) {
+      throw lastError || new Error("Tất cả các máy chủ AI đều đang bận, em thử lại sau 5 giây nhé.");
     }
 
     const totalTokensUsed = response.usageMetadata?.totalTokenCount || 300;
 
-    // Chạy ngầm ghi log, không bắt học sinh chờ database
     void Promise.resolve(
       supabase.rpc("track_ai_tutor_event", {
         p_is_image: Boolean(imageBase64),
@@ -179,7 +201,7 @@ Bài học: ${questionContext.lessonTitle}
     ).catch(() => {});
 
     return NextResponse.json({
-      reply: response.text || "Trợ giảng AI chưa thể phân tích câu này, em thử hỏi lại nhé!",
+      reply: response.text,
       modelUsed: modelActuallyUsed,
     });
   } catch (error: any) {
