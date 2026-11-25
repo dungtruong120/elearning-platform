@@ -31,7 +31,7 @@ import { DigitalAnswerSheetView } from "@/components/student/paper/DigitalAnswer
 import { PaperScanModal } from "@/components/student/paper/PaperScanModal";
 import { PaperReviewView } from "@/components/student/paper/PaperReviewView";
 import { supabase } from "@/lib/supabaseClient";
-import AiTutorWidget from "@/components/ai-tutor/AiTutorWidget";
+
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
 
 interface LessonWorkspaceViewProps {
@@ -69,7 +69,7 @@ function getEmbedVideoUrl(url: string): string {
       return `https://drive.google.com/file/d/${parts}/preview`;
     }
     return trimmed;
-  } catch (e) {
+  } catch {
     return url;
   }
 }
@@ -124,10 +124,11 @@ export function LessonWorkspaceView({
     }
   }, [loadStudentAttemptsFromStorage]);
 
- // Thay thế useEffect syncCanonicalSbdFromDb bằng:
-useEffect(() => {
+  useEffect(() => {
     if (profile?.student_code) {
-      setStudentAutoSbd(String(profile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6));
+      setStudentAutoSbd(
+        String(profile.student_code).replace(/\D/g, "").padStart(6, "0").slice(-6)
+      );
     } else {
       setStudentAutoSbd(formatStudentAutoSBD(profile));
     }
@@ -157,7 +158,9 @@ useEffect(() => {
       const matching = studentAttempts.filter((a: any) => {
         if (!a) return false;
         const aStuId = String(a.studentId || a.student_id || a.user_id || "").trim().toLowerCase();
-        const aStuName = String(a.studentName || a.student_name || a.full_name || "").trim().toLowerCase();
+        const aStuName = String(a.studentName || a.student_name || a.full_name || "")
+          .trim()
+          .toLowerCase();
         const isMyAttempt =
           (stuId && aStuId === stuId) ||
           (stuName && aStuName === stuName) ||
@@ -171,9 +174,7 @@ useEffect(() => {
 
       if (matching.length === 0) return null;
       return matching.reduce((best, cur) =>
-        Number(cur.score ?? cur.points ?? 0) >= Number(best.score ?? best.points ?? 0)
-          ? cur
-          : best
+        Number(cur.score ?? cur.points ?? 0) >= Number(best.score ?? best.points ?? 0) ? cur : best
       );
     },
     [studentAttempts, fallbackProfile]
@@ -215,21 +216,21 @@ useEffect(() => {
   }, [currentPlayingVideo]);
 
   /**
-   * Nạp đầy đủ dữ liệu câu hỏi của đề thi / BTVN Tổng Ôn (100+ câu) từ localStorage hoặc Supabase (`quizzes` & `practice_exams`)
-   */
-  /**
    * Nạp đầy đủ dữ liệu câu hỏi của đề thi / BTVN từ localStorage hoặc Supabase
-   * ĐÃ TỐI ƯU: Chỉ kéo các trường cần thiết, tuyệt đối không dùng select("*") để triệt tiêu cục 13 MB
+   * Tối ưu Egress: chỉ kéo các trường cần thiết, không dùng select("*")
    */
-const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
+  const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) => {
     if (!rawQuizItem) return null;
 
-    // Hàm chọn mảng không rỗng (tránh lỗi [] || sections trong JS)
     const pickNonEmpty = (...cands: any[]) => {
       for (let c of cands) {
         if (!c) continue;
         if (typeof c === "string") {
-          try { c = JSON.parse(c); } catch { continue; }
+          try {
+            c = JSON.parse(c);
+          } catch {
+            continue;
+          }
         }
         if (Array.isArray(c) && c.length > 0) return c;
       }
@@ -260,7 +261,6 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
     try {
       setIsResolvingExam(true);
 
-      // Phân luồng đúng 1 bảng duy nhất theo isHw để giảm 70% Egress
       const targetTable = isHw ? "homeworks" : "practice_exams";
       const selectCols = isHw
         ? "id, lesson_id, title, data, sections, media_map, duration_minutes"
@@ -268,7 +268,6 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
 
       let dbRecord: any = null;
 
-      // 1. Tìm theo ID (và lesson_id nếu là BTVN) trong 1 request duy nhất
       if (targetId) {
         const filterStr = isHw
           ? `id.eq.${targetId},lesson_id.eq.${targetId}`
@@ -284,7 +283,6 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
         if (byId) dbRecord = byId;
       }
 
-      // 2. Fallback tìm theo Title nếu chưa khớp ID
       if (!dbRecord && targetTitle) {
         const { data: byTitle } = await supabase
           .from(targetTable)
@@ -317,6 +315,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
       is_homework: isHw
     };
   }, []);
+
   const handleOpenExamEntry = async (quizItem: any, isHomeworkFlag: boolean) => {
     const resolved = await resolveFullExamData(quizItem, isHomeworkFlag);
     setSelectedQuizForEntry(resolved);
@@ -381,15 +380,18 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
     );
   }
 
+  const totalDocsCount =
+    (lesson?.lecture_files?.length || 0) + (lesson?.handwritten_notes?.length || 0);
+
   return (
-    <div className="fixed inset-0 z-[100] bg-[#F8FAFC] antialiased text-slate-800 tracking-tight flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[100] bg-[#F1F5F9] antialiased text-slate-800 tracking-tight flex flex-col overflow-hidden">
       {/* 1. THANH ĐIỀU HƯỚNG HEADER TINH GỌN */}
-      <header className="h-14 sm:h-15 bg-white/95 backdrop-blur-md border-b border-slate-200/80 flex items-center justify-between px-3.5 sm:px-6 shrink-0 z-20 shadow-2xs">
+      <header className="h-14 sm:h-15 bg-white border-b border-slate-200/90 flex items-center justify-between px-3.5 sm:px-6 shrink-0 z-20">
         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           <button
             type="button"
             onClick={onBackToCatalog}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-xs font-semibold text-slate-700 shadow-2xs cursor-pointer shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200/90 bg-white hover:bg-[#F8FAFC] transition text-xs font-semibold text-slate-700 cursor-pointer shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-slate-500" /> Quay lại
           </button>
@@ -402,7 +404,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
               Chương trình học
             </span>
             <ChevronRight className="w-3 h-3 shrink-0" />
-            <span className="text-blue-700 font-semibold truncate">
+            <span className="text-[#1D4ED8] font-semibold truncate">
               {lesson?.title || "Chi tiết bài học"}
             </span>
           </div>
@@ -410,7 +412,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
 
         <div className="flex items-center gap-2.5 shrink-0">
           {isResolvingExam && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-semibold">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[11px] font-semibold">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               Đang nạp câu hỏi...
             </span>
@@ -419,11 +421,11 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
             <p className="text-xs font-semibold text-slate-800 leading-tight">
               {profile?.full_name || "Học sinh"}
             </p>
-            <p className="text-[10px] font-medium text-blue-600 uppercase">
+            <p className="text-[10px] font-medium text-slate-500 uppercase">
               {profile?.grade || "Lớp 12"} • SBD: {studentAutoSbd}
             </p>
           </div>
-          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-semibold shadow-2xs border border-white">
+          <div className="w-8 h-8 rounded-full bg-[#1D4ED8] text-white flex items-center justify-center text-xs font-semibold">
             {profile?.full_name ? profile.full_name.charAt(0).toUpperCase() : "T"}
           </div>
         </div>
@@ -432,9 +434,9 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
       {/* 2. KHÔNG GIAN HỌC TẬP CHÍNH (2 CỘT: TRÁI 8 - PHẢI 4) */}
       <main className="flex-1 overflow-y-auto custom-scrollbar p-3.5 sm:p-5 lg:p-6">
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
-          {/* CỘT TRÁI (8 CỘT): PHÂN HỆ VIDEO BÀI GIẢNG & VIDEO CHỮA BTVN */}
+          {/* CỘT TRÁI (8 CỘT): VIDEO BÀI GIẢNG & THÔNG TIN BUỔI HỌC */}
           <div className="lg:col-span-8 space-y-4 text-left">
-            <div className="bg-white p-1 rounded-xl border border-slate-200/80 shadow-2xs flex items-center gap-1.5">
+            <div className="bg-white p-1 rounded-xl border border-slate-200/90 flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
@@ -443,17 +445,17 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                 }}
                 className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                   videoTab === "lecture"
-                    ? "bg-blue-600 text-white shadow-2xs"
-                    : "bg-slate-50/80 text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                    ? "bg-[#1D4ED8] text-white"
+                    : "bg-white text-slate-600 hover:bg-[#F8FAFC] hover:text-slate-900"
                 }`}
               >
                 <Video className="w-3.5 h-3.5" />
                 <span>Video Bài Giảng Lý Thuyết</span>
                 <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
                     videoTab === "lecture"
                       ? "bg-white/20 text-white"
-                      : "bg-blue-100 text-blue-700"
+                      : "bg-slate-100 text-slate-600"
                   }`}
                 >
                   {lectureVideos.length}
@@ -468,17 +470,17 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                 }}
                 className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                   videoTab === "homework_solution"
-                    ? "bg-amber-600 text-white shadow-2xs"
-                    : "bg-slate-50/80 text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                    ? "bg-[#1D4ED8] text-white"
+                    : "bg-white text-slate-600 hover:bg-[#F8FAFC] hover:text-slate-900"
                 }`}
               >
                 <PenTool className="w-3.5 h-3.5" />
                 <span>Video Chữa Chi Tiết BTVN</span>
                 <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
                     videoTab === "homework_solution"
                       ? "bg-white/20 text-white"
-                      : "bg-amber-100 text-amber-800"
+                      : "bg-slate-100 text-slate-600"
                   }`}
                 >
                   {homeworkSolutionVideos.length}
@@ -486,13 +488,14 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
               </button>
             </div>
 
-            <div className="bg-[#0F172A] rounded-2xl overflow-hidden shadow-xs border border-slate-200/80 aspect-video w-full relative flex items-center justify-center">
+            {/* KHUNG VIDEO SÁNG TINH TẾ */}
+            <div className="bg-slate-100/80 border border-slate-200 rounded-xl overflow-hidden aspect-video w-full relative flex items-center justify-center text-slate-600">
               {currentEmbedUrl ? (
                 <>
                   {isVideoLoading && (
-                    <div className="absolute inset-0 bg-slate-900 flex flex-col items-center justify-center text-slate-400 gap-2 z-10 animate-pulse">
-                      <div className="w-10 h-10 rounded-full border-2 border-slate-700 border-t-blue-500 animate-spin" />
-                      <span className="text-xs font-medium text-slate-300">
+                    <div className="absolute inset-0 bg-slate-100/90 flex flex-col items-center justify-center text-slate-500 gap-2 z-10">
+                      <Loader2 className="w-7 h-7 text-[#1D4ED8] animate-spin" />
+                      <span className="text-xs font-medium text-slate-600">
                         Đang chuẩn bị video bài học...
                       </span>
                     </div>
@@ -507,60 +510,32 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                   />
                 </>
               ) : (
-                <div className="flex flex-col items-center justify-center text-slate-400 p-6 text-center">
-                  <div
-                    className={`w-12 h-12 rounded-xl flex items-center justify-center mb-2.5 ${
-                      videoTab === "lecture"
-                        ? "bg-blue-950/70 text-blue-400"
-                        : "bg-amber-950/70 text-amber-400"
-                    }`}
-                  >
+                <div className="flex flex-col items-center justify-center text-slate-600 p-6 text-center">
+                  <div className="w-11 h-11 rounded-xl bg-white border border-slate-200/90 text-[#1D4ED8] flex items-center justify-center mb-3">
                     {videoTab === "lecture" ? (
-                      <Video className="w-6 h-6" />
+                      <Video className="w-5 h-5" />
                     ) : (
-                      <PenTool className="w-6 h-6" />
+                      <PenTool className="w-5 h-5" />
                     )}
                   </div>
-                  <h3 className="font-semibold text-sm sm:text-base text-white">
+                  <h3 className="font-semibold text-sm text-slate-800">
                     {videoTab === "lecture"
                       ? "Chưa có video bài giảng lý thuyết"
                       : "Chưa có video chữa chi tiết bài tập về nhà"}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1 max-w-sm font-normal">
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm font-normal leading-relaxed">
                     {videoTab === "lecture"
-                      ? "Thầy cô đang hoàn thiện nội dung video cho bài học này. Em vui lòng xem tài liệu hoặc tham gia buổi học trực tuyến."
-                      : "Video giải chi tiết BTVN sẽ được cập nhật sau khi hoàn thành buổi học hoặc hạn nộp bài tập."}
+                      ? "Nội dung video đang được giáo viên cập nhật. Bạn có thể xem tài liệu hoặc làm bài tập ở cột bên phải."
+                      : "Video chữa chi tiết BTVN sẽ hiển thị tại đây sau khi giáo viên đăng tải."}
                   </p>
                 </div>
               )}
             </div>
-{/* TRỢ GIẢNG AI HỎI ĐÁP TRONG LÚC XEM VIDEO (SIÊU NHẸ - KHÔNG TẢI FILE VIDEO) */}
-<div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-2xs">
-  <div className="flex items-center justify-between gap-2 mb-1">
-    <span className="text-xs font-extrabold text-indigo-900">
-      💡 Chưa hiểu đoạn nào trong video? Chụp nhanh màn hình hoặc đặt câu hỏi cho Trợ giảng AI:
-    </span>
-  </div>
-{/* BONG BÓNG TRỢ GIẢNG AI GÓC DƯỚI BÊN PHẢI */}
-         <AiTutorWidget
-           key={`ai-video-${lesson?.id}-${videoTab}-${currentPlayingVideo?.id || 0}`}
-           mode="VIDEO_QA"
-           questionKey={`video_${lesson?.id || "les"}_${videoTab}`}
-           lessonTitle={`${lesson?.title || "Bài giảng"} (${
-             videoTab === "lecture" ? "Video Lý thuyết" : "Video Chữa BTVN"
-           })`}
-           questionType="video"
-           questionText={`Học sinh đang xem ${
-             videoTab === "lecture" ? "Video bài giảng lý thuyết" : "Video chữa chi tiết BTVN"
-           }: "${currentPlayingVideo?.title || lesson?.title || ""}". Mô tả bài học: ${
-             lesson?.description || "Chuyên đề Toán THPT"
-           }`}
-         />
-</div>
+
             {activeTabVideos.length > 1 && (
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
-                <h4 className="text-[11px] font-semibold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-slate-500" /> Danh sách các phần video (
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 space-y-2">
+                <h4 className="text-[11px] font-semibold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-slate-400" /> Danh sách các phần video (
                   {activeTabVideos.length})
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -578,10 +553,8 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                         }}
                         className={`p-2.5 rounded-lg border text-left transition flex items-center justify-between gap-2 cursor-pointer ${
                           isSelected
-                            ? videoTab === "lecture"
-                              ? "bg-blue-50/80 border-blue-600 text-blue-800 ring-1 ring-blue-500/20"
-                              : "bg-amber-50/80 border-amber-500 text-amber-800 ring-1 ring-amber-500/20"
-                            : "bg-slate-50/60 border-slate-100 hover:bg-slate-100 text-slate-700"
+                            ? "bg-blue-50 border-[#1D4ED8] text-[#1D4ED8]"
+                            : "bg-[#F8FAFC] border-slate-200/90 hover:bg-slate-100 text-slate-700"
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
@@ -595,7 +568,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                           </span>
                         </div>
                         {isSelected && (
-                          <span className="text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded bg-white shadow-2xs shrink-0">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white text-[#1D4ED8] border border-blue-200 shrink-0">
                             Đang phát
                           </span>
                         )}
@@ -606,27 +579,19 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
               </div>
             )}
 
-            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
+            <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200/90 space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 text-[10px] font-semibold uppercase tracking-wider">
+                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200/90 text-[10px] font-semibold uppercase tracking-wider">
                     {lesson?.format || "Zoom"}
                   </span>
                   {lesson?.target_mode && (
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
-                        lesson.target_mode === "online"
-                          ? "bg-indigo-50 text-indigo-700 border border-indigo-100"
-                          : lesson.target_mode === "offline"
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                          : "bg-slate-100 text-slate-700 border border-slate-200"
-                      }`}
-                    >
+                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200/90 text-[10px] font-semibold uppercase tracking-wider">
                       {lesson.target_mode === "online"
                         ? "Lớp Online"
                         : lesson.target_mode === "offline"
-                        ? "Lớp Offline"
-                        : "Toàn khóa"}
+                          ? "Lớp Offline"
+                          : "Toàn khóa"}
                     </span>
                   )}
                   <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
@@ -639,7 +604,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                     href={currentPlayingVideo.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#1D4ED8] hover:text-blue-800 transition"
                   >
                     <span>Mở link gốc</span>
                     <ExternalLink className="w-3 h-3" />
@@ -647,7 +612,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                 )}
               </div>
 
-              <h1 className="text-base sm:text-lg font-semibold text-slate-900 tracking-tight">
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
                 {lesson?.title}
               </h1>
 
@@ -663,15 +628,15 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
             </div>
           </div>
 
-          {/* CỘT PHẢI (4 CỘT): COMPACT ACTION PANEL (HỖ TRỢ ĐẦY ĐỦ THI WEB, IN PHIẾU GIẤY, QUÉT OMR & TÔ ONLINE) */}
+          {/* CỘT PHẢI (4 CỘT): ĐỒNG BỘ MONOCHROME + 1 PRIMARY #1D4ED8 */}
           <div className="lg:col-span-4 space-y-4 text-left">
             {/* KHỐI 1: BÀI TẬP VỀ NHÀ (BTVN) */}
-            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
+            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 space-y-2.5">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  <PenTool className="w-3.5 h-3.5 text-blue-600" /> Bài tập về nhà
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <PenTool className="w-3.5 h-3.5 text-[#1D4ED8]" /> Bài tập về nhà
                 </h3>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700">
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-[#1D4ED8]">
                   {(lesson?.homework_files || []).length}
                 </span>
               </div>
@@ -693,19 +658,19 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                     return (
                       <div
                         key={hw.id || idx}
-                        className="p-3 rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-blue-200 transition-all space-y-2"
+                        className="p-3 rounded-xl border border-slate-200/90 bg-[#F8FAFC] hover:bg-white transition-all space-y-2"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <h4 className="font-semibold text-xs text-slate-800 line-clamp-1">
                             {hw.title || `BTVN Phần ${idx + 1}`}
                           </h4>
                           {bestHwAttempt ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 flex items-center gap-1">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#1D4ED8] border border-blue-200 shrink-0 flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" />
                               {Number(bestHwAttempt.score ?? bestHwAttempt.points ?? 0).toFixed(1)}đ
                             </span>
                           ) : (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 shrink-0">
                               {isQuiz ? "Trắc nghiệm" : "Tài liệu"}
                             </span>
                           )}
@@ -716,7 +681,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                             <button
                               type="button"
                               onClick={() => handleOpenExamEntry(hw, true)}
-                              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                              className="w-full py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
                             >
                               <Play className="w-3 h-3 fill-white" />
                               <span>{bestHwAttempt ? "Làm lại BTVN" : "Bắt đầu làm BTVN"}</span>
@@ -726,11 +691,11 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                               <button
                                 type="button"
                                 onClick={() => handlePrintSheetForQuiz(hw, true)}
-                                className="py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
                                 title="In phiếu trả lời A4 tương ứng với BTVN này"
                               >
-                                <Printer className="w-3 h-3" />
-                                <span>📄 In phiếu làm giấy</span>
+                                <Printer className="w-3 h-3 text-slate-500" />
+                                <span>In phiếu giấy</span>
                               </button>
 
                               <button
@@ -740,11 +705,11 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                                   setIsEntryHomework(true);
                                   setActivePaperScanExam(resolved);
                                 }}
-                                className="py-1.5 px-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                                className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
                                 title="Chụp hoặc tải ảnh phiếu BTVN đã làm trên giấy để chấm điểm"
                               >
-                                <Camera className="w-3 h-3" />
-                                <span>📷 Quét phiếu giấy</span>
+                                <Camera className="w-3 h-3 text-slate-500" />
+                                <span>Quét phiếu giấy</span>
                               </button>
                             </div>
 
@@ -758,9 +723,10 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                                     exam: resolved
                                   });
                                 }}
-                                className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                                className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
                               >
-                                <Eye className="w-3 h-3" /> Xem lại phiếu giấy đã chấm ({Number(bestHwAttempt.score).toFixed(1)}đ)
+                                <Eye className="w-3 h-3" /> Xem lại phiếu đã chấm (
+                                {Number(bestHwAttempt.score).toFixed(1)}đ)
                               </button>
                             )}
                           </div>
@@ -769,7 +735,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                             href={hw.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="w-full py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1 shadow-2xs"
+                            className="w-full py-1.5 bg-white border border-slate-200/90 hover:bg-[#F8FAFC] text-slate-700 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1"
                           >
                             <ExternalLink className="w-3 h-3 text-slate-500" /> Xem file bài tập
                           </a>
@@ -782,12 +748,12 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
             </div>
 
             {/* KHỐI 2: ĐỀ KIỂM TRA ĐỊNH KỲ */}
-            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
+            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 space-y-2.5">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  <Award className="w-3.5 h-3.5 text-emerald-600" /> Đề kiểm tra định kỳ
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Award className="w-3.5 h-3.5 text-[#1D4ED8]" /> Đề kiểm tra định kỳ
                 </h3>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700">
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700">
                   {(lesson?.test_quizzes || []).length}
                 </span>
               </div>
@@ -808,19 +774,22 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                     return (
                       <div
                         key={test.id || idx}
-                        className="p-3 rounded-xl border border-emerald-100 bg-emerald-50/20 hover:bg-white hover:border-emerald-300 transition-all space-y-2"
+                        className="p-3 rounded-xl border border-slate-200/90 bg-[#F8FAFC] hover:bg-white transition-all space-y-2"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <h4 className="font-semibold text-xs text-slate-800 line-clamp-1">
                             {test.title || `Đề kiểm tra ${idx + 1}`}
                           </h4>
                           {bestTestAttempt ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0 flex items-center gap-1">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-[#1D4ED8] border border-blue-200 shrink-0 flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" />
-                              {Number(bestTestAttempt.score ?? bestTestAttempt.points ?? 0).toFixed(1)}đ
+                              {Number(bestTestAttempt.score ?? bestTestAttempt.points ?? 0).toFixed(
+                                1
+                              )}
+                              đ
                             </span>
                           ) : (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase bg-emerald-100 text-emerald-800 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 shrink-0">
                               Đề KT
                             </span>
                           )}
@@ -830,21 +799,23 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                           <button
                             type="button"
                             onClick={() => handleOpenExamEntry(test, false)}
-                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                            className="w-full py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             <Play className="w-3 h-3 fill-white" />
-                            <span>{bestTestAttempt ? "Thi lại Đề KT" : "Vào phòng thi kiểm tra"}</span>
+                            <span>
+                              {bestTestAttempt ? "Thi lại Đề KT" : "Vào phòng thi kiểm tra"}
+                            </span>
                           </button>
 
                           <div className="grid grid-cols-2 gap-1.5">
                             <button
                               type="button"
                               onClick={() => handlePrintSheetForQuiz(test, false)}
-                              className="py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                              className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
                               title="In phiếu trả lời A4 tương ứng với Đề kiểm tra này"
                             >
-                              <Printer className="w-3 h-3" />
-                              <span>📄 In phiếu làm giấy</span>
+                              <Printer className="w-3 h-3 text-slate-500" />
+                              <span>In phiếu giấy</span>
                             </button>
 
                             <button
@@ -854,11 +825,11 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                                 setIsEntryHomework(false);
                                 setActivePaperScanExam(resolved);
                               }}
-                              className="py-1.5 px-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
+                              className="py-1.5 px-2 bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
                               title="Chụp hoặc tải ảnh phiếu Đề kiểm tra đã làm trên giấy"
                             >
-                              <Camera className="w-3 h-3" />
-                              <span>📷 Quét phiếu giấy</span>
+                              <Camera className="w-3 h-3 text-slate-500" />
+                              <span>Quét phiếu giấy</span>
                             </button>
                           </div>
 
@@ -872,9 +843,10 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                                   exam: resolved
                                 });
                               }}
-                              className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                              className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 rounded-lg text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
                             >
-                              <Eye className="w-3 h-3" /> Xem lại phiếu giấy đã chấm ({Number(bestTestAttempt.score).toFixed(1)}đ)
+                              <Eye className="w-3 h-3" /> Xem lại phiếu đã chấm (
+                              {Number(bestTestAttempt.score).toFixed(1)}đ)
                             </button>
                           )}
                         </div>
@@ -886,11 +858,14 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
             </div>
 
             {/* KHỐI 3: TÀI LIỆU BÀI GIẢNG & GHI CHÉP VIẾT TAY */}
-            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
+            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 space-y-2.5">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-indigo-600" /> Tài liệu & Viết tay
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-[#1D4ED8]" /> Tài liệu & Viết tay
                 </h3>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700">
+                  {totalDocsCount}
+                </span>
               </div>
 
               <div className="space-y-1.5">
@@ -900,15 +875,15 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                     href={file.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="py-2 px-2.5 bg-slate-50 hover:bg-blue-50/60 border border-slate-100 hover:border-blue-200 rounded-lg transition flex items-center justify-between gap-2 group text-left"
+                    className="py-2 px-2.5 bg-[#F8FAFC] hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-200 rounded-lg transition flex items-center justify-between gap-2 group text-left"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <span className="text-xs font-medium text-slate-700 group-hover:text-blue-700 truncate">
+                      <FileText className="w-3.5 h-3.5 text-[#1D4ED8] shrink-0" />
+                      <span className="text-xs font-medium text-slate-700 group-hover:text-[#1D4ED8] truncate">
                         {file.title || `Bài giảng ${idx + 1}`}
                       </span>
                     </div>
-                    <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-600 shrink-0" />
+                    <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-[#1D4ED8] shrink-0" />
                   </a>
                 ))}
 
@@ -918,36 +893,34 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                     href={note.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="py-2 px-2.5 bg-slate-50 hover:bg-indigo-50/60 border border-slate-100 hover:border-indigo-200 rounded-lg transition flex items-center justify-between gap-2 group text-left"
+                    className="py-2 px-2.5 bg-[#F8FAFC] hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-200 rounded-lg transition flex items-center justify-between gap-2 group text-left"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <BookOpen className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                      <span className="text-xs font-medium text-slate-700 group-hover:text-indigo-600 truncate">
+                      <BookOpen className="w-3.5 h-3.5 text-slate-500 group-hover:text-[#1D4ED8] shrink-0" />
+                      <span className="text-xs font-medium text-slate-700 group-hover:text-[#1D4ED8] truncate">
                         {note.title || `Ghi chép viết tay ${idx + 1}`}
                       </span>
                     </div>
-                    <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-indigo-600 shrink-0" />
+                    <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-[#1D4ED8] shrink-0" />
                   </a>
                 ))}
 
-                {(!lesson?.lecture_files || lesson.lecture_files.length === 0) &&
-                  (!lesson?.handwritten_notes || lesson.handwritten_notes.length === 0) && (
-                    <p className="text-center text-slate-400 text-xs py-2 font-normal italic">
-                      Chưa có tài liệu đính kèm.
-                    </p>
-                  )}
+                {totalDocsCount === 0 && (
+                  <p className="text-center text-slate-400 text-xs py-2 font-normal italic">
+                    Chưa có tài liệu đính kèm.
+                  </p>
+                )}
               </div>
             </div>
 
             {/* KHỐI 4: TÀI LIỆU TĂNG CƯỜNG */}
             {lesson?.extra_resources && lesson.extra_resources.length > 0 && (
-              <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5">
+              <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 space-y-2.5">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <h3 className="text-xs font-semibold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Tài liệu tăng
-                    cường
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-[#1D4ED8]" /> Tài liệu tăng cường
                   </h3>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700">
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700">
                     {lesson.extra_resources.length}
                   </span>
                 </div>
@@ -958,10 +931,10 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                       href={item.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="py-2 px-2.5 bg-amber-50/40 hover:bg-amber-50 border border-amber-200/70 rounded-lg transition flex items-center justify-between gap-2 group text-left"
+                      className="py-2 px-2.5 bg-[#F8FAFC] hover:bg-blue-50/50 border border-slate-200/90 hover:border-blue-200 rounded-lg transition flex items-center justify-between gap-2 group text-left"
                     >
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-800 group-hover:text-amber-800 truncate">
+                        <p className="text-xs font-medium text-slate-800 group-hover:text-[#1D4ED8] truncate">
                           {item.title}
                         </p>
                         {item.note && (
@@ -970,7 +943,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                           </p>
                         )}
                       </div>
-                      <ExternalLink className="w-3 h-3 text-amber-600 shrink-0" />
+                      <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-[#1D4ED8] shrink-0" />
                     </a>
                   ))}
                 </div>
@@ -988,7 +961,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
         isHomework={isEntryHomework}
         studentSbd={studentAutoSbd}
         studentName={fallbackProfile.full_name || "Học sinh"}
-       onSelectWeb={() => {
+        onSelectWeb={() => {
           if (!selectedQuizForEntry) return;
           const qId = String(
             selectedQuizForEntry.quiz_id ||
@@ -1003,7 +976,6 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
             selectedQuizForEntry.duration_minutes || selectedQuizForEntry.duration || 45
           );
 
-          // Lưu trọn vẹn object bài tập (lấy từ lessons.homework_files) vào sessionStorage
           if (typeof window !== "undefined") {
             try {
               sessionStorage.setItem(
@@ -1011,7 +983,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
                 JSON.stringify({
                   ...selectedQuizForEntry,
                   id: qId,
-                  title: qTitle,
+                  title: qTitle
                 })
               );
             } catch {}
@@ -1029,7 +1001,7 @@ const resolveFullExamData = useCallback(async (rawQuizItem: any, isHw: boolean) 
         }}
       />
 
-      {/* 4. MODAL CHỤP / TẢI ẢNH QUÉT PHIẾU GIẤY (NHÁNH 2A - TƯƠNG THÍCH ĐA PROP INTERFACE) */}
+      {/* 4. MODAL CHỤP / TẢI ẢNH QUÉT PHIẾU GIẤY */}
       {activePaperScanExam && (
         <SafePaperScanModal
           isOpen={Boolean(activePaperScanExam)}
