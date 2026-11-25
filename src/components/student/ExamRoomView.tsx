@@ -25,13 +25,13 @@ import {
   ZoomIn,
   ListFilter,
   FileText,
-  Sparkles
+  Sparkles,
+  ImagePlus
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { Profile } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
-import AiTutorWidget from "@/components/ai-tutor/AiTutorWidget";
 
 interface QuestionOption {
   key: string;
@@ -51,6 +51,13 @@ interface QuestionItem {
   mediaMap?: Record<string, string>;
 }
 
+interface AiChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  imagePreview?: string;
+}
+
 export interface ExamRoomViewProps {
   quizId: string;
   quizTitle: string;
@@ -58,7 +65,6 @@ export interface ExamRoomViewProps {
   profile: Profile;
   isHomework?: boolean;
   onBackToDashboard: () => void;
-  // 2 props kích hoạt chế độ Xem lại bài làm (Review Mode):
   isReviewMode?: boolean;
   reviewAttempt?: any;
 }
@@ -72,7 +78,6 @@ function normalizeTextKey(str: any): string {
     .trim();
 }
 
-// HÀM SỬA LỖI DÍNH LỆNH LATEX (\inftyminus, \inftyplus, v.v.) TRƯỚC KHI RENDER KATEX
 function sanitizeLatexString(tex: string): string {
   if (!tex) return "";
   return String(tex)
@@ -88,7 +93,6 @@ function sanitizeLatexString(tex: string): string {
     .replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/:]+)\$?\s*\]/gi, "[img:$1]");
 }
 
-// BỘ TRA CỨU ẢNH ĐỘC LẬP CHO TỪNG TOKEN [img:key]
 function resolveImageSrc(tokenKey: string, mediaMap?: Record<string, string>): string | null {
   if (!tokenKey) return null;
   const trimmed = String(tokenKey).trim();
@@ -339,6 +343,41 @@ function extractRawAnswersFromAttempt(att: any): Record<string, any> {
   return raw && typeof raw === "object" ? raw : {};
 }
 
+function readSavedDraftFromStorage(studentId: string, quizId: string): {
+  answers: Record<string, any>;
+  secondsRemaining?: number;
+  timeSpentSeconds?: number;
+} | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const draftKey = `tct_draft_${studentId}_${quizId}`;
+    const raw = localStorage.getItem(draftKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.answers && typeof parsed.answers === "object") {
+      return {
+        answers: parsed.answers,
+        secondsRemaining:
+          typeof parsed.secondsRemaining === "number" ? parsed.secondsRemaining : undefined,
+        timeSpentSeconds:
+          typeof parsed.timeSpentSeconds === "number" ? parsed.timeSpentSeconds : undefined
+      };
+    }
+    return { answers: parsed };
+  } catch {
+    return null;
+  }
+}
+
+function stripRawTagsForSnippet(raw: string): string {
+  return String(raw || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\[(?:img|image|img_url):[^\]]+\]/gi, "[Hình vẽ]")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function ExamRoomView({
   quizId,
   quizTitle,
@@ -349,11 +388,27 @@ export function ExamRoomView({
   isReviewMode: initialReviewMode = false,
   reviewAttempt = null
 }: ExamRoomViewProps) {
+  const studentId = String(profile?.id || "guest");
+
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
   const [isLoadingQuestions, setIsLoadingQuestions] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
+  const [currentVisibleQuestionIdx, setCurrentVisibleQuestionIdx] = useState<number>(0);
+
+  // STATE GIA SƯ AI TỐI GIẢN (1 ĐIỂM MỞ DUY NHẤT)
+  const [isAiDrawerOpen, setIsAiDrawerOpen] = useState<boolean>(false);
+  const [aiQuestionIdx, setAiQuestionIdx] = useState<number>(0);
+  const [aiMessagesByQuestion, setAiMessagesByQuestion] = useState<
+    Record<string, AiChatMessage[]>
+  >({});
+  const [aiInputText, setAiInputText] = useState<string>("");
+  const [aiDraftImageBase64, setAiDraftImageBase64] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  const aiFileInputRef = useRef<HTMLInputElement | null>(null);
+  const aiChatEndRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   // STATE OVERLAY CHẤM BÀI SCANNER (~1.8 GIÂY)
   const [isGrading, setIsGrading] = useState<boolean>(false);
@@ -365,7 +420,6 @@ export function ExamRoomView({
   const [flaggedQuestions, setFlaggedQuestions] = useState<Record<string, boolean>>({});
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  // KHỞI TẠO ĐỒNG BỘ CHẾ ĐỘ REVIEW MODE NGAY TỪ BAN ĐẦU
   const [isReviewMode, setIsReviewMode] = useState<boolean>(() => Boolean(initialReviewMode));
   const [isSubmitted, setIsSubmitted] = useState<boolean>(() => Boolean(initialReviewMode));
   const [showResultModal, setShowResultModal] = useState<boolean>(false);
@@ -374,14 +428,8 @@ export function ExamRoomView({
     if (initialReviewMode && reviewAttempt) {
       return extractRawAnswersFromAttempt(reviewAttempt);
     }
-    if (typeof window !== "undefined" && !initialReviewMode) {
-      try {
-        const draftKey = `tct_draft_${profile?.id || "guest"}_${quizId}`;
-        const saved = localStorage.getItem(draftKey);
-        if (saved) return JSON.parse(saved);
-      } catch {}
-    }
-    return {};
+    const savedDraft = readSavedDraftFromStorage(studentId, quizId);
+    return savedDraft?.answers || {};
   });
 
   const [layoutMode, setLayoutMode] = useState<"single" | "scroll">(() =>
@@ -391,6 +439,10 @@ export function ExamRoomView({
 
   const [secondsRemaining, setSecondsRemaining] = useState<number>(() => {
     if (initialReviewMode || isHomework) return 0;
+    const savedDraft = readSavedDraftFromStorage(studentId, quizId);
+    if (savedDraft?.secondsRemaining !== undefined && savedDraft.secondsRemaining > 0) {
+      return savedDraft.secondsRemaining;
+    }
     return durationMinutes > 0 ? durationMinutes * 60 : 0;
   });
 
@@ -403,7 +455,8 @@ export function ExamRoomView({
           0
       );
     }
-    return 0;
+    const savedDraft = readSavedDraftFromStorage(studentId, quizId);
+    return savedDraft?.timeSpentSeconds || 0;
   });
 
   const [score, setScore] = useState<number>(() => {
@@ -432,6 +485,12 @@ export function ExamRoomView({
   const userAnswersRef = useRef<Record<string, any>>({});
   userAnswersRef.current = userAnswers;
 
+  const secondsRemainingRef = useRef<number>(secondsRemaining);
+  secondsRemainingRef.current = secondsRemaining;
+
+  const timeSpentSecondsRef = useRef<number>(timeSpentSeconds);
+  timeSpentSecondsRef.current = timeSpentSeconds;
+
   const isQuestionTrueFalse = useCallback((q: QuestionItem) => {
     if (q.type === "true_false") return true;
     const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
@@ -455,7 +514,6 @@ export function ExamRoomView({
       .replace(/[−–—]/g, "-");
   }, []);
 
-  // ĐÁNH GIÁ TRẠNG THÁI TỪNG CÂU HỎI (CORRECT / WRONG / SKIPPED) KHI Ở REVIEW MODE
   const getQuestionReviewStatus = useCallback(
     (q: QuestionItem): "correct" | "wrong" | "skipped" => {
       const ans = userAnswers[q.id];
@@ -512,6 +570,43 @@ export function ExamRoomView({
     [userAnswers, isQuestionTrueFalse, isQuestionShortAnswer, normalizeShortAnswer]
   );
 
+  // INTERSECTION OBSERVER: TỰ ĐỘNG NHẬN DIỆN CÂU ĐANG XEM KHI CUỘN DANH SÁCH
+  useEffect(() => {
+    if (layoutMode !== "scroll" || questions.length === 0) return;
+    const rootEl = scrollContainerRef.current;
+    if (!rootEl || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let bestIdx = -1;
+        let bestRatio = 0;
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
+            const idxAttr = entry.target.getAttribute("data-q-index");
+            if (idxAttr !== null) {
+              bestRatio = entry.intersectionRatio;
+              bestIdx = parseInt(idxAttr, 10);
+            }
+          }
+        });
+        if (bestIdx >= 0) {
+          setCurrentVisibleQuestionIdx(bestIdx);
+        }
+      },
+      {
+        root: rootEl,
+        threshold: [0.25, 0.5, 0.75]
+      }
+    );
+
+    questions.forEach((q) => {
+      const el = document.getElementById("question-card-" + q.id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [layoutMode, questions]);
+
   // ĐỒNG BỘ PROPS KHI CHUYỂN SANG REVIEW ATTEMPT MỚI
   useEffect(() => {
     if (initialReviewMode) {
@@ -531,7 +626,7 @@ export function ExamRoomView({
     }
   }, [initialReviewMode, reviewAttempt]);
 
-  // KHI CÂU HỎI ĐÃ TẢI XONG Ở CHẾ ĐỘ REVIEW MODE: ĐỒNG BỘ MAPPING ĐÁP ÁN THEO ABSOLUTE INDEX (1..N)
+  // ĐỒNG BỘ MAPPING ĐÁP ÁN Ở REVIEW MODE
   useEffect(() => {
     if (!isReviewMode || questions.length === 0) return;
 
@@ -637,7 +732,7 @@ export function ExamRoomView({
     correctCount
   ]);
 
-  // HÀM TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA TỐI ƯU HÓA
+  // TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA
   const fetchFullExamLeaderboard = useCallback(
     async (latestClientAttempt?: any) => {
       setIsLoadingRanking(true);
@@ -811,25 +906,34 @@ export function ExamRoomView({
     [quizId, quizTitle, profile, score, timeSpentSeconds]
   );
 
-  // LƯU BẢN NHÁP BTVN (CHỈ KHI ĐANG LÀM BÀI, KHÔNG GHI ĐÈ KHI Ở REVIEW MODE)
+  // TỰ ĐỘNG LƯU NHÁP ĐÁP ÁN + THỜI GIAN CÒN LẠI VÀO localStorage (`tct_draft_${studentId}_${quizId}`)
   useEffect(() => {
-    if (typeof window !== "undefined" && profile?.id && !isSubmitted && !isReviewMode) {
+    if (typeof window !== "undefined" && !isSubmitted && !isReviewMode) {
       try {
-        const draftKey = `tct_draft_${profile.id}_${quizId}`;
+        const draftKey = `tct_draft_${studentId}_${quizId}`;
         if (Object.keys(userAnswers).length > 0) {
-          localStorage.setItem(draftKey, JSON.stringify(userAnswers));
+          localStorage.setItem(
+            draftKey,
+            JSON.stringify({
+              answers: userAnswers,
+              secondsRemaining: secondsRemainingRef.current,
+              timeSpentSeconds: timeSpentSecondsRef.current,
+              updatedAt: Date.now()
+            })
+          );
         }
       } catch {}
     }
-  }, [userAnswers, profile?.id, quizId, isSubmitted, isReviewMode]);
+  }, [userAnswers, studentId, quizId, isSubmitted, isReviewMode]);
 
-  // TẢI CÂU HỎI VÀ MEDIAMAP — RESET NGAY STATE CÂU HỎI VỀ [] VÀ BẬT LOADING TRƯỚC KHI TẢI ĐỂ HẾT NHÁY ĐỀ CŨ
+  // TẢI CÂU HỎI VÀ CACHE VÀO localStorage (`tct_exam_cache_${quizId}`)
   useEffect(() => {
     let isCancelled = false;
 
     setQuestions([]);
     setMediaMap({});
     setCurrentIdx(0);
+    setCurrentVisibleQuestionIdx(0);
     setIsLoadingQuestions(true);
 
     const loadExamQuestions = async () => {
@@ -839,8 +943,27 @@ export function ExamRoomView({
       try {
         let dbExam: any = null;
 
-        // ƯU TIÊN 1: Chỉ lấy từ sessionStorage nếu KHỚP CHÍNH XÁC quizId (tránh nháy đề cũ)
-        if (typeof window !== "undefined") {
+        const hasPayloadQuestions = (obj: any) =>
+          obj &&
+          ((Array.isArray(obj.data) && obj.data.length > 0) ||
+            (Array.isArray(obj.sections) && obj.sections.length > 0) ||
+            (Array.isArray(obj.questions) && obj.questions.length > 0));
+
+        // ƯU TIÊN 1: Kiểm tra cache localStorage `tct_exam_cache_${quizId}` để tiết kiệm Egress Supabase
+        if (typeof window !== "undefined" && quizId) {
+          try {
+            const cachedExamRaw = localStorage.getItem(`tct_exam_cache_${quizId}`);
+            if (cachedExamRaw) {
+              const parsedCache = JSON.parse(cachedExamRaw);
+              if (hasPayloadQuestions(parsedCache)) {
+                dbExam = parsedCache;
+              }
+            }
+          } catch {}
+        }
+
+        // ƯU TIÊN 2: Kiểm tra sessionStorage nếu khớp chính xác quizId
+        if (!dbExam && typeof window !== "undefined") {
           try {
             const cachedRoom = sessionStorage.getItem("tct_active_exam_room");
             if (cachedRoom) {
@@ -850,18 +973,14 @@ export function ExamRoomView({
                 (quizId
                   ? String(parsed.id || "").trim() === String(quizId).trim()
                   : String(parsed.title || "").trim() === String(quizTitle).trim());
-              const hasCachedQuestions =
-                (Array.isArray(parsed?.data) && parsed.data.length > 0) ||
-                (Array.isArray(parsed?.sections) && parsed.sections.length > 0) ||
-                (Array.isArray(parsed?.questions) && parsed.questions.length > 0);
-              if (isExactMatch && hasCachedQuestions) {
+              if (isExactMatch && hasPayloadQuestions(parsed)) {
                 dbExam = parsed;
               }
             }
           } catch {}
         }
 
-        // ƯU TIÊN 2: Truy vấn DB (Tìm trong homeworks/practice_exams trước, sau đó tìm trong bảng lessons)
+        // ƯU TIÊN 3: Truy vấn Supabase và lưu vào `tct_exam_cache_${quizId}`
         if (!dbExam) {
           const targetTable = isHomework ? "homeworks" : "practice_exams";
           const selectCols = isHomework
@@ -930,11 +1049,16 @@ export function ExamRoomView({
               }
             }
           }
+
+          if (dbExam && quizId && typeof window !== "undefined") {
+            try {
+              localStorage.setItem(`tct_exam_cache_${quizId}`, JSON.stringify(dbExam));
+            } catch {}
+          }
         }
 
         let targetExam = dbExam;
 
-        // 3. Fallback đọc localStorage khớp đúng quizId
         if (!targetExam && typeof window !== "undefined") {
           try {
             const saved = localStorage.getItem("edunexus_practice_exams");
@@ -1099,7 +1223,7 @@ export function ExamRoomView({
     };
   }, [quizId, quizTitle, isHomework]);
 
-  // ĐỒNG HỒ ĐẾM GIỜ (DỪNG NGAY LẬP TỨC KHI ĐANG TẢI ĐỀ, Ở REVIEW MODE HOẶC ĐÃ NỘP BÀI)
+  // ĐỒNG HỒ ĐẾM GIỜ
   useEffect(() => {
     if (isLoadingQuestions || isSubmitted || isReviewMode || isGrading) return;
     const timer = setInterval(() => {
@@ -1118,7 +1242,6 @@ export function ExamRoomView({
     return () => clearInterval(timer);
   }, [isLoadingQuestions, isSubmitted, isReviewMode, isGrading, durationMinutes, isHomework]);
 
-  // KHÓA TOÀN BỘ THAO TÁC CHỌN ĐÁP ÁN KHI ĐÃ NỘP HOẶC ĐANG Ở REVIEW MODE
   const handleSelectOption = (questionId: string, optionKey: string) => {
     if (isSubmitted || isReviewMode || isGrading) return;
     setUserAnswers((prev) => ({
@@ -1157,7 +1280,6 @@ export function ExamRoomView({
     }));
   };
 
-  // HÀM LỌC SẠCH DỮ LIỆU TỌA ĐỘ RÁC
   function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string, any> {
     if (!rawAnswers || typeof rawAnswers !== "object") return {};
 
@@ -1188,12 +1310,12 @@ export function ExamRoomView({
     return cleaned;
   }
 
-  // NỘP BÀI THI - KÍCH HOẠT ANIMATION CHẤM BÀI 1.8S + ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA
   const handleSubmitExam = async () => {
-    if (typeof window !== "undefined" && profile?.id) {
+    if (typeof window !== "undefined") {
       try {
-        localStorage.removeItem(`tct_draft_${profile.id}_${quizId}`);
+        localStorage.removeItem(`tct_draft_${studentId}_${quizId}`);
         sessionStorage.removeItem("tct_active_exam_room");
+        sessionStorage.removeItem("tct_dashboard_cache_v1");
       } catch {}
     }
     if (isSubmitting || isGrading || isReviewMode) return;
@@ -1202,6 +1324,7 @@ export function ExamRoomView({
     setGradingProgress(8);
     setGradingStepText("Đang đối soát bảng đáp án trắc nghiệm...");
     setIsMobileDrawerOpen(false);
+    setIsAiDrawerOpen(false);
 
     const rawAnswers = userAnswersRef.current;
 
@@ -1290,7 +1413,7 @@ export function ExamRoomView({
     const durationText =
       Math.floor(timeSpentSeconds / 60) + " phút " + (timeSpentSeconds % 60) + " giây";
     const nowIso = new Date().toISOString();
-    const studentId = String(profile?.id || (profile as any)?.username || "student");
+    const stuId = String(profile?.id || (profile as any)?.username || "student");
     const studentName = String(profile?.full_name || (profile as any)?.username || "Học sinh");
     const attemptId = "att-" + Date.now();
 
@@ -1305,9 +1428,9 @@ export function ExamRoomView({
       quizTitle: String(quizTitle),
       exam_title: String(quizTitle),
       examTitle: String(quizTitle),
-      student_id: studentId,
-      studentId: studentId,
-      user_id: studentId,
+      student_id: stuId,
+      studentId: stuId,
+      user_id: stuId,
       student_name: studentName,
       studentName: studentName,
       full_name: studentName,
@@ -1332,7 +1455,7 @@ export function ExamRoomView({
       exam_id: String(quizId),
       quiz_title: String(quizTitle),
       exam_title: String(quizTitle),
-      student_id: studentId,
+      student_id: stuId,
       student_name: studentName,
       full_name: studentName,
       school: profile?.school || "THPT",
@@ -1361,7 +1484,7 @@ export function ExamRoomView({
 
         const studentPastAttempts = updatedAttempts.filter(
           (a: any) =>
-            (a.studentId === studentId || a.studentName === studentName) &&
+            (a.studentId === stuId || a.studentName === studentName) &&
             (a.quizId === quizId || a.quizTitle === quizTitle)
         );
         setHistoryAttemptsCount(studentPastAttempts.length);
@@ -1413,6 +1536,7 @@ export function ExamRoomView({
   const handleRetake = () => {
     setUserAnswers({});
     setCurrentIdx(0);
+    setCurrentVisibleQuestionIdx(0);
     setIsSubmitted(false);
     setShowResultModal(false);
     setIsReviewMode(false);
@@ -1426,6 +1550,148 @@ export function ExamRoomView({
     setIsReviewMode(true);
     setIsSubmitted(true);
     setCurrentIdx(0);
+  };
+
+  // MỞ NGĂN KÉO GIA SƯ AI & TỰ ĐỘNG BẮT ĐÚNG CÂU ĐANG XEM
+  const handleOpenAiDrawer = () => {
+    const activeIndex = layoutMode === "single" ? currentIdx : currentVisibleQuestionIdx;
+    setAiQuestionIdx(Math.min(Math.max(0, activeIndex), Math.max(0, questions.length - 1)));
+    setIsMobileDrawerOpen(false);
+    setIsAiDrawerOpen(true);
+  };
+
+  const selectedAiQuestion = questions[aiQuestionIdx] || questions[0];
+  const aiThreadKey = selectedAiQuestion ? `${quizId}_${selectedAiQuestion.id}` : "default";
+  const currentAiMessages = aiMessagesByQuestion[aiThreadKey] || [];
+
+  useEffect(() => {
+    if (isAiDrawerOpen && aiChatEndRef.current) {
+      aiChatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [currentAiMessages.length, isAiDrawerOpen, isAiLoading]);
+
+  const handleAiImageSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setAiDraftImageBase64(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleSendAiPrompt = async (customPrompt?: string) => {
+    const promptText = (customPrompt !== undefined ? customPrompt : aiInputText).trim();
+    if ((!promptText && !aiDraftImageBase64) || isAiLoading || !selectedAiQuestion) return;
+
+    const userMsg: AiChatMessage = {
+      id: "u-" + Date.now(),
+      role: "user",
+      text: promptText || "Nhờ Gia sư AI kiểm tra giúp ảnh nháp của câu này.",
+      imagePreview: aiDraftImageBase64 || undefined
+    };
+
+    const attachedImg = aiDraftImageBase64;
+    if (customPrompt === undefined) setAiInputText("");
+    setAiDraftImageBase64(null);
+
+    setAiMessagesByQuestion((prev) => ({
+      ...prev,
+      [aiThreadKey]: [...(prev[aiThreadKey] || []), userMsg]
+    }));
+
+    setIsAiLoading(true);
+    try {
+      const modeVal =
+        isReviewMode || isSubmitted
+          ? "REVIEW_SOCRATIC"
+          : isHomework
+            ? "HOMEWORK_HINT"
+            : "HOMEWORK_HINT";
+
+      const res = await fetch("/api/ai-tutor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: modeVal,
+          questionKey: aiThreadKey,
+          lessonTitle: `${quizTitle} - Câu ${aiQuestionIdx + 1}`,
+          questionType: isQuestionTrueFalse(selectedAiQuestion)
+            ? "true_false"
+            : isQuestionShortAnswer(selectedAiQuestion)
+              ? "short_answer"
+              : "multiple_choice",
+          questionText: selectedAiQuestion.prompt,
+          options: (selectedAiQuestion.options || []).map((o) => `${o.key}. ${o.text}`),
+          studentAnswer:
+            typeof userAnswers[selectedAiQuestion.id] === "object"
+              ? JSON.stringify(userAnswers[selectedAiQuestion.id])
+              : String(userAnswers[selectedAiQuestion.id] || ""),
+          correctAnswer: isReviewMode || isSubmitted ? selectedAiQuestion.correctAnswer : undefined,
+          officialSolution:
+            isReviewMode || isSubmitted ? selectedAiQuestion.explanation : undefined,
+          message: userMsg.text,
+          imageBase64: attachedImg || undefined,
+          history: currentAiMessages.slice(-6).map((m) => ({
+            role: m.role,
+            content: m.text
+          }))
+        })
+      });
+
+      let replyText = "Gia sư AI đang tạm bận, em vui lòng thử gửi lại sau vài giây nhé.";
+      if (res.ok) {
+        const data = await res.json();
+        replyText =
+          data?.reply ||
+          data?.message ||
+          data?.answer ||
+          data?.text ||
+          "Em thử phân tích giả thiết đề bài trước và cho thầy biết bước đầu tiên nhé!";
+      }
+
+      setAiMessagesByQuestion((prev) => ({
+        ...prev,
+        [aiThreadKey]: [
+          ...(prev[aiThreadKey] || []),
+          {
+            id: "a-" + Date.now(),
+            role: "assistant",
+            text: replyText
+          }
+        ]
+      }));
+    } catch {
+      setAiMessagesByQuestion((prev) => ({
+        ...prev,
+        [aiThreadKey]: [
+          ...(prev[aiThreadKey] || []),
+          {
+            id: "a-" + Date.now(),
+            role: "assistant",
+            text: "Không thể kết nối tới Gia sư AI lúc này. Em kiểm tra lại mạng và thử lại nhé."
+          }
+        ]
+      }));
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const navigateToQuestion = (targetIdx: number) => {
+    const safeIdx = Math.min(Math.max(0, targetIdx), Math.max(0, questions.length - 1));
+    setCurrentIdx(safeIdx);
+    setCurrentVisibleQuestionIdx(safeIdx);
+    if (layoutMode === "scroll") {
+      const targetQ = questions[safeIdx];
+      if (targetQ) {
+        const el = document.getElementById("question-card-" + targetQ.id);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
   };
 
   const formatTimer = (totalSec: number) => {
@@ -1463,18 +1729,18 @@ export function ExamRoomView({
 
   const timerHeaderStyles = useMemo(() => {
     if (isReviewMode) return "bg-emerald-50 border-emerald-200 text-emerald-700";
-    if (isHomework) return "bg-blue-50/70 border-blue-200/70 text-blue-700";
+    if (isHomework) return "bg-blue-50/70 border-blue-200/70 text-[#1D4ED8]";
     if (secondsRemaining <= 60) return "bg-rose-50 border-rose-300 text-rose-600 animate-pulse";
     if (secondsRemaining <= 300) return "bg-amber-50 border-amber-300 text-amber-700";
-    return "bg-blue-50/70 border-blue-200/70 text-blue-700";
+    return "bg-blue-50/70 border-blue-200/70 text-[#1D4ED8]";
   }, [secondsRemaining, isHomework, isReviewMode]);
 
   const timerSidebarStyles = useMemo(() => {
     if (isReviewMode) return "bg-emerald-50/80 border-emerald-200 text-emerald-700";
-    if (isHomework) return "bg-blue-50/60 border-blue-100 text-blue-600";
+    if (isHomework) return "bg-blue-50/60 border-blue-100 text-[#1D4ED8]";
     if (secondsRemaining <= 60) return "bg-rose-50 border-rose-200 text-rose-600 animate-pulse";
     if (secondsRemaining <= 300) return "bg-amber-50 border-amber-200 text-amber-700";
-    return "bg-blue-50/60 border-blue-100 text-blue-600";
+    return "bg-blue-50/60 border-blue-100 text-[#1D4ED8]";
   }, [secondsRemaining, isHomework, isReviewMode]);
 
   const renderQuestionOptions = (q: QuestionItem) => {
@@ -1500,13 +1766,14 @@ export function ExamRoomView({
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
               <input
                 type="text"
+                inputMode="decimal"
                 disabled={isSubmitted || isReviewMode}
                 value={currentAns}
                 onChange={(e) => handleShortAnswerChange(q.id, e.target.value)}
                 placeholder={
                   isReviewMode
                     ? "Học sinh bỏ trống câu này"
-                    : "Nhập kết quả (số hoặc biểu thức ngắn)..."
+                    : "Nhập kết quả (VD: 12,5 hoặc -3)..."
                 }
                 className={
                   "flex-1 p-2.5 bg-white border rounded-xl text-sm font-bold outline-none transition " +
@@ -1776,7 +2043,6 @@ export function ExamRoomView({
     );
   };
 
-  // KHUNG LOADING CHẶN TUYỆT ĐỐI NHÁY ĐỀ CŨ CHO ĐẾN KHI CÂU HỎI CỦA ĐÚNG quizId NẠP XONG
   if (isLoadingQuestions || questions.length === 0) {
     return (
       <div className="fixed inset-0 z-[200] bg-[#F1F5F9] flex flex-col items-center justify-center p-4 font-sans">
@@ -1792,6 +2058,7 @@ export function ExamRoomView({
   }
 
   const currentQ = questions[currentIdx] || questions[0];
+  const activeNavIdx = layoutMode === "single" ? currentIdx : currentVisibleQuestionIdx;
 
   return (
     <div
@@ -1801,8 +2068,8 @@ export function ExamRoomView({
       }}
       className="fixed inset-0 z-[120] bg-[#F1F5F9] text-slate-800 flex flex-col overflow-hidden"
     >
-      {/* 1. HEADER PHÒNG THI / CHẾ ĐỘ XEM LẠI BÀI LÀM */}
-      <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white border-b border-slate-200/90 flex items-center justify-between shrink-0 z-30">
+      {/* 1. HEADER PHÒNG THI */}
+      <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
@@ -1815,7 +2082,7 @@ export function ExamRoomView({
                 onBackToDashboard();
               }
             }}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 transition flex items-center cursor-pointer shrink-0"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center cursor-pointer shrink-0"
             title="Quay lại"
           >
             <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
@@ -1825,10 +2092,10 @@ export function ExamRoomView({
             <div className="flex items-center gap-2">
               {isReviewMode && (
                 <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider shrink-0">
-                  XEM LẠI BÀI LÀM
+                  XEM LẠI
                 </span>
               )}
-              <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate max-w-[140px] sm:max-w-xs md:max-w-md">
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate max-w-[130px] sm:max-w-xs md:max-w-md">
                 {quizTitle}
               </h2>
             </div>
@@ -1847,7 +2114,7 @@ export function ExamRoomView({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/90">
+          <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
             <button
               type="button"
               onClick={() => setLayoutMode("scroll")}
@@ -1893,7 +2160,7 @@ export function ExamRoomView({
               <Clock className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {isHomework
-                  ? formatTimer(timeSpentSeconds) + " (Tự do)"
+                  ? formatTimer(timeSpentSeconds)
                   : durationMinutes > 0
                     ? formatTimer(secondsRemaining)
                     : formatTimer(timeSpentSeconds)}
@@ -1903,12 +2170,22 @@ export function ExamRoomView({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* NÚT GIA SƯ AI GỌN GÀNG TRÊN DESKTOP */}
+          <button
+            type="button"
+            onClick={handleOpenAiDrawer}
+            className="hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] border border-slate-200 text-xs font-bold transition cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8]" />
+            <span>Gia sư AI</span>
+          </button>
+
           {!isSubmitted && !isReviewMode ? (
             <button
               type="button"
               disabled={isSubmitting || isGrading}
               onClick={() => handleSubmitExam()}
-              className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-60 transition"
+              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-60 transition"
             >
               {isSubmitting || isGrading ? (
                 <>
@@ -1919,7 +2196,7 @@ export function ExamRoomView({
                 <>
                   <Send className="w-3.5 h-3.5" />
                   <span>
-                    {isHomework ? "Nộp bài tập" : "Nộp bài"}{" "}
+                    Nộp bài{" "}
                     <span className="hidden sm:inline">
                       ({answeredCount}/{questions.length})
                     </span>
@@ -1942,7 +2219,10 @@ export function ExamRoomView({
       {/* 2. VÙNG NỘI DUNG CÂU HỎI & SIDEBAR */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
         <main className="lg:col-span-9 flex flex-col justify-between overflow-hidden relative bg-[#F1F5F9]">
-          <div className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar">
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar"
+          >
             <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-6">
               {isReviewMode && (
                 <div className="p-3.5 bg-white border border-blue-200 rounded-2xl flex flex-wrap items-center justify-between gap-3">
@@ -1971,11 +2251,12 @@ export function ExamRoomView({
                 </div>
               )}
 
+              {/* ẨN THANH THÔNG BÁO XANH LÁ TRÊN MOBILE (hidden lg:flex) */}
               {isHomework && !isReviewMode && (
-                <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between">
+                <div className="hidden lg:flex p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <BookOpen className="w-4 h-4 text-emerald-600" />
-                    Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu kết quả khi nộp.
+                    Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu nháp & kết quả khi nộp.
                   </span>
                   <span className="text-[11px] font-bold bg-white px-2 py-0.5 rounded border border-emerald-300">
                     Đã làm {answeredCount}/{questions.length} câu ✓
@@ -1994,8 +2275,8 @@ export function ExamRoomView({
                             ? "border-emerald-300"
                             : qStatus === "wrong"
                               ? "border-rose-300"
-                              : "border-slate-200/90"
-                          : "border-slate-200/90"
+                              : "border-slate-200"
+                          : "border-slate-200"
                       }`}
                     >
                       <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -2047,7 +2328,7 @@ export function ExamRoomView({
                                   {flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}
                                 </span>
                               </button>
-                              <span className="text-xs font-semibold text-slate-500">
+                              <span className="text-xs font-semibold text-slate-500 hidden sm:inline">
                                 {Boolean(userAnswers[currentQ.id]) ? "Đã trả lời" : "Chưa làm"}
                               </span>
                             </>
@@ -2079,7 +2360,7 @@ export function ExamRoomView({
                                   ) || currentQ.image!
                                 )
                               }
-                              className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200/90 bg-white p-2 object-contain mx-auto cursor-pointer"
+                              className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200 bg-white p-2 object-contain mx-auto cursor-pointer"
                             />
                           </div>
                         )}
@@ -2101,57 +2382,30 @@ export function ExamRoomView({
                           </div>
                         </div>
                       )}
-
-                      {currentQ && (
-                        <AiTutorWidget
-                          key={`ai-floating-${currentQ.id}-${isReviewMode}`}
-                          mode={
-                            isReviewMode || isSubmitted
-                              ? "REVIEW_SOCRATIC"
-                              : isHomework
-                                ? "HOMEWORK_HINT"
-                                : "HIDDEN"
-                          }
-                          questionKey={`${quizId}_${currentQ.id}`}
-                          lessonTitle={`${quizTitle} - Câu ${currentIdx + 1}`}
-                          questionType={
-                            isQuestionTrueFalse(currentQ)
-                              ? "true_false"
-                              : isQuestionShortAnswer(currentQ)
-                                ? "short_answer"
-                                : "multiple_choice"
-                          }
-                          questionText={currentQ.prompt}
-                          options={(currentQ.options || []).map((o) => `${o.key}. ${o.text}`)}
-                          studentAnswer={
-                            typeof userAnswers[currentQ.id] === "object"
-                              ? JSON.stringify(userAnswers[currentQ.id])
-                              : String(userAnswers[currentQ.id] || "")
-                          }
-                          correctAnswer={currentQ.correctAnswer}
-                          officialSolution={currentQ.explanation}
-                        />
-                      )}
                     </div>
                   );
                 })()
               ) : (
-                <div className="space-y-3.5 pb-16">
+                <div className="space-y-3.5 pb-10">
                   {questions.map((q, qIndex) => {
                     const qStatus = isReviewMode ? getQuestionReviewStatus(q) : null;
                     return (
                       <div
                         key={q.id}
                         id={"question-card-" + q.id}
-                        onClick={() => setCurrentIdx(qIndex)}
+                        data-q-index={qIndex}
+                        onClick={() => {
+                          setCurrentIdx(qIndex);
+                          setCurrentVisibleQuestionIdx(qIndex);
+                        }}
                         className={`bg-white rounded-2xl p-4 sm:p-5 border space-y-2.5 text-left relative ${
                           isReviewMode
                             ? qStatus === "correct"
                               ? "border-emerald-300"
                               : qStatus === "wrong"
                                 ? "border-rose-300"
-                                : "border-slate-200/90"
-                            : "border-slate-200/90"
+                                : "border-slate-200"
+                            : "border-slate-200"
                         }`}
                       >
                         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -2201,7 +2455,7 @@ export function ExamRoomView({
                                   <Flag className="w-3.5 h-3.5 fill-current" />
                                   <span>{flaggedQuestions[q.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
                                 </button>
-                                <span className="text-xs font-semibold text-slate-500">
+                                <span className="text-xs font-semibold text-slate-500 hidden sm:inline">
                                   {Boolean(userAnswers[q.id]) ? "Đã trả lời" : "Chưa làm"}
                                 </span>
                               </>
@@ -2228,7 +2482,7 @@ export function ExamRoomView({
                                       q.image!
                                   )
                                 }
-                                className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200/90 bg-white p-2 object-contain mx-auto cursor-pointer"
+                                className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200 bg-white p-2 object-contain mx-auto cursor-pointer"
                               />
                             </div>
                           )}
@@ -2250,34 +2504,6 @@ export function ExamRoomView({
                             </div>
                           </div>
                         )}
-
-                        <AiTutorWidget
-                          mode={
-                            isReviewMode || isSubmitted
-                              ? "REVIEW_SOCRATIC"
-                              : isHomework
-                                ? "HOMEWORK_HINT"
-                                : "HIDDEN"
-                          }
-                          questionKey={`${quizId}_${q.id}`}
-                          lessonTitle={quizTitle}
-                          questionType={
-                            isQuestionTrueFalse(q)
-                              ? "true_false"
-                              : isQuestionShortAnswer(q)
-                                ? "short_answer"
-                                : "multiple_choice"
-                          }
-                          questionText={q.prompt}
-                          options={(q.options || []).map((o) => `${o.key}. ${o.text}`)}
-                          studentAnswer={
-                            typeof userAnswers[q.id] === "object"
-                              ? JSON.stringify(userAnswers[q.id])
-                              : String(userAnswers[q.id] || "")
-                          }
-                          correctAnswer={q.correctAnswer}
-                          officialSolution={q.explanation}
-                        />
                       </div>
                     );
                   })}
@@ -2286,13 +2512,14 @@ export function ExamRoomView({
             </div>
           </div>
 
+          {/* THANH ĐIỀU HƯỚNG ĐÁY DESKTOP (KHI Ở CHẾ ĐỘ 1 CÂU) */}
           {layoutMode === "single" && (
-            <div className="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200/90 py-2.5 px-4 flex items-center justify-center gap-3 sm:gap-4">
+            <div className="hidden lg:flex sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200 py-2.5 px-4 items-center justify-center gap-4">
               <button
                 type="button"
-                onClick={() => setCurrentIdx((prev) => Math.max(0, prev - 1))}
+                onClick={() => navigateToQuestion(currentIdx - 1)}
                 disabled={currentIdx === 0}
-                className="px-3.5 py-1.5 rounded-lg border border-slate-200/90 bg-white hover:bg-slate-50 disabled:opacity-35 text-xs font-semibold text-slate-700 transition flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
+                className="px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-35 text-xs font-semibold text-slate-700 transition flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="w-3.5 h-3.5" /> Câu trước
               </button>
@@ -2307,7 +2534,7 @@ export function ExamRoomView({
               {currentIdx < questions.length - 1 ? (
                 <button
                   type="button"
-                  onClick={() => setCurrentIdx((prev) => Math.min(questions.length - 1, prev + 1))}
+                  onClick={() => navigateToQuestion(currentIdx + 1)}
                   className="px-3.5 py-1.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
                 >
                   Câu tiếp theo <ChevronRight className="w-3.5 h-3.5" />
@@ -2327,12 +2554,55 @@ export function ExamRoomView({
               )}
             </div>
           )}
+
+          {/* THANH ĐIỀU HƯỚNG ĐÁY MOBILE 4 NÚT CÂN ĐỐI (KHÔNG CÒN NÚT NỔI CHE MÀN HÌNH) */}
+          <div className="lg:hidden shrink-0 grid grid-cols-4 gap-1.5 px-2 py-2 bg-white border-t border-slate-200 z-30">
+            <button
+              type="button"
+              disabled={activeNavIdx === 0}
+              onClick={() => navigateToQuestion(activeNavIdx - 1)}
+              className="py-2 px-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-35 text-slate-700 text-xs font-semibold flex items-center justify-center gap-0.5 cursor-pointer"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Trước</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMobileDrawerOpen(true)}
+              className="py-2 px-1 rounded-lg border border-slate-200 bg-[#F8FAFC] hover:bg-slate-100 text-slate-800 text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer"
+            >
+              <Grid3X3 className="w-3.5 h-3.5 text-[#1D4ED8] shrink-0" />
+              <span className="truncate">
+                {answeredCount}/{questions.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenAiDrawer}
+              className="py-2 px-1 rounded-lg border border-slate-200 bg-[#F8FAFC] hover:bg-blue-50 text-slate-800 hover:text-[#1D4ED8] text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8] shrink-0" />
+              <span className="truncate">Gia sư AI</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={activeNavIdx >= questions.length - 1}
+              onClick={() => navigateToQuestion(activeNavIdx + 1)}
+              className="py-2 px-1 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 disabled:opacity-40 text-white text-xs font-semibold flex items-center justify-center gap-0.5 cursor-pointer"
+            >
+              <span className="truncate">Tiếp</span>
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+            </button>
+          </div>
         </main>
 
-        {/* 3. SIDEBAR MA TRẬN CÂU HỎI */}
-        <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200/90 bg-white p-4.5 flex-col justify-between overflow-y-auto custom-scrollbar">
+        {/* 3. SIDEBAR MA TRẬN CÂU HỎI DESKTOP */}
+        <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200 bg-white p-4 flex-col justify-between overflow-y-auto custom-scrollbar">
           <div className="space-y-3.5">
-            <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200/90 space-y-1 text-left">
+            <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200 space-y-1 text-left">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
                 Thí sinh
               </span>
@@ -2399,7 +2669,7 @@ export function ExamRoomView({
 
               <div className="grid grid-cols-5 gap-1.5 pt-1">
                 {questions.map((q, idx) => {
-                  const isCurrent = currentIdx === idx;
+                  const isCurrent = activeNavIdx === idx;
                   const isAns = Boolean(userAnswers[q.id]);
                   const isFlagged = Boolean(flaggedQuestions[q.id]);
                   const qStatus = isReviewMode ? getQuestionReviewStatus(q) : null;
@@ -2429,13 +2699,7 @@ export function ExamRoomView({
                     <button
                       type="button"
                       key={q.id}
-                      onClick={() => {
-                        setCurrentIdx(idx);
-                        if (layoutMode === "scroll") {
-                          const el = document.getElementById("question-card-" + q.id);
-                          if (el) el.scrollIntoView({ behavior: "smooth" });
-                        }
-                      }}
+                      onClick={() => navigateToQuestion(idx)}
                       className={
                         "h-8 rounded-lg font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " +
                         btnColorClass
@@ -2458,7 +2722,7 @@ export function ExamRoomView({
                 type="button"
                 disabled={isSubmitting || isGrading}
                 onClick={() => handleSubmitExam()}
-                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
               >
                 <Send className="w-3.5 h-3.5" /> {isHomework ? "Nộp BTVN" : "Nộp bài thi"}
               </button>
@@ -2489,19 +2753,212 @@ export function ExamRoomView({
         </aside>
       </div>
 
-      {/* 4. NÚT DRAWER TRÊN MOBILE */}
-      <div className="lg:hidden fixed bottom-4 right-4 z-40">
-        <button
-          type="button"
-          onClick={() => setIsMobileDrawerOpen(true)}
-          className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900/90 backdrop-blur-md text-white rounded-full border border-slate-700 font-bold text-xs active:scale-95 transition-all cursor-pointer"
-        >
-          <Grid3X3 className="w-4 h-4 text-blue-400" />
-          <span>
-            {answeredCount}/{questions.length}
-          </span>
-        </button>
-      </div>
+      {/* 4. NGĂN KÉO GIA SƯ AI TỐI GIẢN (BOTTOM SHEET TRÊN MOBILE / RIGHT DRAWER 380PX TRÊN DESKTOP) */}
+      <AnimatePresence>
+        {isAiDrawerOpen && (
+          <div
+            onClick={() => setIsAiDrawerOpen(false)}
+            className="fixed inset-0 z-[520] bg-slate-900/45 backdrop-blur-xs flex flex-col justify-end lg:flex-row lg:justify-end"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 24 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-h-[82vh] rounded-t-2xl lg:rounded-none lg:max-h-none lg:w-[380px] lg:h-full bg-white border-t lg:border-t-0 lg:border-l border-slate-200 shadow-2xl lg:shadow-xl flex flex-col overflow-hidden text-left"
+            >
+              {/* Header 1 dòng nền trắng: Gia sư AI + Dropdown chọn câu + Nút đóng X */}
+              <div className="px-4 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Sparkles className="w-4 h-4 text-[#1D4ED8] shrink-0" />
+                  <h3 className="text-sm font-bold text-slate-900 shrink-0">Gia sư AI</h3>
+                  <select
+                    value={aiQuestionIdx}
+                    onChange={(e) => setAiQuestionIdx(Number(e.target.value))}
+                    className="ml-1 px-2 py-1 rounded-lg bg-[#F8FAFC] border border-slate-200 text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                  >
+                    {questions.map((_, idx) => (
+                      <option key={idx} value={idx}>
+                        Câu {idx + 1}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAiDrawerOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Trích dẫn câu đang hỏi */}
+              {selectedAiQuestion && (
+                <div className="px-4 pt-3 pb-2 shrink-0 space-y-2 border-b border-slate-100">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600 line-clamp-2">
+                    <strong className="text-slate-800 mr-1">Câu {aiQuestionIdx + 1}:</strong>
+                    {stripRawTagsForSnippet(selectedAiQuestion.prompt)}
+                  </div>
+
+                  {/* 3 chip gợi ý nhanh xếp 1 hàng cuộn ngang */}
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+                    <button
+                      type="button"
+                      disabled={isAiLoading}
+                      onClick={() =>
+                        handleSendAiPrompt(
+                          "Nêu dạng bài và các công thức trọng tâm cần dùng cho câu này."
+                        )
+                      }
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
+                    >
+                      Dạng bài &amp; Công thức
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isAiLoading}
+                      onClick={() =>
+                        handleSendAiPrompt("Gợi ý bước làm đầu tiên cho câu này mà chưa lộ đáp án.")
+                      }
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
+                    >
+                      Gợi ý bước đầu
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isAiLoading}
+                      onClick={() => aiFileInputRef.current?.click()}
+                      className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
+                    >
+                      Kiểm tra ảnh nháp
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Vùng hội thoại */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-white">
+                {currentAiMessages.length === 0 ? (
+                  <div className="py-8 text-center space-y-1.5">
+                    <p className="text-xs font-semibold text-slate-700">
+                      Sẵn sàng hỗ trợ Câu {aiQuestionIdx + 1}
+                    </p>
+                    <p className="text-[11px] text-slate-400 max-w-[260px] mx-auto">
+                      Chọn nhanh một gợi ý bên trên, nhập câu hỏi hoặc gửi ảnh nháp để Gia sư AI
+                      hướng dẫn từng bước.
+                    </p>
+                  </div>
+                ) : (
+                  currentAiMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed space-y-1.5 ${
+                          msg.role === "user"
+                            ? "bg-[#1D4ED8] text-white"
+                            : "bg-slate-100 text-slate-800"
+                        }`}
+                      >
+                        {msg.imagePreview && (
+                          <img
+                            src={msg.imagePreview}
+                            alt="Ảnh nháp"
+                            className="max-h-36 rounded-lg border border-white/20 object-contain"
+                          />
+                        )}
+                        {msg.role === "assistant" ? (
+                          <MathRenderer content={msg.text} inline={false} />
+                        ) : (
+                          <p className="whitespace-pre-wrap">{msg.text}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {isAiLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-100 text-slate-600 rounded-2xl px-3.5 py-2.5 text-xs flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1D4ED8]" />
+                      <span>Gia sư AI đang phân tích...</span>
+                    </div>
+                  </div>
+                )}
+                <div ref={aiChatEndRef} />
+              </div>
+
+              {/* Thanh nhập đáy gọn 1 dòng */}
+              <div className="p-3 bg-white border-t border-slate-200 shrink-0 space-y-2">
+                {aiDraftImageBase64 && (
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1.5">
+                    <img
+                      src={aiDraftImageBase64}
+                      alt="Ảnh đính kèm"
+                      className="w-10 h-10 rounded object-cover border border-slate-200"
+                    />
+                    <span className="text-[11px] text-slate-600 flex-1 truncate">
+                      Đã đính kèm ảnh nháp
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAiDraftImageBase64(null)}
+                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendAiPrompt();
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <input
+                    ref={aiFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAiImageSelected}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => aiFileInputRef.current?.click()}
+                    className="p-2 rounded-xl border border-slate-200 bg-[#F8FAFC] hover:bg-slate-100 text-slate-600 transition cursor-pointer shrink-0"
+                    title="Gửi ảnh nháp"
+                  >
+                    <ImagePlus className="w-4 h-4" />
+                  </button>
+
+                  <input
+                    type="text"
+                    value={aiInputText}
+                    onChange={(e) => setAiInputText(e.target.value)}
+                    placeholder={`Hỏi về Câu ${aiQuestionIdx + 1}...`}
+                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-[#F8FAFC] focus:bg-white focus:border-[#1D4ED8] text-xs text-slate-800 outline-none"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={isAiLoading || (!aiInputText.trim() && !aiDraftImageBase64)}
+                    className="p-2 rounded-xl bg-[#1D4ED8] hover:bg-blue-800 disabled:opacity-40 text-white transition cursor-pointer shrink-0"
+                    title="Gửi câu hỏi"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* 5. OVERLAY ANIMATION "ĐANG CHẤM BÀI..." (~1.8 GIÂY) */}
       <AnimatePresence>
@@ -2518,7 +2975,7 @@ export function ExamRoomView({
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: -10 }}
               transition={{ type: "spring", damping: 24, stiffness: 300 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 border border-slate-200/90 text-center space-y-5"
+              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 border border-slate-200 text-center space-y-5"
             >
               <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
                 <div className="absolute inset-0 rounded-full border-4 border-blue-100" />
@@ -2533,7 +2990,7 @@ export function ExamRoomView({
                   HỆ THỐNG CHẤM THI TỰ ĐỘNG TCT
                 </span>
                 <h3 className="text-lg font-black text-slate-900 tracking-tight pt-1">
-                  Đang chấm bài & Phân tích kết quả...
+                  Đang chấm bài &amp; Phân tích kết quả...
                 </h3>
                 <p className="text-xs font-semibold text-slate-500 min-h-[18px]">
                   {gradingStepText}
@@ -2541,7 +2998,7 @@ export function ExamRoomView({
               </div>
 
               <div className="space-y-1.5">
-                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/80 p-0.5">
+                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-0.5">
                   <div
                     className="h-full bg-[#1D4ED8] rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${gradingProgress}%` }}
@@ -2557,7 +3014,7 @@ export function ExamRoomView({
         )}
       </AnimatePresence>
 
-      {/* 6. DRAWER MOBILE */}
+      {/* 6. BOTTOM SHEET CHỌN CÂU MOBILE (LƯỚI 5 CỘT) */}
       <AnimatePresence>
         {isMobileDrawerOpen && (
           <div
@@ -2570,14 +3027,14 @@ export function ExamRoomView({
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 280 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-t-3xl max-h-[80vh] flex flex-col p-5 border-t border-slate-200/90"
+              className="bg-white rounded-t-2xl max-h-[80vh] flex flex-col p-5 border-t border-slate-200"
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <Grid3X3 className="w-5 h-5 text-[#1D4ED8]" />
-                  <h3 className="font-black text-sm text-slate-900">Danh sách câu hỏi</h3>
-                  <span className="text-xs font-bold text-slate-500">
-                    ({answeredCount}/{questions.length} câu)
+                  <Grid3X3 className="w-4 h-4 text-[#1D4ED8]" />
+                  <h3 className="font-bold text-sm text-slate-900">Bảng câu hỏi</h3>
+                  <span className="text-xs font-semibold text-slate-500">
+                    ({answeredCount}/{questions.length})
                   </span>
                 </div>
                 <button
@@ -2589,10 +3046,10 @@ export function ExamRoomView({
                 </button>
               </div>
 
-              <div className="overflow-y-auto custom-scrollbar my-3 max-h-[45vh] pr-1">
-                <div className="grid grid-cols-5 sm:grid-cols-8 gap-2">
+              <div className="overflow-y-auto custom-scrollbar my-3 max-h-[48vh] pr-1">
+                <div className="grid grid-cols-5 gap-2">
                   {questions.map((q, idx) => {
-                    const isCurrent = currentIdx === idx;
+                    const isCurrent = activeNavIdx === idx;
                     const isAns = Boolean(userAnswers[q.id]);
                     const qStatus = isReviewMode ? getQuestionReviewStatus(q) : null;
 
@@ -2615,12 +3072,8 @@ export function ExamRoomView({
                         type="button"
                         key={q.id}
                         onClick={() => {
-                          setCurrentIdx(idx);
+                          navigateToQuestion(idx);
                           setIsMobileDrawerOpen(false);
-                          if (layoutMode === "scroll") {
-                            const el = document.getElementById("question-card-" + q.id);
-                            if (el) el.scrollIntoView({ behavior: "smooth" });
-                          }
                         }}
                         className={
                           "h-10 rounded-xl font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " +
@@ -2650,7 +3103,7 @@ export function ExamRoomView({
                       setIsMobileDrawerOpen(false);
                       handleSubmitExam();
                     }}
-                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                   >
                     <Send className="w-3.5 h-3.5" /> Nộp bài
                   </button>
@@ -2678,9 +3131,8 @@ export function ExamRoomView({
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-8 border border-slate-200/90 grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-8 cursor-default my-auto text-left"
+              className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-8 border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-8 cursor-default my-auto text-left"
             >
-              {/* CỘT TRÁI: ĐIỂM SỐ & NÚT XEM ĐÁP ÁN */}
               <div className="md:col-span-6 flex flex-col justify-between space-y-4 sm:space-y-6">
                 <div className="space-y-3 sm:space-y-4">
                   <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200">
@@ -2717,7 +3169,7 @@ export function ExamRoomView({
                   <button
                     type="button"
                     onClick={handleRetake}
-                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-blue-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" /> Làm lại bài
                   </button>
@@ -2738,7 +3190,6 @@ export function ExamRoomView({
                 </div>
               </div>
 
-              {/* CỘT PHẢI: BẢNG XẾP HẠNG TOÀN KHÓA */}
               <div className="md:col-span-6 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-200 md:pl-6 space-y-3">
                 <div>
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
