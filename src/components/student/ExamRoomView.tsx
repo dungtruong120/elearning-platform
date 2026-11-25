@@ -3,17 +3,36 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, Clock, CheckCircle2, XCircle, AlertCircle,
-  HelpCircle, ChevronLeft, ChevronRight, RotateCcw,
-  Eye, Trophy, Home, Send, Award, Check, X,
-  Grid3X3, BookOpen, PenLine, Loader2, Flag, ZoomIn,
-  ListFilter, FileText, Sparkles
+  ArrowLeft,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Eye,
+  Trophy,
+  Home,
+  Send,
+  Award,
+  Check,
+  X,
+  Grid3X3,
+  BookOpen,
+  PenLine,
+  Loader2,
+  Flag,
+  ZoomIn,
+  ListFilter,
+  FileText,
+  Sparkles
 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { Profile } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
 import AiTutorWidget from "@/components/ai-tutor/AiTutorWidget";
+
 interface QuestionOption {
   key: string;
   text: string;
@@ -146,10 +165,16 @@ function MathRenderer({
 
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => "$$" + math + "$$");
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => "$" + math + "$");
-  text = text.replace(/\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi, (_, body) => {
-    return "$$\\begin{cases} " + body.replace(/&/g, "").trim() + " \\end{cases}$$";
-  });
-  text = text.replace(/(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi, (match) => "$" + match + "$");
+  text = text.replace(
+    /\\left\s*\\\{\s*\\begin\{(?:align|aligned|array)\}([\s\S]*?)\\end\{(?:align|aligned|array)\}\s*\\right\./gi,
+    (_, body) => {
+      return "$$\\begin{cases} " + body.replace(/&/g, "").trim() + " \\end{cases}$$";
+    }
+  );
+  text = text.replace(
+    /(?<!\$\$)\\begin\{(?:align|aligned)\}([\s\S]*?)\\end\{(?:align|aligned)\}(?!\$\$)/gi,
+    (match) => "$" + match + "$"
+  );
   text = text.replace(/(\\right\.)([a-zA-Z\\])/g, "$1 $2");
   text = text.replace(/\\langle\s*\(\)\s*|\\langle\s*|\\rangle\s*|\\sqrt\{\s*\}/g, "");
 
@@ -170,7 +195,10 @@ function MathRenderer({
       />
     ) : (
       <span key={keyIdx} className="my-3 block text-center">
-        <span className="relative inline-block group cursor-pointer" onClick={() => onImageClick && onImageClick(src)}>
+        <span
+          className="relative inline-block group cursor-pointer"
+          onClick={() => onImageClick && onImageClick(src)}
+        >
           <img
             src={src}
             alt="Hình minh họa"
@@ -178,7 +206,7 @@ function MathRenderer({
             onError={(e) => {
               e.currentTarget.style.display = "none";
             }}
-            className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200/90 bg-white p-2.5 shadow-2xs object-contain mx-auto transition-transform group-hover:scale-[1.01]"
+            className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200/90 bg-white p-2.5 object-contain mx-auto transition-transform group-hover:scale-[1.01]"
           />
           <span className="absolute bottom-3 right-3 bg-slate-900/70 text-white p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
             <ZoomIn className="w-3.5 h-3.5" />
@@ -189,7 +217,13 @@ function MathRenderer({
   };
 
   return (
-    <span className={inline ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700" : "block leading-relaxed text-[14px] sm:text-[14.5px] font-normal text-slate-800"}>
+    <span
+      className={
+        inline
+          ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700"
+          : "block leading-relaxed text-[14px] sm:text-[14.5px] font-normal text-slate-800"
+      }
+    >
       {parts.map((part, i) => {
         if (!part) return null;
 
@@ -220,7 +254,9 @@ function MathRenderer({
 
         if (part.startsWith("$")) {
           const isBlock = part.startsWith("$$");
-          const math = sanitizeLatexString(isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim());
+          const math = sanitizeLatexString(
+            isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim()
+          );
           if (!math) return null;
 
           if (/^(?:img|image)_\d+$/i.test(math)) {
@@ -234,7 +270,11 @@ function MathRenderer({
             return (
               <span
                 key={i}
-                className={isBlock ? "block my-2 text-center overflow-x-auto custom-scrollbar" : "inline-block align-middle px-0.5 text-[14.5px] sm:text-[15px] font-serif"}
+                className={
+                  isBlock
+                    ? "block my-2 text-center overflow-x-auto custom-scrollbar"
+                    : "inline-block align-middle px-0.5 text-[14.5px] sm:text-[15px] font-serif"
+                }
                 dangerouslySetInnerHTML={{
                   __html: katex.renderToString(math, {
                     displayMode: isBlock,
@@ -244,7 +284,11 @@ function MathRenderer({
               />
             );
           } catch {
-            return <span key={i} className="font-serif italic text-blue-700 px-0.5">{math}</span>;
+            return (
+              <span key={i} className="font-serif italic text-blue-700 px-0.5">
+                {math}
+              </span>
+            );
           }
         }
 
@@ -262,7 +306,8 @@ const DEFAULT_QUESTIONS: QuestionItem[] = [
   {
     id: "q-1",
     order: 1,
-    prompt: "Cho hàm số $y=f(x)$ có đạo hàm $f'(x) = x(x-1)^2$. Số điểm cực trị của hàm số đã cho là:",
+    prompt:
+      "Cho hàm số $y=f(x)$ có đạo hàm $f'(x) = x(x-1)^2$. Số điểm cực trị của hàm số đã cho là:",
     options: [
       { key: "A", text: "1" },
       { key: "B", text: "2" },
@@ -306,39 +351,39 @@ export function ExamRoomView({
 }: ExamRoomViewProps) {
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoadingQuestions, setIsLoadingQuestions] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
 
   // STATE OVERLAY CHẤM BÀI SCANNER (~1.8 GIÂY)
   const [isGrading, setIsGrading] = useState<boolean>(false);
   const [gradingProgress, setGradingProgress] = useState<number>(0);
-  const [gradingStepText, setGradingStepText] = useState<string>("Đang đối soát bảng đáp án trắc nghiệm...");
+  const [gradingStepText, setGradingStepText] = useState<string>(
+    "Đang đối soát bảng đáp án trắc nghiệm..."
+  );
 
   const [flaggedQuestions, setFlaggedQuestions] = useState<Record<string, boolean>>({});
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  // KHỞI TẠO ĐỒNG BỘ CHẾ ĐỘ REVIEW MODE NGAY TỪ BAN ĐẦU (KHÔNG BAO GIỜ BỊ RESET VỀ ĐỀ MỚI)
+  // KHỞI TẠO ĐỒNG BỘ CHẾ ĐỘ REVIEW MODE NGAY TỪ BAN ĐẦU
   const [isReviewMode, setIsReviewMode] = useState<boolean>(() => Boolean(initialReviewMode));
   const [isSubmitted, setIsSubmitted] = useState<boolean>(() => Boolean(initialReviewMode));
   const [showResultModal, setShowResultModal] = useState<boolean>(false);
 
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>(() => {
-  if (initialReviewMode && reviewAttempt) {
-    return extractRawAnswersFromAttempt(reviewAttempt);
-  }
-  // Đọc bản nháp cục bộ từ máy học sinh (Egress = 0 byte)
-  if (typeof window !== "undefined" && !initialReviewMode) {
-    try {
-      const draftKey = `tct_draft_${profile?.id || "guest"}_${quizId}`;
-      const saved = localStorage.getItem(draftKey);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-  }
-  return {};
-});
+    if (initialReviewMode && reviewAttempt) {
+      return extractRawAnswersFromAttempt(reviewAttempt);
+    }
+    if (typeof window !== "undefined" && !initialReviewMode) {
+      try {
+        const draftKey = `tct_draft_${profile?.id || "guest"}_${quizId}`;
+        const saved = localStorage.getItem(draftKey);
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return {};
+  });
 
-  // Nếu ở chế độ Review Mode, mặc định hiển thị dạng "scroll" hoặc "single" đều xem được đầy đủ lời giải
   const [layoutMode, setLayoutMode] = useState<"single" | "scroll">(() =>
     initialReviewMode ? "scroll" : "single"
   );
@@ -351,7 +396,12 @@ export function ExamRoomView({
 
   const [timeSpentSeconds, setTimeSpentSeconds] = useState<number>(() => {
     if (initialReviewMode && reviewAttempt) {
-      return Number(reviewAttempt.duration_seconds || reviewAttempt.durationSeconds || reviewAttempt.completionTime || 0);
+      return Number(
+        reviewAttempt.duration_seconds ||
+          reviewAttempt.durationSeconds ||
+          reviewAttempt.completionTime ||
+          0
+      );
     }
     return 0;
   });
@@ -365,7 +415,12 @@ export function ExamRoomView({
 
   const [correctCount, setCorrectCount] = useState<number>(() => {
     if (initialReviewMode && reviewAttempt) {
-      return Number(reviewAttempt.correct_count ?? reviewAttempt.correctCount ?? reviewAttempt.correctAnswers ?? 0);
+      return Number(
+        reviewAttempt.correct_count ??
+          reviewAttempt.correctCount ??
+          reviewAttempt.correctAnswers ??
+          0
+      );
     }
     return 0;
   });
@@ -423,7 +478,8 @@ export function ExamRoomView({
         let hasAny = false;
         q.options.forEach((opt, idx) => {
           const expectedChar = cleanAns[idx] || "Đ";
-          const expectedVal = expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T" ? "T" : "F";
+          const expectedVal =
+            expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T" ? "T" : "F";
           const uVal = ans[opt.key.toLowerCase()] ?? ans[opt.key.toUpperCase()];
           if (uVal !== undefined && uVal !== null && uVal !== "") {
             hasAny = true;
@@ -446,7 +502,10 @@ export function ExamRoomView({
       if (ans === undefined || ans === null || String(ans).trim() === "") {
         return "skipped";
       }
-      return String(ans).trim().toUpperCase() === String(q.correctAnswer || "").trim().toUpperCase()
+      return String(ans).trim().toUpperCase() ===
+        String(q.correctAnswer || "")
+          .trim()
+          .toUpperCase()
         ? "correct"
         : "wrong";
     },
@@ -461,7 +520,12 @@ export function ExamRoomView({
       if (reviewAttempt) {
         setScore(Number(reviewAttempt.score ?? reviewAttempt.points ?? 0));
         setCorrectCount(
-          Number(reviewAttempt.correct_count ?? reviewAttempt.correctCount ?? reviewAttempt.correctAnswers ?? 0)
+          Number(
+            reviewAttempt.correct_count ??
+              reviewAttempt.correctCount ??
+              reviewAttempt.correctAnswers ??
+              0
+          )
         );
       }
     }
@@ -471,7 +535,9 @@ export function ExamRoomView({
   useEffect(() => {
     if (!isReviewMode || questions.length === 0) return;
 
-    const rawAns = reviewAttempt ? extractRawAnswersFromAttempt(reviewAttempt) : userAnswersRef.current;
+    const rawAns = reviewAttempt
+      ? extractRawAnswersFromAttempt(reviewAttempt)
+      : userAnswersRef.current;
     const lowerMap: Record<string, any> = {};
     if (rawAns && typeof rawAns === "object" && !Array.isArray(rawAns)) {
       Object.entries(rawAns).forEach(([k, v]) => {
@@ -494,7 +560,7 @@ export function ExamRoomView({
         `question-${orderNum}`,
         `cau_${orderNum}`,
         `cau-${orderNum}`,
-        String(orderNum),
+        String(orderNum)
       ];
 
       let foundVal: any = undefined;
@@ -519,10 +585,13 @@ export function ExamRoomView({
       }
     });
 
-    // Fallback thông minh cho lượt nộp cũ bị thiếu trường answers trong DB nhưng có điểm số > 0
     const attScore = Number(reviewAttempt?.score ?? reviewAttempt?.points ?? score ?? 0);
     const attCorrect = Number(
-      reviewAttempt?.correct_count ?? reviewAttempt?.correctCount ?? reviewAttempt?.correctAnswers ?? correctCount ?? 0
+      reviewAttempt?.correct_count ??
+        reviewAttempt?.correctCount ??
+        reviewAttempt?.correctAnswers ??
+        correctCount ??
+        0
     );
 
     if (!hasAnyMapped && (attScore > 0 || attCorrect > 0)) {
@@ -535,7 +604,9 @@ export function ExamRoomView({
       questions.forEach((q, idx) => {
         const isRight = idx < targetRight;
         if (isQuestionTrueFalse(q)) {
-          const cleanAns = (q.correctAnswer || "ĐĐĐĐ").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
+          const cleanAns = (q.correctAnswer || "ĐĐĐĐ")
+            .replace(/[^A-Za-zĐđSsTtFf]/g, "")
+            .toUpperCase();
           const tfObj: Record<string, string> = {};
           q.options.forEach((opt, oIdx) => {
             const c = cleanAns[oIdx] || "Đ";
@@ -556,10 +627,17 @@ export function ExamRoomView({
     if (Object.keys(mappedAnswers).length > 0) {
       setUserAnswers(mappedAnswers);
     }
-  }, [isReviewMode, questions, reviewAttempt, isQuestionTrueFalse, isQuestionShortAnswer, score, correctCount]);
+  }, [
+    isReviewMode,
+    questions,
+    reviewAttempt,
+    isQuestionTrueFalse,
+    isQuestionShortAnswer,
+    score,
+    correctCount
+  ]);
 
-  // HÀM TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA TỪ SUPABASE + API + LOCALSTORAGE (GROUP BY HỌC SINH LẤY ĐIỂM MAX)
-// HÀM TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA TỐI ƯU HÓA (ĐÃ CHUẨN CẤU TRÚC NGOẶC)
+  // HÀM TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA TỐI ƯU HÓA
   const fetchFullExamLeaderboard = useCallback(
     async (latestClientAttempt?: any) => {
       setIsLoadingRanking(true);
@@ -570,7 +648,6 @@ export function ExamRoomView({
         combinedPool.push(latestClientAttempt);
       }
 
-      // 1. Nguồn localStorage
       if (typeof window !== "undefined") {
         try {
           const localStr = localStorage.getItem("edunexus_attempts");
@@ -598,11 +675,12 @@ export function ExamRoomView({
         } catch {}
       }
 
-      // 2. Nguồn Supabase Cloud (Chỉ kéo các cột cần thiết + Giới hạn limit để tiết kiệm Egress)
-     try {
+      try {
         let attQuery = supabase
           .from("exam_attempts")
-          .select("student_id, student_name, full_name, score, points, duration_seconds, durationSeconds, completionTime, quiz_id, exam_id, quiz_title");
+          .select(
+            "student_id, student_name, full_name, score, points, duration_seconds, durationSeconds, completionTime, quiz_id, exam_id, quiz_title"
+          );
 
         if (quizId) {
           attQuery = attQuery.or(`quiz_id.eq.${quizId},exam_id.eq.${quizId}`);
@@ -612,10 +690,7 @@ export function ExamRoomView({
 
         const [dbExamAtt, dbProfiles] = await Promise.allSettled([
           attQuery.order("score", { ascending: false }).limit(50),
-          supabase
-            .from("profiles")
-            .select("id, full_name, username")
-            .limit(100)
+          supabase.from("profiles").select("id, full_name, username").limit(100)
         ]);
 
         if (dbExamAtt.status === "fulfilled" && Array.isArray(dbExamAtt.value?.data)) {
@@ -631,22 +706,29 @@ export function ExamRoomView({
             }
           });
         }
-      } catch (e) {}
+      } catch {}
 
-      // 3. Lọc đúng các lượt nộp thuộc đề thi hiện tại
       const targetIdNorm = String(quizId || "").trim().toLowerCase();
       const targetTitleNorm = normalizeTextKey(quizTitle);
 
       const matchingExamAttempts = combinedPool.filter((a: any) => {
         if (!a) return false;
         const aId = String(a.quizId || a.quiz_id || a.exam_id || "").trim().toLowerCase();
-        const aTitle = normalizeTextKey(a.quizTitle || a.quiz_title || a.examTitle || a.exam_title || a.title || "");
-        return (targetIdNorm && aId === targetIdNorm) || (targetTitleNorm && aTitle === targetTitleNorm);
+        const aTitle = normalizeTextKey(
+          a.quizTitle || a.quiz_title || a.examTitle || a.exam_title || a.title || ""
+        );
+        return (
+          (targetIdNorm && aId === targetIdNorm) ||
+          (targetTitleNorm && aTitle === targetTitleNorm)
+        );
       });
 
-      // 4. Group by từng học sinh lấy điểm cao nhất
-      const currentUserId = String(profile?.id || (profile as any)?.username || "").trim().toLowerCase();
-      const currentUserNameNorm = normalizeTextKey(profile?.full_name || (profile as any)?.username || "");
+      const currentUserId = String(profile?.id || (profile as any)?.username || "")
+        .trim()
+        .toLowerCase();
+      const currentUserNameNorm = normalizeTextKey(
+        profile?.full_name || (profile as any)?.username || ""
+      );
 
       const groupedByStudent = new Map<
         string,
@@ -682,20 +764,28 @@ export function ExamRoomView({
 
         const canonicalKey = isMe
           ? "__CURRENT_USER__"
-          : normalizeTextKey(displayStudentName) || rawStuId.toLowerCase() || `stu_${Math.random()}`;
+          : normalizeTextKey(displayStudentName) ||
+            rawStuId.toLowerCase() ||
+            `stu_${Math.random()}`;
 
         const sc = Number(att.score ?? att.points ?? 0);
-        const dur = Number(att.duration_seconds ?? att.durationSeconds ?? att.completionTime ?? 9999);
+        const dur = Number(
+          att.duration_seconds ?? att.durationSeconds ?? att.completionTime ?? 9999
+        );
 
         const existing = groupedByStudent.get(canonicalKey);
-        if (!existing || sc > existing.score || (sc === existing.score && dur < existing.durationSeconds)) {
+        if (
+          !existing ||
+          sc > existing.score ||
+          (sc === existing.score && dur < existing.durationSeconds)
+        ) {
           groupedByStudent.set(canonicalKey, {
             studentKey: canonicalKey,
             studentId: rawStuId,
             studentName: displayStudentName,
             score: sc,
             durationSeconds: dur,
-            isCurrentUser: isMe,
+            isCurrentUser: isMe
           });
         }
       });
@@ -707,7 +797,7 @@ export function ExamRoomView({
           studentName: String(profile?.full_name || (profile as any)?.username || "Bạn"),
           score: Number(latestClientAttempt.score ?? score ?? 0),
           durationSeconds: Number(latestClientAttempt.duration_seconds ?? timeSpentSeconds ?? 0),
-          isCurrentUser: true,
+          isCurrentUser: true
         });
       }
 
@@ -723,264 +813,299 @@ export function ExamRoomView({
 
   // LƯU BẢN NHÁP BTVN (CHỈ KHI ĐANG LÀM BÀI, KHÔNG GHI ĐÈ KHI Ở REVIEW MODE)
   useEffect(() => {
-  if (typeof window !== "undefined" && profile?.id && !isSubmitted && !isReviewMode) {
-    try {
-      const draftKey = `tct_draft_${profile.id}_${quizId}`;
-      if (Object.keys(userAnswers).length > 0) {
-        localStorage.setItem(draftKey, JSON.stringify(userAnswers));
-      }
-    } catch (e) {}
-  }
-}, [userAnswers, profile?.id, quizId, isSubmitted, isReviewMode]);
-
-  // TẢI CÂU HỎI VÀ MEDIAMAP
-// TẢI CÂU HỎI VÀ MEDIAMAP
-  useEffect(() => {
-    setIsLoading(true);
-
-    const loadExamQuestions = async () => {
-  let loaded: QuestionItem[] = [];
-  let mappedImages: Record<string, string> = {};
-
-  try {
-    let dbExam: any = null;
-
-    // ƯU TIÊN 1: Lấy trực tiếp từ sessionStorage của phòng thi (Egress = 0 byte)
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && profile?.id && !isSubmitted && !isReviewMode) {
       try {
-        const cachedRoom = sessionStorage.getItem("tct_active_exam_room");
-        if (cachedRoom) {
-          const parsed = JSON.parse(cachedRoom);
-          if (parsed && (parsed.id === quizId || parsed.title === quizTitle) && (parsed.data || parsed.sections)) {
-            dbExam = parsed;
-          }
+        const draftKey = `tct_draft_${profile.id}_${quizId}`;
+        if (Object.keys(userAnswers).length > 0) {
+          localStorage.setItem(draftKey, JSON.stringify(userAnswers));
         }
       } catch {}
     }
-// ƯU TIÊN 2: Truy vấn DB (Tìm trong homeworks/practice_exams trước, sau đó tìm thẳng trong bảng lessons)
-    if (!dbExam) {
-      const targetTable = isHomework ? "homeworks" : "practice_exams";
-      const selectCols = isHomework
-        ? "id, lesson_id, title, data, sections, media_map, duration_minutes"
-        : "id, title, data, media_map, duration_minutes";
+  }, [userAnswers, profile?.id, quizId, isSubmitted, isReviewMode]);
 
-      if (quizId) {
-        const cleanId = String(quizId).trim();
-        const filterQuery = isHomework
-          ? `id.eq.${cleanId},lesson_id.eq.${cleanId}`
-          : `id.eq.${cleanId}`;
+  // TẢI CÂU HỎI VÀ MEDIAMAP — RESET NGAY STATE CÂU HỎI VỀ [] VÀ BẬT LOADING TRƯỚC KHI TẢI ĐỂ HẾT NHÁY ĐỀ CŨ
+  useEffect(() => {
+    let isCancelled = false;
 
-        const { data: byId } = await supabase
-          .from(targetTable)
-          .select(selectCols)
-          .or(filterQuery)
-          .limit(1)
-          .maybeSingle();
+    setQuestions([]);
+    setMediaMap({});
+    setCurrentIdx(0);
+    setIsLoadingQuestions(true);
 
-        if (byId) dbExam = byId;
-      }
+    const loadExamQuestions = async () => {
+      const loaded: QuestionItem[] = [];
+      const mappedImages: Record<string, string> = {};
 
-      if (!dbExam && quizTitle) {
-        const { data: byTitle } = await supabase
-          .from(targetTable)
-          .select(selectCols)
-          .ilike("title", `%${quizTitle.trim()}%`)
-          .limit(1)
-          .maybeSingle();
-
-        if (byTitle) dbExam = byTitle;
-      }
-
-      // 2B. NGUỒN GỐC CHÍNH: Tìm thẳng trong cột homework_files và test_quizzes của bảng lessons
-      if (!dbExam) {
-        const { data: allLessons } = await supabase
-          .from("lessons")
-          .select("id, title, homework_files, test_quizzes");
-
-        if (Array.isArray(allLessons)) {
-          const normTargetId = String(quizId || "").trim().toLowerCase();
-          const normTargetTitle = normalizeTextKey(quizTitle);
-
-          for (const les of allLessons) {
-            const pool = [
-              ...(Array.isArray(les.homework_files) ? les.homework_files : []),
-              ...(Array.isArray(les.test_quizzes) ? les.test_quizzes : []),
-            ];
-
-            const matched = pool.find((item: any) => {
-              if (!item) return false;
-              const iId = String(item.id || item.quiz_id || item.exam_id || "").trim().toLowerCase();
-              const iTitle = normalizeTextKey(item.title || "");
-              return (
-                (normTargetId && iId === normTargetId) ||
-                (normTargetTitle && (iTitle === normTargetTitle || iTitle.includes(normTargetTitle)))
-              );
-            });
-
-            if (matched) {
-              dbExam = matched;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    let targetExam = dbExam;
-
-    // 3. Fallback đọc localStorage
-    if (!targetExam && typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("edunexus_practice_exams");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          const list = Array.isArray(parsed) ? parsed : parsed?.exams || [];
-          targetExam = list.find(
-            (e: any) => e.id === quizId || e.lesson_id === quizId || e.title === quizTitle
+        let dbExam: any = null;
+
+        // ƯU TIÊN 1: Chỉ lấy từ sessionStorage nếu KHỚP CHÍNH XÁC quizId (tránh nháy đề cũ)
+        if (typeof window !== "undefined") {
+          try {
+            const cachedRoom = sessionStorage.getItem("tct_active_exam_room");
+            if (cachedRoom) {
+              const parsed = JSON.parse(cachedRoom);
+              const isExactMatch =
+                parsed &&
+                (quizId
+                  ? String(parsed.id || "").trim() === String(quizId).trim()
+                  : String(parsed.title || "").trim() === String(quizTitle).trim());
+              const hasCachedQuestions =
+                (Array.isArray(parsed?.data) && parsed.data.length > 0) ||
+                (Array.isArray(parsed?.sections) && parsed.sections.length > 0) ||
+                (Array.isArray(parsed?.questions) && parsed.questions.length > 0);
+              if (isExactMatch && hasCachedQuestions) {
+                dbExam = parsed;
+              }
+            }
+          } catch {}
+        }
+
+        // ƯU TIÊN 2: Truy vấn DB (Tìm trong homeworks/practice_exams trước, sau đó tìm trong bảng lessons)
+        if (!dbExam) {
+          const targetTable = isHomework ? "homeworks" : "practice_exams";
+          const selectCols = isHomework
+            ? "id, lesson_id, title, data, sections, media_map, duration_minutes"
+            : "id, title, data, media_map, duration_minutes";
+
+          if (quizId) {
+            const cleanId = String(quizId).trim();
+            const filterQuery = isHomework
+              ? `id.eq.${cleanId},lesson_id.eq.${cleanId}`
+              : `id.eq.${cleanId}`;
+
+            const { data: byId } = await supabase
+              .from(targetTable)
+              .select(selectCols)
+              .or(filterQuery)
+              .limit(1)
+              .maybeSingle();
+
+            if (byId) dbExam = byId;
+          }
+
+          if (!dbExam && quizTitle) {
+            const { data: byTitle } = await supabase
+              .from(targetTable)
+              .select(selectCols)
+              .ilike("title", `%${quizTitle.trim()}%`)
+              .limit(1)
+              .maybeSingle();
+
+            if (byTitle) dbExam = byTitle;
+          }
+
+          if (!dbExam) {
+            const { data: allLessons } = await supabase
+              .from("lessons")
+              .select("id, title, homework_files, test_quizzes");
+
+            if (Array.isArray(allLessons)) {
+              const normTargetId = String(quizId || "").trim().toLowerCase();
+              const normTargetTitle = normalizeTextKey(quizTitle);
+
+              for (const les of allLessons) {
+                const pool = [
+                  ...(Array.isArray(les.homework_files) ? les.homework_files : []),
+                  ...(Array.isArray(les.test_quizzes) ? les.test_quizzes : [])
+                ];
+
+                const matched = pool.find((item: any) => {
+                  if (!item) return false;
+                  const iId = String(item.id || item.quiz_id || item.exam_id || "")
+                    .trim()
+                    .toLowerCase();
+                  const iTitle = normalizeTextKey(item.title || "");
+                  return (
+                    (normTargetId && iId === normTargetId) ||
+                    (normTargetTitle &&
+                      (iTitle === normTargetTitle || iTitle.includes(normTargetTitle)))
+                  );
+                });
+
+                if (matched) {
+                  dbExam = matched;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        let targetExam = dbExam;
+
+        // 3. Fallback đọc localStorage khớp đúng quizId
+        if (!targetExam && typeof window !== "undefined") {
+          try {
+            const saved = localStorage.getItem("edunexus_practice_exams");
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              const list = Array.isArray(parsed) ? parsed : parsed?.exams || [];
+              targetExam = list.find(
+                (e: any) =>
+                  (quizId && (e.id === quizId || e.lesson_id === quizId)) ||
+                  (!quizId && e.title === quizTitle)
+              );
+            }
+          } catch {}
+        }
+
+        if (targetExam) {
+          if (targetExam.media_map && typeof targetExam.media_map === "object") {
+            Object.assign(mappedImages, targetExam.media_map);
+          }
+
+          const extractAllQuestionsFromPayload = (...candidates: any[]): any[] => {
+            for (let c of candidates) {
+              if (!c) continue;
+              if (typeof c === "string") {
+                try {
+                  c = JSON.parse(c);
+                } catch {
+                  continue;
+                }
+              }
+              if (c && typeof c === "object" && !Array.isArray(c)) {
+                if (c.media_map && typeof c.media_map === "object") {
+                  Object.assign(mappedImages, c.media_map);
+                }
+                const inner = c.sections || c.questions || c.data || c.items;
+                if (Array.isArray(inner) && inner.length > 0) {
+                  c = inner;
+                }
+              }
+              if (Array.isArray(c) && c.length > 0) {
+                return c;
+              }
+            }
+            return [];
+          };
+
+          const rawData = extractAllQuestionsFromPayload(
+            targetExam.sections,
+            targetExam.data,
+            targetExam.questions_data,
+            targetExam.questions
           );
-        }
-      } catch (e) {}
-    }
 
-    if (targetExam) {
-      if (targetExam.media_map && typeof targetExam.media_map === "object") {
-        Object.assign(mappedImages, targetExam.media_map);
-      }
+          if (Array.isArray(rawData) && rawData.length > 0) {
+            let qIdx = 1;
 
-      // Hàm chuẩn hóa mọi cấu trúc JSON (Array sections, Array câu hỏi phẳng, hoặc Object bọc ngoài)
-      const extractAllQuestionsFromPayload = (...candidates: any[]): any[] => {
-        for (let c of candidates) {
-          if (!c) continue;
-          if (typeof c === "string") {
-            try {
-              c = JSON.parse(c);
-            } catch {
-              continue;
-            }
-          }
-          // Nếu c là Object bọc ngoài (vd: { sections: [...] } hoặc { questions: [...] } hoặc { data: [...] })
-          if (c && typeof c === "object" && !Array.isArray(c)) {
-            if (c.media_map && typeof c.media_map === "object") {
-              Object.assign(mappedImages, c.media_map);
-            }
-            const inner = c.sections || c.questions || c.data || c.items;
-            if (Array.isArray(inner) && inner.length > 0) {
-              c = inner;
-            }
-          }
-          if (Array.isArray(c) && c.length > 0) {
-            return c;
-          }
-        }
-        return [];
-      };
-
-      const rawData = extractAllQuestionsFromPayload(
-        targetExam.sections,
-        targetExam.data,
-        targetExam.questions_data,
-        targetExam.questions
-      );
-
-      if (Array.isArray(rawData) && rawData.length > 0) {
-        let qIdx = 1;
-
-        rawData.forEach((item: any) => {
-          if (!item) return;
-          if (item.media_map && typeof item.media_map === "object") {
-            Object.assign(mappedImages, item.media_map);
-          }
-
-          // TRƯỜNG HỢP A: item là một Section chứa mảng item.questions
-          if (Array.isArray(item.questions) && item.questions.length > 0) {
-            const secType =
-              item.section_type ||
-              item.type ||
-              (item.section_title && /đúng\s*sai/i.test(item.section_title)
-                ? "true_false"
-                : item.section_title && /trả\s*lời\s*ngắn|điền/i.test(item.section_title)
-                ? "short_answer"
-                : "multiple_choice");
-
-            item.questions.forEach((q: any) => {
-              const qType = q.type || secType || "multiple_choice";
-              const promptStr = q.prompt_html || q.prompt || q.question || q.content || "";
-              const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
-
-              if (q.media_map && typeof q.media_map === "object") {
-                Object.assign(mappedImages, q.media_map);
+            rawData.forEach((item: any) => {
+              if (!item) return;
+              if (item.media_map && typeof item.media_map === "object") {
+                Object.assign(mappedImages, item.media_map);
               }
 
-              loaded.push({
-                id: q.id || `q-${qIdx}`,
-                order: qIdx++,
-                type: qType,
-                prompt: promptStr,
-                options: (q.options || []).map((opt: any) => ({
-                  key: opt.key,
-                  text: opt.text_html || opt.text || ""
-                })),
-                correctAnswer: q.correct_answer || q.correctAnswer || "A",
-                explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
-                image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
-                mediaMap: mappedImages
-              });
-            });
-          } else if (item.prompt_html || item.prompt || item.question || item.content || Array.isArray(item)) {
-            // TRƯỜNG HỢP B: item chính là một Câu hỏi phẳng (hoặc mảng câu hỏi)
-            const flatList = Array.isArray(item) ? item : [item];
-            flatList.forEach((q: any) => {
-              const promptStr = q.prompt_html || q.prompt || q.question || q.content || "";
-              if (!promptStr) return;
-              const hasInlineImgToken = /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
+              if (Array.isArray(item.questions) && item.questions.length > 0) {
+                const secType =
+                  item.section_type ||
+                  item.type ||
+                  (item.section_title && /đúng\s*sai/i.test(item.section_title)
+                    ? "true_false"
+                    : item.section_title && /trả\s*lời\s*ngắn|điền/i.test(item.section_title)
+                      ? "short_answer"
+                      : "multiple_choice");
 
-              if (q.media_map && typeof q.media_map === "object") {
-                Object.assign(mappedImages, q.media_map);
+                item.questions.forEach((q: any) => {
+                  const qType = q.type || secType || "multiple_choice";
+                  const promptStr = q.prompt_html || q.prompt || q.question || q.content || "";
+                  const hasInlineImgToken =
+                    /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
+
+                  if (q.media_map && typeof q.media_map === "object") {
+                    Object.assign(mappedImages, q.media_map);
+                  }
+
+                  loaded.push({
+                    id: q.id || `q-${qIdx}`,
+                    order: qIdx++,
+                    type: qType,
+                    prompt: promptStr,
+                    options: (q.options || []).map((opt: any) => ({
+                      key: opt.key,
+                      text: opt.text_html || opt.text || ""
+                    })),
+                    correctAnswer: q.correct_answer || q.correctAnswer || "A",
+                    explanation:
+                      q.solution_html ||
+                      q.solution ||
+                      q.explanation ||
+                      "Đang cập nhật lời giải chi tiết.",
+                    image: !hasInlineImgToken
+                      ? q.image || (q.images && q.images[0]) || undefined
+                      : undefined,
+                    mediaMap: mappedImages
+                  });
+                });
+              } else if (
+                item.prompt_html ||
+                item.prompt ||
+                item.question ||
+                item.content ||
+                Array.isArray(item)
+              ) {
+                const flatList = Array.isArray(item) ? item : [item];
+                flatList.forEach((q: any) => {
+                  const promptStr = q.prompt_html || q.prompt || q.question || q.content || "";
+                  if (!promptStr) return;
+                  const hasInlineImgToken =
+                    /\[(?:img|image):/i.test(promptStr) || /<img\s/i.test(promptStr);
+
+                  if (q.media_map && typeof q.media_map === "object") {
+                    Object.assign(mappedImages, q.media_map);
+                  }
+
+                  loaded.push({
+                    id: q.id || `q-${qIdx}`,
+                    order: qIdx++,
+                    type: q.type || "multiple_choice",
+                    prompt: promptStr,
+                    options: (q.options || []).map((opt: any) => ({
+                      key: opt.key,
+                      text: opt.text_html || opt.text || ""
+                    })),
+                    correctAnswer: q.correct_answer || q.correctAnswer || "A",
+                    explanation:
+                      q.solution_html ||
+                      q.solution ||
+                      q.explanation ||
+                      "Đang cập nhật lời giải chi tiết.",
+                    image: !hasInlineImgToken
+                      ? q.image || (q.images && q.images[0]) || undefined
+                      : undefined,
+                    mediaMap: mappedImages
+                  });
+                });
               }
-
-              loaded.push({
-                id: q.id || `q-${qIdx}`,
-                order: qIdx++,
-                type: q.type || "multiple_choice",
-                prompt: promptStr,
-                options: (q.options || []).map((opt: any) => ({
-                  key: opt.key,
-                  text: opt.text_html || opt.text || ""
-                })),
-                correctAnswer: q.correct_answer || q.correctAnswer || "A",
-                explanation: q.solution_html || q.solution || q.explanation || "Đang cập nhật lời giải chi tiết.",
-                image: !hasInlineImgToken ? (q.image || (q.images && q.images[0]) || undefined) : undefined,
-                mediaMap: mappedImages
-              });
             });
           }
-        });
-      }
-
-      if (loaded.length > 0) {
-        setQuestions(loaded);
-        setMediaMap(mappedImages);
-      }
         }
       } catch (err) {
         console.error("Lỗi khi nạp dữ liệu đề thi:", err);
       } finally {
-        if (loaded.length === 0) {
-          setQuestions(DEFAULT_QUESTIONS);
+        if (!isCancelled) {
+          setQuestions(loaded.length > 0 ? loaded : DEFAULT_QUESTIONS);
+          setMediaMap(mappedImages);
+          setIsLoadingQuestions(false);
         }
-        setIsLoading(false);
       }
     };
 
     loadExamQuestions();
-  }, [quizId, quizTitle]);
-  // ĐỒNG HỒ ĐẾM GIỜ (DỪNG NGAY LẬP TỨC KHI Ở REVIEW MODE HOẶC ĐÃ NỘP BÀI)
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [quizId, quizTitle, isHomework]);
+
+  // ĐỒNG HỒ ĐẾM GIỜ (DỪNG NGAY LẬP TỨC KHI ĐANG TẢI ĐỀ, Ở REVIEW MODE HOẶC ĐÃ NỘP BÀI)
   useEffect(() => {
-    if (isSubmitted || isReviewMode || isGrading) return;
+    if (isLoadingQuestions || isSubmitted || isReviewMode || isGrading) return;
     const timer = setInterval(() => {
-      setTimeSpentSeconds(prev => prev + 1);
+      setTimeSpentSeconds((prev) => prev + 1);
       if (!isHomework && durationMinutes > 0) {
-        setSecondsRemaining(prev => {
+        setSecondsRemaining((prev) => {
           if (prev <= 1) {
             clearInterval(timer);
             handleSubmitExam();
@@ -991,12 +1116,12 @@ export function ExamRoomView({
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [isSubmitted, isReviewMode, isGrading, durationMinutes, isHomework]);
+  }, [isLoadingQuestions, isSubmitted, isReviewMode, isGrading, durationMinutes, isHomework]);
 
   // KHÓA TOÀN BỘ THAO TÁC CHỌN ĐÁP ÁN KHI ĐÃ NỘP HOẶC ĐANG Ở REVIEW MODE
   const handleSelectOption = (questionId: string, optionKey: string) => {
     if (isSubmitted || isReviewMode || isGrading) return;
-    setUserAnswers(prev => ({
+    setUserAnswers((prev) => ({
       ...prev,
       [questionId]: optionKey
     }));
@@ -1004,8 +1129,11 @@ export function ExamRoomView({
 
   const handleSelectTrueFalseOption = (questionId: string, optKey: string, value: "T" | "F") => {
     if (isSubmitted || isReviewMode || isGrading) return;
-    setUserAnswers(prev => {
-      const currentTF = typeof prev[questionId] === "object" && prev[questionId] !== null ? { ...prev[questionId] } : {};
+    setUserAnswers((prev) => {
+      const currentTF =
+        typeof prev[questionId] === "object" && prev[questionId] !== null
+          ? { ...prev[questionId] }
+          : {};
       currentTF[optKey.toLowerCase()] = value;
       return {
         ...prev,
@@ -1016,60 +1144,58 @@ export function ExamRoomView({
 
   const handleShortAnswerChange = (questionId: string, val: string) => {
     if (isSubmitted || isReviewMode || isGrading) return;
-    setUserAnswers(prev => ({
+    setUserAnswers((prev) => ({
       ...prev,
       [questionId]: val
     }));
   };
 
   const toggleFlagQuestion = (qId: string) => {
-    setFlaggedQuestions(prev => ({
+    setFlaggedQuestions((prev) => ({
       ...prev,
       [qId]: !prev[qId]
     }));
   };
-  // HÀM LỌC SẠCH DỮ LIỆU TỌA ĐỘ RÁC (CẮT BỎ TOÀN BỘ BUBBLE_COORDINATES 10.000 DÒNG)
-function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string, any> {
-  if (!rawAnswers || typeof rawAnswers !== "object") return {};
 
-  const cleaned: Record<string, any> = {};
+  // HÀM LỌC SẠCH DỮ LIỆU TỌA ĐỘ RÁC
+  function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string, any> {
+    if (!rawAnswers || typeof rawAnswers !== "object") return {};
 
-  Object.entries(rawAnswers).forEach(([key, val]) => {
-    // 1. Chặn thẳng các key rác tọa độ
-    if (key === "bubble_coordinates" || key === "bubbleCoordinates") return;
+    const cleaned: Record<string, any> = {};
 
-    // 2. Nếu có trường meta phiếu giấy OMR, chỉ giữ các thông tin định danh cần thiết
-    if (key === "__paper_omr_meta") {
-      if (val && typeof val === "object") {
-        cleaned.__paper_omr_meta = {
-          school: val.school || "THPT",
-          detected_sbd: val.detected_sbd || "",
-          detected_exam_code: val.detected_exam_code || "101",
-          student_name: val.student_name || "",
-          submission_type: val.submission_type || "paper",
-          exam_title: val.exam_title || "",
-          scanned_image_url: val.scanned_image_url || "",
-          flagged_questions: val.flagged_questions || []
-          // ❌ CẮT BỎ HOÀN TOÀN: bubble_coordinates
-        };
+    Object.entries(rawAnswers).forEach(([key, val]) => {
+      if (key === "bubble_coordinates" || key === "bubbleCoordinates") return;
+
+      if (key === "__paper_omr_meta") {
+        if (val && typeof val === "object") {
+          cleaned.__paper_omr_meta = {
+            school: val.school || "THPT",
+            detected_sbd: val.detected_sbd || "",
+            detected_exam_code: val.detected_exam_code || "101",
+            student_name: val.student_name || "",
+            submission_type: val.submission_type || "paper",
+            exam_title: val.exam_title || "",
+            scanned_image_url: val.scanned_image_url || "",
+            flagged_questions: val.flagged_questions || []
+          };
+        }
+        return;
       }
-      return;
-    }
 
-    cleaned[key] = val;
-  });
+      cleaned[key] = val;
+    });
 
-  return cleaned;
-}
+    return cleaned;
+  }
 
   // NỘP BÀI THI - KÍCH HOẠT ANIMATION CHẤM BÀI 1.8S + ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA
   const handleSubmitExam = async () => {
     if (typeof window !== "undefined" && profile?.id) {
-  try {
-    localStorage.removeItem(`tct_draft_${profile.id}_${quizId}`);
-    sessionStorage.removeItem("tct_active_exam_room");
-  } catch (e) {}
-}
+      try {
+        localStorage.removeItem(`tct_draft_${profile.id}_${quizId}`);
+        sessionStorage.removeItem("tct_active_exam_room");
+      } catch {}
+    }
     if (isSubmitting || isGrading || isReviewMode) return;
     setIsSubmitting(true);
     setIsGrading(true);
@@ -1079,7 +1205,6 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
 
     const rawAnswers = userAnswersRef.current;
 
-    // 1. CHUẨN HÓA ANSWERS: Đảm bảo lưu song song cả ID câu và số thứ tự 1..N
     const cleanAnswersPayload: Record<string, any> = {};
     questions.forEach((q, idx) => {
       const qNum = idx + 1;
@@ -1123,7 +1248,8 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
 
         q.options.forEach((opt, idx) => {
           const expectedChar = cleanAns[idx] || "Đ";
-          const expectedVal = (expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T") ? "T" : "F";
+          const expectedVal =
+            expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T" ? "T" : "F";
           const userVal = userTF[opt.key.toLowerCase()];
           if (userVal === expectedVal) {
             correctSubItems += 1;
@@ -1144,7 +1270,6 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
     setScore(calculatedScore);
     setCorrectCount(fullCorrectCount);
 
-    // Chạy thanh tiến trình Scanner 1.8 giây
     const stepTimer1 = setTimeout(() => {
       setGradingProgress(48);
       setGradingStepText("Đang chấm điểm câu đúng/sai và trả lời ngắn...");
@@ -1159,20 +1284,18 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
       try {
         const key = "tct_hw_draft_" + profile.id + "_" + quizId;
         localStorage.removeItem(key);
-      } catch (e) {}
+      } catch {}
     }
 
-    const durationText = Math.floor(timeSpentSeconds / 60) + " phút " + (timeSpentSeconds % 60) + " giây";
+    const durationText =
+      Math.floor(timeSpentSeconds / 60) + " phút " + (timeSpentSeconds % 60) + " giây";
     const nowIso = new Date().toISOString();
     const studentId = String(profile?.id || (profile as any)?.username || "student");
     const studentName = String(profile?.full_name || (profile as any)?.username || "Học sinh");
     const attemptId = "att-" + Date.now();
 
-    // 2. OBJECT ĐẦY ĐỦ LƯU VÀO LOCALSTORAGE (Đảm bảo cache máy có đủ key)
-   // Áp dụng lọc sạch dữ liệu answers trước khi lưu vào LocalStorage và Supabase:
     const finalCleanAnswers = sanitizeAnswersPayload(cleanAnswersPayload);
 
-    // 2. OBJECT ĐẦY ĐỦ LƯU VÀO LOCALSTORAGE
     const clientRecord: any = {
       id: attemptId,
       quiz_id: String(quizId),
@@ -1198,12 +1321,11 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
       is_homework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
       submission_type: "web",
-      answers: finalCleanAnswers, // <-- DÙNG BẢN ĐÃ LỌC
+      answers: finalCleanAnswers,
       created_at: nowIso,
       updated_at: nowIso
     };
 
-    // 3. OBJECT ĐÚNG CHUẨN SCHEMA CỦA BẢNG exam_attempts TRÊN SUPABASE
     const supabasePayload: any = {
       id: attemptId,
       quiz_id: String(quizId),
@@ -1224,12 +1346,11 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
       is_homework: Boolean(isHomework),
       type: isHomework ? "homework" : "practice",
       submission_type: "web",
-      answers: finalCleanAnswers, // <-- DÙNG BẢN ĐÃ LỌC
+      answers: finalCleanAnswers,
       created_at: nowIso,
       updated_at: nowIso
     };
 
-    // Lưu vào localStorage ngay lập tức
     if (typeof window !== "undefined") {
       try {
         const savedAttempts = localStorage.getItem("edunexus_attempts");
@@ -1244,10 +1365,9 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
             (a.quizId === quizId || a.quizTitle === quizTitle)
         );
         setHistoryAttemptsCount(studentPastAttempts.length);
-      } catch (e) {}
+      } catch {}
     }
 
-    // Đồng bộ đồng thời lên API máy chủ và Supabase
     const syncTasks = (async () => {
       try {
         await fetch("/api/student/submit-quiz", {
@@ -1258,13 +1378,9 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
       } catch {}
 
       try {
-        const { error: dbErr } = await supabase
-          .from("exam_attempts")
-          .insert([supabasePayload]);
+        const { error: dbErr } = await supabase.from("exam_attempts").insert([supabasePayload]);
         if (dbErr) {
           console.error("Lỗi lưu Supabase exam_attempts:", dbErr);
-        } else {
-          console.log("✅ Đã lưu đầy đủ answers vào bảng exam_attempts!");
         }
       } catch (errDb) {
         console.error("Lỗi kết nối Supabase:", errDb);
@@ -1272,7 +1388,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
 
       try {
         const channel = supabase.channel("admin-realtime-global-sync");
-        channel.send({
+        await channel.send({
           type: "broadcast",
           event: "new_attempt",
           payload: clientRecord
@@ -1282,19 +1398,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
       await fetchFullExamLeaderboard(clientRecord);
     })();
 
-    await Promise.all([
-      syncTasks,
-      new Promise((resolve) => setTimeout(resolve, 1800))
-    ]);
-
-    clearTimeout(stepTimer1);
-    clearTimeout(stepTimer2);
-    setGradingProgress(100);
-
-    setIsGrading(false);
-    setIsSubmitting(false);
-    setIsSubmitted(true);
-    setShowResultModal(true);
+    await Promise.all([syncTasks, new Promise((resolve) => setTimeout(resolve, 1800))]);
 
     clearTimeout(stepTimer1);
     clearTimeout(stepTimer2);
@@ -1331,7 +1435,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
   };
 
   const answeredCount = useMemo(() => {
-    return questions.filter(q => {
+    return questions.filter((q) => {
       const val = userAnswers[q.id];
       if (val === undefined || val === null || val === "") return false;
       if (typeof val === "object") return Object.keys(val).length > 0;
@@ -1379,12 +1483,16 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
     const effectiveMediaMap = q.mediaMap || mediaMap || {};
 
     if (isShort) {
-      const currentAns = userAnswers[q.id] !== undefined && userAnswers[q.id] !== null ? String(userAnswers[q.id]) : "";
-      const isCorrect = isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
+      const currentAns =
+        userAnswers[q.id] !== undefined && userAnswers[q.id] !== null
+          ? String(userAnswers[q.id])
+          : "";
+      const isCorrect =
+        isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
 
       return (
         <div className="pt-1.5 space-y-2.5">
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 shadow-2xs space-y-2">
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
               <PenLine className="w-3.5 h-3.5 text-[#1D4ED8]" />
               <span>Điền đáp án câu trả lời ngắn:</span>
@@ -1395,16 +1503,21 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                 disabled={isSubmitted || isReviewMode}
                 value={currentAns}
                 onChange={(e) => handleShortAnswerChange(q.id, e.target.value)}
-                placeholder={isReviewMode ? "Học sinh bỏ trống câu này" : "Nhập kết quả (số hoặc biểu thức ngắn)..."}
-                className={"flex-1 p-2.5 bg-white border rounded-xl text-sm font-bold outline-none transition " + (
+                placeholder={
                   isReviewMode
+                    ? "Học sinh bỏ trống câu này"
+                    : "Nhập kết quả (số hoặc biểu thức ngắn)..."
+                }
+                className={
+                  "flex-1 p-2.5 bg-white border rounded-xl text-sm font-bold outline-none transition " +
+                  (isReviewMode
                     ? isCorrect
                       ? "border-emerald-500 bg-emerald-50/50 text-emerald-900"
                       : "border-rose-400 bg-rose-50/50 text-rose-900"
                     : currentAns
-                    ? "border-[#1D4ED8] bg-blue-50/20 text-blue-950 focus:ring-2 focus:ring-blue-100"
-                    : "border-slate-200 text-slate-800 focus:border-[#1D4ED8]"
-                )}
+                      ? "border-[#1D4ED8] bg-blue-50/20 text-blue-950 focus:ring-2 focus:ring-blue-100"
+                      : "border-slate-200 text-slate-800 focus:border-[#1D4ED8]")
+                }
               />
               {currentAns && !isReviewMode && (
                 <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 shrink-0 text-center">
@@ -1416,7 +1529,13 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
             {isReviewMode && (
               <div className="pt-1.5 flex flex-wrap items-center gap-2.5 text-xs font-bold">
                 <span className="text-slate-500">Bạn đã điền:</span>
-                <span className={`px-2.5 py-0.5 rounded-lg border ${isCorrect ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-rose-50 text-rose-700 border-rose-300"}`}>
+                <span
+                  className={`px-2.5 py-0.5 rounded-lg border ${
+                    isCorrect
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-rose-50 text-rose-700 border-rose-300"
+                  }`}
+                >
                   {currentAns.trim() ? currentAns : "Bỏ trống"}
                 </span>
                 <span className="text-slate-500 ml-1">Đáp án chuẩn:</span>
@@ -1440,18 +1559,23 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
     }
 
     if (isTF) {
-      const userTF = (typeof userAnswers[q.id] === "object" && userAnswers[q.id]) ? userAnswers[q.id] : {};
+      const userTF =
+        typeof userAnswers[q.id] === "object" && userAnswers[q.id] ? userAnswers[q.id] : {};
       const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
 
       return (
         <div className="pt-1.5 space-y-2">
-          <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-2xs">
+          <div className="overflow-hidden border border-slate-200 rounded-xl bg-white">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   <th className="py-2 px-3 sm:px-4 text-left font-semibold">Phát biểu</th>
-                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-emerald-600">Đúng</th>
-                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-rose-600">Sai</th>
+                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-emerald-600">
+                    Đúng
+                  </th>
+                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-rose-600">
+                    Sai
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs sm:text-[13.5px]">
@@ -1465,47 +1589,62 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                     String(rawSel).toUpperCase() === "D"
                       ? "T"
                       : rawSel === false ||
-                        String(rawSel).toUpperCase() === "F" ||
-                        String(rawSel).toUpperCase() === "S"
-                      ? "F"
-                      : undefined;
+                          String(rawSel).toUpperCase() === "F" ||
+                          String(rawSel).toUpperCase() === "S"
+                        ? "F"
+                        : undefined;
 
                   const expectedChar = cleanAns[optIdx] || "Đ";
-                  const expectedVal = (expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T") ? "T" : "F";
+                  const expectedVal =
+                    expectedChar === "Đ" || expectedChar === "D" || expectedChar === "T"
+                      ? "T"
+                      : "F";
 
                   return (
                     <tr key={opt.key} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-2.5 px-3 sm:px-4 align-middle">
                         <div className="flex items-start gap-2">
-                          <span className="font-bold text-[#1D4ED8] shrink-0 mt-0.5">{opt.key})</span>
+                          <span className="font-bold text-[#1D4ED8] shrink-0 mt-0.5">
+                            {opt.key})
+                          </span>
                           <div className="flex-1">
-                            <MathRenderer content={opt.text} mediaMap={effectiveMediaMap} inline={true} onImageClick={setPreviewImage} />
+                            <MathRenderer
+                              content={opt.text}
+                              mediaMap={effectiveMediaMap}
+                              inline={true}
+                              onImageClick={setPreviewImage}
+                            />
                           </div>
                         </div>
                       </td>
-                      
+
                       <td className="py-2.5 px-2 text-center align-middle">
                         <button
                           type="button"
                           disabled={isSubmitted || isReviewMode}
                           onClick={() => handleSelectTrueFalseOption(q.id, opt.key, "T")}
-                          className={"w-7 h-7 rounded-lg border flex items-center justify-center mx-auto transition-all " + (
-                            isReviewMode
-                              ? (expectedVal === "T"
-                                  ? "bg-emerald-500 border-emerald-600 text-white shadow-xs"
-                                  : selectedVal === "T"
-                                  ? "bg-rose-500 border-rose-600 text-white shadow-xs"
-                                  : "border-slate-200 text-slate-300 opacity-60")
-                              : (selectedVal === "T"
-                                  ? "bg-emerald-500 border-emerald-600 text-white shadow-xs scale-105 cursor-pointer"
-                                  : "border-slate-200 hover:border-emerald-300 bg-white hover:bg-emerald-50/40 text-slate-400 cursor-pointer")
-                          )}
+                          className={
+                            "w-7 h-7 rounded-lg border flex items-center justify-center mx-auto transition-all " +
+                            (isReviewMode
+                              ? expectedVal === "T"
+                                ? "bg-emerald-500 border-emerald-600 text-white"
+                                : selectedVal === "T"
+                                  ? "bg-rose-500 border-rose-600 text-white"
+                                  : "border-slate-200 text-slate-300 opacity-60"
+                              : selectedVal === "T"
+                                ? "bg-emerald-500 border-emerald-600 text-white scale-105 cursor-pointer"
+                                : "border-slate-200 hover:border-emerald-300 bg-white hover:bg-emerald-50/40 text-slate-400 cursor-pointer")
+                          }
                         >
                           {isReviewMode ? (
-                            expectedVal === "T" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : selectedVal === "T" ? <X className="w-3.5 h-3.5 stroke-[3]" /> : null
-                          ) : (
-                            selectedVal === "T" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null
-                          )}
+                            expectedVal === "T" ? (
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            ) : selectedVal === "T" ? (
+                              <X className="w-3.5 h-3.5 stroke-[3]" />
+                            ) : null
+                          ) : selectedVal === "T" ? (
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          ) : null}
                         </button>
                       </td>
 
@@ -1514,23 +1653,28 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                           type="button"
                           disabled={isSubmitted || isReviewMode}
                           onClick={() => handleSelectTrueFalseOption(q.id, opt.key, "F")}
-                          className={"w-7 h-7 rounded-lg border flex items-center justify-center mx-auto transition-all " + (
-                            isReviewMode
-                              ? (expectedVal === "F"
-                                  ? "bg-emerald-500 border-emerald-600 text-white shadow-xs"
-                                  : selectedVal === "F"
-                                  ? "bg-rose-500 border-rose-600 text-white shadow-xs"
-                                  : "border-slate-200 text-slate-300 opacity-60")
-                              : (selectedVal === "F"
-                                  ? "bg-rose-500 border-rose-600 text-white shadow-xs scale-105 cursor-pointer"
-                                  : "border-slate-200 hover:border-rose-300 bg-white hover:bg-rose-50/40 text-slate-400 cursor-pointer")
-                          )}
+                          className={
+                            "w-7 h-7 rounded-lg border flex items-center justify-center mx-auto transition-all " +
+                            (isReviewMode
+                              ? expectedVal === "F"
+                                ? "bg-emerald-500 border-emerald-600 text-white"
+                                : selectedVal === "F"
+                                  ? "bg-rose-500 border-rose-600 text-white"
+                                  : "border-slate-200 text-slate-300 opacity-60"
+                              : selectedVal === "F"
+                                ? "bg-rose-500 border-rose-600 text-white scale-105 cursor-pointer"
+                                : "border-slate-200 hover:border-rose-300 bg-white hover:bg-rose-50/40 text-slate-400 cursor-pointer")
+                          }
                         >
                           {isReviewMode ? (
-                            expectedVal === "F" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : selectedVal === "F" ? <X className="w-3.5 h-3.5 stroke-[3]" /> : null
-                          ) : (
-                            selectedVal === "F" ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : null
-                          )}
+                            expectedVal === "F" ? (
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            ) : selectedVal === "F" ? (
+                              <X className="w-3.5 h-3.5 stroke-[3]" />
+                            ) : null
+                          ) : selectedVal === "F" ? (
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          ) : null}
                         </button>
                       </td>
                     </tr>
@@ -1543,15 +1687,16 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
       );
     }
 
-    const stuSelectedKey = userAnswers[q.id] !== undefined && userAnswers[q.id] !== null
-      ? String(userAnswers[q.id]).trim().toUpperCase()
-      : "";
+    const stuSelectedKey =
+      userAnswers[q.id] !== undefined && userAnswers[q.id] !== null
+        ? String(userAnswers[q.id]).trim().toUpperCase()
+        : "";
     const rightKey = String(q.correctAnswer || "A").trim().toUpperCase();
 
     return (
       <div className="space-y-2.5 pt-1">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
-          {q.options.map(opt => {
+          {q.options.map((opt) => {
             const optKeyNorm = String(opt.key).trim().toUpperCase();
             const isSelected = stuSelectedKey === optKeyNorm;
             const isCorrect = isReviewMode && optKeyNorm === rightKey;
@@ -1563,36 +1708,45 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                 type="button"
                 onClick={() => handleSelectOption(q.id, opt.key)}
                 disabled={isSubmitted || isReviewMode}
-                className={"py-2.5 px-3 sm:px-3.5 rounded-xl border text-left flex items-center gap-2.5 transition-all " + (
-                  isCorrect
-                    ? "bg-emerald-50/90 border-emerald-500 text-emerald-950 font-semibold shadow-xs ring-1 ring-emerald-500/30"
+                className={
+                  "py-2.5 px-3 sm:px-3.5 rounded-xl border text-left flex items-center gap-2.5 transition-all " +
+                  (isCorrect
+                    ? "bg-emerald-50/90 border-emerald-500 text-emerald-950 font-semibold ring-1 ring-emerald-500/30"
                     : isWrongSelected
-                    ? "bg-rose-50/90 border-rose-400 text-rose-950 font-semibold ring-1 ring-rose-400/30"
-                    : isSelected
-                    ? "bg-blue-50/70 border-[#1D4ED8] text-blue-950 shadow-xs ring-1 ring-[#1D4ED8]/20 cursor-pointer"
-                    : "bg-white border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50/60 " + (isReviewMode ? "cursor-default" : "cursor-pointer")
-                )}
+                      ? "bg-rose-50/90 border-rose-400 text-rose-950 font-semibold ring-1 ring-rose-400/30"
+                      : isSelected
+                        ? "bg-blue-50/70 border-[#1D4ED8] text-blue-950 ring-1 ring-[#1D4ED8]/20 cursor-pointer"
+                        : "bg-white border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50/60 " +
+                          (isReviewMode ? "cursor-default" : "cursor-pointer"))
+                }
               >
-                <span className={"w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 border transition-colors " + (
-                  isCorrect
-                    ? "bg-emerald-600 text-white border-emerald-600"
-                    : isWrongSelected
-                    ? "bg-rose-600 text-white border-rose-600"
-                    : isSelected
-                    ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
-                    : "bg-slate-50 text-slate-600 border-slate-200"
-                )}>
+                <span
+                  className={
+                    "w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 border transition-colors " +
+                    (isCorrect
+                      ? "bg-emerald-600 text-white border-emerald-600"
+                      : isWrongSelected
+                        ? "bg-rose-600 text-white border-rose-600"
+                        : isSelected
+                          ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
+                          : "bg-slate-50 text-slate-600 border-slate-200")
+                  }
+                >
                   {opt.key}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <MathRenderer content={opt.text} mediaMap={effectiveMediaMap} inline={true} onImageClick={setPreviewImage} />
+                  <MathRenderer
+                    content={opt.text}
+                    mediaMap={effectiveMediaMap}
+                    inline={true}
+                    onImageClick={setPreviewImage}
+                  />
                 </div>
               </button>
             );
           })}
         </div>
 
-        {/* DẢI ĐỐI CHIẾU ĐÁP ÁN KHI Ở CHẾ ĐỘ XEM LẠI BÀI LÀM (REVIEW MODE) */}
         {isReviewMode && (
           <div className="pt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs border-t border-slate-100">
             <div className="flex items-center gap-2">
@@ -1602,8 +1756,8 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   !stuSelectedKey
                     ? "bg-slate-100 text-slate-600 border-slate-300"
                     : stuSelectedKey === rightKey
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                    : "bg-rose-50 text-rose-700 border-rose-300"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      : "bg-rose-50 text-rose-700 border-rose-300"
                 }`}
               >
                 {stuSelectedKey || "Bỏ trống"}
@@ -1622,13 +1776,17 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
     );
   };
 
-  if (isLoading) {
+  // KHUNG LOADING CHẶN TUYỆT ĐỐI NHÁY ĐỀ CŨ CHO ĐẾN KHI CÂU HỎI CỦA ĐÚNG quizId NẠP XONG
+  if (isLoadingQuestions || questions.length === 0) {
     return (
-      <div className="fixed inset-0 z-[200] bg-slate-900/60 flex flex-col items-center justify-center text-white font-sans">
-        <div className="w-10 h-10 border-4 border-white/20 border-t-blue-500 rounded-full animate-spin mb-3" />
-        <p className="font-bold text-xs tracking-wide">
-          {isReviewMode ? "Đang tải bài làm & lời giải chi tiết..." : "Đang tải câu hỏi & dữ liệu bài thi..."}
-        </p>
+      <div className="fixed inset-0 z-[200] bg-[#F1F5F9] flex flex-col items-center justify-center p-4 font-sans">
+        <div className="bg-white border border-slate-200/90 rounded-2xl px-8 py-7 flex flex-col items-center gap-3.5 max-w-sm w-full text-center">
+          <Loader2 className="w-8 h-8 text-[#1D4ED8] animate-spin" />
+          <div className="space-y-1">
+            <p className="text-sm font-bold text-slate-900">Đang tải nội dung đề thi...</p>
+            <p className="text-xs text-slate-500 truncate max-w-[260px]">{quizTitle}</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1638,12 +1796,13 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
   return (
     <div
       style={{
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Plus Jakarta Sans", sans-serif'
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Plus Jakarta Sans", sans-serif'
       }}
-      className="fixed inset-0 z-[120] bg-[#F8FAFC] text-slate-800 flex flex-col overflow-hidden"
+      className="fixed inset-0 z-[120] bg-[#F1F5F9] text-slate-800 flex flex-col overflow-hidden"
     >
       {/* 1. HEADER PHÒNG THI / CHẾ ĐỘ XEM LẠI BÀI LÀM */}
-      <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white border-b border-slate-200 shadow-2xs flex items-center justify-between shrink-0 z-30">
+      <header className="h-14 sm:h-15 px-3 sm:px-6 bg-white border-b border-slate-200/90 flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
@@ -1656,12 +1815,12 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                 onBackToDashboard();
               }
             }}
-            className="p-1.5 sm:p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs transition flex items-center cursor-pointer shrink-0"
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/90 transition flex items-center cursor-pointer shrink-0"
             title="Quay lại"
           >
             <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
           </button>
-          
+
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               {isReviewMode && (
@@ -1688,13 +1847,13 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+          <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/90">
             <button
               type="button"
               onClick={() => setLayoutMode("scroll")}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 layoutMode === "scroll"
-                  ? "bg-white text-[#1D4ED8] shadow-2xs"
+                  ? "bg-white text-[#1D4ED8]"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
@@ -1706,7 +1865,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               onClick={() => setLayoutMode("single")}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 layoutMode === "single"
-                  ? "bg-white text-[#1D4ED8] shadow-2xs"
+                  ? "bg-white text-[#1D4ED8]"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
@@ -1728,10 +1887,16 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               </span>
             </div>
           ) : (
-            <div className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl border shadow-2xs text-xs font-semibold tabular-nums font-['Times_New_Roman',serif] tracking-wider ${timerHeaderStyles}`}>
+            <div
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl border text-xs font-semibold tabular-nums font-['Times_New_Roman',serif] tracking-wider ${timerHeaderStyles}`}
+            >
               <Clock className="w-3.5 h-3.5 shrink-0" />
               <span>
-                {isHomework ? formatTimer(timeSpentSeconds) + " (Tự do)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
+                {isHomework
+                  ? formatTimer(timeSpentSeconds) + " (Tự do)"
+                  : durationMinutes > 0
+                    ? formatTimer(secondsRemaining)
+                    : formatTimer(timeSpentSeconds)}
               </span>
             </div>
           )}
@@ -1743,7 +1908,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               type="button"
               disabled={isSubmitting || isGrading}
               onClick={() => handleSubmitExam()}
-              className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm shadow-xs flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-60 transition"
+              className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1 cursor-pointer shrink-0 disabled:opacity-60 transition"
             >
               {isSubmitting || isGrading ? (
                 <>
@@ -1753,7 +1918,12 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               ) : (
                 <>
                   <Send className="w-3.5 h-3.5" />
-                  <span>{isHomework ? "Nộp bài tập" : "Nộp bài"} <span className="hidden sm:inline">({answeredCount}/{questions.length})</span></span>
+                  <span>
+                    {isHomework ? "Nộp bài tập" : "Nộp bài"}{" "}
+                    <span className="hidden sm:inline">
+                      ({answeredCount}/{questions.length})
+                    </span>
+                  </span>
                 </>
               )}
             </button>
@@ -1761,7 +1931,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
             <button
               type="button"
               onClick={onBackToDashboard}
-              className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer transition"
+              className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition"
             >
               <ArrowLeft className="w-3.5 h-3.5" /> <span>Đóng xem lại</span>
             </button>
@@ -1771,16 +1941,13 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
 
       {/* 2. VÙNG NỘI DUNG CÂU HỎI & SIDEBAR */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
-        <main className="lg:col-span-9 flex flex-col justify-between overflow-hidden relative bg-[#F8FAFC]">
-          
+        <main className="lg:col-span-9 flex flex-col justify-between overflow-hidden relative bg-[#F1F5F9]">
           <div className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar">
             <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-6">
-              
-              {/* BANNER CHẾ ĐỘ XEM LẠI BÀI LÀM CHI TIẾT */}
               {isReviewMode && (
-                <div className="p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50/60 to-emerald-50/50 border border-blue-200 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+                <div className="p-3.5 bg-white border border-blue-200 rounded-2xl flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-[#1D4ED8] text-white flex items-center justify-center font-black text-sm shadow-xs">
+                    <div className="w-9 h-9 rounded-xl bg-[#1D4ED8] text-white flex items-center justify-center font-black text-sm">
                       {score.toFixed(1)}
                     </div>
                     <div>
@@ -1788,7 +1955,8 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                         Chế độ Xem lại bài làm & Lời giải chi tiết
                       </h4>
                       <p className="text-[11px] text-slate-600 font-medium">
-                        Đúng {reviewSummaryCounts.right}/{questions.length} câu • Sai {reviewSummaryCounts.wrong} câu • Bỏ trống {reviewSummaryCounts.skipped} câu
+                        Đúng {reviewSummaryCounts.right}/{questions.length} câu • Sai{" "}
+                        {reviewSummaryCounts.wrong} câu • Bỏ trống {reviewSummaryCounts.skipped} câu
                       </p>
                     </div>
                   </div>
@@ -1796,7 +1964,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   <button
                     type="button"
                     onClick={handleRetake}
-                    className="px-3.5 py-1.5 bg-white hover:bg-blue-50 text-[#1D4ED8] border border-blue-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    className="px-3.5 py-1.5 bg-white hover:bg-blue-50 text-[#1D4ED8] border border-blue-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" /> Làm lại đề này
                   </button>
@@ -1804,7 +1972,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               )}
 
               {isHomework && !isReviewMode && (
-                <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between shadow-2xs">
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <BookOpen className="w-4 h-4 text-emerald-600" />
                     Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu kết quả khi nộp.
@@ -1820,13 +1988,13 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   const qStatus = isReviewMode ? getQuestionReviewStatus(currentQ) : null;
                   return (
                     <div
-                      className={`bg-white rounded-2xl p-4 sm:p-5 border shadow-2xs space-y-3 text-left relative ${
+                      className={`bg-white rounded-2xl p-4 sm:p-5 border space-y-3 text-left relative ${
                         isReviewMode
                           ? qStatus === "correct"
                             ? "border-emerald-300"
                             : qStatus === "wrong"
-                            ? "border-rose-300"
-                            : "border-slate-200"
+                              ? "border-rose-300"
+                              : "border-slate-200/90"
                           : "border-slate-200/90"
                       }`}
                     >
@@ -1853,11 +2021,15 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                                 qStatus === "correct"
                                   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                   : qStatus === "wrong"
-                                  ? "bg-rose-50 text-rose-700 border-rose-200"
-                                  : "bg-slate-100 text-slate-600 border-slate-200"
+                                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                                    : "bg-slate-100 text-slate-600 border-slate-200"
                               }`}
                             >
-                              {qStatus === "correct" ? "✓ Chính xác" : qStatus === "wrong" ? "✕ Chọn sai" : "○ Bỏ trống"}
+                              {qStatus === "correct"
+                                ? "✓ Chính xác"
+                                : qStatus === "wrong"
+                                  ? "✕ Chọn sai"
+                                  : "○ Bỏ trống"}
                             </span>
                           ) : (
                             <>
@@ -1866,12 +2038,14 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                                 onClick={() => toggleFlagQuestion(currentQ.id)}
                                 className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
                                   flaggedQuestions[currentQ.id]
-                                    ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
+                                    ? "bg-amber-50 text-amber-700 border-amber-300"
                                     : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
                                 }`}
                               >
                                 <Flag className="w-3.5 h-3.5 fill-current" />
-                                <span>{flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}</span>
+                                <span>
+                                  {flaggedQuestions[currentQ.id] ? "Đã gắn cờ" : "Đánh dấu"}
+                                </span>
                               </button>
                               <span className="text-xs font-semibold text-slate-500">
                                 {Boolean(userAnswers[currentQ.id]) ? "Đã trả lời" : "Chưa làm"}
@@ -1882,18 +2056,30 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                       </div>
 
                       <div className="py-0.5">
-                        <MathRenderer 
-                          content={currentQ.prompt} 
-                          mediaMap={currentQ.mediaMap || mediaMap || {}} 
-                          onImageClick={setPreviewImage} 
+                        <MathRenderer
+                          content={currentQ.prompt}
+                          mediaMap={currentQ.mediaMap || mediaMap || {}}
+                          onImageClick={setPreviewImage}
                         />
                         {currentQ.image && (
                           <div className="my-3 text-center">
                             <img
-                              src={resolveImageSrc(currentQ.image, currentQ.mediaMap || mediaMap || {}) || currentQ.image}
+                              src={
+                                resolveImageSrc(
+                                  currentQ.image,
+                                  currentQ.mediaMap || mediaMap || {}
+                                ) || currentQ.image
+                              }
                               alt="Hình câu hỏi"
-                              onClick={() => setPreviewImage(resolveImageSrc(currentQ.image!, currentQ.mediaMap || mediaMap || {}) || currentQ.image!)}
-                              className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200 bg-white p-2 shadow-2xs object-contain mx-auto cursor-pointer"
+                              onClick={() =>
+                                setPreviewImage(
+                                  resolveImageSrc(
+                                    currentQ.image!,
+                                    currentQ.mediaMap || mediaMap || {}
+                                  ) || currentQ.image!
+                                )
+                              }
+                              className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200/90 bg-white p-2 object-contain mx-auto cursor-pointer"
                             />
                           </div>
                         )}
@@ -1907,45 +2093,45 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                             <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Lời giải chi tiết:
                           </p>
                           <div className="text-slate-700 leading-relaxed font-normal">
-                            <MathRenderer 
-                              content={currentQ.explanation} 
-                              mediaMap={currentQ.mediaMap || mediaMap || {}} 
-                              onImageClick={setPreviewImage} 
+                            <MathRenderer
+                              content={currentQ.explanation}
+                              mediaMap={currentQ.mediaMap || mediaMap || {}}
+                              onImageClick={setPreviewImage}
                             />
                           </div>
                         </div>
                       )}
-                       {/* BONG BÓNG GIA SƯ AI GÓC DƯỚI BÊN PHẢI (TỰ ĐỘNG THEO CÂU ĐANG XEM) */}
-      {currentQ && (
-        <AiTutorWidget
-          key={`ai-floating-${currentQ.id}-${isReviewMode}`}
-          mode={
-            isReviewMode || isSubmitted
-              ? "REVIEW_SOCRATIC"
-              : isHomework
-              ? "HOMEWORK_HINT"
-              : "HIDDEN"
-          }
-          questionKey={`${quizId}_${currentQ.id}`}
-          lessonTitle={`${quizTitle} - Câu ${currentIdx + 1}`}
-          questionType={
-            isQuestionTrueFalse(currentQ)
-              ? "true_false"
-              : isQuestionShortAnswer(currentQ)
-              ? "short_answer"
-              : "multiple_choice"
-          }
-          questionText={currentQ.prompt}
-          options={(currentQ.options || []).map((o) => `${o.key}. ${o.text}`)}
-          studentAnswer={
-            typeof userAnswers[currentQ.id] === "object"
-              ? JSON.stringify(userAnswers[currentQ.id])
-              : String(userAnswers[currentQ.id] || "")
-          }
-          correctAnswer={currentQ.correctAnswer}
-          officialSolution={currentQ.explanation}
-        />
-      )}
+
+                      {currentQ && (
+                        <AiTutorWidget
+                          key={`ai-floating-${currentQ.id}-${isReviewMode}`}
+                          mode={
+                            isReviewMode || isSubmitted
+                              ? "REVIEW_SOCRATIC"
+                              : isHomework
+                                ? "HOMEWORK_HINT"
+                                : "HIDDEN"
+                          }
+                          questionKey={`${quizId}_${currentQ.id}`}
+                          lessonTitle={`${quizTitle} - Câu ${currentIdx + 1}`}
+                          questionType={
+                            isQuestionTrueFalse(currentQ)
+                              ? "true_false"
+                              : isQuestionShortAnswer(currentQ)
+                                ? "short_answer"
+                                : "multiple_choice"
+                          }
+                          questionText={currentQ.prompt}
+                          options={(currentQ.options || []).map((o) => `${o.key}. ${o.text}`)}
+                          studentAnswer={
+                            typeof userAnswers[currentQ.id] === "object"
+                              ? JSON.stringify(userAnswers[currentQ.id])
+                              : String(userAnswers[currentQ.id] || "")
+                          }
+                          correctAnswer={currentQ.correctAnswer}
+                          officialSolution={currentQ.explanation}
+                        />
+                      )}
                     </div>
                   );
                 })()
@@ -1958,14 +2144,14 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                         key={q.id}
                         id={"question-card-" + q.id}
                         onClick={() => setCurrentIdx(qIndex)}
-                        className={`bg-white rounded-2xl p-4 sm:p-5 border shadow-2xs space-y-2.5 text-left relative ${
+                        className={`bg-white rounded-2xl p-4 sm:p-5 border space-y-2.5 text-left relative ${
                           isReviewMode
                             ? qStatus === "correct"
                               ? "border-emerald-300"
                               : qStatus === "wrong"
-                              ? "border-rose-300"
-                              : "border-slate-200"
-                            : "border-slate-200"
+                                ? "border-rose-300"
+                                : "border-slate-200/90"
+                            : "border-slate-200/90"
                         }`}
                       >
                         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -1991,11 +2177,15 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                                   qStatus === "correct"
                                     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                     : qStatus === "wrong"
-                                    ? "bg-rose-50 text-rose-700 border-rose-200"
-                                    : "bg-slate-100 text-slate-600 border-slate-200"
+                                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                                      : "bg-slate-100 text-slate-600 border-slate-200"
                                 }`}
                               >
-                                {qStatus === "correct" ? "✓ Chính xác" : qStatus === "wrong" ? "✕ Chọn sai" : "○ Bỏ trống"}
+                                {qStatus === "correct"
+                                  ? "✓ Chính xác"
+                                  : qStatus === "wrong"
+                                    ? "✕ Chọn sai"
+                                    : "○ Bỏ trống"}
                               </span>
                             ) : (
                               <>
@@ -2004,7 +2194,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                                   onClick={() => toggleFlagQuestion(q.id)}
                                   className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition cursor-pointer ${
                                     flaggedQuestions[q.id]
-                                      ? "bg-amber-50 text-amber-700 border-amber-300 shadow-2xs"
+                                      ? "bg-amber-50 text-amber-700 border-amber-300"
                                       : "bg-slate-50 text-slate-400 border-slate-200 hover:text-slate-600"
                                   }`}
                                 >
@@ -2020,18 +2210,25 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                         </div>
 
                         <div className="py-0.5">
-                          <MathRenderer 
-                            content={q.prompt} 
-                            mediaMap={q.mediaMap || mediaMap || {}} 
-                            onImageClick={setPreviewImage} 
+                          <MathRenderer
+                            content={q.prompt}
+                            mediaMap={q.mediaMap || mediaMap || {}}
+                            onImageClick={setPreviewImage}
                           />
                           {q.image && (
                             <div className="my-3 text-center">
                               <img
-                                src={resolveImageSrc(q.image, q.mediaMap || mediaMap || {}) || q.image}
+                                src={
+                                  resolveImageSrc(q.image, q.mediaMap || mediaMap || {}) || q.image
+                                }
                                 alt="Hình câu hỏi"
-                                onClick={() => setPreviewImage(resolveImageSrc(q.image!, q.mediaMap || mediaMap || {}) || q.image!)}
-                                className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200 bg-white p-2 shadow-2xs object-contain mx-auto cursor-pointer"
+                                onClick={() =>
+                                  setPreviewImage(
+                                    resolveImageSrc(q.image!, q.mediaMap || mediaMap || {}) ||
+                                      q.image!
+                                  )
+                                }
+                                className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-2xl border border-slate-200/90 bg-white p-2 object-contain mx-auto cursor-pointer"
                               />
                             </div>
                           )}
@@ -2045,24 +2242,22 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                               <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Lời giải chi tiết:
                             </p>
                             <div>
-                              <MathRenderer 
-                                content={q.explanation} 
-                                mediaMap={q.mediaMap || mediaMap || {}} 
-                                onImageClick={setPreviewImage} 
+                              <MathRenderer
+                                content={q.explanation}
+                                mediaMap={q.mediaMap || mediaMap || {}}
+                                onImageClick={setPreviewImage}
                               />
                             </div>
                           </div>
                         )}
 
-                        {/* TRỢ GIẢNG AI CHO TỪNG CÂU TRONG DANH SÁCH CUỘN */}
                         <AiTutorWidget
-                         
                           mode={
                             isReviewMode || isSubmitted
                               ? "REVIEW_SOCRATIC"
                               : isHomework
-                              ? "HOMEWORK_HINT"
-                              : "HIDDEN"
+                                ? "HOMEWORK_HINT"
+                                : "HIDDEN"
                           }
                           questionKey={`${quizId}_${q.id}`}
                           lessonTitle={quizTitle}
@@ -2070,8 +2265,8 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                             isQuestionTrueFalse(q)
                               ? "true_false"
                               : isQuestionShortAnswer(q)
-                              ? "short_answer"
-                              : "multiple_choice"
+                                ? "short_answer"
+                                : "multiple_choice"
                           }
                           questionText={q.prompt}
                           options={(q.options || []).map((o) => `${o.key}. ${o.text}`)}
@@ -2090,13 +2285,14 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               )}
             </div>
           </div>
+
           {layoutMode === "single" && (
-            <div className="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200/80 py-2.5 px-4 flex items-center justify-center gap-3 sm:gap-4 shadow-sm">
+            <div className="sticky bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-sm border-t border-slate-200/90 py-2.5 px-4 flex items-center justify-center gap-3 sm:gap-4">
               <button
                 type="button"
-                onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))}
+                onClick={() => setCurrentIdx((prev) => Math.max(0, prev - 1))}
                 disabled={currentIdx === 0}
-                className="px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-35 text-xs font-semibold text-slate-700 transition flex items-center gap-1 cursor-pointer shadow-2xs disabled:cursor-not-allowed"
+                className="px-3.5 py-1.5 rounded-lg border border-slate-200/90 bg-white hover:bg-slate-50 disabled:opacity-35 text-xs font-semibold text-slate-700 transition flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="w-3.5 h-3.5" /> Câu trước
               </button>
@@ -2111,18 +2307,19 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               {currentIdx < questions.length - 1 ? (
                 <button
                   type="button"
-                  onClick={() => setCurrentIdx(prev => Math.min(questions.length - 1, prev + 1))}
-                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                  onClick={() => setCurrentIdx((prev) => Math.min(questions.length - 1, prev + 1))}
+                  className="px-3.5 py-1.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
                 >
                   Câu tiếp theo <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               ) : (
-                !isSubmitted && !isReviewMode && (
+                !isSubmitted &&
+                !isReviewMode && (
                   <button
                     type="button"
                     disabled={isSubmitting || isGrading}
                     onClick={() => handleSubmitExam()}
-                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-1 cursor-pointer disabled:opacity-60"
                   >
                     <Send className="w-3.5 h-3.5" /> Nộp bài thi
                   </button>
@@ -2132,26 +2329,40 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
           )}
         </main>
 
-        {/* 3. SIDEBAR MA TRẬN CÂU HỎI (TÔ MÀU ĐÚNG XANH / SAI ĐỎ KHI Ở REVIEW MODE) */}
-        <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200 bg-white p-4.5 flex-col justify-between overflow-y-auto custom-scrollbar">
+        {/* 3. SIDEBAR MA TRẬN CÂU HỎI */}
+        <aside className="hidden lg:flex lg:col-span-3 border-l border-slate-200/90 bg-white p-4.5 flex-col justify-between overflow-y-auto custom-scrollbar">
           <div className="space-y-3.5">
-            <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200 shadow-2xs space-y-1 text-left">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Thí sinh</span>
-              <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">{profile?.full_name}</p>
+            <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200/90 space-y-1 text-left">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                Thí sinh
+              </span>
+              <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                {profile?.full_name}
+              </p>
               <div className="flex items-center justify-between text-xs text-slate-500 font-semibold pt-1 border-t border-slate-200/60">
                 <span className="truncate">{profile?.school || "THPT"}</span>
-                <span className="font-bold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded border border-blue-100 text-[11px]">{profile?.grade || "Lớp 12"}</span>
+                <span className="font-bold text-[#1D4ED8] bg-blue-50 px-2 py-0.5 rounded border border-blue-100 text-[11px]">
+                  {profile?.grade || "Lớp 12"}
+                </span>
               </div>
             </div>
 
-            <div className={`p-3 rounded-xl border shadow-2xs space-y-0.5 text-left transition-colors ${timerSidebarStyles}`}>
+            <div
+              className={`p-3 rounded-xl border space-y-0.5 text-left transition-colors ${timerSidebarStyles}`}
+            >
               <span className="text-[10px] font-black uppercase tracking-wider opacity-75 block">
-                {isReviewMode ? "ĐIỂM BÀI LÀM" : isHomework ? "THỜI GIAN LÀM BÀI" : "THỜI GIAN CÒN LẠI"}
+                {isReviewMode
+                  ? "ĐIỂM BÀI LÀM"
+                  : isHomework
+                    ? "THỜI GIAN LÀM BÀI"
+                    : "THỜI GIAN CÒN LẠI"}
               </span>
               <div className="flex items-center justify-between pt-0.5">
                 {isReviewMode ? (
                   <>
-                    <span className="text-xl font-black text-emerald-700">{score.toFixed(1)} / 10</span>
+                    <span className="text-xl font-black text-emerald-700">
+                      {score.toFixed(1)} / 10
+                    </span>
                     <span className="text-xs font-bold text-emerald-600">
                       Đúng {reviewSummaryCounts.right}/{questions.length}
                     </span>
@@ -2160,7 +2371,11 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 shrink-0" />
                     <span className="text-lg font-semibold tracking-wider font-['Times_New_Roman',serif] tabular-nums">
-                      {isHomework ? formatTimer(timeSpentSeconds) + " (Vô hạn)" : (durationMinutes > 0 ? formatTimer(secondsRemaining) : formatTimer(timeSpentSeconds))}
+                      {isHomework
+                        ? formatTimer(timeSpentSeconds) + " (Vô hạn)"
+                        : durationMinutes > 0
+                          ? formatTimer(secondsRemaining)
+                          : formatTimer(timeSpentSeconds)}
                     </span>
                   </div>
                 )}
@@ -2170,7 +2385,9 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
             <div className="space-y-2 text-left pt-1">
               <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                 <span className="uppercase text-[11px]">Danh sách câu</span>
-                <span className="text-[11px] font-bold text-slate-400">{answeredCount}/{questions.length} câu</span>
+                <span className="text-[11px] font-bold text-slate-400">
+                  {answeredCount}/{questions.length} câu
+                </span>
               </div>
 
               <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
@@ -2187,12 +2404,13 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   const isFlagged = Boolean(flaggedQuestions[q.id]);
                   const qStatus = isReviewMode ? getQuestionReviewStatus(q) : null;
 
-                  let btnColorClass = "bg-white text-slate-600 border-slate-200 hover:border-slate-300";
+                  let btnColorClass =
+                    "bg-white text-slate-600 border-slate-200 hover:border-slate-300";
                   if (isReviewMode) {
                     if (qStatus === "correct") {
-                      btnColorClass = "bg-emerald-500 text-white border-emerald-600 shadow-2xs";
+                      btnColorClass = "bg-emerald-500 text-white border-emerald-600";
                     } else if (qStatus === "wrong") {
-                      btnColorClass = "bg-rose-500 text-white border-rose-600 shadow-2xs";
+                      btnColorClass = "bg-rose-500 text-white border-rose-600";
                     } else {
                       btnColorClass = "bg-slate-100 text-slate-400 border-slate-200";
                     }
@@ -2201,7 +2419,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                     }
                   } else {
                     if (isCurrent) {
-                      btnColorClass = "bg-[#1D4ED8] text-white border-[#1D4ED8] shadow-xs scale-105";
+                      btnColorClass = "bg-[#1D4ED8] text-white border-[#1D4ED8] scale-105";
                     } else if (isAns) {
                       btnColorClass = "bg-blue-50 text-[#1D4ED8] border-blue-200";
                     }
@@ -2211,7 +2429,6 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                     <button
                       type="button"
                       key={q.id}
-                    
                       onClick={() => {
                         setCurrentIdx(idx);
                         if (layoutMode === "scroll") {
@@ -2219,7 +2436,10 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                           if (el) el.scrollIntoView({ behavior: "smooth" });
                         }
                       }}
-                      className={"h-8 rounded-lg font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " + btnColorClass}
+                      className={
+                        "h-8 rounded-lg font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " +
+                        btnColorClass
+                      }
                     >
                       <span>{idx + 1}</span>
                       {isFlagged && !isReviewMode && (
@@ -2238,7 +2458,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                 type="button"
                 disabled={isSubmitting || isGrading}
                 onClick={() => handleSubmitExam()}
-                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                className="w-full py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
               >
                 <Send className="w-3.5 h-3.5" /> {isHomework ? "Nộp BTVN" : "Nộp bài thi"}
               </button>
@@ -2247,7 +2467,6 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                 <button
                   type="button"
                   onClick={() => {
-                    // Nếu đã tải BXH rồi thì tái sử dụng dữ liệu trong RAM, không gọi lại Supabase
                     if (rankingList.length === 0) {
                       fetchFullExamLeaderboard();
                     }
@@ -2275,10 +2494,12 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
         <button
           type="button"
           onClick={() => setIsMobileDrawerOpen(true)}
-          className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900/90 backdrop-blur-md text-white rounded-full shadow-lg border border-slate-700 font-bold text-xs active:scale-95 transition-all cursor-pointer"
+          className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900/90 backdrop-blur-md text-white rounded-full border border-slate-700 font-bold text-xs active:scale-95 transition-all cursor-pointer"
         >
           <Grid3X3 className="w-4 h-4 text-blue-400" />
-          <span>{answeredCount}/{questions.length}</span>
+          <span>
+            {answeredCount}/{questions.length}
+          </span>
         </button>
       </div>
 
@@ -2297,12 +2518,12 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: -10 }}
               transition={{ type: "spring", damping: 24, stiffness: 300 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 text-center space-y-5"
+              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 border border-slate-200/90 text-center space-y-5"
             >
               <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
                 <div className="absolute inset-0 rounded-full border-4 border-blue-100" />
                 <div className="absolute inset-0 rounded-full border-4 border-[#1D4ED8] border-t-transparent animate-spin" />
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1D4ED8] flex items-center justify-center shadow-inner">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1D4ED8] flex items-center justify-center">
                   <Sparkles className="w-6 h-6 animate-pulse" />
                 </div>
               </div>
@@ -2322,7 +2543,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               <div className="space-y-1.5">
                 <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/80 p-0.5">
                   <div
-                    className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500 rounded-full transition-all duration-300 ease-out"
+                    className="h-full bg-[#1D4ED8] rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${gradingProgress}%` }}
                   />
                 </div>
@@ -2349,13 +2570,15 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 280 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-t-3xl max-h-[80vh] flex flex-col p-5 shadow-2xl border-t border-slate-100"
+              className="bg-white rounded-t-3xl max-h-[80vh] flex flex-col p-5 border-t border-slate-200/90"
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <Grid3X3 className="w-5 h-5 text-[#1D4ED8]" />
                   <h3 className="font-black text-sm text-slate-900">Danh sách câu hỏi</h3>
-                  <span className="text-xs font-bold text-slate-500">({answeredCount}/{questions.length} câu)</span>
+                  <span className="text-xs font-bold text-slate-500">
+                    ({answeredCount}/{questions.length} câu)
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -2376,12 +2599,14 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                     let mobileColor = isCurrent
                       ? "bg-[#1D4ED8] text-white border-[#1D4ED8]"
                       : isAns
-                      ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
-                      : "bg-white text-slate-600 border-slate-200";
+                        ? "bg-blue-50 text-[#1D4ED8] border-blue-200"
+                        : "bg-white text-slate-600 border-slate-200";
 
                     if (isReviewMode) {
-                      if (qStatus === "correct") mobileColor = "bg-emerald-500 text-white border-emerald-600";
-                      else if (qStatus === "wrong") mobileColor = "bg-rose-500 text-white border-rose-600";
+                      if (qStatus === "correct")
+                        mobileColor = "bg-emerald-500 text-white border-emerald-600";
+                      else if (qStatus === "wrong")
+                        mobileColor = "bg-rose-500 text-white border-rose-600";
                       else mobileColor = "bg-slate-100 text-slate-400 border-slate-200";
                     }
 
@@ -2397,7 +2622,10 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                             if (el) el.scrollIntoView({ behavior: "smooth" });
                           }
                         }}
-                        className={"h-10 rounded-xl font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " + mobileColor}
+                        className={
+                          "h-10 rounded-xl font-bold text-xs transition cursor-pointer border relative flex items-center justify-center " +
+                          mobileColor
+                        }
                       >
                         <span>{idx + 1}</span>
                       </button>
@@ -2422,7 +2650,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                       setIsMobileDrawerOpen(false);
                       handleSubmitExam();
                     }}
-                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                   >
                     <Send className="w-3.5 h-3.5" /> Nộp bài
                   </button>
@@ -2433,7 +2661,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
         )}
       </AnimatePresence>
 
-      {/* 7. MODAL KẾT QUẢ THI & BẢNG XẾP HẠNG TOÀN KHÓA ĐỒNG BỘ TỪ SUPABASE */}
+      {/* 7. MODAL KẾT QUẢ THI & BẢNG XẾP HẠNG TOÀN KHÓA */}
       <AnimatePresence>
         {showResultModal && (
           <motion.div
@@ -2450,12 +2678,12 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-8 border border-slate-200 shadow-2xl grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-8 cursor-default my-auto text-left"
+              className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-8 border border-slate-200/90 grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-8 cursor-default my-auto text-left"
             >
               {/* CỘT TRÁI: ĐIỂM SỐ & NÚT XEM ĐÁP ÁN */}
               <div className="md:col-span-6 flex flex-col justify-between space-y-4 sm:space-y-6">
                 <div className="space-y-3 sm:space-y-4">
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 shadow-xs">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200">
                     <Trophy className="w-6 h-6 sm:w-7 sm:h-7" />
                   </div>
                   <div>
@@ -2470,7 +2698,8 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                         ĐIỂM ĐẠT ĐƯỢC
                       </span>
                       <span className="text-2xl sm:text-3xl font-black text-[#1D4ED8]">
-                        {score.toFixed(1)} <span className="text-sm text-slate-400 font-bold">/ 10</span>
+                        {score.toFixed(1)}{" "}
+                        <span className="text-sm text-slate-400 font-bold">/ 10</span>
                       </span>
                     </div>
                     <div className="text-right">
@@ -2488,14 +2717,14 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   <button
                     type="button"
                     onClick={handleRetake}
-                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 py-2.5 bg-[#1D4ED8] hover:bg-[#1E40AF] text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" /> Làm lại bài
                   </button>
                   <button
                     type="button"
                     onClick={handleViewSolutions}
-                    className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs rounded-xl shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Eye className="w-3.5 h-3.5 text-emerald-600" /> Xem đáp án
                   </button>
@@ -2509,7 +2738,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                 </div>
               </div>
 
-              {/* CỘT PHẢI: BẢNG XẾP HẠNG TOÀN KHÓA ĐỒNG BỘ TỪ SUPABASE */}
+              {/* CỘT PHẢI: BẢNG XẾP HẠNG TOÀN KHÓA */}
               <div className="md:col-span-6 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-200 md:pl-6 space-y-3">
                 <div>
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
@@ -2545,7 +2774,10 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                           <tr className="bg-blue-50/60 font-bold text-[#1D4ED8]">
                             <td className="py-2 px-2.5 text-center">🥇</td>
                             <td className="py-2 px-2.5 font-black truncate max-w-[140px]">
-                              {profile?.full_name} <span className="text-[8px] bg-blue-200 px-1.5 py-0.5 rounded ml-1">BẠN</span>
+                              {profile?.full_name}{" "}
+                              <span className="text-[8px] bg-blue-200 px-1.5 py-0.5 rounded ml-1">
+                                BẠN
+                              </span>
                             </td>
                             <td className="py-2 px-2.5 text-right font-black">
                               {score.toFixed(1)}đ
@@ -2595,7 +2827,7 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
                   </div>
                 </div>
                 <p className="text-[10px] text-slate-400 italic text-center">
-                  Bấm nút "Xem đáp án" để xem chi tiết từng câu đúng/sai và lời giải.
+                  Bấm nút &quot;Xem đáp án&quot; để xem chi tiết từng câu đúng/sai và lời giải.
                 </p>
               </div>
             </motion.div>
@@ -2610,7 +2842,10 @@ function sanitizeAnswersPayload(rawAnswers: Record<string, any>): Record<string,
             onClick={() => setPreviewImage(null)}
             className="fixed inset-0 z-[600] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
           >
-            <div className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl p-2 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div
+              className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl p-2 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 type="button"
                 onClick={() => setPreviewImage(null)}
