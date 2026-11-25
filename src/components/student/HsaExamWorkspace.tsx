@@ -8,7 +8,6 @@ import {
   Clock,
   Flag,
   CheckCircle2,
-  XCircle,
   Play,
   RotateCcw,
   Eye,
@@ -17,7 +16,6 @@ import {
   X,
   BookOpen,
   Check,
-  AlertCircle,
   Loader2,
   FileCheck2,
   Layers,
@@ -99,7 +97,7 @@ export const HSA_PART_ORDER: HsaPartKey[] = ["quant", "qual", "english", "histor
 
 export interface NormalizedHsaQuestion {
   id: string;
-  localIndex: number; // 1 -> N trong phần thi
+  localIndex: number;
   partKey: HsaPartKey;
   type: "multiple_choice" | "short_answer" | "true_false";
   promptHtml: string;
@@ -131,7 +129,7 @@ export interface NormalizedHsaPart {
 export interface HsaPartProgress {
   partKey: HsaPartKey;
   completed: boolean;
-  score: number; // Thang 50, làm tròn 1 chữ số thập phân
+  score: number;
   correctCount: number;
   totalCount: number;
   answers: Record<string, string>;
@@ -149,10 +147,6 @@ export interface HsaSavedProgress {
   activeDraftFlags?: Partial<Record<HsaPartKey, string[]>>;
   updatedAt: string;
 }
-
-// ============================================================================
-// HÀM TIỆN ÍCH XỬ LÝ CÔNG THỨC TOÁN KATEX & HÌNH ẢNH TOKEN
-// ============================================================================
 
 function normalizeMathString(raw: string): string {
   if (!raw) return "";
@@ -303,10 +297,6 @@ function MathAndImageRenderer({
     </div>
   );
 }
-
-// ============================================================================
-// HÀM CHUẨN HÓA DỮ LIỆU ĐỀ HSA (4 PHẦN: quant, qual, english, history_geo)
-// ============================================================================
 
 function detectPartKeyFromSection(sec: any, fallbackIndex: number): HsaPartKey {
   const rawKey = String(
@@ -526,7 +516,6 @@ function parseExamIntoHsaParts(rawExam: any): Record<HsaPartKey, NormalizedHsaPa
         q?.image
       );
 
-      // Xử lý câu hỏi chùm (group_id & group_passage / passage_html)
       const rawPassage = String(
         q?.group_passage || q?.passage_html || q?.passage || sec?.passage_html || ""
       ).trim();
@@ -538,7 +527,6 @@ function parseExamIntoHsaParts(rawExam: any): Record<HsaPartKey, NormalizedHsaPa
 
       let groupId: string | undefined = q?.group_id ? String(q.group_id).trim() : undefined;
       if (!groupId && (groupPassage || groupImages.length > 0)) {
-        // Nếu có ngữ liệu chung nhưng chưa gán group_id, tự sinh group_id ổn định theo nội dung ngữ liệu để gom nhóm các câu liên tiếp
         groupId = `passage_${partKey}_${rawPassage.slice(0, 48).replace(/\s+/g, "_")}`;
       }
 
@@ -593,10 +581,6 @@ function parseExamIntoHsaParts(rawExam: any): Record<HsaPartKey, NormalizedHsaPa
   return result;
 }
 
-// ============================================================================
-// COMPONENT CHÍNH: HsaExamWorkspace
-// ============================================================================
-
 export function HsaExamWorkspace({
   quizId,
   quizTitle,
@@ -609,32 +593,29 @@ export function HsaExamWorkspace({
   const [loadedExam, setLoadedExam] = useState<any | null>(initialExamData || null);
   const [isFetchingExam, setIsFetchingExam] = useState<boolean>(false);
 
-  // 3 màn hình chính: "hub" (Màn hình 1) | "room" (Màn hình 2 & Review 2 cột) | "report" (Màn hình 3 - Phiếu điểm HSA)
   const [screen, setScreen] = useState<"hub" | "room" | "report">(
     initialReviewMode ? "report" : "hub"
   );
 
-  // Phần thi đang mở ở Màn hình 2 (hoặc đang xem lại)
   const [activePartKey, setActivePartKey] = useState<HsaPartKey>("quant");
   const [isReviewMode, setIsReviewMode] = useState<boolean>(Boolean(initialReviewMode));
   const [reviewFilter, setReviewFilter] = useState<"all" | "wrong" | "unanswered">("all");
 
-  // Tổ hợp tự chọn Phần 3: "english" | "history_geo"
   const [selectedElective, setSelectedElective] = useState<"english" | "history_geo">("english");
 
-  // Tiến trình các phần đã lưu
   const [partsProgress, setPartsProgress] = useState<Partial<Record<HsaPartKey, HsaPartProgress>>>(
     {}
   );
 
-  // State làm bài trong phòng thi thực chiến (Màn hình 2)
   const [currentAnswers, setCurrentAnswers] = useState<Record<string, string>>({});
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<Set<string>>(new Set());
   const [remainingSeconds, setRemainingSeconds] = useState<number>(75 * 60);
   const [partStartTimeMs, setPartStartTimeMs] = useState<number>(Date.now());
   const [isSubmittingPart, setIsSubmittingPart] = useState<boolean>(false);
 
-  // Lightbox phóng to hình ảnh & Modal xác nhận nộp phần thi / làm lại
+  // BOTTOM SHEET MA TRẬN CÂU HỎI CHO MOBILE
+  const [isMobileMatrixOpen, setIsMobileMatrixOpen] = useState<boolean>(false);
+
   const [lightboxImageSrc, setLightboxImageSrc] = useState<string | null>(null);
   const [confirmSubmitModal, setConfirmSubmitModal] = useState<boolean>(false);
   const [confirmResetModal, setConfirmResetModal] = useState<boolean>(false);
@@ -660,9 +641,7 @@ export function HsaExamWorkspace({
     [studentId, quizId]
   );
 
-  // --------------------------------------------------------------------------
-  // 1. TỰ ĐỘNG FETCH DỮ LIỆU ĐỀ THI TỪ SUPABASE (`practice_exams`) NẾU CHƯA CÓ
-  // --------------------------------------------------------------------------
+  // 1. FETCH DỮ LIỆU ĐỀ THI HSA CÓ CACHE `tct_exam_cache_${quizId}` TRONG localStorage
   useEffect(() => {
     let isMounted = true;
 
@@ -676,14 +655,33 @@ export function HsaExamWorkspace({
 
     if (hasLoadedSections(initialExamData)) {
       setLoadedExam(initialExamData);
+      if (typeof window !== "undefined" && quizId) {
+        try {
+          localStorage.setItem(`tct_exam_cache_${quizId}`, JSON.stringify(initialExamData));
+        } catch {}
+      }
       return;
     }
 
     const fetchExamFromSource = async () => {
       setIsFetchingExam(true);
       try {
-        // Kiểm tra trong localStorage trước nếu có bản đầy đủ
         if (typeof window !== "undefined") {
+          // Ưu tiên kiểm tra `tct_exam_cache_${quizId}` trước để tiết kiệm Egress Supabase
+          try {
+            const directCacheRaw = localStorage.getItem(`tct_exam_cache_${quizId}`);
+            if (directCacheRaw) {
+              const parsedDirect = JSON.parse(directCacheRaw);
+              if (hasLoadedSections(parsedDirect)) {
+                if (isMounted) {
+                  setLoadedExam(parsedDirect);
+                  setIsFetchingExam(false);
+                }
+                return;
+              }
+            }
+          } catch {}
+
           const cacheKeys = ["edunexus_practice_exams", "edunexus_quizzes"];
           for (const key of cacheKeys) {
             try {
@@ -704,7 +702,6 @@ export function HsaExamWorkspace({
           }
         }
 
-        // Fetch từ bảng practice_exams trên Supabase
         const { data: dbExam, error } = await supabase
           .from("practice_exams")
           .select("*")
@@ -713,6 +710,11 @@ export function HsaExamWorkspace({
 
         if (!error && dbExam && isMounted) {
           setLoadedExam(dbExam);
+          if (typeof window !== "undefined" && quizId) {
+            try {
+              localStorage.setItem(`tct_exam_cache_${quizId}`, JSON.stringify(dbExam));
+            } catch {}
+          }
         }
       } catch (err) {
         console.error("Lỗi tải dữ liệu đề HSA:", err);
@@ -728,7 +730,6 @@ export function HsaExamWorkspace({
     };
   }, [quizId, initialExamData]);
 
-  // Chuẩn hóa 4 phần thi từ dữ liệu đề
   const partsMap = useMemo(() => parseExamIntoHsaParts(loadedExam), [loadedExam]);
 
   const availablePartKeys = useMemo(
@@ -746,7 +747,6 @@ export function HsaExamWorkspace({
     [partsMap]
   );
 
-  // Tự động chọn tổ hợp đã có dữ liệu nếu đề thi chỉ mở 1 trong 2 tổ hợp
   useEffect(() => {
     if (!hasEnglishQuestions && hasHistoryGeoQuestions) {
       setSelectedElective("history_geo");
@@ -755,13 +755,11 @@ export function HsaExamWorkspace({
     }
   }, [hasEnglishQuestions, hasHistoryGeoQuestions]);
 
-  // Cấu trúc 3 phần thi cố định của thí sinh hiển thị ở Màn hình 1: Phần 1 (quant), Phần 2 (qual), Phần 3 (selectedElective)
   const threeExamSlotKeys = useMemo<HsaPartKey[]>(
     () => ["quant", "qual", selectedElective],
     [selectedElective]
   );
 
-  // Danh sách các phần trong cấu trúc 3 phần thi đã mở câu hỏi trong đề này
   const activeRequiredAndSelectedPartKeys = useMemo(
     () =>
       threeExamSlotKeys.filter(
@@ -770,9 +768,6 @@ export function HsaExamWorkspace({
     [threeExamSlotKeys, partsMap]
   );
 
-  // --------------------------------------------------------------------------
-  // 2. KHÔI PHỤC TIẾN TRÌNH TỪ LOCALSTORAGE, REVIEW ATTEMPT & SUPABASE
-  // --------------------------------------------------------------------------
   const reconstructProgressFromAnswersMap = useCallback(
     (
       rawAnswersObj: any,
@@ -788,7 +783,6 @@ export function HsaExamWorkspace({
         return { reconstructedParts, detectedElective };
       }
 
-      // Nếu có __hsa_meta lưu cấu trúc từng phần đã hoàn thành
       const hsaMeta = rawAnswersObj.__hsa_meta;
       if (hsaMeta && typeof hsaMeta === "object") {
         if (hsaMeta.selectedElective === "english" || hsaMeta.selectedElective === "history_geo") {
@@ -834,7 +828,6 @@ export function HsaExamWorkspace({
         }
       }
 
-      // Nếu là attempt thông thường (chỉ có map questionId -> answer)
       HSA_PART_ORDER.forEach((pKey) => {
         const partObj = partsMap[pKey];
         if (!partObj || partObj.questions.length === 0) return;
@@ -884,7 +877,6 @@ export function HsaExamWorkspace({
   useEffect(() => {
     if (availablePartKeys.length === 0) return;
 
-    // Trường hợp mở từ Lịch sử làm bài (reviewAttempt)
     if (initialReviewMode && reviewAttempt) {
       let rawAns = reviewAttempt.answers || {};
       if (typeof rawAns === "string") {
@@ -908,7 +900,6 @@ export function HsaExamWorkspace({
       return;
     }
 
-    // Trường hợp mở đề làm bài bình thường -> Đọc từ localStorage trước, sau đó đồng bộ từ Supabase exam_attempts
     let foundLocal = false;
     if (typeof window !== "undefined") {
       try {
@@ -985,7 +976,6 @@ export function HsaExamWorkspace({
     reconstructProgressFromAnswersMap
   ]);
 
-  // Kiểm tra xem thí sinh đã bắt đầu / hoàn thành 1 trong 2 phần tự chọn chưa (để khóa đổi tổ hợp)
   const lockedElectiveKey = useMemo<"english" | "history_geo" | null>(() => {
     if (partsProgress.english?.completed) return "english";
     if (partsProgress.history_geo?.completed) return "history_geo";
@@ -1030,9 +1020,6 @@ export function HsaExamWorkspace({
     }
   };
 
-  // --------------------------------------------------------------------------
-  // 3. BẮT ĐẦU LÀM 1 PHẦN HOẶC XEM LẠI ĐÁP ÁN PHẦN ĐÓ
-  // --------------------------------------------------------------------------
   const handleStartPartExam = (partKey: HsaPartKey) => {
     const partObj = partsMap[partKey];
     if (!partObj || partObj.questions.length === 0) return;
@@ -1041,7 +1028,6 @@ export function HsaExamWorkspace({
       setSelectedElective(partKey);
     }
 
-    // Khôi phục bản nháp nếu đang làm dở trong localStorage
     let restoredAnswers: Record<string, string> = {};
     let restoredFlags: string[] = [];
     if (typeof window !== "undefined") {
@@ -1066,6 +1052,7 @@ export function HsaExamWorkspace({
     setPartStartTimeMs(Date.now());
     setIsReviewMode(false);
     setReviewFilter("all");
+    setIsMobileMatrixOpen(false);
     setScreen("room");
   };
 
@@ -1077,10 +1064,10 @@ export function HsaExamWorkspace({
     setFlaggedQuestionIds(new Set(savedPart.flaggedIds || []));
     setIsReviewMode(true);
     setReviewFilter("all");
+    setIsMobileMatrixOpen(false);
     setScreen("room");
   };
 
-  // Lưu nháp câu trả lời vào localStorage mỗi khi chọn đáp án ở Màn hình 2
   const saveDraftToLocalStorage = useCallback(
     (partKey: HsaPartKey, nextAnswers: Record<string, string>, nextFlags: Set<string>) => {
       if (typeof window === "undefined" || isReviewMode) return;
@@ -1148,9 +1135,6 @@ export function HsaExamWorkspace({
     });
   };
 
-  // --------------------------------------------------------------------------
-  // 4. ĐỒNG BỘ KẾT QUẢ LÊN BẢNG `exam_attempts` TRÊN SUPABASE (SIÊU GỌN NHẸ)
-  // --------------------------------------------------------------------------
   const syncProgressToSupabase = useCallback(
     async (
       updatedParts: Partial<Record<HsaPartKey, HsaPartProgress>>,
@@ -1177,7 +1161,6 @@ export function HsaExamWorkspace({
         0
       );
 
-      // Chỉ đóng gói answers gọn nhẹ (map questionId -> đáp án + metadata điểm từng phần), tuyệt đối không lưu dữ liệu rác
       const cleanCombinedAnswers: Record<string, any> = {};
       const completedMeta: Record<string, any> = {};
 
@@ -1206,9 +1189,9 @@ export function HsaExamWorkspace({
       const attemptId = `hsa-${studentId}-${quizId}`;
       const nowIso = new Date().toISOString();
 
-      // Lưu vào localStorage `edunexus_attempts` để đồng bộ với Lịch sử làm bài trên Dashboard
       if (typeof window !== "undefined") {
         try {
+          sessionStorage.removeItem("tct_dashboard_cache_v1");
           const rawAtts = localStorage.getItem("edunexus_attempts");
           const parsedAtts = rawAtts ? JSON.parse(rawAtts) : [];
           const localRecord = {
@@ -1303,15 +1286,13 @@ export function HsaExamWorkspace({
     [profile?.id, quizId, quizTitle, studentId, studentName]
   );
 
-  // --------------------------------------------------------------------------
-  // 5. CHẤM ĐIỂM TRỰC TIẾP PHẦN VỪA THI (THANG 50 ĐIỂM) & QUAY VỀ MÀN HÌNH 1
-  // --------------------------------------------------------------------------
   const handleSubmitCurrentPart = useCallback(async () => {
     const partObj = partsMap[activePartKey];
     if (!partObj || isReviewMode || isSubmittingPart) return;
 
     setIsSubmittingPart(true);
     setConfirmSubmitModal(false);
+    setIsMobileMatrixOpen(false);
 
     const totalCount = partObj.questions.length;
     let correctCount = 0;
@@ -1327,7 +1308,6 @@ export function HsaExamWorkspace({
       }
     });
 
-    // Chấm điểm trực tiếp theo thang 50 điểm, làm tròn 1 chữ số thập phân (50 câu -> 1 câu = 1 điểm)
     const rawScore = totalCount > 0 ? (correctCount / totalCount) * 50 : 0;
     const partScore = Number(rawScore.toFixed(1));
     const timeSpentSeconds = Math.max(1, Math.round((Date.now() - partStartTimeMs) / 1000));
@@ -1351,7 +1331,6 @@ export function HsaExamWorkspace({
 
     setPartsProgress(nextPartsProgress);
 
-    // Lưu vào localStorage (`tct_hsa_progress_${profile.id}_${quizId}`)
     if (typeof window !== "undefined") {
       try {
         const raw = localStorage.getItem(progressStorageKey);
@@ -1380,7 +1359,6 @@ export function HsaExamWorkspace({
     await syncProgressToSupabase(nextPartsProgress, selectedElective);
 
     setIsSubmittingPart(false);
-    // Chuyển về Màn hình 1 (Bảng điều khiển Ca thi)
     setScreen("hub");
   }, [
     partsMap,
@@ -1398,7 +1376,6 @@ export function HsaExamWorkspace({
     syncProgressToSupabase
   ]);
 
-  // Đồng hồ đếm ngược ở Màn hình 2 (Tự động nộp phần hiện tại khi hết giờ)
   useEffect(() => {
     if (screen !== "room" || isReviewMode) return;
 
@@ -1416,7 +1393,6 @@ export function HsaExamWorkspace({
     return () => clearInterval(interval);
   }, [screen, isReviewMode, handleSubmitCurrentPart]);
 
-  // Xóa toàn bộ tiến trình để làm lại từ đầu
   const handleResetAllProgress = async () => {
     setConfirmResetModal(false);
     setPartsProgress({});
@@ -1431,9 +1407,6 @@ export function HsaExamWorkspace({
     setScreen("hub");
   };
 
-  // --------------------------------------------------------------------------
-  // 6. TÍNH TOÁN DỮ LIỆU THỐNG KÊ CHO MÀN HÌNH 1, MÀN HÌNH 2 & MÀN HÌNH 3
-  // --------------------------------------------------------------------------
   const activePart = useMemo(() => partsMap[activePartKey] || null, [partsMap, activePartKey]);
 
   const completedPartsList = useMemo(
@@ -1446,7 +1419,6 @@ export function HsaExamWorkspace({
 
   const hasCompletedAtLeastOnePart = completedPartsList.length > 0;
 
-  // Tổng hợp điểm trên Phiếu Báo Điểm HSA (Màn hình 3)
   const reportSummary = useMemo(() => {
     const activeElectiveKey: "english" | "history_geo" = partsProgress.history_geo?.completed
       ? "history_geo"
@@ -1494,7 +1466,6 @@ export function HsaExamWorkspace({
     };
   }, [partsProgress, selectedElective]);
 
-  // Gom nhóm câu hỏi ở Màn hình 2: Các câu hỏi liên tiếp có cùng group_id được gom chung vào 1 khối thẻ
   const groupedBlocksForActivePart = useMemo(() => {
     if (!activePart) return [];
 
@@ -1562,7 +1533,7 @@ export function HsaExamWorkspace({
   const formattedCountdown = useMemo(() => {
     const mins = Math.floor(remainingSeconds / 60);
     const secs = remainingSeconds % 60;
-    return `${String(mins).padStart(2, "0")} : ${String(secs).padStart(2, "0")}`;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }, [remainingSeconds]);
 
   const scrollToQuestion = (questionId: string) => {
@@ -1572,9 +1543,6 @@ export function HsaExamWorkspace({
     }
   };
 
-  // ==========================================================================
-  // MÀN HÌNH LOADING KHI ĐANG FETCH DỮ LIỆU ĐỀ THI TỪ SUPABASE
-  // ==========================================================================
   if (isFetchingExam) {
     return (
       <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col items-center justify-center p-6 font-sans antialiased">
@@ -1592,12 +1560,11 @@ export function HsaExamWorkspace({
   }
 
   // ==========================================================================
-  // MÀN HÌNH 1 — BẢNG ĐIỀU KHIỂN CA THI & LƯU TIẾN TRÌNH THEO PHẦN (HSA EXAM HUB)
+  // MÀN HÌNH 1 — BẢNG ĐIỀU KHIỂN CA THI (HSA EXAM HUB)
   // ==========================================================================
   if (screen === "hub") {
     return (
       <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-hidden font-sans antialiased text-slate-800">
-        {/* HEADER CHUẨN KHẢO THÍ */}
         <header className="h-16 px-4 sm:px-8 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
           <button
             type="button"
@@ -1630,10 +1597,8 @@ export function HsaExamWorkspace({
           </div>
         </header>
 
-        {/* NỘI DUNG BẢNG ĐIỀU KHIỂN CA THI */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
           <div className="max-w-4xl mx-auto space-y-6">
-            {/* Tiêu đề đề thi & thông tin tổng quan */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#F8FAFC] border border-slate-200 text-[11px] font-bold text-slate-700 uppercase">
@@ -1660,7 +1625,6 @@ export function HsaExamWorkspace({
               </div>
             </div>
 
-            {/* CHỌN TỔ HỢP PHẦN 3 (TỰ CHỌN): LUÔN HIỂN THỊ 2 THẺ TỔ HỢP TRỰC QUAN */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
@@ -1774,7 +1738,6 @@ export function HsaExamWorkspace({
               </div>
             </div>
 
-            {/* CẤU TRÚC 3 PHẦN THI CỦA THÍ SINH */}
             <div className="space-y-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 px-1">
                 Cấu trúc 3 phần thi của thí sinh
@@ -1908,7 +1871,6 @@ export function HsaExamWorkspace({
               </div>
             </div>
 
-            {/* CỤM NÚT HÀNH ĐỘNG DƯỚI CÙNG */}
             <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-3">
               <button
                 type="button"
@@ -1926,14 +1888,13 @@ export function HsaExamWorkspace({
                   className="w-full sm:w-auto px-6 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer"
                 >
                   <FileCheck2 className="w-4 h-4" />
-                  <span>Kết thúc bài thi & Xuất Phiếu Điểm HSA</span>
+                  <span>Kết thúc bài thi &amp; Xuất Phiếu Điểm HSA</span>
                 </button>
               )}
             </div>
           </div>
         </main>
 
-        {/* MODAL XÁC NHẬN LÀM LẠI TOÀN BỘ TỪ ĐẦU */}
         {confirmResetModal && (
           <div className="fixed inset-0 z-[300] bg-slate-900/50 flex items-center justify-center p-4">
             <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4">
@@ -1967,7 +1928,7 @@ export function HsaExamWorkspace({
   }
 
   // ==========================================================================
-  // MÀN HÌNH 3 — PHIẾU BÁO ĐIỂM HSA TINH GỌN (HSA SCORE REPORT)
+  // MÀN HÌNH 3 — PHIẾU BÁO ĐIỂM HSA (HSA SCORE REPORT)
   // ==========================================================================
   if (screen === "report") {
     const quantProg = partsProgress.quant;
@@ -1979,7 +1940,6 @@ export function HsaExamWorkspace({
     return (
       <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-y-auto font-sans antialiased text-slate-800 p-4 sm:p-6 md:p-10">
         <div className="max-w-4xl w-full mx-auto my-auto bg-white border border-slate-200 rounded-xl overflow-hidden">
-          {/* DẢI TIÊU ĐỀ XANH LÁ ĐẬM TRÊN CÙNG */}
           <div className="bg-emerald-800 text-white px-6 py-5 border-b border-emerald-900 text-center space-y-1">
             <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-200">
               ĐẠI HỌC QUỐC GIA HÀ NỘI • HỆ THỐNG KHẢO THÍ TCT STUDY
@@ -1993,9 +1953,7 @@ export function HsaExamWorkspace({
           </div>
 
           <div className="p-6 sm:p-8 space-y-6">
-            {/* HÀNG 4 Ô KHỐI ĐIỂM CHUẨN HSA */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Ô 1: Khối đỏ nổi bật bên trái - Tổng điểm */}
               <div className="bg-rose-700 text-white rounded-xl p-5 flex flex-col justify-between border border-rose-800">
                 <div className="text-xs font-bold uppercase tracking-wider text-rose-100">
                   Tổng điểm
@@ -2013,10 +1971,9 @@ export function HsaExamWorkspace({
                 </div>
               </div>
 
-              {/* Ô 2: Khối xanh lá - Toán học & Xử lý số liệu */}
               <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5 flex flex-col justify-between">
                 <div className="text-xs font-bold uppercase tracking-wider text-emerald-900">
-                  Toán học & Xử lý số liệu
+                  Toán học &amp; Xử lý số liệu
                 </div>
                 <div className="my-3">
                   {quantProg?.completed ? (
@@ -2037,7 +1994,6 @@ export function HsaExamWorkspace({
                 </div>
               </div>
 
-              {/* Ô 3: Khối xanh lá - Ngôn ngữ - Văn học */}
               <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5 flex flex-col justify-between">
                 <div className="text-xs font-bold uppercase tracking-wider text-emerald-900">
                   Ngôn ngữ - Văn học
@@ -2061,7 +2017,6 @@ export function HsaExamWorkspace({
                 </div>
               </div>
 
-              {/* Ô 4: Khối xám/xanh - Tên phần tự chọn đã thi */}
               <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-5 flex flex-col justify-between">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-800">
                   {electiveCfg.shortTitle}
@@ -2086,7 +2041,6 @@ export function HsaExamWorkspace({
               </div>
             </div>
 
-            {/* DÒNG THỐNG KÊ TỶ LỆ TRẢ LỜI ĐÚNG (%) & XẾP LOẠI */}
             <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs sm:text-sm">
               <div className="flex items-center gap-2">
                 <Award className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -2105,7 +2059,6 @@ export function HsaExamWorkspace({
               </div>
             </div>
 
-            {/* CỤM NÚT CHỨC NĂNG ĐẦY ĐỦ */}
             <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2.5">
                 <button
@@ -2126,7 +2079,7 @@ export function HsaExamWorkspace({
                   className="px-5 py-2.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold flex items-center gap-2 transition cursor-pointer"
                 >
                   <Eye className="w-4 h-4" />
-                  <span>Xem lại đáp án & Lời giải chi tiết</span>
+                  <span>Xem lại đáp án &amp; Lời giải chi tiết</span>
                 </button>
 
                 <button
@@ -2160,7 +2113,6 @@ export function HsaExamWorkspace({
           </div>
         </div>
 
-        {/* MODAL XÁC NHẬN LÀM LẠI BÀI THI */}
         {confirmResetModal && (
           <div className="fixed inset-0 z-[300] bg-slate-900/50 flex items-center justify-center p-4">
             <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4">
@@ -2192,44 +2144,79 @@ export function HsaExamWorkspace({
   }
 
   // ==========================================================================
-  // MÀN HÌNH 2 — PHÒNG THI CHUẨN ĐHQGHN (CỘT TRÁI RỘNG THOÁNG + CỘT PHẢI 225PX)
+  // MÀN HÌNH 2 — PHÒNG THI CHUẨN ĐHQGHN (TỐI ƯU 100% KHÔNG GIAN MOBILE)
   // ==========================================================================
   return (
     <div className="fixed inset-0 z-[200] bg-[#F8FAFC] flex flex-col overflow-hidden font-sans antialiased text-slate-900">
-      {/* HEADER TỐI GIẢN CHUẨN PHẦN MỀM THI MÁY TÍNH ĐHQGHN */}
-      <header className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
+      {/* HEADER PHÒNG THI HSA */}
+      <header className="h-14 px-3 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setScreen(isReviewMode && initialReviewMode ? "report" : "hub")}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+            className="px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-[#F8FAFC] text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-slate-600" />
-            <span>Về bảng điều khiển ca thi</span>
+            <span className="hidden sm:inline">Về bảng điều khiển ca thi</span>
+            <span className="sm:hidden">Quay lại</span>
           </button>
 
           {isReviewMode && (
             <button
               type="button"
               onClick={() => setScreen("report")}
-              className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 text-xs font-bold transition cursor-pointer"
+              className="hidden sm:inline-flex px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 text-xs font-bold transition cursor-pointer"
             >
               Xem Phiếu Điểm HSA
             </button>
           )}
         </div>
 
-        {/* TÊN PHẦN THI IN HOA CĂN GIỮA */}
-        <div className="text-center px-2">
-          <h1 className="text-xs sm:text-sm md:text-base font-extrabold text-slate-900 uppercase tracking-wider">
+        {/* TÊN PHẦN THI */}
+        <div className="text-center px-1 min-w-0 flex-1">
+          <h1 className="text-[11px] sm:text-sm md:text-base font-extrabold text-slate-900 uppercase tracking-wider truncate">
             {activePart?.upperTitle || HSA_PARTS_CONFIG[activePartKey].upperTitle}
           </h1>
         </div>
 
-        {/* Chuyển nhanh giữa các phần khi ở chế độ Xem lại đáp án, hoặc hiển thị SBD */}
-        <div className="flex items-center gap-2">
+        {/* GÓC PHẢI MOBILE: ĐỒNG HỒ ĐẾM NGƯỢC + NÚT NỘP PHẦN */}
+        <div className="flex lg:hidden items-center gap-1.5 shrink-0">
+          {!isReviewMode ? (
+            <>
+              <div
+                className={`px-2 py-1 rounded-lg border text-xs font-mono font-bold flex items-center gap-1 ${
+                  remainingSeconds <= 300
+                    ? "bg-rose-50 border-rose-200 text-rose-600"
+                    : "bg-[#F8FAFC] border-slate-200 text-slate-900"
+                }`}
+              >
+                <Clock className="w-3 h-3" />
+                <span>{formattedCountdown}</span>
+              </div>
+              <button
+                type="button"
+                disabled={isSubmittingPart}
+                onClick={() => setConfirmSubmitModal(true)}
+                className="px-2.5 py-1.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+              >
+                Nộp phần
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setScreen("report")}
+              className="px-2.5 py-1.5 rounded-lg bg-[#1D4ED8] text-white text-xs font-bold cursor-pointer"
+            >
+              Phiếu điểm
+            </button>
+          )}
+        </div>
+
+        {/* GÓC PHẢI DESKTOP */}
+        <div className="hidden lg:flex items-center gap-2 shrink-0">
           {isReviewMode && availablePartKeys.length > 1 ? (
-            <div className="hidden lg:flex items-center gap-1 bg-[#F8FAFC] p-1 rounded-lg border border-slate-200">
+            <div className="flex items-center gap-1 bg-[#F8FAFC] p-1 rounded-lg border border-slate-200">
               {availablePartKeys.map((pKey) => {
                 const isCurr = activePartKey === pKey;
                 const pSaved = partsProgress[pKey];
@@ -2254,7 +2241,7 @@ export function HsaExamWorkspace({
               })}
             </div>
           ) : (
-            <div className="hidden sm:flex items-center gap-2 text-xs text-slate-600 bg-[#F8FAFC] px-3 py-1 rounded-lg border border-slate-200">
+            <div className="flex items-center gap-2 text-xs text-slate-600 bg-[#F8FAFC] px-3 py-1 rounded-lg border border-slate-200">
               <span>{studentName}</span>
               <span className="text-slate-300">•</span>
               <strong className="font-mono text-[#1D4ED8]">{studentSbd}</strong>
@@ -2263,11 +2250,9 @@ export function HsaExamWorkspace({
         </div>
       </header>
 
-      {/* BODY 2 CỘT: CỘT TRÁI RỘNG THOÁNG (flex-1 min-w-0) + CỘT PHẢI NHỎ GỌN 225PX */}
+      {/* BODY: 100% KHÔNG GIAN ĐỌC ĐỀ TRÊN MOBILE + CỘT PHẢI 225PX CHỈ HIỆN TRÊN DESKTOP */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-        {/* CỘT TRÁI (flex-1 min-w-0 - VÙNG ĐỀ BÀI & CÂU HỎI RỘNG RÃI ~84% MÀN HÌNH) */}
         <div className="flex-1 min-w-0 min-h-0 overflow-y-auto p-3 sm:p-5 space-y-4">
-          {/* Thanh bộ lọc nhanh khi ở chế độ Xem lại đáp án (isReviewMode) */}
           {isReviewMode && (
             <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 flex-wrap">
@@ -2306,7 +2291,6 @@ export function HsaExamWorkspace({
             </div>
           )}
 
-          {/* Danh sách các khối câu hỏi (Hỗ trợ cả Câu hỏi chùm và Câu hỏi đơn lẻ) */}
           {groupedBlocksForActivePart.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-xs font-semibold text-slate-500">
               Không có câu hỏi nào khớp với bộ lọc hiện tại.
@@ -2324,7 +2308,6 @@ export function HsaExamWorkspace({
                   key={block.blockKey}
                   className="bg-white border border-slate-200 rounded-lg overflow-hidden"
                 >
-                  {/* KHUNG DỮ KIỆN / NGỮ LIỆU CHUNG ĐẶT Ở ĐẦU KHỐI (NẾU LÀ CÂU HỎI CHÙM) */}
                   {hasGroupHeader && (
                     <div className="bg-[#F8FAFC] border-b border-slate-200 p-4 sm:p-5 space-y-2.5">
                       <div className="flex items-center justify-between">
@@ -2375,7 +2358,6 @@ export function HsaExamWorkspace({
                     </div>
                   )}
 
-                  {/* DANH SÁCH CÂU HỎI TRONG KHỐI */}
                   <div className="divide-y divide-slate-200">
                     {block.questions.map((q) => {
                       const userAns = currentAnswers[q.id] || "";
@@ -2392,7 +2374,6 @@ export function HsaExamWorkspace({
                           }}
                           className="p-4 sm:p-5 space-y-3"
                         >
-                          {/* NỘI DUNG CÂU HỎI + ĐÁP ÁN: Chia 2 cột (8/4) nếu có hình riêng, 1 cột nếu không có hình */}
                           <div
                             className={
                               hasQuestionImage
@@ -2405,7 +2386,6 @@ export function HsaExamWorkspace({
                                 hasQuestionImage ? "md:col-span-8 space-y-3" : "space-y-3"
                               }
                             >
-                              {/* DÒNG MỞ ĐẦU: Nhãn Câu X nền xanh đậm chữ trắng nằm ngang hàng trực tiếp với nội dung câu hỏi + nút Gắn cờ góc phải */}
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex-1 min-w-0 font-sans antialiased text-[15px] leading-[1.7] text-slate-900">
                                   <span className="inline-block bg-emerald-800 text-white text-xs font-bold px-2 py-0.5 rounded mr-2.5 align-baseline select-none">
@@ -2457,7 +2437,6 @@ export function HsaExamWorkspace({
                                 </button>
                               </div>
 
-                              {/* 1. TRẮC NGHIỆM 4 PHƯƠNG ÁN A, B, C, D XẾP 1 CỘT DỌC DUY NHẤT CHUẨN PHÒNG THI ĐHQGHN */}
                               {q.type === "multiple_choice" && (
                                 <div className="flex flex-col space-y-2 pt-1 pl-1 sm:pl-2">
                                   {q.options.map((opt) => {
@@ -2496,14 +2475,12 @@ export function HsaExamWorkspace({
                                           isReviewMode ? "cursor-default" : "cursor-pointer"
                                         }`}
                                       >
-                                        {/* Ký hiệu (A), (B), (C), (D) */}
                                         <span
                                           className={`text-[14px] leading-[1.7] w-7 shrink-0 select-none ${labelKeyStyle}`}
                                         >
                                           ({opt.key})
                                         </span>
 
-                                        {/* Nút tròn Radio ○ ở giữa */}
                                         <span className="mt-[5px] shrink-0 flex items-center justify-center">
                                           {isReviewMode ? (
                                             isOptCorrect ? (
@@ -2532,7 +2509,6 @@ export function HsaExamWorkspace({
                                           )}
                                         </span>
 
-                                        {/* Nội dung phương án */}
                                         <div className={`flex-1 min-w-0 ${optionTextStyle}`}>
                                           <MathAndImageRenderer
                                             content={opt.textHtml}
@@ -2547,7 +2523,6 @@ export function HsaExamWorkspace({
                                 </div>
                               )}
 
-                              {/* 2. CÂU HỎI ĐIỀN KHUYẾT / TRẢ LỜI NGẮN */}
                               {q.type === "short_answer" && (
                                 <div className="pt-1 pl-1 sm:pl-2 space-y-2">
                                   <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
@@ -2556,10 +2531,11 @@ export function HsaExamWorkspace({
                                     </label>
                                     <input
                                       type="text"
+                                      inputMode="decimal"
                                       disabled={isReviewMode}
                                       value={userAns}
                                       onChange={(e) => handleSelectAnswer(q.id, e.target.value)}
-                                      placeholder="Nhập kết quả (VD: 12.5 hoặc -3)..."
+                                      placeholder="Nhập kết quả (VD: 12,5 hoặc -3)..."
                                       className={`w-full max-w-xs px-3 py-1.5 rounded border text-[15px] font-semibold outline-none transition ${
                                         isReviewMode
                                           ? isCorrect
@@ -2578,7 +2554,6 @@ export function HsaExamWorkspace({
                                 </div>
                               )}
 
-                              {/* 3. CÂU HỎI ĐÚNG / SAI (NẾU CÓ TRONG ĐỀ) */}
                               {q.type === "true_false" && (
                                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                                   <table className="w-full text-left text-xs">
@@ -2647,7 +2622,6 @@ export function HsaExamWorkspace({
                               )}
                             </div>
 
-                            {/* CỘT HÌNH ẢNH BÊN PHẢI (4 CỘT) KHI CÂU HỎI CÓ HÌNH */}
                             {hasQuestionImage && (
                               <div className="md:col-span-4 flex flex-col items-center justify-center gap-2 bg-[#F8FAFC] p-3 rounded-lg border border-slate-200">
                                 {q.images.map((imgSrc, imgIdx) => (
@@ -2671,7 +2645,6 @@ export function HsaExamWorkspace({
                             )}
                           </div>
 
-                          {/* LỜI GIẢI CHI TIẾT DƯỚI MỖI CÂU KHI Ở CHẾ ĐỘ XEM LẠI ĐÁP ÁN */}
                           {isReviewMode && (
                             <div className="mt-2.5 p-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200 space-y-1.5">
                               <div className="flex items-center justify-between text-xs font-bold text-slate-800">
@@ -2714,9 +2687,8 @@ export function HsaExamWorkspace({
           )}
         </div>
 
-        {/* CỘT PHẢI THU GỌN 225PX (w-full lg:w-[225px] shrink-0) */}
-        <aside className="w-full lg:w-[225px] shrink-0 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col max-h-[38vh] lg:max-h-none">
-          {/* ĐỒNG HỒ ĐẾM NGƯỢC GỌN GÀNG & NÚT NỘP PHẦN THI */}
+        {/* CỘT PHẢI DESKTOP (CHỈ HIỆN TRÊN DESKTOP `hidden lg:flex lg:w-[225px] shrink-0`) */}
+        <aside className="hidden lg:flex lg:w-[225px] shrink-0 bg-white border-l border-slate-200 flex-col">
           <div className="p-3 border-b border-slate-200 space-y-2.5">
             {!isReviewMode ? (
               <>
@@ -2782,7 +2754,6 @@ export function HsaExamWorkspace({
             )}
           </div>
 
-          {/* MA TRẬN DANH SÁCH CÂU HỎI CHIA 5 CỘT Ô VUÔNG NHỎ GỌN (grid-cols-5 gap-1.5, h-7 text-[11px]) */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-700">
@@ -2833,7 +2804,6 @@ export function HsaExamWorkspace({
               })}
             </div>
 
-            {/* Chú thích màu sắc ma trận gọn gàng */}
             <div className="pt-2.5 border-t border-slate-200 space-y-1 text-[10px] text-slate-600">
               {!isReviewMode ? (
                 <>
@@ -2868,6 +2838,119 @@ export function HsaExamWorkspace({
           </div>
         </aside>
       </div>
+
+      {/* THANH ĐIỀU HƯỚNG ĐÁY CỐ ĐỊNH TRÊN MOBILE (`lg:hidden`) */}
+      <div className="lg:hidden shrink-0 bg-white border-t border-slate-200 px-3 py-2 flex items-center justify-between gap-2 z-30">
+        <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+          Đã chọn{" "}
+          <strong className="text-[#1D4ED8]">
+            {answeredCountInActivePart}/{activePart?.questions.length || 0}
+          </strong>{" "}
+          câu
+        </span>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsMobileMatrixOpen(true)}
+            className="px-3 py-2 rounded-lg border border-slate-200 bg-[#F8FAFC] hover:bg-slate-100 text-slate-800 text-xs font-bold cursor-pointer whitespace-nowrap"
+          >
+            Bảng {activePart?.questions.length || 50} câu ▴
+          </button>
+
+          {!isReviewMode ? (
+            <button
+              type="button"
+              disabled={isSubmittingPart}
+              onClick={() => setConfirmSubmitModal(true)}
+              className="px-3.5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold cursor-pointer disabled:opacity-50 whitespace-nowrap"
+            >
+              Nộp phần thi
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setScreen("report")}
+              className="px-3.5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
+            >
+              Phiếu điểm
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* BOTTOM SHEET MA TRẬN CÂU HỎI MOBILE */}
+      {isMobileMatrixOpen && (
+        <div
+          onClick={() => setIsMobileMatrixOpen(false)}
+          className="lg:hidden fixed inset-0 z-[320] bg-slate-900/55 backdrop-blur-xs flex flex-col justify-end"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-t-2xl max-h-[78vh] flex flex-col p-4 border-t border-slate-200 space-y-3"
+          >
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Ma trận câu hỏi ({activePart?.questions.length || 0} câu)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Đã chọn {answeredCountInActivePart}/{activePart?.questions.length || 0} câu • Bấm
+                  số câu để nhảy nhanh
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileMatrixOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto max-h-[50vh] pr-1">
+              <div className="grid grid-cols-5 gap-1.5">
+                {(activePart?.questions || []).map((q) => {
+                  const userAns = currentAnswers[q.id];
+                  const answered = isQuestionAnswered(q, userAns);
+                  const flagged = flaggedQuestionIds.has(q.id);
+                  const correct = checkIsQuestionCorrect(q, userAns);
+
+                  let btnClass = "bg-white border-slate-200 text-slate-700";
+                  if (isReviewMode) {
+                    if (!answered) {
+                      btnClass = "bg-slate-100 border-slate-300 text-slate-500";
+                    } else if (correct) {
+                      btnClass = "bg-emerald-600 border-emerald-600 text-white font-bold";
+                    } else {
+                      btnClass = "bg-rose-600 border-rose-600 text-white font-bold";
+                    }
+                  } else if (answered) {
+                    btnClass = "bg-[#1D4ED8] border-[#1D4ED8] text-white font-bold";
+                  }
+
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => {
+                        scrollToQuestion(q.id);
+                        setIsMobileMatrixOpen(false);
+                      }}
+                      className={`relative h-9 rounded-lg border text-xs font-semibold flex items-center justify-center transition cursor-pointer select-none ${btnClass}`}
+                    >
+                      <span>{q.localIndex}</span>
+                      {flagged && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 border border-white" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL XÁC NHẬN NỘP PHẦN THI HIỆN TẠI */}
       {confirmSubmitModal && (
