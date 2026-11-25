@@ -40,7 +40,7 @@ import {
 const SafePaperScanModal = PaperScanModal as React.ComponentType<any>;
 
 const DASHBOARD_CACHE_KEY = "tct_dashboard_cache_v1";
-const DASHBOARD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 phút
+const DASHBOARD_CACHE_TTL_MS = 30 * 1000; // 30 giây + đối soát updated_at của main_curriculum
 
 export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong" | "hsa";
 
@@ -875,8 +875,9 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
   }, []);
 
   /**
-   * TẢI DỮ LIỆU DASHBOARD VỚI LỚP ĐỆM sessionStorage 5 PHÚT (`tct_dashboard_cache_v1`)
-   * - Merge đầy đủ 5 mảng tài liệu + file Drive BTVN từ `curriculum_data` (`main_curriculum`).
+   * TẢI DỮ LIỆU DASHBOARD VỚI LỚP ĐỆM 30 GIÂY + ĐỐI SOÁT `updated_at` CỦA `curriculum_data`
+   * - Tự động bỏ qua cache ngay khi Admin vừa xóa bài hoặc đổi phân môn trên Supabase.
+   * - Ưu tiên `category` mới nhất từ `curriculum_data` / `dbLessons`, không để `localStorage` cũ ghi đè.
    */
   const fetchAuthAndData = useCallback(
     async (forceRefresh: boolean = false) => {
@@ -900,7 +901,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         setTotalStudySeconds(studySecs);
       }
 
-      // Kiểm tra lớp đệm 5 phút trong sessionStorage
+      // Kiểm tra lớp đệm 30 giây + đối soát nhanh updated_at của curriculum_data trên Supabase
       if (!forceRefresh && typeof window !== "undefined") {
         try {
           const rawCache = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
@@ -917,17 +918,36 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
               parsedCache.chapters.length > 0 &&
               Array.isArray(parsedCache.practiceExams)
             ) {
-              setChapters(parsedCache.chapters);
-              setPracticeExams(parsedCache.practiceExams);
-              if (Array.isArray(parsedCache.sysNotifications)) {
-                setSysNotifications(parsedCache.sysNotifications);
+              let isCloudCurriculumNewer = false;
+              try {
+                const { data: metaRow } = await supabase
+                  .from("curriculum_data")
+                  .select("updated_at")
+                  .eq("id", "main_curriculum")
+                  .maybeSingle();
+                if (metaRow?.updated_at) {
+                  const cloudTs = new Date(metaRow.updated_at).getTime();
+                  if (!isNaN(cloudTs) && cloudTs > parsedCache.timestamp) {
+                    isCloudCurriculumNewer = true;
+                  }
+                }
+              } catch {}
+
+              if (!isCloudCurriculumNewer) {
+                setChapters(parsedCache.chapters);
+                setPracticeExams(parsedCache.practiceExams);
+                if (Array.isArray(parsedCache.sysNotifications)) {
+                  setSysNotifications(parsedCache.sysNotifications);
+                }
+                const localAtts = readLocalAttempts();
+                if (localAtts.length > 0) {
+                  setAllAttempts(localAtts);
+                }
+                setIsLoadingExams(false);
+                return;
+              } else {
+                sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
               }
-              const localAtts = readLocalAttempts();
-              if (localAtts.length > 0) {
-                setAllAttempts(localAtts);
-              }
-              setIsLoadingExams(false);
-              return;
             }
           }
         } catch {}
@@ -1006,7 +1026,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
             .order("created_at", { ascending: false }),
           supabase
             .from("curriculum_data")
-            .select("chapters")
+            .select("chapters, updated_at")
             .eq("id", "main_curriculum")
             .maybeSingle(),
           supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
@@ -1060,7 +1080,6 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
         const cloudChapCatMap = new Map<string, string>();
         const cloudLesMap = new Map<string, any>();
-        const localCatMap = new Map<string, string>();
         const localLesMap = new Map<string, any>();
 
         curriculumChapters.forEach((c: any) => {
@@ -1078,16 +1097,8 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
               const parsedSaved = JSON.parse(rawSaved);
               if (Array.isArray(parsedSaved)) {
                 parsedSaved.forEach((c: any) => {
-                  if (c?.id && (c?.category || c?.subject_category)) {
-                    localCatMap.set(String(c.id), c.category || c.subject_category);
-                  }
                   (c?.lessons || []).forEach((l: any) => {
-                    if (l?.id) {
-                      localLesMap.set(String(l.id), l);
-                      if (l?.category || l?.subject_category) {
-                        localCatMap.set(String(l.id), l.category || l.subject_category);
-                      }
-                    }
+                    if (l?.id) localLesMap.set(String(l.id), l);
                   });
                 });
               }
@@ -1097,11 +1108,11 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
 
         if (dbChapters && Array.isArray(dbChapters) && dbChapters.length > 0) {
           const formattedChapters = dbChapters.map((chap: any) => {
+            // Ưu tiên phân môn mới nhất từ curriculum_data hoặc dbChapters (không để localStorage cũ ghi đè)
             const rawChapCat =
-              chap?.category ||
-              chap?.subject_category ||
               cloudChapCatMap.get(String(chap.id)) ||
-              localCatMap.get(String(chap.id));
+              chap?.category ||
+              chap?.subject_category;
             const chapCat = normalizeSubjectCategory(rawChapCat, chap?.title);
 
             return {
@@ -1113,12 +1124,12 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
                 .map((les: any) => {
                   const cloudLes = cloudLesMap.get(String(les.id));
                   const localLes = localLesMap.get(String(les.id));
+                  // Ưu tiên tuyệt đối category mới nhất từ curriculumChapters hoặc dbLessons
                   const rawLesCat =
-                    les?.category ||
-                    les?.subject_category ||
                     cloudLes?.category ||
                     cloudLes?.subject_category ||
-                    localCatMap.get(String(les.id)) ||
+                    les?.category ||
+                    les?.subject_category ||
                     rawChapCat;
                   const lesCat = normalizeSubjectCategory(rawLesCat, les?.title || chap?.title);
                   return {
@@ -1265,7 +1276,7 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
         }
       } catch {}
 
-      // Lưu lớp đệm 5 phút vào sessionStorage (`tct_dashboard_cache_v1`)
+      // Lưu lớp đệm 30 giây vào sessionStorage (`tct_dashboard_cache_v1`)
       if (typeof window !== "undefined" && latestChaptersForCache && latestExamsForCache) {
         try {
           sessionStorage.setItem(
@@ -1361,49 +1372,54 @@ function StudentOfflineDashboard({ initialProfile, onLogout }: StudentOfflineDas
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("storage", handleStorageUpdated);
 
-    const refreshCurrentSelectedLesson = () => {
-      setSelectedLesson((prev: any) => {
-        if (!prev?.id) return prev;
-        const targetId = prev.id;
-        (async () => {
-          try {
-            const refreshed = await fetchFullLessonMerged(prev);
-            setSelectedLesson((cur: any) => {
-              if (!cur || cur.id !== targetId) return cur;
-              try {
-                sessionStorage.setItem("tct_active_lesson", JSON.stringify(refreshed));
-              } catch {}
-              return refreshed;
-            });
-          } catch {}
-        })();
-        return prev;
-      });
+    const invalidateAndRefresh = (alsoRefreshLesson: boolean = false) => {
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+        } catch {}
+      }
+      fetchAuthAndData(true);
+      if (alsoRefreshLesson) {
+        setSelectedLesson((prev: any) => {
+          if (!prev?.id) return prev;
+          const targetId = prev.id;
+          (async () => {
+            try {
+              const refreshed = await fetchFullLessonMerged(prev);
+              setSelectedLesson((cur: any) => {
+                if (!cur || cur.id !== targetId) return cur;
+                try {
+                  sessionStorage.setItem("tct_active_lesson", JSON.stringify(refreshed));
+                } catch {}
+                return refreshed;
+              });
+            } catch {}
+          })();
+          return prev;
+        });
+      }
     };
 
     const channelCourses = supabase
       .channel("student-offline-global-sync")
       .on("postgres_changes", { event: "*", schema: "public", table: "lessons" }, () => {
-        fetchAuthAndData(true);
-        refreshCurrentSelectedLesson();
+        invalidateAndRefresh(true);
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "chapters" }, () =>
-        fetchAuthAndData(true)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "chapters" }, () => {
+        invalidateAndRefresh(false);
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "curriculum_data" }, () => {
-        fetchAuthAndData(true);
-        refreshCurrentSelectedLesson();
+        invalidateAndRefresh(true);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "homeworks" }, () => {
-        fetchAuthAndData(true);
-        refreshCurrentSelectedLesson();
+        invalidateAndRefresh(true);
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () =>
-        fetchAuthAndData(true)
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "system_notifications" }, () =>
-        fetchAuthAndData(true)
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "practice_exams" }, () => {
+        invalidateAndRefresh(false);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "system_notifications" }, () => {
+        invalidateAndRefresh(false);
+      })
       .subscribe();
 
     const channelSecurity = supabase
