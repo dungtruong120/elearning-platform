@@ -370,12 +370,17 @@ function readSavedDraftFromStorage(studentId: string, quizId: string): {
   }
 }
 
-function stripRawTagsForSnippet(raw: string): string {
-  return String(raw || "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\[(?:img|image|img_url):[^\]]+\]/gi, "[Hình vẽ]")
-    .replace(/\s+/g, " ")
-    .trim();
+/**
+ * NHẬN DIỆN SỐ CÂU HỌC SINH NHẮC TỚI TRONG TIN NHẮN (VD: "câu 5 giải sao ạ", "hướng dẫn câu 12")
+ */
+function detectMentionedQuestionIndex(messageText: string, totalQuestions: number): number | null {
+  if (!messageText || totalQuestions <= 0) return null;
+  const norm = String(messageText).normalize("NFC");
+  const match = norm.match(/(?:câu|cau)\s*(?:số|so)?\s*(\d+)/i);
+  if (!match || !match[1]) return null;
+  const qNum = parseInt(match[1], 10);
+  if (isNaN(qNum) || qNum < 1 || qNum > totalQuestions) return null;
+  return qNum - 1;
 }
 
 export function ExamRoomView({
@@ -395,9 +400,8 @@ export function ExamRoomView({
   const [isLoadingQuestions, setIsLoadingQuestions] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
-  const [currentVisibleQuestionIdx, setCurrentVisibleQuestionIdx] = useState<number>(0);
 
-  // STATE GIA SƯ AI TỐI GIẢN (1 ĐIỂM MỞ DUY NHẤT)
+  // STATE GIA SƯ AI TỐI GIẢN (1 ĐIỂM MỞ DUY NHẤT — CHỈ MỞ KHI LÀM BTVN HOẶC ĐÃ NỘP / XEM LẠI)
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState<boolean>(false);
   const [aiQuestionIdx, setAiQuestionIdx] = useState<number>(0);
   const [aiMessagesByQuestion, setAiMessagesByQuestion] = useState<
@@ -408,7 +412,6 @@ export function ExamRoomView({
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const aiFileInputRef = useRef<HTMLInputElement | null>(null);
   const aiChatEndRef = useRef<HTMLDivElement | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   // STATE OVERLAY CHẤM BÀI SCANNER (~1.8 GIÂY)
   const [isGrading, setIsGrading] = useState<boolean>(false);
@@ -423,6 +426,15 @@ export function ExamRoomView({
   const [isReviewMode, setIsReviewMode] = useState<boolean>(() => Boolean(initialReviewMode));
   const [isSubmitted, setIsSubmitted] = useState<boolean>(() => Boolean(initialReviewMode));
   const [showResultModal, setShowResultModal] = useState<boolean>(false);
+
+  // KHÓA GIA SƯ AI KHI ĐANG THI / LUYỆN ĐỀ CHƯA NỘP BÀI (CHỈ MỞ KHI ĐÃ NỘP HOẶC ĐANG LÀM BTVN)
+  const canUseAiTutor = Boolean(isHomework || isSubmitted || isReviewMode);
+
+  useEffect(() => {
+    if (!canUseAiTutor && isAiDrawerOpen) {
+      setIsAiDrawerOpen(false);
+    }
+  }, [canUseAiTutor, isAiDrawerOpen]);
 
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>(() => {
     if (initialReviewMode && reviewAttempt) {
@@ -569,43 +581,6 @@ export function ExamRoomView({
     },
     [userAnswers, isQuestionTrueFalse, isQuestionShortAnswer, normalizeShortAnswer]
   );
-
-  // INTERSECTION OBSERVER: TỰ ĐỘNG NHẬN DIỆN CÂU ĐANG XEM KHI CUỘN DANH SÁCH
-  useEffect(() => {
-    if (layoutMode !== "scroll" || questions.length === 0) return;
-    const rootEl = scrollContainerRef.current;
-    if (!rootEl || typeof IntersectionObserver === "undefined") return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let bestIdx = -1;
-        let bestRatio = 0;
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
-            const idxAttr = entry.target.getAttribute("data-q-index");
-            if (idxAttr !== null) {
-              bestRatio = entry.intersectionRatio;
-              bestIdx = parseInt(idxAttr, 10);
-            }
-          }
-        });
-        if (bestIdx >= 0) {
-          setCurrentVisibleQuestionIdx(bestIdx);
-        }
-      },
-      {
-        root: rootEl,
-        threshold: [0.25, 0.5, 0.75]
-      }
-    );
-
-    questions.forEach((q) => {
-      const el = document.getElementById("question-card-" + q.id);
-      if (el) observer.observe(el);
-    });
-
-    return () => observer.disconnect();
-  }, [layoutMode, questions]);
 
   // ĐỒNG BỘ PROPS KHI CHUYỂN SANG REVIEW ATTEMPT MỚI
   useEffect(() => {
@@ -933,7 +908,6 @@ export function ExamRoomView({
     setQuestions([]);
     setMediaMap({});
     setCurrentIdx(0);
-    setCurrentVisibleQuestionIdx(0);
     setIsLoadingQuestions(true);
 
     const loadExamQuestions = async () => {
@@ -1536,11 +1510,11 @@ export function ExamRoomView({
   const handleRetake = () => {
     setUserAnswers({});
     setCurrentIdx(0);
-    setCurrentVisibleQuestionIdx(0);
     setIsSubmitted(false);
     setShowResultModal(false);
     setIsReviewMode(false);
     setIsMobileDrawerOpen(false);
+    setIsAiDrawerOpen(false);
     setSecondsRemaining(!isHomework && durationMinutes > 0 ? durationMinutes * 60 : 0);
     setTimeSpentSeconds(0);
   };
@@ -1552,10 +1526,10 @@ export function ExamRoomView({
     setCurrentIdx(0);
   };
 
-  // MỞ NGĂN KÉO GIA SƯ AI & TỰ ĐỘNG BẮT ĐÚNG CÂU ĐANG XEM
+  // MỞ CỬA SỔ GIA SƯ AI THEO ĐÚNG CÂU HỌC SINH VỪA CHỌN
   const handleOpenAiDrawer = () => {
-    const activeIndex = layoutMode === "single" ? currentIdx : currentVisibleQuestionIdx;
-    setAiQuestionIdx(Math.min(Math.max(0, activeIndex), Math.max(0, questions.length - 1)));
+    if (!canUseAiTutor) return;
+    setAiQuestionIdx(Math.min(Math.max(0, currentIdx), Math.max(0, questions.length - 1)));
     setIsMobileDrawerOpen(false);
     setIsAiDrawerOpen(true);
   };
@@ -1584,8 +1558,22 @@ export function ExamRoomView({
   };
 
   const handleSendAiPrompt = async (customPrompt?: string) => {
+    if (!canUseAiTutor) return;
     const promptText = (customPrompt !== undefined ? customPrompt : aiInputText).trim();
-    if ((!promptText && !aiDraftImageBase64) || isAiLoading || !selectedAiQuestion) return;
+    if ((!promptText && !aiDraftImageBase64) || isAiLoading || questions.length === 0) return;
+
+    // TỰ ĐỘNG BẮT SỐ CÂU TỪ TIN NHẮN (VD: "câu 5 giải sao ạ", "hướng dẫn câu 12")
+    const mentionedIdx = detectMentionedQuestionIndex(promptText, questions.length);
+    const targetQuestionIdx = mentionedIdx !== null ? mentionedIdx : aiQuestionIdx;
+    const targetQuestion = questions[targetQuestionIdx] || questions[0];
+    if (!targetQuestion) return;
+
+    if (mentionedIdx !== null && mentionedIdx !== aiQuestionIdx) {
+      setAiQuestionIdx(mentionedIdx);
+    }
+
+    const targetThreadKey = `${quizId}_${targetQuestion.id}`;
+    const targetHistory = aiMessagesByQuestion[targetThreadKey] || [];
 
     const userMsg: AiChatMessage = {
       id: "u-" + Date.now(),
@@ -1600,7 +1588,7 @@ export function ExamRoomView({
 
     setAiMessagesByQuestion((prev) => ({
       ...prev,
-      [aiThreadKey]: [...(prev[aiThreadKey] || []), userMsg]
+      [targetThreadKey]: [...(prev[targetThreadKey] || []), userMsg]
     }));
 
     setIsAiLoading(true);
@@ -1617,25 +1605,24 @@ export function ExamRoomView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: modeVal,
-          questionKey: aiThreadKey,
-          lessonTitle: `${quizTitle} - Câu ${aiQuestionIdx + 1}`,
-          questionType: isQuestionTrueFalse(selectedAiQuestion)
+          questionKey: targetThreadKey,
+          lessonTitle: `${quizTitle} - Câu ${targetQuestionIdx + 1}`,
+          questionType: isQuestionTrueFalse(targetQuestion)
             ? "true_false"
-            : isQuestionShortAnswer(selectedAiQuestion)
+            : isQuestionShortAnswer(targetQuestion)
               ? "short_answer"
               : "multiple_choice",
-          questionText: selectedAiQuestion.prompt,
-          options: (selectedAiQuestion.options || []).map((o) => `${o.key}. ${o.text}`),
+          questionText: targetQuestion.prompt,
+          options: (targetQuestion.options || []).map((o) => `${o.key}. ${o.text}`),
           studentAnswer:
-            typeof userAnswers[selectedAiQuestion.id] === "object"
-              ? JSON.stringify(userAnswers[selectedAiQuestion.id])
-              : String(userAnswers[selectedAiQuestion.id] || ""),
-          correctAnswer: isReviewMode || isSubmitted ? selectedAiQuestion.correctAnswer : undefined,
-          officialSolution:
-            isReviewMode || isSubmitted ? selectedAiQuestion.explanation : undefined,
+            typeof userAnswers[targetQuestion.id] === "object"
+              ? JSON.stringify(userAnswers[targetQuestion.id])
+              : String(userAnswers[targetQuestion.id] || ""),
+          correctAnswer: isReviewMode || isSubmitted ? targetQuestion.correctAnswer : undefined,
+          officialSolution: isReviewMode || isSubmitted ? targetQuestion.explanation : undefined,
           message: userMsg.text,
           imageBase64: attachedImg || undefined,
-          history: currentAiMessages.slice(-6).map((m) => ({
+          history: targetHistory.slice(-6).map((m) => ({
             role: m.role,
             content: m.text
           }))
@@ -1655,8 +1642,8 @@ export function ExamRoomView({
 
       setAiMessagesByQuestion((prev) => ({
         ...prev,
-        [aiThreadKey]: [
-          ...(prev[aiThreadKey] || []),
+        [targetThreadKey]: [
+          ...(prev[targetThreadKey] || []),
           {
             id: "a-" + Date.now(),
             role: "assistant",
@@ -1667,8 +1654,8 @@ export function ExamRoomView({
     } catch {
       setAiMessagesByQuestion((prev) => ({
         ...prev,
-        [aiThreadKey]: [
-          ...(prev[aiThreadKey] || []),
+        [targetThreadKey]: [
+          ...(prev[targetThreadKey] || []),
           {
             id: "a-" + Date.now(),
             role: "assistant",
@@ -1684,7 +1671,6 @@ export function ExamRoomView({
   const navigateToQuestion = (targetIdx: number) => {
     const safeIdx = Math.min(Math.max(0, targetIdx), Math.max(0, questions.length - 1));
     setCurrentIdx(safeIdx);
-    setCurrentVisibleQuestionIdx(safeIdx);
     if (layoutMode === "scroll") {
       const targetQ = questions[safeIdx];
       if (targetQ) {
@@ -2058,7 +2044,6 @@ export function ExamRoomView({
   }
 
   const currentQ = questions[currentIdx] || questions[0];
-  const activeNavIdx = layoutMode === "single" ? currentIdx : currentVisibleQuestionIdx;
 
   return (
     <div
@@ -2170,15 +2155,17 @@ export function ExamRoomView({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* NÚT GIA SƯ AI GỌN GÀNG TRÊN DESKTOP */}
-          <button
-            type="button"
-            onClick={handleOpenAiDrawer}
-            className="hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] border border-slate-200 text-xs font-bold transition cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8]" />
-            <span>Gia sư AI</span>
-          </button>
+          {/* CHỈ HIỂN THỊ NÚT GIA SƯ AI KHI ĐÃ NỘP BÀI / XEM LẠI HOẶC ĐANG LÀM BTVN */}
+          {canUseAiTutor && (
+            <button
+              type="button"
+              onClick={handleOpenAiDrawer}
+              className="hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] border border-slate-200 text-xs font-bold transition cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              <span>Gia sư AI</span>
+            </button>
+          )}
 
           {!isSubmitted && !isReviewMode ? (
             <button
@@ -2219,10 +2206,7 @@ export function ExamRoomView({
       {/* 2. VÙNG NỘI DUNG CÂU HỎI & SIDEBAR */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
         <main className="lg:col-span-9 flex flex-col justify-between overflow-hidden relative bg-[#F1F5F9]">
-          <div
-            ref={scrollContainerRef}
-            className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar"
-          >
+          <div className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar">
             <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-6">
               {isReviewMode && (
                 <div className="p-3.5 bg-white border border-blue-200 rounded-2xl flex flex-wrap items-center justify-between gap-3">
@@ -2232,7 +2216,7 @@ export function ExamRoomView({
                     </div>
                     <div>
                       <h4 className="text-xs sm:text-sm font-extrabold text-slate-900">
-                        Chế độ Xem lại bài làm & Lời giải chi tiết
+                        Chế độ Xem lại bài làm &amp; Lời giải chi tiết
                       </h4>
                       <p className="text-[11px] text-slate-600 font-medium">
                         Đúng {reviewSummaryCounts.right}/{questions.length} câu • Sai{" "}
@@ -2256,7 +2240,7 @@ export function ExamRoomView({
                 <div className="hidden lg:flex p-3 bg-emerald-50/80 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <BookOpen className="w-4 h-4 text-emerald-600" />
-                    Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu nháp & kết quả khi nộp.
+                    Chế độ BTVN: Tự do làm bài, hệ thống tự động lưu nháp &amp; kết quả khi nộp.
                   </span>
                   <span className="text-[11px] font-bold bg-white px-2 py-0.5 rounded border border-emerald-300">
                     Đã làm {answeredCount}/{questions.length} câu ✓
@@ -2393,11 +2377,7 @@ export function ExamRoomView({
                       <div
                         key={q.id}
                         id={"question-card-" + q.id}
-                        data-q-index={qIndex}
-                        onClick={() => {
-                          setCurrentIdx(qIndex);
-                          setCurrentVisibleQuestionIdx(qIndex);
-                        }}
+                        onClick={() => setCurrentIdx(qIndex)}
                         className={`bg-white rounded-2xl p-4 sm:p-5 border space-y-2.5 text-left relative ${
                           isReviewMode
                             ? qStatus === "correct"
@@ -2555,12 +2535,16 @@ export function ExamRoomView({
             </div>
           )}
 
-          {/* THANH ĐIỀU HƯỚNG ĐÁY MOBILE 4 NÚT CÂN ĐỐI (KHÔNG CÒN NÚT NỔI CHE MÀN HÌNH) */}
-          <div className="lg:hidden shrink-0 grid grid-cols-4 gap-1.5 px-2 py-2 bg-white border-t border-slate-200 z-30">
+          {/* THANH ĐIỀU HƯỚNG ĐÁY MOBILE (4 NÚT KHI MỞ AI, 3 NÚT KHI KHÓA AI TRONG LÚC THI) */}
+          <div
+            className={`lg:hidden shrink-0 grid ${
+              canUseAiTutor ? "grid-cols-4" : "grid-cols-3"
+            } gap-1.5 px-2 py-2 bg-white border-t border-slate-200 z-30`}
+          >
             <button
               type="button"
-              disabled={activeNavIdx === 0}
-              onClick={() => navigateToQuestion(activeNavIdx - 1)}
+              disabled={currentIdx === 0}
+              onClick={() => navigateToQuestion(currentIdx - 1)}
               className="py-2 px-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-35 text-slate-700 text-xs font-semibold flex items-center justify-center gap-0.5 cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5 shrink-0" />
@@ -2578,19 +2562,21 @@ export function ExamRoomView({
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleOpenAiDrawer}
-              className="py-2 px-1 rounded-lg border border-slate-200 bg-[#F8FAFC] hover:bg-blue-50 text-slate-800 hover:text-[#1D4ED8] text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8] shrink-0" />
-              <span className="truncate">Gia sư AI</span>
-            </button>
+            {canUseAiTutor && (
+              <button
+                type="button"
+                onClick={handleOpenAiDrawer}
+                className="py-2 px-1 rounded-lg border border-slate-200 bg-[#F8FAFC] hover:bg-blue-50 text-slate-800 hover:text-[#1D4ED8] text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8] shrink-0" />
+                <span className="truncate">Gia sư AI</span>
+              </button>
+            )}
 
             <button
               type="button"
-              disabled={activeNavIdx >= questions.length - 1}
-              onClick={() => navigateToQuestion(activeNavIdx + 1)}
+              disabled={currentIdx >= questions.length - 1}
+              onClick={() => navigateToQuestion(currentIdx + 1)}
               className="py-2 px-1 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 disabled:opacity-40 text-white text-xs font-semibold flex items-center justify-center gap-0.5 cursor-pointer"
             >
               <span className="truncate">Tiếp</span>
@@ -2669,7 +2655,7 @@ export function ExamRoomView({
 
               <div className="grid grid-cols-5 gap-1.5 pt-1">
                 {questions.map((q, idx) => {
-                  const isCurrent = activeNavIdx === idx;
+                  const isCurrent = currentIdx === idx;
                   const isAns = Boolean(userAnswers[q.id]);
                   const isFlagged = Boolean(flaggedQuestions[q.id]);
                   const qStatus = isReviewMode ? getQuestionReviewStatus(q) : null;
@@ -2738,7 +2724,7 @@ export function ExamRoomView({
                   }}
                   className="w-full py-2.5 bg-blue-50 text-[#1D4ED8] hover:bg-blue-100 rounded-xl font-bold text-xs border border-blue-200 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <Trophy className="w-3.5 h-3.5" /> Bảng điểm & Xếp hạng
+                  <Trophy className="w-3.5 h-3.5" /> Bảng điểm &amp; Xếp hạng
                 </button>
                 <button
                   type="button"
@@ -2753,210 +2739,197 @@ export function ExamRoomView({
         </aside>
       </div>
 
-      {/* 4. NGĂN KÉO GIA SƯ AI TỐI GIẢN (BOTTOM SHEET TRÊN MOBILE / RIGHT DRAWER 380PX TRÊN DESKTOP) */}
+      {/* 4. CỬA SỔ GIA SƯ AI GỌN NHẸ GÓC DƯỚI PHẢI (KHÔNG CHE MỜ ĐỀ BÀI, KHÔNG HIỆN LATEX THÔ) */}
       <AnimatePresence>
-        {isAiDrawerOpen && (
-          <div
-            onClick={() => setIsAiDrawerOpen(false)}
-            className="fixed inset-0 z-[520] bg-slate-900/45 backdrop-blur-xs flex flex-col justify-end lg:flex-row lg:justify-end"
+        {canUseAiTutor && isAiDrawerOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className="fixed bottom-16 left-3 right-3 h-[55vh] lg:bottom-4 lg:right-4 lg:left-auto lg:w-[360px] lg:h-[460px] z-[140] bg-white rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden text-left"
           >
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 24 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-h-[82vh] rounded-t-2xl lg:rounded-none lg:max-h-none lg:w-[380px] lg:h-full bg-white border-t lg:border-t-0 lg:border-l border-slate-200 shadow-2xl lg:shadow-xl flex flex-col overflow-hidden text-left"
-            >
-              {/* Header 1 dòng nền trắng: Gia sư AI + Dropdown chọn câu + Nút đóng X */}
-              <div className="px-4 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Sparkles className="w-4 h-4 text-[#1D4ED8] shrink-0" />
-                  <h3 className="text-sm font-bold text-slate-900 shrink-0">Gia sư AI</h3>
-                  <select
-                    value={aiQuestionIdx}
-                    onChange={(e) => setAiQuestionIdx(Number(e.target.value))}
-                    className="ml-1 px-2 py-1 rounded-lg bg-[#F8FAFC] border border-slate-200 text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
-                  >
-                    {questions.map((_, idx) => (
-                      <option key={idx} value={idx}>
-                        Câu {idx + 1}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsAiDrawerOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer shrink-0"
+            {/* Header 1 dòng nền trắng: Gia sư AI + Dropdown chọn câu + Nút đóng X */}
+            <div className="bg-white border-b border-slate-200 px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles className="w-4 h-4 text-[#1D4ED8] shrink-0" />
+                <h3 className="text-sm font-bold text-slate-900 shrink-0">Gia sư AI</h3>
+                <select
+                  value={aiQuestionIdx}
+                  onChange={(e) => setAiQuestionIdx(Number(e.target.value))}
+                  className="ml-0.5 px-2 py-1 rounded-lg bg-[#F8FAFC] border border-slate-200 text-xs font-semibold text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
-                </button>
+                  {questions.map((_, idx) => (
+                    <option key={idx} value={idx}>
+                      Câu {idx + 1}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Trích dẫn câu đang hỏi */}
-              {selectedAiQuestion && (
-                <div className="px-4 pt-3 pb-2 shrink-0 space-y-2 border-b border-slate-100">
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600 line-clamp-2">
-                    <strong className="text-slate-800 mr-1">Câu {aiQuestionIdx + 1}:</strong>
-                    {stripRawTagsForSnippet(selectedAiQuestion.prompt)}
-                  </div>
+              <button
+                type="button"
+                onClick={() => setIsAiDrawerOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer shrink-0"
+                title="Đóng Gia sư AI"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-                  {/* 3 chip gợi ý nhanh xếp 1 hàng cuộn ngang */}
-                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
-                    <button
-                      type="button"
-                      disabled={isAiLoading}
-                      onClick={() =>
-                        handleSendAiPrompt(
-                          "Nêu dạng bài và các công thức trọng tâm cần dùng cho câu này."
-                        )
-                      }
-                      className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
+            {/* 3 chip gợi ý nhanh xếp 1 hàng gọn gàng */}
+            <div className="px-3.5 py-2 shrink-0 border-b border-slate-100 bg-[#F8FAFC]/60">
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                <button
+                  type="button"
+                  disabled={isAiLoading}
+                  onClick={() =>
+                    handleSendAiPrompt(
+                      "Nêu dạng bài và các công thức trọng tâm cần dùng cho câu này."
+                    )
+                  }
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
+                >
+                  Dạng bài &amp; Công thức
+                </button>
+                <button
+                  type="button"
+                  disabled={isAiLoading}
+                  onClick={() =>
+                    handleSendAiPrompt("Gợi ý bước làm đầu tiên cho câu này mà chưa lộ đáp án.")
+                  }
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
+                >
+                  Gợi ý bước đầu
+                </button>
+                <button
+                  type="button"
+                  disabled={isAiLoading}
+                  onClick={() => aiFileInputRef.current?.click()}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
+                >
+                  Kiểm tra ảnh nháp
+                </button>
+              </div>
+            </div>
+
+            {/* Vùng hội thoại */}
+            <div className="flex-1 overflow-y-auto p-3.5 space-y-3 custom-scrollbar bg-white">
+              {currentAiMessages.length === 0 ? (
+                <div className="py-8 text-center space-y-1.5 px-2">
+                  <p className="text-[13px] font-semibold text-slate-800">
+                    Sẵn sàng hỗ trợ Câu {aiQuestionIdx + 1}
+                  </p>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Chọn câu ở góc trên hoặc nhắn kèm số câu (VD: &quot;Câu 5 giải sao ạ&quot;) để
+                    Gia sư AI hướng dẫn từng bước.
+                  </p>
+                </div>
+              ) : (
+                currentAiMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[86%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed space-y-1.5 ${
+                        msg.role === "user"
+                          ? "bg-[#1D4ED8] text-white"
+                          : "bg-slate-100 text-slate-800"
+                      }`}
                     >
-                      Dạng bài &amp; Công thức
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isAiLoading}
-                      onClick={() =>
-                        handleSendAiPrompt("Gợi ý bước làm đầu tiên cho câu này mà chưa lộ đáp án.")
-                      }
-                      className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
-                    >
-                      Gợi ý bước đầu
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isAiLoading}
-                      onClick={() => aiFileInputRef.current?.click()}
-                      className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-[#1D4ED8] whitespace-nowrap shrink-0 transition cursor-pointer disabled:opacity-50"
-                    >
-                      Kiểm tra ảnh nháp
-                    </button>
+                      {msg.imagePreview && (
+                        <img
+                          src={msg.imagePreview}
+                          alt="Ảnh nháp"
+                          className="max-h-36 rounded-lg border border-white/20 object-contain"
+                        />
+                      )}
+                      {msg.role === "assistant" ? (
+                        <MathRenderer content={msg.text} inline={false} />
+                      ) : (
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {isAiLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-slate-100 text-slate-600 rounded-2xl px-3.5 py-2.5 text-xs flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1D4ED8]" />
+                    <span>Gia sư AI đang phân tích...</span>
                   </div>
                 </div>
               )}
+              <div ref={aiChatEndRef} />
+            </div>
 
-              {/* Vùng hội thoại */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar bg-white">
-                {currentAiMessages.length === 0 ? (
-                  <div className="py-8 text-center space-y-1.5">
-                    <p className="text-xs font-semibold text-slate-700">
-                      Sẵn sàng hỗ trợ Câu {aiQuestionIdx + 1}
-                    </p>
-                    <p className="text-[11px] text-slate-400 max-w-[260px] mx-auto">
-                      Chọn nhanh một gợi ý bên trên, nhập câu hỏi hoặc gửi ảnh nháp để Gia sư AI
-                      hướng dẫn từng bước.
-                    </p>
-                  </div>
-                ) : (
-                  currentAiMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
-                      <div
-                        className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed space-y-1.5 ${
-                          msg.role === "user"
-                            ? "bg-[#1D4ED8] text-white"
-                            : "bg-slate-100 text-slate-800"
-                        }`}
-                      >
-                        {msg.imagePreview && (
-                          <img
-                            src={msg.imagePreview}
-                            alt="Ảnh nháp"
-                            className="max-h-36 rounded-lg border border-white/20 object-contain"
-                          />
-                        )}
-                        {msg.role === "assistant" ? (
-                          <MathRenderer content={msg.text} inline={false} />
-                        ) : (
-                          <p className="whitespace-pre-wrap">{msg.text}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-
-                {isAiLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-slate-100 text-slate-600 rounded-2xl px-3.5 py-2.5 text-xs flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1D4ED8]" />
-                      <span>Gia sư AI đang phân tích...</span>
-                    </div>
-                  </div>
-                )}
-                <div ref={aiChatEndRef} />
-              </div>
-
-              {/* Thanh nhập đáy gọn 1 dòng */}
-              <div className="p-3 bg-white border-t border-slate-200 shrink-0 space-y-2">
-                {aiDraftImageBase64 && (
-                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1.5">
-                    <img
-                      src={aiDraftImageBase64}
-                      alt="Ảnh đính kèm"
-                      className="w-10 h-10 rounded object-cover border border-slate-200"
-                    />
-                    <span className="text-[11px] text-slate-600 flex-1 truncate">
-                      Đã đính kèm ảnh nháp
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAiDraftImageBase64(null)}
-                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    handleSendAiPrompt();
-                  }}
-                  className="flex items-center gap-1.5"
-                >
-                  <input
-                    ref={aiFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAiImageSelected}
-                    className="hidden"
+            {/* Thanh nhập đáy gọn 1 dòng */}
+            <div className="p-2.5 bg-white border-t border-slate-200 shrink-0 space-y-2">
+              {aiDraftImageBase64 && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1.5">
+                  <img
+                    src={aiDraftImageBase64}
+                    alt="Ảnh đính kèm"
+                    className="w-9 h-9 rounded object-cover border border-slate-200"
                   />
+                  <span className="text-[11px] text-slate-600 flex-1 truncate">
+                    Đã đính kèm ảnh nháp
+                  </span>
                   <button
                     type="button"
-                    onClick={() => aiFileInputRef.current?.click()}
-                    className="p-2 rounded-xl border border-slate-200 bg-[#F8FAFC] hover:bg-slate-100 text-slate-600 transition cursor-pointer shrink-0"
-                    title="Gửi ảnh nháp"
+                    onClick={() => setAiDraftImageBase64(null)}
+                    className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                   >
-                    <ImagePlus className="w-4 h-4" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
+                </div>
+              )}
 
-                  <input
-                    type="text"
-                    value={aiInputText}
-                    onChange={(e) => setAiInputText(e.target.value)}
-                    placeholder={`Hỏi về Câu ${aiQuestionIdx + 1}...`}
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-[#F8FAFC] focus:bg-white focus:border-[#1D4ED8] text-xs text-slate-800 outline-none"
-                  />
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendAiPrompt();
+                }}
+                className="flex items-center gap-1.5"
+              >
+                <input
+                  ref={aiFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAiImageSelected}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => aiFileInputRef.current?.click()}
+                  className="p-2 rounded-xl border border-slate-200 bg-[#F8FAFC] hover:bg-slate-100 text-slate-600 transition cursor-pointer shrink-0"
+                  title="Gửi ảnh nháp"
+                >
+                  <ImagePlus className="w-4 h-4" />
+                </button>
 
-                  <button
-                    type="submit"
-                    disabled={isAiLoading || (!aiInputText.trim() && !aiDraftImageBase64)}
-                    className="p-2 rounded-xl bg-[#1D4ED8] hover:bg-blue-800 disabled:opacity-40 text-white transition cursor-pointer shrink-0"
-                    title="Gửi câu hỏi"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
-              </div>
-            </motion.div>
-          </div>
+                <input
+                  type="text"
+                  value={aiInputText}
+                  onChange={(e) => setAiInputText(e.target.value)}
+                  placeholder={`Hỏi về Câu ${aiQuestionIdx + 1}...`}
+                  className="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-[#F8FAFC] focus:bg-white focus:border-[#1D4ED8] text-[13px] text-slate-800 outline-none"
+                />
+
+                <button
+                  type="submit"
+                  disabled={isAiLoading || (!aiInputText.trim() && !aiDraftImageBase64)}
+                  className="p-2 rounded-xl bg-[#1D4ED8] hover:bg-blue-800 disabled:opacity-40 text-white transition cursor-pointer shrink-0"
+                  title="Gửi câu hỏi"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -3049,7 +3022,7 @@ export function ExamRoomView({
               <div className="overflow-y-auto custom-scrollbar my-3 max-h-[48vh] pr-1">
                 <div className="grid grid-cols-5 gap-2">
                   {questions.map((q, idx) => {
-                    const isCurrent = activeNavIdx === idx;
+                    const isCurrent = currentIdx === idx;
                     const isAns = Boolean(userAnswers[q.id]);
                     const qStatus = isReviewMode ? getQuestionReviewStatus(q) : null;
 
