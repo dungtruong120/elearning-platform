@@ -228,7 +228,7 @@ function MathRenderer({
     <span
       className={
         (inline
-          ? "inline align-baseline text-[15px] font-normal leading-[1.65] text-slate-800 "
+          ? "inline align-baseline text-[15px] font-normal text-slate-800 "
           : "block text-[15px] font-normal leading-[1.65] text-slate-800 ") +
         KATEX_NORMALIZED_CLASS
       }
@@ -263,21 +263,27 @@ function MathRenderer({
 
         if (part.startsWith("$")) {
           const isBlock = part.startsWith("$$");
-          const math = sanitizeLatexString(
+          const rawMath = sanitizeLatexString(
             isBlock ? part.slice(2, -2).trim() : part.slice(1, -1).trim()
           );
-          if (!math) return null;
+          if (!rawMath) return null;
 
-          if (/^(?:img|image)_\d+$/i.test(math)) {
-            const imgFromMathToken = resolveImageSrc(math, mediaMap);
+          if (/^(?:img|image)_\d+$/i.test(rawMath)) {
+            const imgFromMathToken = resolveImageSrc(rawMath, mediaMap);
             if (imgFromMathToken) {
               return renderSingleImage(imgFromMathToken, i);
             }
           }
 
-          if (!isBlock && /^[+-]?\d+(?:[.,]\d+)?$/.test(math)) {
-            return <span key={i}>{math}</span>;
+          if (!isBlock && /^[+-]?\d+(?:[.,]\d+)?$/.test(rawMath)) {
+            return <span key={i}>{rawMath}</span>;
           }
+
+          const needsDisplaySize =
+            !isBlock &&
+            !rawMath.startsWith("\\displaystyle") &&
+            /(?:\\frac|\\int|\\sum|\\lim|\\prod)(?![a-zA-Z])/.test(rawMath);
+          const math = needsDisplaySize ? `\\displaystyle ${rawMath}` : rawMath;
 
           try {
             return (
@@ -299,7 +305,7 @@ function MathRenderer({
           } catch {
             return (
               <span key={i} className="italic text-[#1D4ED8] px-0.5 font-normal">
-                {math}
+                {rawMath}
               </span>
             );
           }
@@ -2018,7 +2024,7 @@ export function ExamRoomView({
                 onClick={() => handleSelectOption(q.id, opt.key)}
                 disabled={isSubmitted || isReviewMode}
                 className={
-                  "py-2.5 px-3.5 rounded-xl border text-left flex items-center gap-2.5 transition-all text-[15px] font-normal leading-[1.65] text-slate-800 " +
+                  "py-2.5 px-3.5 rounded-xl border text-left flex items-center gap-2.5 transition-all text-[15px] font-normal leading-[1.8] text-slate-800 " +
                   (isCorrect
                     ? "bg-[#F8FAFC] border-emerald-500 text-slate-900 ring-1 ring-emerald-500/25"
                     : isWrongSelected
