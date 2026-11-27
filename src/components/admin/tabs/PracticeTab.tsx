@@ -30,13 +30,10 @@ import { AzotaExamConfigModal } from "@/app/admin/AzotaExamConfigModal";
 
 export const PRACTICE_CATEGORIES = [
   "Tất cả danh mục",
-  "Đề thi giữa kỳ",
-  "Đề thi học kỳ",
-  "Đề kiểm tra định kỳ",
-  "Kho Luyện đề thực chiến / BTVN",
   "Đề thi thử THPT Quốc Gia",
   "Đề luyện thi ĐGNL (HSA/TSA)",
-  "Bài tập về nhà (BTVN)",
+  "Đề thi giữa kỳ",
+  "Đề thi học kỳ",
   "Đề tổng ôn chuyên đề",
   "Tự do"
 ];
@@ -119,6 +116,32 @@ function normalizeVietnameseSearch(str: any): string {
     .trim();
 }
 
+/**
+ * Nhận diện BTVN và Đề kiểm tra định kỳ thuộc từng buổi học để loại bỏ tuyệt đối khỏi Kho Luyện đề.
+ */
+function isCourseHomeworkOrPeriodicTest(exam: any): boolean {
+  if (!exam) return true;
+  if (exam.isHomework === true || exam.is_homework === true) return true;
+
+  const idStr = String(exam.id || exam.quiz_id || "").trim().toLowerCase();
+  if (idStr.startsWith("hw-")) return true;
+
+  const catLower = normalizeStr(exam.category);
+  const catNoAccent = normalizeVietnameseSearch(exam.category);
+  if (
+    catLower.includes("bài tập về nhà") ||
+    catLower.includes("btvn") ||
+    catLower.includes("đề kiểm tra định kỳ") ||
+    catLower.includes("kiểm tra định kỳ") ||
+    catNoAccent.includes("bai tap ve nha") ||
+    catNoAccent.includes("kiem tra dinh ky")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function extractExamTimestampScore(exam: any): number {
   if (!exam) return 0;
 
@@ -188,25 +211,6 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
     return "Đề thi học kỳ";
   }
 
-  if (
-    catSearch.includes("btvn") ||
-    catSearch.includes("bai tap") ||
-    exam?.isHomework ||
-    exam?.is_homework ||
-    /\bbtvn\b/i.test(titleSearch)
-  ) {
-    return "Bài tập về nhà (BTVN)";
-  }
-
-  if (
-    catSearch.includes("dinh ky") ||
-    catSearch.includes("kiem tra") ||
-    titleSearch.includes("kiem tra") ||
-    /\btest\b/i.test(titleSearch)
-  ) {
-    return "Đề kiểm tra định kỳ";
-  }
-
   if (/\b(hsa|tsa|dgnl)\b/i.test(titleSearch)) {
     return "Đề luyện thi ĐGNL (HSA/TSA)";
   }
@@ -228,7 +232,7 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
     return "Đề tổng ôn chuyên đề";
   }
 
-  return rawCat || "Tự do";
+  return PRACTICE_CATEGORIES.includes(rawCat) && rawCat !== "Tất cả danh mục" ? rawCat : "Tự do";
 }
 
 function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
@@ -349,25 +353,27 @@ function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
 function safeSaveExamsToLocal(exams: any[]) {
   if (typeof window === "undefined" || !Array.isArray(exams) || exams.length === 0) return;
   try {
-    const slim = exams.map((ex: any) => ({
-      id: ex?.id,
-      title: ex?.title,
-      exam_code: ex?.exam_code,
-      category: ex?.category || "Tự do",
-      exam_format: ex?.exam_format,
-      hsa_parts_count: ex?.hsa_parts_count,
-      total_points: ex?.total_points,
-      duration_minutes: ex?.duration_minutes || 90,
-      total_questions: ex?.total_questions,
-      target_mode: ex?.target_mode || "all",
-      allowRetake: ex?.allowRetake ?? true,
-      allowViewFile: ex?.allowViewFile ?? true,
-      driveUrl: ex?.driveUrl || "",
-      attachments: parseExamAttachments(ex),
-      solutionVideoUrl: ex?.solutionVideoUrl || "",
-      data: ex?.data || ex?.sections || undefined,
-      created_at: ex?.created_at || new Date().toISOString()
-    }));
+    const slim = exams
+      .filter((ex: any) => !isCourseHomeworkOrPeriodicTest(ex))
+      .map((ex: any) => ({
+        id: ex?.id,
+        title: ex?.title,
+        exam_code: ex?.exam_code,
+        category: ex?.category || "Tự do",
+        exam_format: ex?.exam_format,
+        hsa_parts_count: ex?.hsa_parts_count,
+        total_points: ex?.total_points,
+        duration_minutes: ex?.duration_minutes || 90,
+        total_questions: ex?.total_questions,
+        target_mode: ex?.target_mode || "all",
+        allowRetake: ex?.allowRetake ?? true,
+        allowViewFile: ex?.allowViewFile ?? true,
+        driveUrl: ex?.driveUrl || "",
+        attachments: parseExamAttachments(ex),
+        solutionVideoUrl: ex?.solutionVideoUrl || "",
+        data: ex?.data || ex?.sections || undefined,
+        created_at: ex?.created_at || new Date().toISOString()
+      }));
     localStorage.setItem("edunexus_practice_exams", JSON.stringify(slim));
   } catch {}
 }
@@ -439,8 +445,8 @@ export default function PracticeTab({
 }: PracticeTabProps) {
   const effectiveSupabase = propSupabase || defaultSupabaseClient;
 
-  const [localCategoryFilter, setLocalCategoryFilter] = useState<string>(
-    propCategoryFilter || "Tất cả danh mục"
+  const [localCategoryFilter, setLocalCategoryFilter] = useState<string>(() =>
+    PRACTICE_CATEGORIES.includes(propCategoryFilter) ? propCategoryFilter : "Tất cả danh mục"
   );
   const [searchKeyword, setSearchKeyword] = useState<string>("");
   const [loadingSingleExamId, setLoadingSingleExamId] = useState<string | null>(null);
@@ -457,17 +463,22 @@ export default function PracticeTab({
   });
 
   useEffect(() => {
-    if (propCategoryFilter) {
+    if (propCategoryFilter && PRACTICE_CATEGORIES.includes(propCategoryFilter)) {
       setLocalCategoryFilter(propCategoryFilter);
+    } else if (propCategoryFilter && !PRACTICE_CATEGORIES.includes(propCategoryFilter)) {
+      setLocalCategoryFilter("Tất cả danh mục");
     }
   }, [propCategoryFilter]);
 
-  const activeCategoryFilter = localCategoryFilter || "Tất cả danh mục";
+  const activeCategoryFilter = PRACTICE_CATEGORIES.includes(localCategoryFilter)
+    ? localCategoryFilter
+    : "Tất cả danh mục";
 
   const handleSelectCategoryFilter = (newCategory: string) => {
-    setLocalCategoryFilter(newCategory);
+    const safeCat = PRACTICE_CATEGORIES.includes(newCategory) ? newCategory : "Tất cả danh mục";
+    setLocalCategoryFilter(safeCat);
     if (typeof propSetCategoryFilter === "function") {
-      propSetCategoryFilter(newCategory);
+      propSetCategoryFilter(safeCat);
     }
   };
 
@@ -483,6 +494,7 @@ export default function PracticeTab({
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
             parsed.forEach((item: any) => {
+              if (isCourseHomeworkOrPeriodicTest(item)) return;
               const id = String(item?.id || "").trim();
               if (id && !seenIds.has(id)) {
                 seenIds.add(id);
@@ -564,10 +576,10 @@ export default function PracticeTab({
       setInternalExams((prev) => {
         const map = new Map<string, any>();
         prev.forEach((ex) => {
-          if (ex?.id) map.set(String(ex.id), ex);
+          if (ex?.id && !isCourseHomeworkOrPeriodicTest(ex)) map.set(String(ex.id), ex);
         });
         propPracticeExams.forEach((ex) => {
-          if (ex?.id) {
+          if (ex?.id && !isCourseHomeworkOrPeriodicTest(ex)) {
             const existing = map.get(String(ex.id));
             map.set(String(ex.id), {
               ...existing,
@@ -619,7 +631,7 @@ export default function PracticeTab({
       let recoveredAttempts: any[] = [];
 
       const addExamToCollector = (ex: any, defaultCategory?: string) => {
-        if (!ex) return;
+        if (!ex || isCourseHomeworkOrPeriodicTest(ex)) return;
         const id = String(ex.id || ex.quiz_id || "").trim();
         if (!id) return;
         const existing = collectedExamsMap.get(id);
@@ -784,7 +796,7 @@ export default function PracticeTab({
 
       if (notifyUser && showToast) {
         showToast(
-          `Đã đồng bộ siêu tốc ${finalMergedExams.length} đề thi (Tiết kiệm 99% băng thông Egress)!`,
+          `Đã đồng bộ siêu tốc ${finalMergedExams.length} đề luyện thi (Tiết kiệm 99% băng thông Egress)!`,
           "success"
         );
       }
@@ -878,11 +890,17 @@ export default function PracticeTab({
     return internalChapters;
   }, [propChapters, internalChapters]);
 
+  /**
+   * CHỈ LẤY DỮ LIỆU TỪ KHO LUYỆN ĐỀ (`propPracticeExams` & `internalExams`),
+   * LOẠI BỎ HOÀN TOÀN BTVN & ĐỀ KIỂM TRA ĐỊNH KỲ CỦA TỪNG BUỔI HỌC.
+   */
   const effectiveExams = useMemo(() => {
     const unifiedMap = new Map<string, any>();
 
     const pushExam = (ex: any, fallbackCategory?: string) => {
       if (!ex || ex.is_drive_file) return;
+      if (isCourseHomeworkOrPeriodicTest(ex)) return;
+
       const id = String(ex.id || ex.quiz_id || "").trim();
       if (!id || deletedExamIds.has(id)) return;
 
@@ -911,58 +929,6 @@ export default function PracticeTab({
     (propPracticeExams || []).forEach((ex) => pushExam(ex));
     (internalExams || []).forEach((ex) => pushExam(ex));
 
-    (effectiveChapters || []).forEach((chap: any) => {
-      (chap?.lessons || []).forEach((les: any) => {
-        (les?.test_quizzes || []).forEach((tq: any) => {
-          pushExam(tq, "Đề kiểm tra định kỳ");
-        });
-        (les?.homework_files || []).forEach((hw: any) => {
-          pushExam(
-            {
-              ...hw,
-              isHomework: true,
-              duration_minutes: hw?.duration_minutes || 45
-            },
-            "Bài tập về nhà (BTVN)"
-          );
-        });
-      });
-    });
-
-    const allAtt =
-      Array.isArray(propAllAttempts) && propAllAttempts.length > 0
-        ? propAllAttempts
-        : internalAttempts;
-
-    const existingTitlesNorm = new Set(
-      Array.from(unifiedMap.values()).map((x) => normalizeStr(x.title))
-    );
-
-    (allAtt || []).forEach((att: any) => {
-      if (!att) return;
-      const qId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
-      const qTitle = String(
-        att.examTitle || att.exam_title || att.quizTitle || att.quiz_title || ""
-      ).trim();
-      if (!qId || !qTitle || deletedExamIds.has(qId)) return;
-
-      if (!unifiedMap.has(qId) && !existingTitlesNorm.has(normalizeStr(qTitle))) {
-        existingTitlesNorm.add(normalizeStr(qTitle));
-        pushExam(
-          {
-            id: qId,
-            title: qTitle,
-            isHomework: Boolean(att.isHomework || att.is_homework || att.type === "homework"),
-            duration_minutes: 90,
-            created_at: att.created_at || att.createdAt
-          },
-          att.isHomework || att.is_homework
-            ? "Bài tập về nhà (BTVN)"
-            : "Kho Luyện đề thực chiến / BTVN"
-        );
-      }
-    });
-
     return Array.from(unifiedMap.values()).sort((a, b) => {
       const timeA = extractExamTimestampScore(a);
       const timeB = extractExamTimestampScore(b);
@@ -971,14 +937,7 @@ export default function PracticeTab({
       }
       return String(b.id || "").localeCompare(String(a.id || ""));
     });
-  }, [
-    propPracticeExams,
-    internalExams,
-    effectiveChapters,
-    propAllAttempts,
-    internalAttempts,
-    deletedExamIds
-  ]);
+  }, [propPracticeExams, internalExams, deletedExamIds]);
 
   const effectiveAttempts = useMemo(() => {
     if (Array.isArray(propAllAttempts) && propAllAttempts.length > 0) {
@@ -1072,18 +1031,7 @@ export default function PracticeTab({
     if (!targetCategory || targetCategory === "Tất cả danh mục") return true;
     const rawCat = String(exam?.category || "").trim();
     const smartCat = resolveSmartCategory(exam, rawCat);
-
-    if (rawCat === targetCategory || smartCat === targetCategory) return true;
-
-    if (targetCategory === "Kho Luyện đề thực chiến / BTVN") {
-      return (
-        rawCat === "Bài tập về nhà (BTVN)" ||
-        smartCat === "Bài tập về nhà (BTVN)" ||
-        Boolean(exam?.isHomework || exam?.is_homework)
-      );
-    }
-
-    return false;
+    return rawCat === targetCategory || smartCat === targetCategory;
   }, []);
 
   const categoryCountsMap = useMemo(() => {
@@ -1719,7 +1667,12 @@ export default function PracticeTab({
 
                       <td className="py-3.5 px-3">
                         <select
-                          value={exam.category || "Tự do"}
+                          value={
+                            PRACTICE_CATEGORIES.includes(exam.category) &&
+                            exam.category !== "Tất cả danh mục"
+                              ? exam.category
+                              : "Tự do"
+                          }
                           onChange={(e) => handleLocalChangeCategory(exam.id, e.target.value)}
                           className="px-2.5 py-1 rounded-md bg-white border border-slate-200/90 text-xs font-medium text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
                         >
