@@ -35,6 +35,64 @@ const SafeAdminStudentReportPanel = AdminStudentReportPanel as React.ComponentTy
 
 export type AdminSubjectCategory = "dai" | "hinh" | "tong_on" | "tang_cuong" | "hsa";
 
+export interface ExamAttachmentItem {
+  id: string;
+  title: string;
+  url: string;
+}
+
+function parseExamAttachments(exam: any): ExamAttachmentItem[] {
+  const result: ExamAttachmentItem[] = [];
+  const seenUrls = new Set<string>();
+
+  const pushItem = (raw: any, fallbackTitle: string) => {
+    if (!raw) return;
+    const url = String(raw.url || "").trim();
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    result.push({
+      id: String(raw.id || `att-${Date.now()}-${result.length}`),
+      title: String(raw.title || fallbackTitle).trim() || fallbackTitle,
+      url
+    });
+  };
+
+  let rawAttachments: any = exam?.attachments;
+  if (typeof rawAttachments === "string" && rawAttachments.trim().startsWith("[")) {
+    try {
+      rawAttachments = JSON.parse(rawAttachments);
+    } catch {
+      rawAttachments = [];
+    }
+  }
+  if (Array.isArray(rawAttachments)) {
+    rawAttachments.forEach((item: any, idx: number) =>
+      pushItem(item, `Tài liệu đính kèm ${idx + 1}`)
+    );
+  }
+
+  const rawDriveUrl = String(exam?.driveUrl || "").trim();
+  if (rawDriveUrl) {
+    if (rawDriveUrl.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(rawDriveUrl);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any, idx: number) =>
+            pushItem(item, `Tài liệu đính kèm ${idx + 1}`)
+          );
+        }
+      } catch {}
+    } else if (/^https?:\/\//i.test(rawDriveUrl)) {
+      pushItem(
+        { id: "legacy-drive", title: "File đề thi (PDF / Drive)", url: rawDriveUrl },
+        "File đề thi (PDF / Drive)"
+      );
+    }
+  }
+
+  return result.slice(0, 3);
+}
+
 function normalizeText(str: any): string {
   if (!str) return "";
   return String(str)
@@ -366,6 +424,7 @@ function safeSavePracticeExamsToStorage(examsList: any[]) {
       allowRetake: ex?.allowRetake,
       allowViewFile: ex?.allowViewFile,
       driveUrl: ex?.driveUrl,
+      attachments: parseExamAttachments(ex),
       solutionVideoUrl: ex?.solutionVideoUrl,
       data: ex?.data || ex?.sections || [],
       created_at: ex?.created_at
@@ -654,6 +713,7 @@ function AdminDashboardContent() {
 
   const [videoModalExam, setVideoModalExam] = useState<any | null>(null);
   const [solutionVideoInput, setSolutionVideoInput] = useState("");
+  const [attachmentsModalExam, setAttachmentsModalExam] = useState<any | null>(null);
   const [testExamRoom, setTestExamRoom] = useState<any | null>(null);
 
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
@@ -843,7 +903,6 @@ function AdminDashboardContent() {
 
           const nowIso = new Date().toISOString();
 
-          // 1. Lưu từng chương vào bảng chapters (gửi kèm category + fallback nếu thiếu cột)
           for (const chap of cleanCoursesData) {
             const chapCategory = chap.category || chap.subject_category || "dai";
             try {
@@ -870,7 +929,6 @@ function AdminDashboardContent() {
               } catch {}
             }
 
-            // 2. Lưu từng bài học vào bảng lessons (luôn gửi kèm category + subject_category + 5 mảng tài liệu với fallback an toàn)
             if (Array.isArray(chap.lessons) && chap.lessons.length > 0) {
               for (const les of chap.lessons) {
                 const lesCategory = les.category || les.subject_category || chapCategory;
@@ -895,7 +953,6 @@ function AdminDashboardContent() {
                 };
 
                 try {
-                  // Tier 1: Đầy đủ category + subject_category + 5 mảng tài liệu
                   const { error: tier1Err } = await supabase.from("lessons").upsert({
                     ...baseLessonRow,
                     category: lesCategory,
@@ -903,20 +960,17 @@ function AdminDashboardContent() {
                     ...allMediaCols
                   });
                   if (tier1Err) {
-                    // Tier 2: Bỏ subject_category, giữ category + 5 mảng tài liệu
                     const { error: tier2Err } = await supabase.from("lessons").upsert({
                       ...baseLessonRow,
                       category: lesCategory,
                       ...allMediaCols
                     });
                     if (tier2Err) {
-                      // Tier 3: Giữ 5 mảng tài liệu (nếu thiếu cột category)
                       const { error: tier3Err } = await supabase.from("lessons").upsert({
                         ...baseLessonRow,
                         ...allMediaCols
                       });
                       if (tier3Err) {
-                        // Tier 4: Giữ category + video_list + lecture_files
                         const { error: tier4Err } = await supabase.from("lessons").upsert({
                           ...baseLessonRow,
                           category: lesCategory,
@@ -924,7 +978,6 @@ function AdminDashboardContent() {
                           lecture_files: allMediaCols.lecture_files
                         });
                         if (tier4Err) {
-                          // Tier 5: Tối giản video_list + lecture_files hoặc core
                           const { error: tier5Err } = await supabase.from("lessons").upsert({
                             ...baseLessonRow,
                             video_list: allMediaCols.video_list,
@@ -951,7 +1004,6 @@ function AdminDashboardContent() {
                   }
                 }
 
-                // 2.1 CHỈ LƯU VÀO BẢNG homeworks KHI CÓ DỮ LIỆU CÂU HỎI THẬT (CHỐNG GHI ĐÈ RỖNG [])
                 if (Array.isArray(les.homework_files) && les.homework_files.length > 0) {
                   for (const hw of les.homework_files) {
                     if (hw?.is_drive_file || hw?.is_quiz === false) continue;
@@ -990,7 +1042,6 @@ function AdminDashboardContent() {
             }
           }
 
-          // 3. Lưu đầy đủ cây chương/bài học/category mới nhất/5 mảng tài liệu + file Drive BTVN vào curriculum_data
           const lightweightCurriculum = buildLightweightCurriculumPayload(cleanCoursesData);
 
           await supabase.from("curriculum_data").upsert({
@@ -1125,7 +1176,7 @@ function AdminDashboardContent() {
         let serverExams: any[] = [];
         let serverAttempts: any[] = [];
 
-        const [profRes, examResWithFormat, attData] = await Promise.all([
+        const [profRes, examResWithAttachments, attData] = await Promise.all([
           supabase
             .from("profiles")
             .select(
@@ -1135,7 +1186,7 @@ function AdminDashboardContent() {
           supabase
             .from("practice_exams")
             .select(
-              "id, title, category, exam_format, hsa_parts_count, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
+              "id, title, category, exam_format, hsa_parts_count, duration_minutes, allowRetake, allowViewFile, driveUrl, attachments, solutionVideoUrl, created_at"
             )
             .order("created_at", { ascending: false })
             .limit(100),
@@ -1150,18 +1201,29 @@ function AdminDashboardContent() {
           console.error("Supabase Error Details (profiles light):", profRes.error);
         }
 
-        if (!examResWithFormat.error && Array.isArray(examResWithFormat.data)) {
-          serverExams = examResWithFormat.data;
+        if (!examResWithAttachments.error && Array.isArray(examResWithAttachments.data)) {
+          serverExams = examResWithAttachments.data;
         } else {
-          const { data: examFallback } = await supabase
+          const { data: examFallback1, error: fb1Err } = await supabase
             .from("practice_exams")
             .select(
-              "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
+              "id, title, category, exam_format, hsa_parts_count, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
             )
             .order("created_at", { ascending: false })
             .limit(100);
-          if (Array.isArray(examFallback)) {
-            serverExams = examFallback;
+          if (!fb1Err && Array.isArray(examFallback1)) {
+            serverExams = examFallback1;
+          } else {
+            const { data: examFallback2 } = await supabase
+              .from("practice_exams")
+              .select(
+                "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
+              )
+              .order("created_at", { ascending: false })
+              .limit(100);
+            if (Array.isArray(examFallback2)) {
+              serverExams = examFallback2;
+            }
           }
         }
 
@@ -1378,7 +1440,6 @@ function AdminDashboardContent() {
     [fetchAllAttempts, isAttemptBlacklisted, loadDeletedBlacklistFromStorage, practiceExams]
   );
 
-  // TỰ ĐỘNG TẢI RIÊNG CHI TIẾT CÂU TRẢ LỜI THEO ID KHI GIÁO VIÊN BẤM XEM CHI TIẾT BẢNG ĐIỂM ĐỀ THI
   useEffect(() => {
     if (!azotaScoreViewModal.isOpen || azotaScoreViewModal.attempts.length === 0) return;
 
@@ -1518,7 +1579,6 @@ function AdminDashboardContent() {
             supabase.from("homeworks").select("id, lesson_id, title, duration_minutes, is_quiz")
           ]);
 
-        // Bảng tra cứu bù dữ liệu (category + 5 mảng tài liệu + file Drive BTVN) từ curriculum_data & localStorage
         const fallbackChapCatMap = new Map<string, string>();
         const localLesMap = new Map<string, any>();
         const cloudLesMap = new Map<string, any>();
@@ -1564,7 +1624,6 @@ function AdminDashboardContent() {
         ) {
           dbLessons = lessFullRes.value.data;
         } else {
-          // Fallback 1: bỏ các cột có thể chưa tồn tại trên DB
           try {
             const { data: fallbackTier1, error: err1 } = await supabase
               .from("lessons")
@@ -1863,42 +1922,141 @@ function AdminDashboardContent() {
     showToast("Đã tự động chấm lại điểm cho " + targetAttempts.length + " lượt thi!", "success");
   };
 
-  const handleOpenExamEditor = async (exam: any) => {
+  /**
+   * Tải dữ liệu đầy đủ của đúng 1 đề theo ID (KHÔNG dùng select("*"), KHÔNG tạo file giả .docx)
+   */
+  const fetchFullPracticeExamById = useCallback(async (exam: any): Promise<any> => {
+    if (!exam?.id) return exam;
     try {
-      showToast("Đang tải dữ liệu câu hỏi của đề thi...", "success");
-      const { data, error } = await supabase
+      const { data: full1, error: err1 } = await supabase
         .from("practice_exams")
-        .select("*")
+        .select(
+          "id, title, category, exam_format, hsa_parts_count, duration_minutes, data, media_map, driveUrl, solutionVideoUrl, attachments"
+        )
         .eq("id", exam.id)
         .limit(1);
 
-      const fullExam =
-        !error && Array.isArray(data) && data.length > 0 ? { ...exam, ...data[0] } : exam;
+      if (!err1 && Array.isArray(full1) && full1.length > 0) {
+        return { ...exam, ...full1[0] };
+      }
+
+      const { data: full2, error: err2 } = await supabase
+        .from("practice_exams")
+        .select(
+          "id, title, category, exam_format, duration_minutes, data, media_map, driveUrl, solutionVideoUrl"
+        )
+        .eq("id", exam.id)
+        .limit(1);
+
+      if (!err2 && Array.isArray(full2) && full2.length > 0) {
+        return { ...exam, ...full2[0] };
+      }
+
+      const { data: full3, error: err3 } = await supabase
+        .from("practice_exams")
+        .select("id, title, category, duration_minutes, data, media_map, driveUrl, solutionVideoUrl")
+        .eq("id", exam.id)
+        .limit(1);
+
+      if (!err3 && Array.isArray(full3) && full3.length > 0) {
+        return { ...exam, ...full3[0] };
+      }
+    } catch (err) {
+      console.warn("Lỗi tải chi tiết 1 đề theo ID:", err);
+    }
+    return exam;
+  }, []);
+
+  const handleOpenExamEditor = async (exam: any) => {
+    try {
+      showToast("Đang tải dữ liệu câu hỏi của đề thi...", "success");
+      const fullExam = await fetchFullPracticeExamById(exam);
+      setUploadMode("practice");
+      setTestFile(null);
       setEditingExamData(fullExam);
-      setUploadMode("practice");
-      setTestFile(
-        new File(["dummy"], String(fullExam?.title || "de_thi") + ".docx", {
-          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        })
-      );
     } catch {
-      setEditingExamData(exam);
       setUploadMode("practice");
-      setTestFile(
-        new File(["dummy"], String(exam?.title || "de_thi") + ".docx", {
-          type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        })
-      );
+      setTestFile(null);
+      setEditingExamData(exam);
     }
   };
 
   const handleTestExam = async (exam: any) => {
+    const fullExam = await fetchFullPracticeExamById(exam);
     setTestExamRoom({
-      id: exam.id,
-      title: "[TEST ADMIN] " + exam.title,
-      duration: exam.duration_minutes || 45,
+      ...fullExam,
+      id: fullExam.id,
+      title: "[TEST ADMIN] " + (fullExam.title || "Đề luyện thi"),
+      duration: fullExam.duration_minutes || 45,
+      duration_minutes: fullExam.duration_minutes || 45,
       isHomework: false
     });
+  };
+
+  /**
+   * Lưu tối đa 3 tài liệu đính kèm (PDF / Google Drive) cho 1 đề luyện thi.
+   * Fallback an toàn: thử cập nhật cột `attachments`, nếu lỗi thiếu cột schema thì lưu chuỗi JSON vào `driveUrl`.
+   */
+  const handleSaveExamAttachments = async (
+    examId: string,
+    attachmentsList: ExamAttachmentItem[]
+  ) => {
+    const cleanList: ExamAttachmentItem[] = (Array.isArray(attachmentsList) ? attachmentsList : [])
+      .filter((item) => item && String(item.url || "").trim() !== "")
+      .slice(0, 3)
+      .map((item, idx) => ({
+        id: String(item.id || `att-${Date.now()}-${idx}`),
+        title: String(item.title || `Tài liệu đính kèm ${idx + 1}`).trim(),
+        url: String(item.url || "").trim()
+      }));
+
+    let savedViaFallback = false;
+
+    try {
+      const { error: colErr } = await supabase
+        .from("practice_exams")
+        .update({
+          attachments: cleanList,
+          driveUrl: cleanList[0]?.url || ""
+        })
+        .eq("id", examId);
+
+      if (colErr) {
+        savedViaFallback = true;
+        await supabase
+          .from("practice_exams")
+          .update({
+            driveUrl: cleanList.length > 0 ? JSON.stringify(cleanList) : ""
+          })
+          .eq("id", examId);
+      }
+    } catch {
+      savedViaFallback = true;
+      try {
+        await supabase
+          .from("practice_exams")
+          .update({
+            driveUrl: cleanList.length > 0 ? JSON.stringify(cleanList) : ""
+          })
+          .eq("id", examId);
+      } catch {}
+    }
+
+    const updatedDriveUrl = savedViaFallback
+      ? cleanList.length > 0
+        ? JSON.stringify(cleanList)
+        : ""
+      : cleanList[0]?.url || "";
+
+    const newExams = (practiceExams || []).map((ex) =>
+      String(ex?.id) === String(examId)
+        ? { ...ex, attachments: cleanList, driveUrl: updatedDriveUrl }
+        : ex
+    );
+
+    await savePracticeExams(newExams);
+    setAttachmentsModalExam(null);
+    showToast(`Đã lưu ${cleanList.length}/3 tài liệu đính kèm cho đề thi!`, "success");
   };
 
   const handleCreateNewItem = async (e: React.FormEvent) => {
@@ -1978,9 +2136,6 @@ function AdminDashboardContent() {
     showToast("Đã cập nhật thông tin bài học!", "success");
   };
 
-  /**
-   * XÓA THẬT BÀI HỌC TRÊN SUPABASE (`homeworks` + `lessons`) & CẬP NHẬT NGAY `curriculum_data`
-   */
   const handleDeleteLesson = async (chapterId: string, lessonId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa bài học này?")) return;
 
@@ -2359,21 +2514,23 @@ function AdminDashboardContent() {
   const handleSaveSolutionVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoModalExam) return;
+    const cleanUrl = solutionVideoInput.trim();
     const newExams = (practiceExams || []).map((ex) =>
-      ex?.id === videoModalExam.id
-        ? { ...ex, solutionVideoUrl: solutionVideoInput.trim() }
-        : ex
+      ex?.id === videoModalExam.id ? { ...ex, solutionVideoUrl: cleanUrl } : ex
     );
     await savePracticeExams(newExams);
     try {
       await supabase
         .from("practice_exams")
-        .update({ solutionVideoUrl: solutionVideoInput.trim() })
+        .update({ solutionVideoUrl: cleanUrl })
         .eq("id", videoModalExam.id);
     } catch {}
     setVideoModalExam(null);
     setSolutionVideoInput("");
-    showToast("Đã lưu Video chữa bài thành công!", "success");
+    showToast(
+      cleanUrl ? "Đã lưu Video chữa bài thành công!" : "Đã gỡ link Video chữa bài!",
+      "success"
+    );
   };
 
   const handleSendNotification = async (e: React.FormEvent) => {
@@ -2432,7 +2589,6 @@ function AdminDashboardContent() {
     return Array.from(recoveredMap.values());
   }, [registeredStudents, allAttempts]);
 
-  // Chỉ lấy những học sinh đã được duyệt hợp lệ (LOẠI BỎ HỌC SINH BỊ KHÓA)
   const activeRegisteredStudents = useMemo(() => {
     return (effectiveStudentsWithRecovery || []).filter((s) => {
       if (!s) return false;
@@ -2669,6 +2825,7 @@ function AdminDashboardContent() {
       const allowRetake = editingExamData ? editingExamData.allowRetake ?? true : true;
       const allowViewFile = editingExamData ? editingExamData.allowViewFile ?? true : true;
       const driveUrl = examData.driveUrl || (editingExamData?.driveUrl ?? "");
+      const preservedAttachments = parseExamAttachments(examData.attachments ? examData : editingExamData);
       const solutionVideoUrl =
         examData.solutionVideoUrl || (editingExamData?.solutionVideoUrl ?? "");
       const rawSections = examData.sections || examData.data || [];
@@ -2742,6 +2899,7 @@ function AdminDashboardContent() {
           allowRetake: allowRetake ?? true,
           allowViewFile: allowViewFile ?? true,
           driveUrl: driveUrl || "",
+          attachments: preservedAttachments,
           solutionVideoUrl: solutionVideoUrl || "",
           data: sanitizedSections,
           sections: sanitizedSections,
@@ -2761,6 +2919,7 @@ function AdminDashboardContent() {
           allowRetake: allowRetake ?? true,
           allowViewFile: allowViewFile ?? true,
           driveUrl: driveUrl || "",
+          attachments: preservedAttachments,
           solutionVideoUrl: solutionVideoUrl || "",
           data: sanitizedSections,
           media_map: cleanedMediaMap,
@@ -2784,11 +2943,19 @@ function AdminDashboardContent() {
             if (!sbRetryErr) {
               saved = true;
             } else {
-              const { exam_format: _ef, hsa_parts_count: _hpc, ...minimalDbRow } = dbExamRow;
-              const { error: sbMinimalErr } = await supabase
+              const { attachments: _att, ...noAttachRow } = dbExamRow;
+              const { error: sbNoAttachErr } = await supabase
                 .from("practice_exams")
-                .upsert(minimalDbRow);
-              if (!sbMinimalErr) saved = true;
+                .upsert(noAttachRow);
+              if (!sbNoAttachErr) {
+                saved = true;
+              } else {
+                const { exam_format: _ef, hsa_parts_count: _hpc, ...minimalDbRow } = noAttachRow;
+                const { error: sbMinimalErr } = await supabase
+                  .from("practice_exams")
+                  .upsert(minimalDbRow);
+                if (!sbMinimalErr) saved = true;
+              }
             }
           }
         }
@@ -3040,7 +3207,6 @@ function AdminDashboardContent() {
       </AnimatePresence>
 
       <main className="flex-1 flex flex-col min-w-0 w-full min-h-screen lg:h-screen overflow-hidden">
-        {/* TOP BAR SẠCH SẼ: CHỈ GỒM NÚT MỞ/THU GỌN MENU & NÚT CAMERA CHẤM OMR */}
         <div className="h-12 bg-white border-b border-slate-200/90 px-3 sm:px-5 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2">
             <button
@@ -3197,6 +3363,7 @@ function AdminDashboardContent() {
               showToast={showToast}
               setVideoModalExam={setVideoModalExam}
               setSolutionVideoInput={setSolutionVideoInput}
+              setAttachmentsModalExam={setAttachmentsModalExam}
               setAzotaScoreViewModal={setAzotaScoreViewModal}
               onOpenExamEditor={handleOpenExamEditor}
               onTestExam={handleTestExam}
@@ -3396,6 +3563,9 @@ function AdminDashboardContent() {
         solutionVideoInput={solutionVideoInput}
         setSolutionVideoInput={setSolutionVideoInput}
         handleSaveSolutionVideo={handleSaveSolutionVideo}
+        attachmentsModalExam={attachmentsModalExam}
+        setAttachmentsModalExam={setAttachmentsModalExam}
+        handleSaveExamAttachments={handleSaveExamAttachments}
         testExamRoom={testExamRoom}
         setTestExamRoom={setTestExamRoom}
       />
