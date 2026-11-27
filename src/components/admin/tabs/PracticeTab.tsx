@@ -38,6 +38,8 @@ export const PRACTICE_CATEGORIES = [
   "Tự do"
 ];
 
+type ExamSourceTab = "practice" | "homework" | "test";
+
 interface ExamAttachmentItem {
   id: string;
   title: string;
@@ -116,9 +118,6 @@ function normalizeVietnameseSearch(str: any): string {
     .trim();
 }
 
-/**
- * Nhận diện BTVN và Đề kiểm tra định kỳ thuộc từng buổi học để loại bỏ tuyệt đối khỏi Kho Luyện đề.
- */
 function isCourseHomeworkOrPeriodicTest(exam: any): boolean {
   if (!exam) return true;
   if (exam.isHomework === true || exam.is_homework === true) return true;
@@ -242,6 +241,16 @@ function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
   partShortNames: string[];
   badgeText: string;
 } {
+  if (exam?.sourceType === "homework" || exam?.sourceType === "test") {
+    return {
+      isHsa: false,
+      partsCount: 0,
+      maxPoints: 10,
+      partShortNames: [],
+      badgeText: ""
+    };
+  }
+
   const rawFormat = String(exam?.exam_format || "").trim().toLowerCase();
   const rawCat = String(exam?.category || "").trim();
   const rawTitle = String(exam?.title || "").trim();
@@ -444,6 +453,9 @@ export default function PracticeTab({
   practiceSyncStatus
 }: PracticeTabProps) {
   const effectiveSupabase = propSupabase || defaultSupabaseClient;
+
+  // BỘ LỌC NGUỒN ĐỀ: Mặc định chỉ hiển thị Kho Đề luyện thi (`practice_exams`)
+  const [examSourceTab, setExamSourceTab] = useState<ExamSourceTab>("practice");
 
   const [localCategoryFilter, setLocalCategoryFilter] = useState<string>(() =>
     PRACTICE_CATEGORIES.includes(propCategoryFilter) ? propCategoryFilter : "Tất cả danh mục"
@@ -822,7 +834,8 @@ export default function PracticeTab({
   }, []);
 
   /**
-   * LAZY-LOAD ON-DEMAND: CHỈ TẢI NỘI DUNG CÂU HỎI CHI TIẾT (`data`, `media_map`) CỦA ĐÚNG 1 ĐỀ KHI ADMIN CLICK!
+   * LAZY-LOAD ON-DEMAND: CHỈ TẢI NỘI DUNG CÂU HỎI CHI TIẾT (`data`, `media_map`) CỦA ĐÚNG 1 BẢN GHI THEO ID!
+   * Hỗ trợ đầy đủ cả 3 nguồn: `practice_exams`, `homeworks` (BTVN buổi học) và `lessons.test_quizzes` (Đề kiểm tra).
    */
   const ensureFullExamDataLoaded = useCallback(
     async (exam: any): Promise<any> => {
@@ -837,14 +850,129 @@ export default function PracticeTab({
         return exam;
       }
 
-      setLoadingSingleExamId(String(exam.id));
+      const targetId = String(exam.id).trim();
+      const sourceType: ExamSourceTab =
+        exam.sourceType || (exam.isHomework || exam.is_homework ? "homework" : "practice");
+
+      setLoadingSingleExamId(targetId);
       try {
+        // 1. NGUỒN BTVN BUỔI HỌC -> tải từ bảng `homeworks` theo ID (fallback `lessons.homework_files`)
+        if (sourceType === "homework") {
+          const { data: hwFull, error: hwErr } = await effectiveSupabase
+            .from("homeworks")
+            .select("id, lesson_id, title, data, sections, media_map, duration_minutes")
+            .eq("id", targetId)
+            .maybeSingle();
+
+          let resolvedHw = !hwErr && hwFull ? hwFull : null;
+
+          if (!resolvedHw) {
+            const { data: hwMin, error: hwMinErr } = await effectiveSupabase
+              .from("homeworks")
+              .select("id, title, data, duration_minutes")
+              .eq("id", targetId)
+              .maybeSingle();
+            if (!hwMinErr && hwMin) {
+              resolvedHw = hwMin;
+            }
+          }
+
+          if (!resolvedHw && exam.lessonId) {
+            const { data: lesRow } = await effectiveSupabase
+              .from("lessons")
+              .select("id, homework_files")
+              .eq("id", String(exam.lessonId))
+              .maybeSingle();
+            if (Array.isArray(lesRow?.homework_files)) {
+              const found = lesRow.homework_files.find(
+                (item: any) => String(item?.id || "").trim() === targetId
+              );
+              if (found) resolvedHw = found;
+            }
+          }
+
+          if (resolvedHw) {
+            const resolvedData = resolvedHw.data || resolvedHw.sections || exam.data || [];
+            return {
+              ...exam,
+              ...resolvedHw,
+              data: resolvedData,
+              sections: resolvedData,
+              media_map: resolvedHw.media_map || resolvedHw.mediaMap || exam.media_map || {}
+            };
+          }
+          return exam;
+        }
+
+        // 2. NGUỒN ĐỀ KIỂM TRA (TEST) -> tải từ `lessons.test_quizzes` theo `lessonId` (fallback `homeworks` / `curriculum_data`)
+        if (sourceType === "test") {
+          let resolvedTest: any = null;
+
+          if (exam.lessonId) {
+            const { data: lesRow } = await effectiveSupabase
+              .from("lessons")
+              .select("id, test_quizzes")
+              .eq("id", String(exam.lessonId))
+              .maybeSingle();
+            if (Array.isArray(lesRow?.test_quizzes)) {
+              const found = lesRow.test_quizzes.find(
+                (item: any) => String(item?.id || "").trim() === targetId
+              );
+              if (found) resolvedTest = found;
+            }
+          }
+
+          if (!resolvedTest) {
+            const { data: hwFallback } = await effectiveSupabase
+              .from("homeworks")
+              .select("id, title, data, media_map, duration_minutes")
+              .eq("id", targetId)
+              .maybeSingle();
+            if (hwFallback) resolvedTest = hwFallback;
+          }
+
+          if (!resolvedTest) {
+            const { data: currRow } = await effectiveSupabase
+              .from("curriculum_data")
+              .select("chapters")
+              .eq("id", "main_curriculum")
+              .maybeSingle();
+            if (Array.isArray(currRow?.chapters)) {
+              for (const chap of currRow.chapters) {
+                for (const les of chap?.lessons || []) {
+                  const found = (les?.test_quizzes || []).find(
+                    (item: any) => String(item?.id || "").trim() === targetId
+                  );
+                  if (found) {
+                    resolvedTest = found;
+                    break;
+                  }
+                }
+                if (resolvedTest) break;
+              }
+            }
+          }
+
+          if (resolvedTest) {
+            const resolvedData = resolvedTest.data || resolvedTest.sections || exam.data || [];
+            return {
+              ...exam,
+              ...resolvedTest,
+              data: resolvedData,
+              sections: resolvedData,
+              media_map: resolvedTest.media_map || resolvedTest.mediaMap || exam.media_map || {}
+            };
+          }
+          return exam;
+        }
+
+        // 3. NGUỒN ĐỀ LUYỆN THI (`practice_exams`)
         const { data: fullRow, error } = await effectiveSupabase
           .from("practice_exams")
           .select(
             "id, title, category, exam_format, duration_minutes, data, media_map, driveUrl, solutionVideoUrl"
           )
-          .eq("id", exam.id)
+          .eq("id", targetId)
           .single();
 
         let resolvedRow = !error && fullRow ? fullRow : null;
@@ -853,7 +981,7 @@ export default function PracticeTab({
           const { data: fallbackRow, error: fbErr } = await effectiveSupabase
             .from("practice_exams")
             .select("id, title, category, duration_minutes, data, driveUrl, solutionVideoUrl")
-            .eq("id", exam.id)
+            .eq("id", targetId)
             .single();
           if (!fbErr && fallbackRow) {
             resolvedRow = fallbackRow;
@@ -869,7 +997,7 @@ export default function PracticeTab({
           };
 
           setInternalExams((prev) =>
-            prev.map((item) => (String(item?.id) === String(exam.id) ? enrichedExam : item))
+            prev.map((item) => (String(item?.id) === targetId ? enrichedExam : item))
           );
 
           return enrichedExam;
@@ -890,10 +1018,7 @@ export default function PracticeTab({
     return internalChapters;
   }, [propChapters, internalChapters]);
 
-  /**
-   * CHỈ LẤY DỮ LIỆU TỪ KHO LUYỆN ĐỀ (`propPracticeExams` & `internalExams`),
-   * LOẠI BỎ HOÀN TOÀN BTVN & ĐỀ KIỂM TRA ĐỊNH KỲ CỦA TỪNG BUỔI HỌC.
-   */
+  // NGUỒN 1 (MẶC ĐỊNH): KHO ĐỀ LUYỆN THI (`practice_exams`)
   const effectiveExams = useMemo(() => {
     const unifiedMap = new Map<string, any>();
 
@@ -911,6 +1036,7 @@ export default function PracticeTab({
         ...existing,
         ...ex,
         id,
+        sourceType: "practice" as ExamSourceTab,
         title: String(ex.title || existing?.title || "Đề luyện thi"),
         category: resolvedCat,
         duration_minutes: Number(ex.duration_minutes || existing?.duration_minutes || 90),
@@ -938,6 +1064,84 @@ export default function PracticeTab({
       return String(b.id || "").localeCompare(String(a.id || ""));
     });
   }, [propPracticeExams, internalExams, deletedExamIds]);
+
+  // NGUỒN 2: BÀI TẬP VỀ NHÀ (BTVN) TRẮC NGHIỆM CỦA CÁC BUỔI HỌC (CHỈ ĐỌC TỪ `effectiveChapters`)
+  const courseHomeworkExams = useMemo(() => {
+    const list: any[] = [];
+    const seenIds = new Set<string>();
+
+    (effectiveChapters || []).forEach((chap: any) => {
+      const chapTitle = String(chap?.title || "Chương học");
+      (chap?.lessons || []).forEach((les: any) => {
+        const lesTitle = String(les?.title || "Bài học");
+        const lesId = String(les?.id || "");
+        (les?.homework_files || []).forEach((hw: any) => {
+          if (!hw || hw.is_drive_file === true || hw.is_quiz === false) return;
+          const id = String(hw.id || "").trim();
+          if (!id || seenIds.has(id)) return;
+          seenIds.add(id);
+
+          list.push({
+            ...hw,
+            id,
+            sourceType: "homework" as ExamSourceTab,
+            isHomework: true,
+            lessonId: lesId,
+            lessonTitle: lesTitle,
+            chapterTitle: chapTitle,
+            title: String(hw.title || "Bài tập về nhà"),
+            category: "BTVN buổi học",
+            duration_minutes: Number(hw.duration_minutes) || 0,
+            created_at: hw.created_at || hw.updated_at || les?.created_at
+          });
+        });
+      });
+    });
+
+    return list.sort((a, b) => extractExamTimestampScore(b) - extractExamTimestampScore(a));
+  }, [effectiveChapters]);
+
+  // NGUỒN 3: ĐỀ KIỂM TRA ĐỊNH KỲ (TEST) CỦA CÁC BUỔI HỌC (CHỈ ĐỌC TỪ `effectiveChapters`)
+  const courseTestExams = useMemo(() => {
+    const list: any[] = [];
+    const seenIds = new Set<string>();
+
+    (effectiveChapters || []).forEach((chap: any) => {
+      const chapTitle = String(chap?.title || "Chương học");
+      (chap?.lessons || []).forEach((les: any) => {
+        const lesTitle = String(les?.title || "Bài học");
+        const lesId = String(les?.id || "");
+        (les?.test_quizzes || []).forEach((tq: any) => {
+          if (!tq || tq.is_drive_file === true || tq.is_quiz === false) return;
+          const id = String(tq.id || "").trim();
+          if (!id || seenIds.has(id)) return;
+          seenIds.add(id);
+
+          list.push({
+            ...tq,
+            id,
+            sourceType: "test" as ExamSourceTab,
+            isHomework: false,
+            lessonId: lesId,
+            lessonTitle: lesTitle,
+            chapterTitle: chapTitle,
+            title: String(tq.title || "Đề kiểm tra định kỳ"),
+            category: "Đề kiểm tra (Test)",
+            duration_minutes: Number(tq.duration_minutes) || 45,
+            created_at: tq.created_at || tq.updated_at || les?.created_at
+          });
+        });
+      });
+    });
+
+    return list.sort((a, b) => extractExamTimestampScore(b) - extractExamTimestampScore(a));
+  }, [effectiveChapters]);
+
+  const activeSourceExams = useMemo(() => {
+    if (examSourceTab === "homework") return courseHomeworkExams;
+    if (examSourceTab === "test") return courseTestExams;
+    return effectiveExams;
+  }, [examSourceTab, effectiveExams, courseHomeworkExams, courseTestExams]);
 
   const effectiveAttempts = useMemo(() => {
     if (Array.isArray(propAllAttempts) && propAllAttempts.length > 0) {
@@ -1047,9 +1251,13 @@ export default function PracticeTab({
   }, [effectiveExams, doesExamMatchCategory]);
 
   const computedExamsWithScores = useMemo(() => {
-    let list = Array.isArray(effectiveExams) ? [...effectiveExams] : [];
+    let list = Array.isArray(activeSourceExams) ? [...activeSourceExams] : [];
 
-    if (activeCategoryFilter && activeCategoryFilter !== "Tất cả danh mục") {
+    if (
+      examSourceTab === "practice" &&
+      activeCategoryFilter &&
+      activeCategoryFilter !== "Tất cả danh mục"
+    ) {
       list = list.filter((ex) => doesExamMatchCategory(ex, activeCategoryFilter));
     }
 
@@ -1061,12 +1269,16 @@ export default function PracticeTab({
         const titleRaw = normalizeStr(ex?.title);
         const titleNoAccent = normalizeVietnameseSearch(ex?.title);
         const catNoAccent = normalizeVietnameseSearch(ex?.category);
+        const lessonNoAccent = normalizeVietnameseSearch(ex?.lessonTitle);
+        const chapterNoAccent = normalizeVietnameseSearch(ex?.chapterTitle);
         const codeStr = String(ex?.exam_code || deriveExamCode3Digits(ex)).toLowerCase();
         const idStr = String(ex?.id || "").toLowerCase();
 
         return (
           titleNoAccent.includes(kwNoAccent) ||
           titleRaw.includes(kwRaw) ||
+          lessonNoAccent.includes(kwNoAccent) ||
+          chapterNoAccent.includes(kwNoAccent) ||
           codeStr.includes(kwNoAccent) ||
           catNoAccent.includes(kwNoAccent) ||
           idStr.includes(kwNoAccent)
@@ -1146,17 +1358,23 @@ export default function PracticeTab({
       };
     });
   }, [
-    effectiveExams,
+    activeSourceExams,
+    examSourceTab,
     activeCategoryFilter,
     searchKeyword,
     effectiveAttempts,
     doesExamMatchCategory
   ]);
 
+  const allSelectableExamsForSbd = useMemo(
+    () => [...effectiveExams, ...courseHomeworkExams, ...courseTestExams],
+    [effectiveExams, courseHomeworkExams, courseTestExams]
+  );
+
   const selectedSbdExamObj = useMemo(() => {
     if (!sbdSelectedExamId || sbdSelectedExamId === "none") return null;
-    return effectiveExams.find((ex) => String(ex?.id) === sbdSelectedExamId) || null;
-  }, [sbdSelectedExamId, effectiveExams]);
+    return allSelectableExamsForSbd.find((ex) => String(ex?.id) === sbdSelectedExamId) || null;
+  }, [sbdSelectedExamId, allSelectableExamsForSbd]);
 
   const filteredSbdStudentsForModal = useMemo(() => {
     const scoreMap = new Map<string, number>();
@@ -1393,6 +1611,13 @@ export default function PracticeTab({
     }
   };
 
+  const activeSourceLabel =
+    examSourceTab === "homework"
+      ? "BTVN BUỔI HỌC"
+      : examSourceTab === "test"
+        ? "ĐỀ KIỂM TRA (TEST)"
+        : "TỔNG SỐ ĐỀ LUYỆN THI";
+
   return (
     <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
       {practiceSyncStatus && practiceSyncStatus.isSyncing && (
@@ -1414,12 +1639,12 @@ export default function PracticeTab({
                 Kho Luyện Đề Thực Chiến & Chấm Thi
               </h2>
               <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 text-xs font-bold">
-                TỔNG SỐ ĐỀ: {effectiveExams.length}
+                {activeSourceLabel}: {activeSourceExams.length}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Đề mới tải lên luôn được ưu tiên xếp ở vị trí đầu tiên. Hỗ trợ lọc danh mục và tìm
-              kiếm theo tên/mã đề.
+              Mặc định hiển thị Kho Đề luyện thi. Bạn có thể chuyển nhanh sang BTVN buổi học hoặc
+              Đề kiểm tra để in phiếu A4, xem đề và thống kê điểm.
             </p>
           </div>
 
@@ -1439,8 +1664,8 @@ export default function PracticeTab({
             <button
               type="button"
               onClick={() => {
-                if (effectiveExams.length > 0 && sbdSelectedExamId === "none") {
-                  setSbdSelectedExamId(String(effectiveExams[0].id));
+                if (activeSourceExams.length > 0 && sbdSelectedExamId === "none") {
+                  setSbdSelectedExamId(String(activeSourceExams[0].id));
                 }
                 setShowSbdModal(true);
               }}
@@ -1453,7 +1678,7 @@ export default function PracticeTab({
             <button
               type="button"
               onClick={async () => {
-                const firstTarget = computedExamsWithScores[0] || effectiveExams[0] || null;
+                const firstTarget = computedExamsWithScores[0] || activeSourceExams[0] || null;
                 const fullTarget = firstTarget
                   ? await ensureFullExamDataLoaded(firstTarget)
                   : null;
@@ -1487,8 +1712,44 @@ export default function PracticeTab({
           </div>
         </div>
 
-        {/* 2. THANH CHUYỂN TAB, DROPDOWN LỌC DANH MỤC & Ô TÌM KIẾM */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* 2. THANH CHỌN NGUỒN ĐỀ (SEGMENTED CONTROL TỐI GIẢN) */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="inline-flex flex-wrap items-center gap-1 bg-[#F1F5F9] p-1 rounded-lg w-fit border border-slate-200/80">
+            <button
+              type="button"
+              onClick={() => setExamSourceTab("practice")}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                examSourceTab === "practice"
+                  ? "bg-white text-[#1D4ED8] border border-slate-200/90"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Đề luyện thi ({effectiveExams.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setExamSourceTab("homework")}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                examSourceTab === "homework"
+                  ? "bg-white text-[#1D4ED8] border border-slate-200/90"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              BTVN buổi học ({courseHomeworkExams.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setExamSourceTab("test")}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                examSourceTab === "test"
+                  ? "bg-white text-[#1D4ED8] border border-slate-200/90"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Đề kiểm tra (Test) ({courseTestExams.length})
+            </button>
+          </div>
+
           <div className="flex items-center gap-1.5 bg-[#F1F5F9] p-1 rounded-lg w-fit">
             <button
               type="button"
@@ -1499,7 +1760,7 @@ export default function PracticeTab({
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              Danh sách Đề thi ({computedExamsWithScores.length}/{effectiveExams.length})
+              Danh sách ({computedExamsWithScores.length}/{activeSourceExams.length})
             </button>
             <button
               type="button"
@@ -1513,45 +1774,64 @@ export default function PracticeTab({
               Thống kê Điểm số & Lượt nộp
             </button>
           </div>
+        </div>
 
+        {/* 3. DROPDOWN LỌC DANH MỤC (CHO ĐỀ LUYỆN THI) & Ô TÌM KIẾM */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={activeCategoryFilter}
-              onChange={(e) => handleSelectCategoryFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-white border border-slate-200/90 text-xs font-semibold text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
-            >
-              {PRACTICE_CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat} ({categoryCountsMap[cat] ?? 0})
-                </option>
-              ))}
-            </select>
+            {examSourceTab === "practice" ? (
+              <select
+                value={activeCategoryFilter}
+                onChange={(e) => handleSelectCategoryFilter(e.target.value)}
+                className="px-3 py-1.5 rounded-lg bg-white border border-slate-200/90 text-xs font-semibold text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
+              >
+                {PRACTICE_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat} ({categoryCountsMap[cat] ?? 0})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-xs text-slate-500 font-medium">
+                Đang xem{" "}
+                <strong className="text-slate-800">
+                  {examSourceTab === "homework"
+                    ? "BTVN trắc nghiệm từ các buổi học"
+                    : "Đề kiểm tra định kỳ từ các buổi học"}
+                </strong>{" "}
+                (chỉ đọc, không ghi đè dữ liệu gốc của bài học).
+              </span>
+            )}
+          </div>
 
-            <div className="relative min-w-[230px]">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="Tìm tên đề, mã đề (VD: 280, Giữa kỳ)..."
-                className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200/90 rounded-lg text-xs font-medium outline-none focus:border-[#1D4ED8]"
-              />
-              {searchKeyword && (
-                <button
-                  type="button"
-                  onClick={() => setSearchKeyword("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  title="Xóa từ khóa tìm kiếm"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+          <div className="relative min-w-[240px] flex-1 sm:flex-initial">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              placeholder={
+                examSourceTab === "practice"
+                  ? "Tìm tên đề, mã đề (VD: 280, Giữa kỳ)..."
+                  : "Tìm tên đề, bài học, chương..."
+              }
+              className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200/90 rounded-lg text-xs font-medium outline-none focus:border-[#1D4ED8]"
+            />
+            {searchKeyword && (
+              <button
+                type="button"
+                onClick={() => setSearchKeyword("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                title="Xóa từ khóa tìm kiếm"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 3. BẢNG DANH SÁCH ĐỀ LUYỆN THI */}
+      {/* 4. BẢNG DANH SÁCH ĐỀ THI / BTVN / TEST */}
       <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden">
         {(propIsLoadingExams || isSelfFetching) && computedExamsWithScores.length === 0 ? (
           <div className="py-14 text-center space-y-2">
@@ -1565,15 +1845,23 @@ export default function PracticeTab({
             <FolderOpen className="w-8 h-8 text-slate-300 mx-auto" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-slate-700">
-                Không tìm thấy đề thi nào khớp với điều kiện lọc hiện tại
+                Không tìm thấy đề nào khớp với điều kiện lọc hiện tại
               </h4>
               <p className="text-xs text-slate-400">
-                Danh mục: <strong>{activeCategoryFilter}</strong>
+                Nguồn:{" "}
+                <strong>
+                  {examSourceTab === "homework"
+                    ? "BTVN buổi học"
+                    : examSourceTab === "test"
+                      ? "Đề kiểm tra (Test)"
+                      : activeCategoryFilter}
+                </strong>
                 {searchKeyword ? ` • Từ khóa: "${searchKeyword}"` : ""}
               </p>
             </div>
             <div className="flex items-center justify-center gap-2">
-              {(activeCategoryFilter !== "Tất cả danh mục" || searchKeyword.trim() !== "") && (
+              {((examSourceTab === "practice" && activeCategoryFilter !== "Tất cả danh mục") ||
+                searchKeyword.trim() !== "") && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1582,7 +1870,7 @@ export default function PracticeTab({
                   }}
                   className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer"
                 >
-                  Xóa bộ lọc & Xem tất cả ({effectiveExams.length} đề)
+                  Xóa bộ lọc & Xem tất cả ({activeSourceExams.length} đề)
                 </button>
               )}
               <button
@@ -1600,9 +1888,17 @@ export default function PracticeTab({
               <thead className="bg-[#F8FAFC] text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200/90">
                 <tr>
                   <th className="py-3 px-3 text-center w-12">STT</th>
-                  <th className="py-3 px-4">Tên đề luyện thi & Cấu trúc</th>
+                  <th className="py-3 px-4">
+                    {examSourceTab === "homework"
+                      ? "Tên BTVN & Buổi học"
+                      : examSourceTab === "test"
+                        ? "Tên Đề kiểm tra & Buổi học"
+                        : "Tên đề luyện thi & Cấu trúc"}
+                  </th>
                   <th className="py-3 px-3 text-center">Mã đề</th>
-                  <th className="py-3 px-3">Danh mục</th>
+                  <th className="py-3 px-3">
+                    {examSourceTab === "practice" ? "Danh mục" : "Phân loại"}
+                  </th>
                   <th className="py-3 px-3 text-center">Thời gian</th>
                   <th className="py-3 px-3 text-center">Lượt nộp</th>
                   <th className="py-3 px-4 text-right">Công cụ Khảo thí & OMR</th>
@@ -1611,6 +1907,7 @@ export default function PracticeTab({
               <tbody className="divide-y divide-slate-100">
                 {computedExamsWithScores.map((exam, idx) => {
                   const isRowLoadingDetail = loadingSingleExamId === String(exam.id);
+                  const isPracticeSource = exam.sourceType === "practice" || !exam.sourceType;
                   return (
                     <tr key={exam.id || idx} className="hover:bg-[#F8FAFC] transition-colors">
                       <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
@@ -1622,12 +1919,13 @@ export default function PracticeTab({
                           <span className="font-bold text-slate-800 text-xs sm:text-sm">
                             {exam.title}
                           </span>
-                          {exam.isHsaExam && (
+                          {isPracticeSource && exam.isHsaExam && (
                             <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold tracking-wide">
                               {exam.hsaBadgeText}
                             </span>
                           )}
-                          {idx === 0 &&
+                          {isPracticeSource &&
+                            idx === 0 &&
                             activeCategoryFilter === "Tất cả danh mục" &&
                             !searchKeyword.trim() && (
                               <span className="px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-bold">
@@ -1635,10 +1933,19 @@ export default function PracticeTab({
                               </span>
                             )}
                         </div>
+
+                        {!isPracticeSource && (exam.lessonTitle || exam.chapterTitle) && (
+                          <div className="text-[11px] text-slate-500 mt-0.5 truncate max-w-md">
+                            {exam.lessonTitle ? `Bài học: ${exam.lessonTitle}` : ""}
+                            {exam.lessonTitle && exam.chapterTitle ? " • " : ""}
+                            {exam.chapterTitle || ""}
+                          </div>
+                        )}
+
                         <div className="flex items-center gap-2 mt-1 flex-wrap text-[11px] text-slate-500">
                           <span>
                             {exam.totalQuestionsCount} câu
-                            {exam.isHsaExam
+                            {isPracticeSource && exam.isHsaExam
                               ? exam.hsaPartShortNames.length > 0
                                 ? ` (${exam.hsaPartShortNames.join(" • ")})`
                                 : ""
@@ -1646,12 +1953,12 @@ export default function PracticeTab({
                                 ? ` (P1: ${exam.part1Count} • P2: ${exam.part2Count} • P3: ${exam.part3Count})`
                                 : ""}
                           </span>
-                          {exam.solutionVideoUrl && (
+                          {isPracticeSource && exam.solutionVideoUrl && (
                             <span className="px-1.5 py-0.2 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-semibold">
                               Có Video chữa
                             </span>
                           )}
-                          {exam.attachmentsCount > 0 && (
+                          {isPracticeSource && exam.attachmentsCount > 0 && (
                             <span className="px-1.5 py-0.2 rounded bg-[#F8FAFC] text-slate-700 border border-slate-200 text-[10px] font-semibold">
                               {exam.attachmentsCount} tài liệu
                             </span>
@@ -1666,28 +1973,36 @@ export default function PracticeTab({
                       </td>
 
                       <td className="py-3.5 px-3">
-                        <select
-                          value={
-                            PRACTICE_CATEGORIES.includes(exam.category) &&
-                            exam.category !== "Tất cả danh mục"
-                              ? exam.category
-                              : "Tự do"
-                          }
-                          onChange={(e) => handleLocalChangeCategory(exam.id, e.target.value)}
-                          className="px-2.5 py-1 rounded-md bg-white border border-slate-200/90 text-xs font-medium text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
-                        >
-                          {PRACTICE_CATEGORIES.filter((c) => c !== "Tất cả danh mục").map(
-                            (cat) => (
-                              <option key={cat} value={cat}>
-                                {cat}
-                              </option>
-                            )
-                          )}
-                        </select>
+                        {isPracticeSource ? (
+                          <select
+                            value={
+                              PRACTICE_CATEGORIES.includes(exam.category) &&
+                              exam.category !== "Tất cả danh mục"
+                                ? exam.category
+                                : "Tự do"
+                            }
+                            onChange={(e) => handleLocalChangeCategory(exam.id, e.target.value)}
+                            className="px-2.5 py-1 rounded-md bg-white border border-slate-200/90 text-xs font-medium text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
+                          >
+                            {PRACTICE_CATEGORIES.filter((c) => c !== "Tất cả danh mục").map(
+                              (cat) => (
+                                <option key={cat} value={cat}>
+                                  {cat}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-md bg-[#F8FAFC] text-slate-700 border border-slate-200/90 text-[11px] font-semibold inline-block">
+                            {exam.sourceType === "homework" ? "BTVN buổi học" : "Đề kiểm tra"}
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-3 text-center font-semibold text-slate-600">
-                        {exam.duration_minutes || 90} phút
+                        {exam.sourceType === "homework" && !exam.duration_minutes
+                          ? "Tự do"
+                          : `${exam.duration_minutes || 45} phút`}
                       </td>
 
                       <td className="py-3.5 px-3 text-center">
@@ -1709,7 +2024,7 @@ export default function PracticeTab({
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
-                          {exam.isHsaExam && exam.hsaPartsCount < 4 && (
+                          {isPracticeSource && exam.isHsaExam && exam.hsaPartsCount < 4 && (
                             <label
                               className={`px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition ${
                                 isRowLoadingDetail ? "opacity-50 pointer-events-none" : ""
@@ -1768,7 +2083,7 @@ export default function PracticeTab({
                             <span>Chấm OMR</span>
                           </button>
 
-                          {setAttachmentsModalExam && (
+                          {isPracticeSource && setAttachmentsModalExam && (
                             <button
                               type="button"
                               onClick={() => setAttachmentsModalExam(exam)}
@@ -1793,13 +2108,17 @@ export default function PracticeTab({
                                 onOpenExamEditor(fullExam);
                               }}
                               className="p-1.5 rounded-lg bg-white hover:bg-[#F8FAFC] text-slate-600 border border-slate-200/90 cursor-pointer"
-                              title="Sửa câu hỏi & đáp án đề thi"
+                              title={
+                                isPracticeSource
+                                  ? "Sửa câu hỏi & đáp án đề thi"
+                                  : "Xem / kiểm tra nội dung câu hỏi"
+                              }
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
                           )}
 
-                          {setVideoModalExam && (
+                          {isPracticeSource && setVideoModalExam && (
                             <button
                               type="button"
                               onClick={() => {
@@ -1834,14 +2153,16 @@ export default function PracticeTab({
                             </button>
                           )}
 
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePracticeExam(exam)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                            title="Xóa đề thi"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isPracticeSource && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePracticeExam(exam)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                              title="Xóa đề thi"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1879,6 +2200,13 @@ export default function PracticeTab({
                           </span>
                         )}
                       </div>
+                      {(exam.lessonTitle || exam.chapterTitle) && (
+                        <div className="text-[11px] font-normal text-slate-500 mt-0.5">
+                          {exam.lessonTitle ? `Bài học: ${exam.lessonTitle}` : ""}
+                          {exam.lessonTitle && exam.chapterTitle ? " • " : ""}
+                          {exam.chapterTitle || ""}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-700">
                       {exam.examCode}
@@ -2010,7 +2338,7 @@ export default function PracticeTab({
                     className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-200/90 text-xs font-medium text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
                   >
                     <option value="none">-- Chọn đề thi để hiện cột Điểm --</option>
-                    {effectiveExams.map((ex: any) => (
+                    {allSelectableExamsForSbd.map((ex: any) => (
                       <option key={ex.id} value={ex.id}>
                         [Mã {deriveExamCode3Digits(ex)}] {ex.title}
                       </option>
