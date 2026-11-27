@@ -13,7 +13,8 @@ import {
   Play,
   Eye,
   Camera,
-  Download
+  Download,
+  Lock
 } from "lucide-react";
 import { Profile, ExamAttempt } from "@/types";
 import { formatEmbedUrl } from "@/lib/utils";
@@ -36,6 +37,22 @@ interface ResolvedAttachmentItem {
   title: string;
   url: string;
   subtitle: string;
+}
+
+function isAnswerKeyAttachment(title: string): boolean {
+  if (!title) return false;
+  const lower = String(title).normalize("NFC").toLowerCase();
+  const noAccent = lower
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d");
+
+  return (
+    lower.includes("đáp án") ||
+    lower.includes("lời giải") ||
+    noAccent.includes("dap an") ||
+    noAccent.includes("loi giai")
+  );
 }
 
 function resolveExamAttachments(exam: any): ResolvedAttachmentItem[] {
@@ -180,6 +197,7 @@ export default function PracticeExamWorkspace({
   };
 
   const attachmentsList = useMemo(() => resolveExamAttachments(exam), [exam]);
+  const hasCompletedAtLeastOnce = localAttempts.length > 0;
   const videoUrl = exam.solutionVideoUrl || exam.videoUrl || "";
   const embedSrc = formatEmbedUrl(videoUrl);
   const canViewFile = exam.allowViewFile !== false;
@@ -325,31 +343,59 @@ export default function PracticeExamWorkspace({
 
               <div className="space-y-2">
                 {attachmentsList.length > 0 ? (
-                  attachmentsList.map((doc) => (
-                    <a
-                      key={doc.id}
-                      href={doc.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full p-3 bg-[#F8FAFC] hover:bg-white border border-slate-200/90 rounded-lg transition flex items-center justify-between gap-3 group"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <FileText className="w-4 h-4 text-[#1D4ED8] shrink-0" />
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-800 truncate group-hover:text-[#1D4ED8] transition-colors">
-                            {doc.title}
+                  attachmentsList.map((doc) => {
+                    const isAnswerKeyFile = isAnswerKeyAttachment(doc.title);
+
+                    if (isAnswerKeyFile && !hasCompletedAtLeastOnce) {
+                      return (
+                        <div
+                          key={doc.id}
+                          className="w-full p-3 bg-[#F8FAFC] border border-slate-200/90 rounded-lg opacity-85 flex items-center justify-between gap-3 select-none"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-slate-500 truncate">
+                                {doc.title}
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-normal">
+                                Hoàn thành ít nhất 1 lượt làm bài để mở khóa đáp án
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[11px] text-slate-500 font-normal truncate">
-                            {doc.subtitle}
+                          <span className="text-[11px] font-semibold text-slate-400 shrink-0">
+                            Đang khóa
+                          </span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <a
+                        key={doc.id}
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full p-3 bg-[#F8FAFC] hover:bg-white border border-slate-200/90 rounded-lg transition flex items-center justify-between gap-3 group"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <FileText className="w-4 h-4 text-[#1D4ED8] shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-800 truncate group-hover:text-[#1D4ED8] transition-colors">
+                              {doc.title}
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-normal truncate">
+                              {doc.subtitle}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <span className="text-xs font-semibold text-[#1D4ED8] shrink-0 inline-flex items-center gap-1 group-hover:underline">
-                        <span>Mở file</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </span>
-                    </a>
-                  ))
+                        <span className="text-xs font-semibold text-[#1D4ED8] shrink-0 inline-flex items-center gap-1 group-hover:underline">
+                          <span>Mở file</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </span>
+                      </a>
+                    );
+                  })
                 ) : (
                   canViewFile && (
                     <button
