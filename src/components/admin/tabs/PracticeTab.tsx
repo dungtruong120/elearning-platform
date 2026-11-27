@@ -17,19 +17,17 @@ import {
   RefreshCw,
   X,
   FilePlus2,
-  Layers
+  FileText
 } from "lucide-react";
 import { supabase as defaultSupabaseClient } from "@/lib/supabaseClient";
 import {
   deriveExamCode3Digits,
   extractExamQuestionCounts,
-  formatStudentAutoSBD,
   openPrintableDynamicAnswerSheet
 } from "@/lib/omrEngine";
 import { AdminBulkOMRScannerModal } from "@/components/admin/paper/AdminBulkOMRScannerModal";
 import { AzotaExamConfigModal } from "@/app/admin/AzotaExamConfigModal";
 
-// DANH MỤC ĐẦY ĐỦ KHÔI PHỤC TẤT CẢ PHÂN LOẠI ĐỀ
 export const PRACTICE_CATEGORIES = [
   "Tất cả danh mục",
   "Đề thi giữa kỳ",
@@ -42,6 +40,64 @@ export const PRACTICE_CATEGORIES = [
   "Đề tổng ôn chuyên đề",
   "Tự do"
 ];
+
+interface ExamAttachmentItem {
+  id: string;
+  title: string;
+  url: string;
+}
+
+function parseExamAttachments(exam: any): ExamAttachmentItem[] {
+  const result: ExamAttachmentItem[] = [];
+  const seenUrls = new Set<string>();
+
+  const pushItem = (raw: any, fallbackTitle: string) => {
+    if (!raw) return;
+    const url = String(raw.url || "").trim();
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    result.push({
+      id: String(raw.id || `att-${Date.now()}-${result.length}`),
+      title: String(raw.title || fallbackTitle).trim() || fallbackTitle,
+      url
+    });
+  };
+
+  let rawAttachments: any = exam?.attachments;
+  if (typeof rawAttachments === "string" && rawAttachments.trim().startsWith("[")) {
+    try {
+      rawAttachments = JSON.parse(rawAttachments);
+    } catch {
+      rawAttachments = [];
+    }
+  }
+  if (Array.isArray(rawAttachments)) {
+    rawAttachments.forEach((item: any, idx: number) =>
+      pushItem(item, `Tài liệu đính kèm ${idx + 1}`)
+    );
+  }
+
+  const rawDriveUrl = String(exam?.driveUrl || "").trim();
+  if (rawDriveUrl) {
+    if (rawDriveUrl.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(rawDriveUrl);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any, idx: number) =>
+            pushItem(item, `Tài liệu đính kèm ${idx + 1}`)
+          );
+        }
+      } catch {}
+    } else if (/^https?:\/\//i.test(rawDriveUrl)) {
+      pushItem(
+        { id: "legacy-drive", title: "File đề thi (PDF / Drive)", url: rawDriveUrl },
+        "File đề thi (PDF / Drive)"
+      );
+    }
+  }
+
+  return result.slice(0, 3);
+}
 
 function normalizeStr(str: any): string {
   if (!str) return "";
@@ -66,8 +122,7 @@ function normalizeVietnameseSearch(str: any): string {
 function extractExamTimestampScore(exam: any): number {
   if (!exam) return 0;
 
-  const rawTime =
-    exam.created_at || exam.updated_at || exam.createdAt || exam.updatedAt;
+  const rawTime = exam.created_at || exam.updated_at || exam.createdAt || exam.updatedAt;
   if (rawTime) {
     const parsedTime = new Date(rawTime).getTime();
     if (!isNaN(parsedTime) && parsedTime > 0) {
@@ -90,22 +145,16 @@ function extractExamTimestampScore(exam: any): number {
   return 0;
 }
 
-/**
- * TỰ ĐỘNG NHẬN DIỆN DANH MỤC CHUẨN DỰA TRÊN TÊN ĐỀ & CATEGORY GỐC
- * Đảm bảo đề thường (như "TEST NGUYÊN HÀM" thuộc "Đề kiểm tra định kỳ") không bao giờ bị nhận nhầm sang ĐGNL HSA/TSA.
- */
 function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
   const rawCat = String(exam?.category || fallbackCategory || "").trim();
   const rawFormat = String(exam?.exam_format || "").trim().toLowerCase();
   const titleSearch = normalizeVietnameseSearch(exam?.title || "");
   const catSearch = normalizeVietnameseSearch(rawCat);
 
-  // 1. Nếu đề được đánh dấu rõ exam_format === "hsa" hoặc category gốc là ĐGNL HSA
   if (rawFormat === "hsa" || /\b(hsa|tsa|dgnl)\b/i.test(catSearch)) {
     return "Đề luyện thi ĐGNL (HSA/TSA)";
   }
 
-  // 2. Nếu đề đã có category chuẩn thuộc các danh mục THPT / Kiểm tra định kỳ / Giữa kỳ / Học kỳ / BTVN thì giữ nguyên 100%
   if (
     rawCat &&
     PRACTICE_CATEGORIES.includes(rawCat) &&
@@ -182,9 +231,6 @@ function resolveSmartCategory(exam: any, fallbackCategory?: string): string {
   return rawCat || "Tự do";
 }
 
-/**
- * NHẬN DIỆN ĐỀ ĐÁNH GIÁ NĂNG LỰC HSA & CÁC PHẦN ĐÃ UP (TỐI ĐA 4 PHẦN: quant, qual, english, history_geo)
- */
 function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
   isHsa: boolean;
   partsCount: number;
@@ -196,22 +242,21 @@ function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
   const rawCat = String(exam?.category || "").trim();
   const rawTitle = String(exam?.title || "").trim();
 
-  // Nếu đề được chỉ định rõ là đề THPT hoặc thuộc danh mục kiểm tra thường mà không có cờ HSA
   if (rawFormat === "thpt") {
     return {
       isHsa: false,
       partsCount: 0,
       maxPoints: 10,
       partShortNames: [],
-      badgeText: "",
+      badgeText: ""
     };
   }
 
   const rawSecs = Array.isArray(exam?.data)
     ? exam.data
     : Array.isArray(exam?.sections)
-    ? exam.sections
-    : [];
+      ? exam.sections
+      : [];
 
   const hasHsaSectionKey = rawSecs.some((s: any) => {
     const k = String(s?.part_key || s?.key || "").toLowerCase();
@@ -236,7 +281,7 @@ function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
       partsCount: 0,
       maxPoints: 10,
       partShortNames: [],
-      badgeText: "",
+      badgeText: ""
     };
   }
 
@@ -297,14 +342,13 @@ function detectHsaExamInfo(exam: any, resolvedTotalQuestions: number): {
     partsCount,
     maxPoints: Math.min(150, partsCount * 50),
     partShortNames,
-    badgeText,
+    badgeText
   };
 }
 
 function safeSaveExamsToLocal(exams: any[]) {
   if (typeof window === "undefined" || !Array.isArray(exams) || exams.length === 0) return;
   try {
-    // Chỉ lưu metadata gọn nhẹ vào localStorage để tránh vượt quá 5MB Quota của trình duyệt
     const slim = exams.map((ex: any) => ({
       id: ex?.id,
       title: ex?.title,
@@ -319,6 +363,7 @@ function safeSaveExamsToLocal(exams: any[]) {
       allowRetake: ex?.allowRetake ?? true,
       allowViewFile: ex?.allowViewFile ?? true,
       driveUrl: ex?.driveUrl || "",
+      attachments: parseExamAttachments(ex),
       solutionVideoUrl: ex?.solutionVideoUrl || "",
       data: ex?.data || ex?.sections || undefined,
       created_at: ex?.created_at || new Date().toISOString()
@@ -345,6 +390,7 @@ export interface PracticeTabProps {
   showToast?: (msg: string, type?: "success" | "error") => void;
   setVideoModalExam?: (exam: any | null) => void;
   setSolutionVideoInput?: (val: string) => void;
+  setAttachmentsModalExam?: (exam: any | null) => void;
   setAzotaScoreViewModal?: (modal: {
     isOpen: boolean;
     examTitle: string;
@@ -382,6 +428,7 @@ export default function PracticeTab({
   showToast,
   setVideoModalExam,
   setSolutionVideoInput,
+  setAttachmentsModalExam,
   setAzotaScoreViewModal,
   onOpenExamEditor,
   onTestExam,
@@ -399,7 +446,6 @@ export default function PracticeTab({
   const [loadingSingleExamId, setLoadingSingleExamId] = useState<string | null>(null);
   const isFetchingRef = useRef<boolean>(false);
 
-  // State phục vụ Modal ghép thêm phần thi HSA trực tiếp
   const [hsaAppendModalState, setHsaAppendModalState] = useState<{
     isOpen: boolean;
     targetExam: any | null;
@@ -407,7 +453,7 @@ export default function PracticeTab({
   }>({
     isOpen: false,
     targetExam: null,
-    file: null,
+    file: null
   });
 
   useEffect(() => {
@@ -425,16 +471,11 @@ export default function PracticeTab({
     }
   };
 
-  // 1. NẠP TOÀN BỘ CACHE ĐỀ THI TỪ LOCALSTORAGE
   const [internalExams, setInternalExams] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       const merged: any[] = [];
       const seenIds = new Set<string>();
-      const keys = [
-        "edunexus_practice_exams",
-        "edunexus_quizzes",
-        "tct_practice_exams"
-      ];
+      const keys = ["edunexus_practice_exams", "edunexus_quizzes", "tct_practice_exams"];
       for (const k of keys) {
         try {
           const raw = localStorage.getItem(k);
@@ -518,7 +559,6 @@ export default function PracticeTab({
   const [scannerTargetExam, setScannerTargetExam] = useState<any | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
 
-  // Gộp non-destructive khi propPracticeExams thay đổi (Giữ lại data câu hỏi nếu trong cache đã có)
   useEffect(() => {
     if (Array.isArray(propPracticeExams) && propPracticeExams.length > 0) {
       setInternalExams((prev) => {
@@ -532,7 +572,6 @@ export default function PracticeTab({
             map.set(String(ex.id), {
               ...existing,
               ...ex,
-              // Bảo toàn mảng câu hỏi đã cache nếu bản ghi mới chỉ là metadata nhẹ
               data: ex.data || existing?.data,
               sections: ex.sections || existing?.sections
             });
@@ -566,8 +605,8 @@ export default function PracticeTab({
   }, [propAllAttempts]);
 
   /**
-   * 2. HÀM NẠP DANH SÁCH ĐỀ SIÊU NHẸ (< 15 KB):
-   * TUYỆT ĐỐI KHÔNG SELECT CỘT `data`, `questions`, `content`, `media_map` HOẶC GỌI `/api/admin/data`!
+   * HÀM NẠP DANH SÁCH ĐỀ SIÊU NHẸ (< 15 KB):
+   * TUYỆT ĐỐI KHÔNG SELECT CỘT `data`, `questions`, `content`, `media_map`!
    */
   const fetchExamsAndStudentsSafely = useCallback(
     async (notifyUser: boolean = false) => {
@@ -589,7 +628,6 @@ export default function PracticeTab({
           ...ex,
           id,
           category: resolveSmartCategory(ex, existing?.category || defaultCategory),
-          // Giữ lại data câu hỏi nếu đã từng tải trước đó trong bộ nhớ
           data: ex.data || existing?.data,
           sections: ex.sections || existing?.sections
         });
@@ -598,50 +636,72 @@ export default function PracticeTab({
       internalExams.forEach((ex) => addExamToCollector(ex));
 
       if (effectiveSupabase) {
-        // BƯỚC 1: CHỈ SELECT CÁC CỘT METADATA SIÊU NHẸ TỪ BẢNG `practice_exams` (< 15 KB)
         try {
-          const { data: sbExamsLight, error: lightErr } = await effectiveSupabase
+          const { data: sbExamsWithAttach, error: attachErr } = await effectiveSupabase
             .from("practice_exams")
             .select(`
               id,
               title,
               exam_code,
               category,
+              exam_format,
+              hsa_parts_count,
               duration_minutes,
               total_questions,
               allowRetake,
               allowViewFile,
               driveUrl,
+              attachments,
               solutionVideoUrl,
               created_at,
               updated_at
             `)
             .order("created_at", { ascending: false });
 
-          if (!lightErr && Array.isArray(sbExamsLight)) {
-            sbExamsLight.forEach((ex: any) => addExamToCollector(ex));
+          if (!attachErr && Array.isArray(sbExamsWithAttach)) {
+            sbExamsWithAttach.forEach((ex: any) => addExamToCollector(ex));
           } else {
-            // Fallback 2: Nếu bảng chưa có cột exam_code / total_questions / updated_at, chỉ lấy các cột cơ bản (vẫn KHÔNG lấy cột data/media_map!)
-            const { data: sbExamsMin, error: minErr } = await effectiveSupabase
+            const { data: sbExamsLight, error: lightErr } = await effectiveSupabase
               .from("practice_exams")
-              .select(
-                "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
-              )
+              .select(`
+                id,
+                title,
+                exam_code,
+                category,
+                duration_minutes,
+                total_questions,
+                allowRetake,
+                allowViewFile,
+                driveUrl,
+                solutionVideoUrl,
+                created_at,
+                updated_at
+              `)
               .order("created_at", { ascending: false });
 
-            if (!minErr && Array.isArray(sbExamsMin)) {
-              sbExamsMin.forEach((ex: any) => addExamToCollector(ex));
+            if (!lightErr && Array.isArray(sbExamsLight)) {
+              sbExamsLight.forEach((ex: any) => addExamToCollector(ex));
             } else {
-              // Fallback 3: Tối thiểu 5 cột cốt lõi
-              const { data: sbExamsCore, error: coreErr } = await effectiveSupabase
+              const { data: sbExamsMin, error: minErr } = await effectiveSupabase
                 .from("practice_exams")
-                .select("id, title, category, duration_minutes, created_at")
+                .select(
+                  "id, title, category, duration_minutes, allowRetake, allowViewFile, driveUrl, solutionVideoUrl, created_at"
+                )
                 .order("created_at", { ascending: false });
 
-              if (!coreErr && Array.isArray(sbExamsCore)) {
-                sbExamsCore.forEach((ex: any) => addExamToCollector(ex));
-              } else if (coreErr) {
-                console.error("Supabase Error Details (practice_exams core):", coreErr);
+              if (!minErr && Array.isArray(sbExamsMin)) {
+                sbExamsMin.forEach((ex: any) => addExamToCollector(ex));
+              } else {
+                const { data: sbExamsCore, error: coreErr } = await effectiveSupabase
+                  .from("practice_exams")
+                  .select("id, title, category, duration_minutes, created_at")
+                  .order("created_at", { ascending: false });
+
+                if (!coreErr && Array.isArray(sbExamsCore)) {
+                  sbExamsCore.forEach((ex: any) => addExamToCollector(ex));
+                } else if (coreErr) {
+                  console.error("Supabase Error Details (practice_exams core):", coreErr);
+                }
               }
             }
           }
@@ -649,7 +709,6 @@ export default function PracticeTab({
           console.error("Supabase Error Details (practice_exams exception):", err);
         }
 
-        // BƯỚC 2: CHỈ TRUY VẤN `courses` KHI CHƯA CÓ `chapters` TRONG BỘ NHỚ
         if (propChapters.length === 0 && internalChapters.length === 0) {
           try {
             const { data: courseRows, error: courseErr } = await effectiveSupabase
@@ -666,12 +725,13 @@ export default function PracticeTab({
           } catch {}
         }
 
-        // BƯỚC 3: CHỈ TRUY VẤN profiles SIÊU NHẸ KHI DANH SÁCH HỌC SINH ĐANG TRỐNG
         if (propRegisteredStudents.length === 0 && internalStudents.length === 0) {
           try {
             const { data: sbProfiles } = await effectiveSupabase
               .from("profiles")
-              .select("id, student_code, full_name, username, school, grade, role, learning_mode, study_mode")
+              .select(
+                "id, student_code, full_name, username, school, grade, role, learning_mode, study_mode"
+              )
               .limit(200);
             if (Array.isArray(sbProfiles) && sbProfiles.length > 0) {
               recoveredStudents = sbProfiles.filter(
@@ -681,7 +741,6 @@ export default function PracticeTab({
           } catch {}
         }
 
-        // BƯỚC 4: CHỈ TRUY VẤN `exam_attempts` SIÊU NHẸ KHI CHƯA CÓ LƯỢT NỘP BÀI
         if (propAllAttempts.length === 0 && internalAttempts.length === 0) {
           try {
             const { data: sbAtt } = await effectiveSupabase
@@ -744,7 +803,6 @@ export default function PracticeTab({
     ]
   );
 
-  // Chỉ tự động fetch từ Supabase khi propPracticeExams từ trang cha truyền xuống đang trống (Tránh fetch trùng lặp 2 lần!)
   useEffect(() => {
     if (propPracticeExams.length === 0) {
       fetchExamsAndStudentsSafely(false);
@@ -752,7 +810,7 @@ export default function PracticeTab({
   }, []);
 
   /**
-   * 3. HÀM LAZY-LOAD ON-DEMAND: CHỈ TẢI NỘI DUNG CÂU HỎI CHI TIẾT (`data`) CỦA ĐÚNG 1 ĐỀ KHI GIÁO VIÊN CLICK!
+   * LAZY-LOAD ON-DEMAND: CHỈ TẢI NỘI DUNG CÂU HỎI CHI TIẾT (`data`, `media_map`) CỦA ĐÚNG 1 ĐỀ KHI ADMIN CLICK!
    */
   const ensureFullExamDataLoaded = useCallback(
     async (exam: any): Promise<any> => {
@@ -771,23 +829,35 @@ export default function PracticeTab({
       try {
         const { data: fullRow, error } = await effectiveSupabase
           .from("practice_exams")
-          .select("id, title, category, duration_minutes, data, driveUrl, solutionVideoUrl")
+          .select(
+            "id, title, category, exam_format, duration_minutes, data, media_map, driveUrl, solutionVideoUrl"
+          )
           .eq("id", exam.id)
           .single();
 
-        if (!error && fullRow) {
+        let resolvedRow = !error && fullRow ? fullRow : null;
+
+        if (!resolvedRow) {
+          const { data: fallbackRow, error: fbErr } = await effectiveSupabase
+            .from("practice_exams")
+            .select("id, title, category, duration_minutes, data, driveUrl, solutionVideoUrl")
+            .eq("id", exam.id)
+            .single();
+          if (!fbErr && fallbackRow) {
+            resolvedRow = fallbackRow;
+          }
+        }
+
+        if (resolvedRow) {
           const enrichedExam = {
             ...exam,
-            ...fullRow,
-            data: fullRow.data || exam.data || [],
-            sections: fullRow.data || exam.sections || []
+            ...resolvedRow,
+            data: resolvedRow.data || exam.data || [],
+            sections: resolvedRow.data || exam.sections || []
           };
 
-          // Cập nhật vào state bộ nhớ để các lần bấm tiếp theo dùng ngay lập tức
           setInternalExams((prev) =>
-            prev.map((item) =>
-              String(item?.id) === String(exam.id) ? enrichedExam : item
-            )
+            prev.map((item) => (String(item?.id) === String(exam.id) ? enrichedExam : item))
           );
 
           return enrichedExam;
@@ -803,7 +873,6 @@ export default function PracticeTab({
     [effectiveSupabase]
   );
 
-  // 4. HỢP NHẤT TOÀN DIỆN & SẮP XẾP ĐỀ MỚI NHẤT LÊN ĐẦU (INDEX 0)
   const effectiveChapters = useMemo(() => {
     if (Array.isArray(propChapters) && propChapters.length > 0) return propChapters;
     return internalChapters;
@@ -829,6 +898,7 @@ export default function PracticeTab({
         duration_minutes: Number(ex.duration_minutes || existing?.duration_minutes || 90),
         data: ex.data || existing?.data,
         sections: ex.sections || existing?.sections,
+        attachments: ex.attachments || existing?.attachments,
         created_at:
           ex.created_at ||
           existing?.created_at ||
@@ -882,9 +952,7 @@ export default function PracticeTab({
           {
             id: qId,
             title: qTitle,
-            isHomework: Boolean(
-              att.isHomework || att.is_homework || att.type === "homework"
-            ),
+            isHomework: Boolean(att.isHomework || att.is_homework || att.type === "homework"),
             duration_minutes: 90,
             created_at: att.created_at || att.createdAt
           },
@@ -961,12 +1029,9 @@ export default function PracticeTab({
       if (!key || seen.has(key.toLowerCase())) return;
       seen.add(key.toLowerCase());
 
-      const rawMode = String(
-        s.learning_mode || s.study_mode || s.mode || "offline"
-      ).toLowerCase();
+      const rawMode = String(s.learning_mode || s.study_mode || s.mode || "offline").toLowerCase();
       const isOnline = rawMode.includes("on");
 
-      // Đọc mã SBD trực tiếp từ Supabase
       const rawCode = s.student_code || s.studentCode || s.sbd || "";
       const cleanCode = rawCode
         ? String(rawCode).replace(/\D/g, "").padStart(6, "0").slice(-6)
@@ -986,7 +1051,6 @@ export default function PracticeTab({
     pool.sort((a, b) => a.full_name.localeCompare(b.full_name, "vi"));
 
     const directory = pool.map((stu, idx) => {
-      // Ưu tiên SBD từ database, nếu tài khoản chưa có mới dùng STT
       const finalSbd = stu.student_code || String(idx + 1).padStart(6, "0");
       return {
         ...stu,
@@ -1086,9 +1150,7 @@ export default function PracticeTab({
 
       const studentBestMap = new Map<string, any>();
       matchingAttempts.forEach((att: any) => {
-        const key = String(
-          att.studentId || att.student_id || att.studentName || att.id
-        )
+        const key = String(att.studentId || att.student_id || att.studentName || att.id)
           .trim()
           .toLowerCase();
         const prev = studentBestMap.get(key);
@@ -1102,7 +1164,6 @@ export default function PracticeTab({
         scores.length > 0 ? scores.reduce((sum, v) => sum + v, 0) / scores.length : 0;
       const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
 
-      // Ưu tiên lấy tổng số câu từ cột `total_questions` hoặc từ lượt nộp bài nếu chưa tải cột `data`
       const attemptMaxTotalQ = matchingAttempts.reduce(
         (maxQ: number, a: any) =>
           Math.max(maxQ, Number(a?.total_questions || a?.totalQuestions || 0)),
@@ -1113,6 +1174,7 @@ export default function PracticeTab({
         Number(ex?.total_questions) || attemptMaxTotalQ || counts.totalCount || 22;
 
       const hsaInfo = detectHsaExamInfo(ex, resolvedTotalQuestions);
+      const parsedAttachments = parseExamAttachments(ex);
 
       return {
         ...ex,
@@ -1127,6 +1189,7 @@ export default function PracticeTab({
         hsaMaxPoints: hsaInfo.maxPoints,
         hsaPartShortNames: hsaInfo.partShortNames,
         hsaBadgeText: hsaInfo.badgeText,
+        attachmentsCount: parsedAttachments.length,
         totalSubmissions: matchingAttempts.length,
         uniqueStudentCount: studentBestMap.size,
         avgScore: avgScore.toFixed(2),
@@ -1293,7 +1356,6 @@ export default function PracticeTab({
     }
   };
 
-  // Xử lý khi Admin bấm "+ Ghép phần HSA" và chọn file Word cho phần thi tiếp theo
   const handleTriggerAppendHsaPart = async (exam: any, file: File) => {
     const fullExam = await ensureFullExamDataLoaded(exam);
 
@@ -1302,15 +1364,13 @@ export default function PracticeTab({
       return;
     }
 
-    // Luôn mở Modal cấu hình HSA chuyên biệt với prop appendToExam & initialData để ghép thêm phần thi an toàn
     setHsaAppendModalState({
       isOpen: true,
       targetExam: fullExam,
-      file,
+      file
     });
   };
 
-  // Lưu đề HSA sau khi ghép thêm phần thi mới
   const handleSaveAppendedHsaExam = async (updatedExamPayload: any) => {
     const targetId = String(updatedExamPayload.id);
 
@@ -1329,17 +1389,15 @@ export default function PracticeTab({
 
     if (effectiveSupabase) {
       try {
-        await effectiveSupabase
-          .from("practice_exams")
-          .upsert({
-            id: updatedExamPayload.id,
-            title: updatedExamPayload.title,
-            category: updatedExamPayload.category || "Đề luyện thi ĐGNL (HSA/TSA)",
-            duration_minutes: updatedExamPayload.duration_minutes,
-            total_questions: updatedExamPayload.total_questions,
-            data: updatedExamPayload.sections || updatedExamPayload.data,
-            updated_at: new Date().toISOString(),
-          });
+        await effectiveSupabase.from("practice_exams").upsert({
+          id: updatedExamPayload.id,
+          title: updatedExamPayload.title,
+          category: updatedExamPayload.category || "Đề luyện thi ĐGNL (HSA/TSA)",
+          duration_minutes: updatedExamPayload.duration_minutes,
+          total_questions: updatedExamPayload.total_questions,
+          data: updatedExamPayload.sections || updatedExamPayload.data,
+          updated_at: new Date().toISOString()
+        });
       } catch (err) {
         console.error("Lỗi cập nhật đề HSA lên Supabase:", err);
       }
@@ -1390,9 +1448,9 @@ export default function PracticeTab({
   return (
     <div className="space-y-4 max-w-6xl mx-auto text-left font-sans">
       {practiceSyncStatus && practiceSyncStatus.isSyncing && (
-        <div className="bg-blue-50 border border-blue-300 p-3.5 rounded-xl flex items-center justify-between text-xs font-bold text-blue-900">
+        <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-xl flex items-center justify-between text-xs font-bold text-[#1D4ED8]">
           <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+            <Loader2 className="w-4 h-4 text-[#1D4ED8] animate-spin" />
             <span>{practiceSyncStatus.message || "Đang đồng bộ đề thi lên đám mây..."}</span>
           </div>
           <span className="font-mono">{practiceSyncStatus.progress}%</span>
@@ -1400,19 +1458,20 @@ export default function PracticeTab({
       )}
 
       {/* 1. HEADER THỐNG KÊ & CỤM NÚT HÀNH ĐỘNG CHÍNH */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+      <div className="bg-white border border-slate-200/90 rounded-xl p-5 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
-              <h2 className="text-[20px] font-bold text-slate-800 tracking-tight">
+              <h2 className="text-[20px] font-bold text-slate-900 tracking-tight">
                 Kho Luyện Đề Thực Chiến & Chấm Thi
               </h2>
-              <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold">
+              <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-[#1D4ED8] border border-blue-200 text-xs font-bold">
                 TỔNG SỐ ĐỀ: {effectiveExams.length}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Đề mới tải lên luôn được ưu tiên xếp ở vị trí đầu tiên. Hỗ trợ lọc danh mục và tìm kiếm theo tên/mã đề.
+              Đề mới tải lên luôn được ưu tiên xếp ở vị trí đầu tiên. Hỗ trợ lọc danh mục và tìm
+              kiếm theo tên/mã đề.
             </p>
           </div>
 
@@ -1421,14 +1480,12 @@ export default function PracticeTab({
               type="button"
               disabled={isSelfFetching}
               onClick={() => fetchExamsAndStudentsSafely(true)}
-              className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              className="px-3 py-2 rounded-lg bg-[#F8FAFC] hover:bg-slate-100 text-slate-700 border border-slate-200/90 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
             >
               <RefreshCw
-                className={`w-3.5 h-3.5 text-blue-600 ${
-                  isSelfFetching ? "animate-spin" : ""
-                }`}
+                className={`w-3.5 h-3.5 text-[#1D4ED8] ${isSelfFetching ? "animate-spin" : ""}`}
               />
-              <span>🔄 Đồng bộ</span>
+              <span>Đồng bộ</span>
             </button>
 
             <button
@@ -1439,10 +1496,10 @@ export default function PracticeTab({
                 }
                 setShowSbdModal(true);
               }}
-              className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
             >
               <Users className="w-3.5 h-3.5 text-slate-500" />
-              <span>📋 Bảng SBD Lớp ({sbdDirectoryList.length})</span>
+              <span>Bảng SBD Lớp ({sbdDirectoryList.length})</span>
             </button>
 
             <button
@@ -1455,13 +1512,13 @@ export default function PracticeTab({
                 setScannerTargetExam(fullTarget);
                 setIsScannerOpen(true);
               }}
-              className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-white hover:bg-[#F8FAFC] text-slate-800 border border-slate-200/90 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
             >
-              <Camera className="w-3.5 h-3.5" />
-              <span>📷 Mở Camera Chấm bài</span>
+              <Camera className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              <span>Mở Camera Chấm bài</span>
             </button>
 
-            <label className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
+            <label className="px-3.5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer">
               <FileUp className="w-3.5 h-3.5" />
               <span>+ Tải Đề Mới (Word/PDF)</span>
               <input
@@ -1482,15 +1539,15 @@ export default function PracticeTab({
           </div>
         </div>
 
-        {/* 2. THANH CHUYỂN TAB, DROPDOWN LỌC DANH MỤC & Ô TÌM KIẾM THỜI GỰC */}
+        {/* 2. THANH CHUYỂN TAB, DROPDOWN LỌC DANH MỤC & Ô TÌM KIẾM */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg w-fit">
+          <div className="flex items-center gap-1.5 bg-[#F1F5F9] p-1 rounded-lg w-fit">
             <button
               type="button"
               onClick={() => setPracticeSubTab && setPracticeSubTab("manage")}
               className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
                 practiceSubTab === "manage"
-                  ? "bg-white text-slate-800 shadow-2xs"
+                  ? "bg-white text-slate-900 border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -1501,7 +1558,7 @@ export default function PracticeTab({
               onClick={() => setPracticeSubTab && setPracticeSubTab("scores")}
               className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
                 practiceSubTab === "scores"
-                  ? "bg-white text-slate-800 shadow-2xs"
+                  ? "bg-white text-slate-900 border border-slate-200/80"
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -1513,7 +1570,7 @@ export default function PracticeTab({
             <select
               value={activeCategoryFilter}
               onChange={(e) => handleSelectCategoryFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-white border border-slate-200/90 text-xs font-semibold text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
             >
               {PRACTICE_CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
@@ -1529,7 +1586,7 @@ export default function PracticeTab({
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 placeholder="Tìm tên đề, mã đề (VD: 280, Giữa kỳ)..."
-                className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium outline-none focus:border-blue-600"
+                className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200/90 rounded-lg text-xs font-medium outline-none focus:border-[#1D4ED8]"
               />
               {searchKeyword && (
                 <button
@@ -1547,10 +1604,10 @@ export default function PracticeTab({
       </div>
 
       {/* 3. BẢNG DANH SÁCH ĐỀ LUYỆN THI */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-slate-200/90 rounded-xl overflow-hidden">
         {(propIsLoadingExams || isSelfFetching) && computedExamsWithScores.length === 0 ? (
           <div className="py-14 text-center space-y-2">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
+            <Loader2 className="w-6 h-6 animate-spin text-[#1D4ED8] mx-auto" />
             <p className="text-xs font-semibold text-slate-500">
               {uploadProgressText || "Đang tải danh sách đề thi..."}
             </p>
@@ -1583,7 +1640,7 @@ export default function PracticeTab({
               <button
                 type="button"
                 onClick={() => fetchExamsAndStudentsSafely(true)}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Đồng bộ từ Supabase
               </button>
@@ -1592,7 +1649,7 @@ export default function PracticeTab({
         ) : practiceSubTab === "manage" ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+              <thead className="bg-[#F8FAFC] text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200/90">
                 <tr>
                   <th className="py-3 px-3 text-center w-12">STT</th>
                   <th className="py-3 px-4">Tên đề luyện thi & Cấu trúc</th>
@@ -1607,7 +1664,7 @@ export default function PracticeTab({
                 {computedExamsWithScores.map((exam, idx) => {
                   const isRowLoadingDetail = loadingSingleExamId === String(exam.id);
                   return (
-                    <tr key={exam.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                    <tr key={exam.id || idx} className="hover:bg-[#F8FAFC] transition-colors">
                       <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
                         {idx + 1}
                       </td>
@@ -1625,7 +1682,7 @@ export default function PracticeTab({
                           {idx === 0 &&
                             activeCategoryFilter === "Tất cả danh mục" &&
                             !searchKeyword.trim() && (
-                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold">
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-bold">
                                 Mới nhất
                               </span>
                             )}
@@ -1638,19 +1695,24 @@ export default function PracticeTab({
                                 ? ` (${exam.hsaPartShortNames.join(" • ")})`
                                 : ""
                               : Array.isArray(exam.data) && exam.data.length > 0
-                              ? ` (P1: ${exam.part1Count} • P2: ${exam.part2Count} • P3: ${exam.part3Count})`
-                              : ""}
+                                ? ` (P1: ${exam.part1Count} • P2: ${exam.part2Count} • P3: ${exam.part3Count})`
+                                : ""}
                           </span>
                           {exam.solutionVideoUrl && (
-                            <span className="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                            <span className="px-1.5 py-0.2 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 text-[10px] font-semibold">
                               Có Video chữa
+                            </span>
+                          )}
+                          {exam.attachmentsCount > 0 && (
+                            <span className="px-1.5 py-0.2 rounded bg-[#F8FAFC] text-slate-700 border border-slate-200 text-[10px] font-semibold">
+                              {exam.attachmentsCount} tài liệu
                             </span>
                           )}
                         </div>
                       </td>
 
                       <td className="py-3.5 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs">
+                        <span className="px-2 py-0.5 rounded bg-[#F8FAFC] text-slate-800 border border-slate-200/90 font-mono font-bold text-xs">
                           {exam.examCode}
                         </span>
                       </td>
@@ -1659,7 +1721,7 @@ export default function PracticeTab({
                         <select
                           value={exam.category || "Tự do"}
                           onChange={(e) => handleLocalChangeCategory(exam.id, e.target.value)}
-                          className="px-2.5 py-1 rounded-md bg-white border border-slate-200 text-xs font-medium text-slate-700 outline-none focus:border-blue-600 cursor-pointer"
+                          className="px-2.5 py-1 rounded-md bg-white border border-slate-200/90 text-xs font-medium text-slate-700 outline-none focus:border-[#1D4ED8] cursor-pointer"
                         >
                           {PRACTICE_CATEGORIES.filter((c) => c !== "Tất cả danh mục").map(
                             (cat) => (
@@ -1686,7 +1748,7 @@ export default function PracticeTab({
                               attempts: exam.attempts || []
                             })
                           }
-                          className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs cursor-pointer transition"
+                          className="px-2.5 py-1 rounded-md bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 font-bold text-xs cursor-pointer transition"
                         >
                           {exam.totalSubmissions} bài ({exam.uniqueStudentCount} HS)
                         </button>
@@ -1694,15 +1756,14 @@ export default function PracticeTab({
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="inline-flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Nút + Ghép phần HSA cho đề ĐGNL HSA chưa đủ 4 phần */}
                           {exam.isHsaExam && exam.hsaPartsCount < 4 && (
                             <label
-                              className={`px-2.5 py-1.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition ${
+                              className={`px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#1D4ED8] border border-blue-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition ${
                                 isRowLoadingDetail ? "opacity-50 pointer-events-none" : ""
                               }`}
                               title="Tải thêm file Word phần thi tiếp theo để ghép vào đề HSA này"
                             >
-                              <FilePlus2 className="w-3.5 h-3.5 text-blue-700" />
+                              <FilePlus2 className="w-3.5 h-3.5 text-[#1D4ED8]" />
                               <span>+ Ghép phần HSA</span>
                               <input
                                 type="file"
@@ -1719,7 +1780,6 @@ export default function PracticeTab({
                             </label>
                           )}
 
-                          {/* Nút In Phiếu A4: Tự động Lazy-Load câu hỏi của riêng đề này nếu chưa có */}
                           <button
                             type="button"
                             disabled={isRowLoadingDetail}
@@ -1731,17 +1791,16 @@ export default function PracticeTab({
                                 examCode: exam.examCode
                               });
                             }}
-                            className="px-2.5 py-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                           >
                             {isRowLoadingDetail ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1D4ED8]" />
                             ) : (
-                              <Printer className="w-3.5 h-3.5 text-blue-600" />
+                              <Printer className="w-3.5 h-3.5 text-[#1D4ED8]" />
                             )}
                             <span>Phiếu A4</span>
                           </button>
 
-                          {/* Nút Chấm OMR: Tự động Lazy-Load đáp án của đúng mã đề này khi mở Camera */}
                           <button
                             type="button"
                             disabled={isRowLoadingDetail}
@@ -1750,11 +1809,27 @@ export default function PracticeTab({
                               setScannerTargetExam(fullExam);
                               setIsScannerOpen(true);
                             }}
-                            className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            className="px-2.5 py-1.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                           >
                             <Camera className="w-3.5 h-3.5" />
                             <span>Chấm OMR</span>
                           </button>
+
+                          {setAttachmentsModalExam && (
+                            <button
+                              type="button"
+                              onClick={() => setAttachmentsModalExam(exam)}
+                              className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition ${
+                                exam.attachmentsCount > 0
+                                  ? "bg-blue-50 hover:bg-blue-100/80 text-[#1D4ED8] border-blue-200"
+                                  : "bg-white hover:bg-[#F8FAFC] text-slate-700 border-slate-200/90"
+                              }`}
+                              title="Quản lý tài liệu đính kèm (tối đa 3 file PDF / Google Drive)"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                              <span>Tài liệu ({exam.attachmentsCount}/3)</span>
+                            </button>
+                          )}
 
                           {onOpenExamEditor && (
                             <button
@@ -1764,7 +1839,7 @@ export default function PracticeTab({
                                 const fullExam = await ensureFullExamDataLoaded(exam);
                                 onOpenExamEditor(fullExam);
                               }}
-                              className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                              className="p-1.5 rounded-lg bg-white hover:bg-[#F8FAFC] text-slate-600 border border-slate-200/90 cursor-pointer"
                               title="Sửa câu hỏi & đáp án đề thi"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
@@ -1780,7 +1855,11 @@ export default function PracticeTab({
                                 }
                                 setVideoModalExam(exam);
                               }}
-                              className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                              className={`p-1.5 rounded-lg border cursor-pointer transition ${
+                                exam.solutionVideoUrl
+                                  ? "bg-blue-50 hover:bg-blue-100/80 text-[#1D4ED8] border-blue-200"
+                                  : "bg-white hover:bg-[#F8FAFC] text-slate-600 border-slate-200/90"
+                              }`}
                               title="Gắn link Video chữa đề"
                             >
                               <Video className="w-3.5 h-3.5" />
@@ -1795,7 +1874,7 @@ export default function PracticeTab({
                                 const fullExam = await ensureFullExamDataLoaded(exam);
                                 onTestExam(fullExam);
                               }}
-                              className="p-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 cursor-pointer"
+                              className="p-1.5 rounded-lg bg-white hover:bg-[#F8FAFC] text-slate-600 border border-slate-200/90 cursor-pointer"
                               title="Mở phòng thi thử"
                             >
                               <Play className="w-3.5 h-3.5" />
@@ -1805,7 +1884,7 @@ export default function PracticeTab({
                           <button
                             type="button"
                             onClick={() => handleDeletePracticeExam(exam)}
-                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
                             title="Xóa đề thi"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1821,7 +1900,7 @@ export default function PracticeTab({
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+              <thead className="bg-[#F8FAFC] text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200/90">
                 <tr>
                   <th className="py-3 px-3 text-center w-12">STT</th>
                   <th className="py-3 px-4">Tên đề thi</th>
@@ -1834,7 +1913,7 @@ export default function PracticeTab({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {computedExamsWithScores.map((exam, idx) => (
-                  <tr key={exam.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={exam.id || idx} className="hover:bg-[#F8FAFC] transition-colors">
                     <td className="py-3.5 px-3 text-center font-semibold text-slate-400">
                       {idx + 1}
                     </td>
@@ -1855,12 +1934,12 @@ export default function PracticeTab({
                       {exam.uniqueStudentCount} học sinh ({exam.totalSubmissions} lượt)
                     </td>
                     <td className="py-3.5 px-3 text-center">
-                      <span className="px-2.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold">
+                      <span className="px-2.5 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 font-bold">
                         {exam.avgScore}đ
                       </span>
                     </td>
                     <td className="py-3.5 px-3 text-center">
-                      <span className="px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                      <span className="px-2.5 py-0.5 rounded bg-[#F8FAFC] text-slate-800 border border-slate-200/90 font-bold">
                         {exam.maxScore}đ
                       </span>
                     </td>
@@ -1872,9 +1951,9 @@ export default function PracticeTab({
                             setSbdSelectedExamId(String(exam.id));
                             setShowSbdModal(true);
                           }}
-                          className="px-3 py-1.5 rounded-md bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-white hover:bg-[#F8FAFC] text-slate-700 border border-slate-200/90 text-[11px] font-semibold cursor-pointer"
                         >
-                          📋 Phiếu điểm SBD lớp
+                          Phiếu điểm SBD lớp
                         </button>
                         <button
                           type="button"
@@ -1886,7 +1965,7 @@ export default function PracticeTab({
                               attempts: exam.attempts || []
                             })
                           }
-                          className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           <span>Xem chi tiết bài nộp</span>
@@ -1905,16 +1984,16 @@ export default function PracticeTab({
       {showSbdModal && (
         <div
           onClick={() => setShowSbdModal(false)}
-          className="fixed inset-0 z-[500] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 cursor-pointer"
+          className="fixed inset-0 z-[500] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 cursor-pointer"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] border border-slate-200 shadow-2xl flex flex-col overflow-hidden cursor-default"
+            className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] border border-slate-200/90 shadow-xs flex flex-col overflow-hidden cursor-default"
           >
-            <div className="p-4 sm:p-5 border-b border-slate-200 bg-white space-y-3">
+            <div className="p-4 sm:p-5 border-b border-slate-200/90 bg-white space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-base font-bold text-slate-800">
+                  <h3 className="text-base font-bold text-slate-900">
                     Bảng SBD Học Viên & Phiếu Ghi Điểm ({filteredSbdStudentsForModal.length} bạn)
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -1925,9 +2004,9 @@ export default function PracticeTab({
                   <button
                     type="button"
                     onClick={handlePrintSbdTable}
-                    className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    className="px-3.5 py-2 rounded-lg bg-[#1D4ED8] hover:bg-blue-800 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Printer className="w-3.5 h-3.5" /> 🖨 In bảng SBD
+                    <Printer className="w-3.5 h-3.5" /> In bảng SBD
                   </button>
                   <button
                     type="button"
@@ -1940,7 +2019,7 @@ export default function PracticeTab({
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg w-fit">
+                <div className="flex items-center gap-1 bg-[#F1F5F9] p-1 rounded-lg w-fit">
                   {[
                     { key: "all", label: `Tất cả (${sbdDirectoryList.length})` },
                     {
@@ -1962,7 +2041,7 @@ export default function PracticeTab({
                       onClick={() => setSbdModeFilter(tab.key as any)}
                       className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
                         sbdModeFilter === tab.key
-                          ? "bg-white text-slate-800 shadow-2xs"
+                          ? "bg-white text-slate-900 border border-slate-200/80"
                           : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
@@ -1975,7 +2054,7 @@ export default function PracticeTab({
                   <select
                     value={sbdSelectedExamId}
                     onChange={(e) => setSbdSelectedExamId(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-medium text-slate-800 outline-none focus:border-blue-600 cursor-pointer"
+                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-200/90 text-xs font-medium text-slate-800 outline-none focus:border-[#1D4ED8] cursor-pointer"
                   >
                     <option value="none">-- Chọn đề thi để hiện cột Điểm --</option>
                     {effectiveExams.map((ex: any) => (
@@ -1989,8 +2068,8 @@ export default function PracticeTab({
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <table className="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden">
-                <thead className="bg-slate-50 text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200">
+              <table className="w-full text-left text-xs border border-slate-200/90 rounded-lg overflow-hidden">
+                <thead className="bg-[#F8FAFC] text-[10px] font-bold uppercase text-slate-500 border-b border-slate-200/90">
                   <tr>
                     <th className="py-2.5 px-3 text-center w-14">STT</th>
                     <th className="py-2.5 px-3 text-center w-32">SBD (6 chữ số)</th>
@@ -2003,12 +2082,12 @@ export default function PracticeTab({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredSbdStudentsForModal.map((stu) => (
-                    <tr key={stu.id} className="hover:bg-slate-50">
+                    <tr key={stu.id} className="hover:bg-[#F8FAFC]">
                       <td className="py-2.5 px-3 text-center font-semibold text-slate-400">
                         {stu.stt}
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono font-bold text-xs">
+                        <span className="px-2 py-0.5 rounded bg-[#F8FAFC] text-slate-800 border border-slate-200/90 font-mono font-bold text-xs">
                           {stu.sbd}
                         </span>
                       </td>
@@ -2019,7 +2098,7 @@ export default function PracticeTab({
                       <td className="py-2.5 px-3 text-center">
                         {selectedSbdExamObj ? (
                           stu.examScore !== undefined ? (
-                            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold text-xs">
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-[#1D4ED8] border border-blue-200 font-bold text-xs">
                               {stu.examScore.toFixed(2)}đ
                             </span>
                           ) : (
@@ -2028,7 +2107,7 @@ export default function PracticeTab({
                             </span>
                           )
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#F8FAFC] text-slate-600 border border-slate-200/90">
                             {stu.mode}
                           </span>
                         )}
