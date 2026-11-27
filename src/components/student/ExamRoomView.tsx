@@ -70,6 +70,9 @@ export interface ExamRoomViewProps {
   reviewAttempt?: any;
 }
 
+const KATEX_NORMALIZED_CLASS =
+  "[&_.katex]:text-[1.03em] [&_.katex]:font-normal [&_.katex-display]:my-1.5 [&_.katex-display]:text-[1.05em]";
+
 function normalizeTextKey(str: any): string {
   if (!str) return "";
   return String(str)
@@ -196,10 +199,10 @@ function MathRenderer({
         onError={(e) => {
           e.currentTarget.style.display = "none";
         }}
-        className="inline-block max-h-14 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white cursor-pointer hover:opacity-90"
+        className="inline-block max-h-12 align-middle mx-1 my-0.5 object-contain rounded border border-slate-100 bg-white cursor-pointer hover:opacity-90"
       />
     ) : (
-      <span key={keyIdx} className="my-3 block text-center">
+      <span key={keyIdx} className="my-2 block text-center">
         <span
           className="relative inline-block group cursor-pointer"
           onClick={() => onImageClick && onImageClick(src)}
@@ -211,9 +214,9 @@ function MathRenderer({
             onError={(e) => {
               e.currentTarget.style.display = "none";
             }}
-            className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-xl border border-slate-200/90 bg-white p-2.5 object-contain mx-auto transition-transform group-hover:scale-[1.01]"
+            className="max-h-48 sm:max-h-52 max-w-full rounded-xl border border-slate-200/90 bg-white p-1.5 object-contain mx-auto transition-transform group-hover:scale-[1.01]"
           />
-          <span className="absolute bottom-3 right-3 bg-slate-900/70 text-white p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="absolute bottom-2.5 right-2.5 bg-slate-900/70 text-white p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
             <ZoomIn className="w-3.5 h-3.5" />
           </span>
         </span>
@@ -224,9 +227,10 @@ function MathRenderer({
   return (
     <span
       className={
-        inline
-          ? "inline align-middle text-[13.5px] sm:text-[14px] font-normal text-slate-700"
-          : "block leading-relaxed text-[14px] sm:text-[14.5px] font-normal text-slate-800"
+        (inline
+          ? "inline align-middle text-[14px] font-normal leading-[1.65] text-slate-800 "
+          : "block text-[14px] font-normal leading-[1.65] text-slate-800 ") +
+        KATEX_NORMALIZED_CLASS
       }
     >
       {parts.map((part, i) => {
@@ -246,7 +250,7 @@ function MathRenderer({
 
           if (!src) {
             return (
-              <span key={i} className="my-2.5 block text-center">
+              <span key={i} className="my-2 block text-center">
                 <span className="inline-block p-2 rounded-xl bg-[#F8FAFC] border border-dashed border-slate-300 text-slate-500 text-xs font-semibold text-center">
                   [Hình vẽ: {rawKey}]
                 </span>
@@ -277,8 +281,8 @@ function MathRenderer({
                 key={i}
                 className={
                   isBlock
-                    ? "block my-2 text-center overflow-x-auto custom-scrollbar"
-                    : "inline-block align-middle px-0.5 text-[14.5px] sm:text-[15px] font-serif"
+                    ? "block my-1.5 text-center overflow-x-auto custom-scrollbar font-normal"
+                    : "inline-block align-middle px-0.5 font-normal"
                 }
                 dangerouslySetInnerHTML={{
                   __html: katex.renderToString(math, {
@@ -290,7 +294,7 @@ function MathRenderer({
             );
           } catch {
             return (
-              <span key={i} className="font-serif italic text-[#1D4ED8] px-0.5">
+              <span key={i} className="italic text-[#1D4ED8] px-0.5 font-normal">
                 {math}
               </span>
             );
@@ -400,7 +404,6 @@ export function ExamRoomView({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [currentIdx, setCurrentIdx] = useState<number>(0);
 
-  // Dữ liệu answers nạp bổ sung khi chế độ Xem lại nhận reviewAttempt chưa có cột answers (tiết kiệm Egress)
   const [fetchedReviewAnswers, setFetchedReviewAnswers] = useState<Record<string, any> | null>(
     null
   );
@@ -585,7 +588,6 @@ export function ExamRoomView({
     [userAnswers, isQuestionTrueFalse, isQuestionShortAnswer, normalizeShortAnswer]
   );
 
-  // ĐỒNG BỘ PROPS KHI CHUYỂN SANG REVIEW ATTEMPT MỚI + LAZY-LOAD CỘT `answers` NẾU THIẾU
   useEffect(() => {
     setFetchedReviewAnswers(null);
     if (initialReviewMode) {
@@ -635,7 +637,6 @@ export function ExamRoomView({
     };
   }, [isReviewMode, reviewAttempt]);
 
-  // ĐỒNG BỘ MAPPING ĐÁP ÁN Ở REVIEW MODE: ƯU TIÊN q_${orderNum} / String(orderNum) TRƯỚC, FALLBACK originalId SAU
   useEffect(() => {
     if (!isReviewMode || questions.length === 0) return;
 
@@ -748,7 +749,6 @@ export function ExamRoomView({
     correctCount
   ]);
 
-  // TẢI VÀ ĐỒNG BỘ BẢNG XẾP HẠNG TOÀN KHÓA
   const fetchFullExamLeaderboard = useCallback(
     async (latestClientAttempt?: any) => {
       setIsLoadingRanking(true);
@@ -922,7 +922,6 @@ export function ExamRoomView({
     [quizId, quizTitle, profile, score, timeSpentSeconds]
   );
 
-  // TỰ ĐỘNG LƯU NHÁP ĐÁP ÁN + THỜI GIAN CÒN LẠI VÀO localStorage (`tct_draft_${studentId}_${quizId}`)
   useEffect(() => {
     if (typeof window !== "undefined" && !isSubmitted && !isReviewMode) {
       try {
@@ -942,7 +941,6 @@ export function ExamRoomView({
     }
   }, [userAnswers, studentId, quizId, isSubmitted, isReviewMode]);
 
-  // TẢI CÂU HỎI VÀ CACHE VÀO localStorage (`tct_exam_cache_${quizId}`) — TIẾT KIỆM EGRESS + FALLBACK AN TOÀN
   useEffect(() => {
     let isCancelled = false;
 
@@ -964,7 +962,6 @@ export function ExamRoomView({
             (Array.isArray(obj.sections) && obj.sections.length > 0) ||
             (Array.isArray(obj.questions) && obj.questions.length > 0));
 
-        // ƯU TIÊN 1: Kiểm tra cache localStorage `tct_exam_cache_${quizId}`
         if (typeof window !== "undefined" && quizId) {
           try {
             const cachedExamRaw = localStorage.getItem(`tct_exam_cache_${quizId}`);
@@ -977,7 +974,6 @@ export function ExamRoomView({
           } catch {}
         }
 
-        // ƯU TIÊN 2: Kiểm tra sessionStorage nếu khớp chính xác quizId
         if (!dbExam && typeof window !== "undefined") {
           try {
             const cachedRoom = sessionStorage.getItem("tct_active_exam_room");
@@ -995,7 +991,6 @@ export function ExamRoomView({
           } catch {}
         }
 
-        // ƯU TIÊN 3: Truy vấn Supabase có fallback an toàn nếu thiếu cột `media_map` hoặc `sections` (TUYỆT ĐỐI KHÔNG SELECT *)
         if (!dbExam) {
           const targetTable = isHomework ? "homeworks" : "practice_exams";
           const primaryCols = isHomework
@@ -1254,7 +1249,6 @@ export function ExamRoomView({
     };
   }, [quizId, quizTitle, isHomework]);
 
-  // ĐỒNG HỒ ĐẾM GIỜ
   useEffect(() => {
     if (isLoadingQuestions || isSubmitted || isReviewMode || isGrading) return;
     const timer = setInterval(() => {
@@ -1359,7 +1353,6 @@ export function ExamRoomView({
 
     const rawAnswers = userAnswersRef.current;
 
-    // LƯU ĐÁP ÁN TUYỆT ĐỐI THEO KEY TUẦN TỰ `q_${idx + 1}` VÀ `String(idx + 1)`, KHÔNG ĐỂ GHI ĐÈ CHÉO GIỮA CÁC CÂU
     const cleanAnswersPayload: Record<string, any> = {};
     questions.forEach((q, idx) => {
       const qNum = idx + 1;
@@ -1801,13 +1794,13 @@ export function ExamRoomView({
         isReviewMode && normalizeShortAnswer(currentAns) === normalizeShortAnswer(q.correctAnswer);
 
       return (
-        <div className="pt-1.5 space-y-2.5">
-          <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-slate-200/90 space-y-2">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+        <div className="pt-1 space-y-2">
+          <div className="p-3 rounded-xl bg-[#F8FAFC] border border-slate-200/90 space-y-2">
+            <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
               <PenLine className="w-3.5 h-3.5 text-[#1D4ED8]" />
               <span>Điền đáp án câu trả lời ngắn:</span>
             </label>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
                 inputMode="decimal"
@@ -1821,7 +1814,7 @@ export function ExamRoomView({
                     : "Nhập kết quả (VD: 12,5 hoặc -3)..."
                 }
                 className={
-                  "flex-1 p-2.5 bg-white border rounded-xl text-sm font-bold outline-none transition " +
+                  "flex-1 py-2 px-3 bg-white border rounded-lg text-sm font-semibold outline-none transition " +
                   (isReviewMode
                     ? isCorrect
                       ? "border-emerald-500 bg-white text-emerald-900"
@@ -1839,10 +1832,10 @@ export function ExamRoomView({
             </div>
 
             {isReviewMode && (
-              <div className="pt-1.5 flex flex-wrap items-center gap-2.5 text-xs font-semibold">
+              <div className="pt-1 flex flex-wrap items-center gap-2 text-xs font-semibold">
                 <span className="text-slate-500">Bạn đã điền:</span>
                 <span
-                  className={`px-2.5 py-0.5 rounded-lg border ${
+                  className={`px-2 py-0.5 rounded-md border ${
                     isCorrect
                       ? "bg-white text-emerald-700 border-emerald-300"
                       : "bg-white text-rose-700 border-rose-300"
@@ -1851,16 +1844,16 @@ export function ExamRoomView({
                   {currentAns.trim() ? currentAns : "Bỏ trống"}
                 </span>
                 <span className="text-slate-500 ml-1">Đáp án chuẩn:</span>
-                <span className="px-2.5 py-0.5 bg-[#1D4ED8] text-white rounded-lg">
+                <span className="px-2 py-0.5 bg-[#1D4ED8] text-white rounded-md">
                   {q.correctAnswer}
                 </span>
                 {isCorrect ? (
                   <span className="text-emerald-700 flex items-center gap-1">
-                    <CheckCircle2 className="w-4 h-4" /> Chính xác (+1.0 điểm)
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Chính xác (+1.0 điểm)
                   </span>
                 ) : (
                   <span className="text-rose-600 flex items-center gap-1">
-                    <XCircle className="w-4 h-4" /> {currentAns.trim() ? "Chưa đúng" : "Chưa làm"}
+                    <XCircle className="w-3.5 h-3.5" /> {currentAns.trim() ? "Chưa đúng" : "Chưa làm"}
                   </span>
                 )}
               </div>
@@ -1876,21 +1869,21 @@ export function ExamRoomView({
       const cleanAns = (q.correctAnswer || "").replace(/[^A-Za-zĐđSsTtFf]/g, "").toUpperCase();
 
       return (
-        <div className="pt-1.5 space-y-2">
+        <div className={`pt-1 ${KATEX_NORMALIZED_CLASS}`}>
           <div className="overflow-hidden border border-slate-200/90 rounded-xl bg-white">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-slate-200/90 bg-[#F8FAFC] text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="py-2 px-3 sm:px-4 text-left font-semibold">Phát biểu</th>
-                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-emerald-700">
+                  <th className="py-1.5 px-3 text-left font-semibold">Phát biểu</th>
+                  <th className="py-1.5 px-2 text-center w-14 sm:w-16 font-semibold text-emerald-700">
                     Đúng
                   </th>
-                  <th className="py-2 px-2 text-center w-14 sm:w-16 font-semibold text-rose-600">
+                  <th className="py-1.5 px-2 text-center w-14 sm:w-16 font-semibold text-rose-600">
                     Sai
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs sm:text-[13.5px]">
+              <tbody className="divide-y divide-slate-100 text-[14px] font-normal">
                 {q.options.map((opt, optIdx) => {
                   const optKeyLower = opt.key.toLowerCase();
                   const rawSel = userTF[optKeyLower] ?? userTF[opt.key.toUpperCase()];
@@ -1914,12 +1907,12 @@ export function ExamRoomView({
 
                   return (
                     <tr key={opt.key} className="hover:bg-[#F8FAFC] transition-colors">
-                      <td className="py-2.5 px-3 sm:px-4 align-middle">
+                      <td className="py-2 px-3 align-middle">
                         <div className="flex items-start gap-2">
-                          <span className="font-bold text-[#1D4ED8] shrink-0 mt-0.5">
+                          <span className="font-semibold text-[#1D4ED8] shrink-0 mt-0.5 text-[13.5px]">
                             {opt.key})
                           </span>
-                          <div className="flex-1">
+                          <div className="flex-1 min-w-0">
                             <MathRenderer
                               content={opt.text}
                               mediaMap={effectiveMediaMap}
@@ -1930,7 +1923,7 @@ export function ExamRoomView({
                         </div>
                       </td>
 
-                      <td className="py-2.5 px-2 text-center align-middle">
+                      <td className="py-2 px-2 text-center align-middle">
                         <button
                           type="button"
                           disabled={isSubmitted || isReviewMode}
@@ -1960,7 +1953,7 @@ export function ExamRoomView({
                         </button>
                       </td>
 
-                      <td className="py-2.5 px-2 text-center align-middle">
+                      <td className="py-2 px-2 text-center align-middle">
                         <button
                           type="button"
                           disabled={isSubmitted || isReviewMode}
@@ -2006,8 +1999,8 @@ export function ExamRoomView({
     const rightKey = String(q.correctAnswer || "A").trim().toUpperCase();
 
     return (
-      <div className="space-y-2.5 pt-1">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
+      <div className={`space-y-2 pt-0.5 ${KATEX_NORMALIZED_CLASS}`}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {q.options.map((opt) => {
             const optKeyNorm = String(opt.key).trim().toUpperCase();
             const isSelected = stuSelectedKey === optKeyNorm;
@@ -2021,11 +2014,11 @@ export function ExamRoomView({
                 onClick={() => handleSelectOption(q.id, opt.key)}
                 disabled={isSubmitted || isReviewMode}
                 className={
-                  "py-2.5 px-3 sm:px-3.5 rounded-xl border text-left flex items-center gap-2.5 transition-all " +
+                  "py-2 px-3 rounded-xl border text-left flex items-center gap-2.5 transition-all font-normal " +
                   (isCorrect
-                    ? "bg-[#F8FAFC] border-emerald-500 text-slate-900 font-semibold ring-1 ring-emerald-500/25"
+                    ? "bg-[#F8FAFC] border-emerald-500 text-slate-900 ring-1 ring-emerald-500/25"
                     : isWrongSelected
-                      ? "bg-[#F8FAFC] border-rose-400 text-slate-900 font-semibold ring-1 ring-rose-400/25"
+                      ? "bg-[#F8FAFC] border-rose-400 text-slate-900 ring-1 ring-rose-400/25"
                       : isSelected
                         ? "bg-blue-50/60 border-[#1D4ED8] text-slate-900 ring-1 ring-[#1D4ED8]/20 cursor-pointer"
                         : "bg-white border-slate-200/90 hover:border-slate-300 text-slate-700 hover:bg-[#F8FAFC] " +
@@ -2064,7 +2057,7 @@ export function ExamRoomView({
             <div className="flex items-center gap-2">
               <span className="text-slate-500 font-medium">Bạn đã chọn:</span>
               <span
-                className={`px-2.5 py-0.5 rounded-md font-bold border ${
+                className={`px-2 py-0.5 rounded-md font-bold border ${
                   !stuSelectedKey
                     ? "bg-[#F8FAFC] text-slate-600 border-slate-200/90"
                     : stuSelectedKey === rightKey
@@ -2078,7 +2071,7 @@ export function ExamRoomView({
 
             <div className="flex items-center gap-2">
               <span className="text-slate-500 font-medium">Đáp án đúng:</span>
-              <span className="px-2.5 py-0.5 rounded-md bg-[#1D4ED8] text-white font-bold">
+              <span className="px-2 py-0.5 rounded-md bg-[#1D4ED8] text-white font-bold">
                 {rightKey}
               </span>
             </div>
@@ -2255,10 +2248,10 @@ export function ExamRoomView({
       {/* 2. VÙNG NỘI DUNG CÂU HỎI & SIDEBAR */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden relative">
         <main className="lg:col-span-9 flex flex-col justify-between overflow-hidden relative bg-[#F1F5F9]">
-          <div className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto custom-scrollbar">
-            <div className="max-w-4xl w-full mx-auto space-y-3.5 sm:space-y-4 pb-6">
+          <div className="flex-1 p-3 sm:p-4 lg:p-5 overflow-y-auto custom-scrollbar">
+            <div className="max-w-4xl w-full mx-auto space-y-3.5 pb-6">
               {isReviewMode && (
-                <div className="p-4 bg-white border border-slate-200/90 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                <div className="p-3.5 bg-white border border-slate-200/90 rounded-xl flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 text-[#1D4ED8] flex items-center justify-center font-bold text-sm">
                       {score.toFixed(1)}
@@ -2301,7 +2294,7 @@ export function ExamRoomView({
                   const qStatus = isReviewMode ? getQuestionReviewStatus(currentQ) : null;
                   return (
                     <div
-                      className={`bg-white rounded-xl p-4 sm:p-5 border space-y-3 text-left relative ${
+                      className={`bg-white rounded-xl p-4 sm:p-4 border space-y-2.5 text-left relative ${KATEX_NORMALIZED_CLASS} ${
                         isReviewMode
                           ? qStatus === "correct"
                             ? "border-emerald-300/90"
@@ -2311,7 +2304,7 @@ export function ExamRoomView({
                           : "border-slate-200/90"
                       }`}
                     >
-                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-[#1D4ED8]">
                             {"Câu " + (currentIdx + 1) + " / " + questions.length}
@@ -2375,7 +2368,7 @@ export function ExamRoomView({
                           onImageClick={setPreviewImage}
                         />
                         {currentQ.image && (
-                          <div className="my-3 text-center">
+                          <div className="my-2 text-center">
                             <img
                               src={
                                 resolveImageSrc(
@@ -2392,7 +2385,7 @@ export function ExamRoomView({
                                   ) || currentQ.image!
                                 )
                               }
-                              className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-xl border border-slate-200/90 bg-white p-2 object-contain mx-auto cursor-pointer"
+                              className="max-h-48 sm:max-h-52 max-w-full rounded-xl border border-slate-200/90 bg-white p-1.5 object-contain mx-auto cursor-pointer"
                             />
                           </div>
                         )}
@@ -2401,7 +2394,7 @@ export function ExamRoomView({
                       {renderQuestionOptions(currentQ)}
 
                       {isReviewMode && currentQ.explanation && (
-                        <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-slate-200/90 space-y-1.5 text-xs mt-3">
+                        <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-slate-200/90 space-y-1.5 text-xs mt-2.5">
                           <p className="font-bold text-[#1D4ED8] flex items-center gap-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8]" /> Lời giải chi tiết:
                           </p>
@@ -2418,7 +2411,7 @@ export function ExamRoomView({
                   );
                 })()
               ) : (
-                <div className="space-y-3.5 pb-10">
+                <div className="space-y-3.5 pb-8">
                   {questions.map((q, qIndex) => {
                     const qStatus = isReviewMode ? getQuestionReviewStatus(q) : null;
                     return (
@@ -2426,7 +2419,7 @@ export function ExamRoomView({
                         key={q.id}
                         id={"question-card-" + q.id}
                         onClick={() => setCurrentIdx(qIndex)}
-                        className={`bg-white rounded-xl p-4 sm:p-5 border space-y-2.5 text-left relative ${
+                        className={`bg-white rounded-xl p-4 sm:p-4 border space-y-2.5 text-left relative ${KATEX_NORMALIZED_CLASS} ${
                           isReviewMode
                             ? qStatus === "correct"
                               ? "border-emerald-300/90"
@@ -2436,7 +2429,7 @@ export function ExamRoomView({
                             : "border-slate-200/90"
                         }`}
                       >
-                        <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-[#1D4ED8]">
                               {"Câu " + (qIndex + 1) + " / " + questions.length}
@@ -2498,7 +2491,7 @@ export function ExamRoomView({
                             onImageClick={setPreviewImage}
                           />
                           {q.image && (
-                            <div className="my-3 text-center">
+                            <div className="my-2 text-center">
                               <img
                                 src={
                                   resolveImageSrc(q.image, q.mediaMap || mediaMap || {}) || q.image
@@ -2510,7 +2503,7 @@ export function ExamRoomView({
                                       q.image!
                                   )
                                 }
-                                className="max-h-[240px] sm:max-h-[300px] max-w-full rounded-xl border border-slate-200/90 bg-white p-2 object-contain mx-auto cursor-pointer"
+                                className="max-h-48 sm:max-h-52 max-w-full rounded-xl border border-slate-200/90 bg-white p-1.5 object-contain mx-auto cursor-pointer"
                               />
                             </div>
                           )}
@@ -2519,7 +2512,7 @@ export function ExamRoomView({
                         {renderQuestionOptions(q)}
 
                         {isReviewMode && q.explanation && (
-                          <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-slate-200/90 text-xs text-slate-700 space-y-1.5 mt-2.5">
+                          <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-slate-200/90 text-xs text-slate-700 space-y-1.5 mt-2">
                             <p className="font-bold flex items-center gap-1.5 text-[#1D4ED8]">
                               <Sparkles className="w-3.5 h-3.5 text-[#1D4ED8]" /> Lời giải chi tiết:
                             </p>
