@@ -71,7 +71,7 @@ export interface ExamRoomViewProps {
 }
 
 const KATEX_NORMALIZED_CLASS =
-  "[&_.katex]:text-[1.06em] [&_.katex]:font-normal [&_.katex]:text-slate-800 [&_.katex-display]:my-2 [&_.katex-display]:text-[1.08em]";
+  "[&_.katex]:text-[1.03em] [&_.katex]:font-normal [&_.katex]:text-slate-800 [&_.katex-display]:my-2 [&_.katex-display]:text-[1.06em]";
 
 function normalizeTextKey(str: any): string {
   if (!str) return "";
@@ -228,7 +228,7 @@ function MathRenderer({
     <span
       className={
         (inline
-          ? "inline align-middle text-[15px] font-normal leading-[1.65] text-slate-800 "
+          ? "inline align-baseline text-[15px] font-normal leading-[1.65] text-slate-800 "
           : "block text-[15px] font-normal leading-[1.65] text-slate-800 ") +
         KATEX_NORMALIZED_CLASS
       }
@@ -275,6 +275,10 @@ function MathRenderer({
             }
           }
 
+          if (!isBlock && /^[+-]?\d+(?:[.,]\d+)?$/.test(math)) {
+            return <span key={i}>{math}</span>;
+          }
+
           try {
             return (
               <span
@@ -282,7 +286,7 @@ function MathRenderer({
                 className={
                   isBlock
                     ? "block my-2 text-center overflow-x-auto custom-scrollbar font-normal"
-                    : "inline-block align-middle px-0.5 font-normal"
+                    : "inline align-baseline px-0.5 font-normal"
                 }
                 dangerouslySetInnerHTML={{
                   __html: katex.renderToString(math, {
@@ -2083,7 +2087,7 @@ export function ExamRoomView({
 
   if (isLoadingQuestions || questions.length === 0) {
     return (
-      <div className="fixed inset-0 z-[200] bg-[#F1F5F9] flex flex-col items-center justify-center p-4 font-sans">
+      <div className="fixed inset-0 z-[200] bg-[#F1F5F9] flex flex-col items-center justify-center p-4">
         <div className="bg-white border border-slate-200/90 rounded-2xl px-8 py-7 flex flex-col items-center gap-3.5 max-w-sm w-full text-center">
           <Loader2 className="w-8 h-8 text-[#1D4ED8] animate-spin" />
           <div className="space-y-1">
@@ -2098,13 +2102,7 @@ export function ExamRoomView({
   const currentQ = questions[currentIdx] || questions[0];
 
   return (
-    <div
-      style={{
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Plus Jakarta Sans", sans-serif'
-      }}
-      className="fixed inset-0 z-[120] bg-[#F1F5F9] text-slate-800 flex flex-col overflow-hidden antialiased"
-    >
+    <div className="fixed inset-0 z-[120] bg-[#F1F5F9] text-slate-800 flex flex-col overflow-hidden antialiased">
       {/* 1. HEADER PHÒNG THI */}
       <header className="h-14 sm:h-16 px-3 sm:px-6 bg-white border-b border-slate-200/90 flex items-center justify-between gap-2 shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
