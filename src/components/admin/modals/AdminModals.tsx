@@ -6,44 +6,38 @@ import {
   Pencil,
   Trash2,
   Plus,
-  Upload,
   Link as LinkIcon,
   ExternalLink,
   Video,
   FileText,
-  PenTool,
-  CheckSquare,
-  Award,
-  Play,
-  FolderPlus,
-  BookOpen,
-  Clock,
-  AlertCircle,
-  Save,
   FileUp,
   Edit3,
-  UploadCloud,
   CheckCircle2,
-  FileSignature,
   Sparkles,
-  RefreshCw,
   Loader2,
   Zap,
   Eye,
   RotateCcw,
-  Calendar,
-  Check,
-  HelpCircle,
-  UserPlus,
   ChevronDown,
   ChevronUp,
   History
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import katex from "katex";
-import { STANDARD_SHIFTS } from "@/types";
 
 export type SubjectCategoryKey = "dai" | "hinh" | "tong_on" | "tang_cuong" | "hsa";
+
+export interface ExamAttachmentItem {
+  id: string;
+  title: string;
+  url: string;
+}
+
+const ATTACHMENT_TITLE_SUGGESTIONS = [
+  "File đề thi (PDF / Drive)",
+  "File đáp án & lời giải chi tiết",
+  "Tài liệu bổ trợ"
+];
 
 const SUBJECT_CATEGORY_OPTIONS: { key: SubjectCategoryKey; label: string }[] = [
   { key: "dai", label: "Đại số" },
@@ -61,6 +55,102 @@ const AzotaExamConfigModal: any = dynamic<any>(
     ),
   { ssr: false }
 );
+
+// DYNAMIC IMPORT PHÒNG THI THỬ CHO ADMIN (THPT & ĐGNL HSA)
+const ExamRoomView: any = dynamic<any>(
+  () =>
+    import("@/components/student/ExamRoomView").then(
+      (mod: any) => mod.default || mod.ExamRoomView || mod
+    ),
+  { ssr: false }
+);
+
+const HsaExamWorkspace: any = dynamic<any>(
+  () =>
+    import("@/components/student/HsaExamWorkspace").then(
+      (mod: any) => mod.default || mod.HsaExamWorkspace || mod
+    ),
+  { ssr: false }
+);
+
+function parseExamAttachments(exam: any): ExamAttachmentItem[] {
+  const result: ExamAttachmentItem[] = [];
+  const seenUrls = new Set<string>();
+
+  const pushItem = (raw: any, fallbackTitle: string) => {
+    if (!raw) return;
+    const url = String(raw.url || "").trim();
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    result.push({
+      id: String(raw.id || `att-${Date.now()}-${result.length}`),
+      title: String(raw.title || fallbackTitle).trim() || fallbackTitle,
+      url
+    });
+  };
+
+  let rawAttachments: any = exam?.attachments;
+  if (typeof rawAttachments === "string" && rawAttachments.trim().startsWith("[")) {
+    try {
+      rawAttachments = JSON.parse(rawAttachments);
+    } catch {
+      rawAttachments = [];
+    }
+  }
+  if (Array.isArray(rawAttachments)) {
+    rawAttachments.forEach((item: any, idx: number) =>
+      pushItem(item, `Tài liệu đính kèm ${idx + 1}`)
+    );
+  }
+
+  const rawDriveUrl = String(exam?.driveUrl || "").trim();
+  if (rawDriveUrl) {
+    if (rawDriveUrl.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(rawDriveUrl);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any, idx: number) =>
+            pushItem(item, `Tài liệu đính kèm ${idx + 1}`)
+          );
+        }
+      } catch {}
+    } else if (/^https?:\/\//i.test(rawDriveUrl)) {
+      pushItem(
+        { id: "legacy-drive", title: "File đề thi (PDF / Drive)", url: rawDriveUrl },
+        "File đề thi (PDF / Drive)"
+      );
+    }
+  }
+
+  return result.slice(0, 3);
+}
+
+function isHsaPracticeExam(exam: any): boolean {
+  if (!exam) return false;
+  const rawFormat = String(exam?.exam_format || "").trim().toLowerCase();
+  if (rawFormat === "thpt") return false;
+  if (rawFormat === "hsa") return true;
+
+  const rawCat = String(exam?.category || "").trim();
+  const rawTitle = String(exam?.title || "").trim();
+  if (/\b(hsa|đgnl|dgnl)\b/i.test(rawCat) || /\bhsa\b/i.test(rawTitle)) return true;
+
+  const secs = Array.isArray(exam?.data)
+    ? exam.data
+    : Array.isArray(exam?.sections)
+      ? exam.sections
+      : [];
+  return secs.some((s: any) => {
+    const k = String(s?.part_key || s?.key || "").toLowerCase();
+    return (
+      k === "quant" ||
+      k === "qual" ||
+      k === "english" ||
+      k === "history_geo" ||
+      Number(s?.max_points || s?.maxScore) === 50
+    );
+  });
+}
 
 function cleanResourceMediaPayload(item: any): any {
   if (!item || typeof item !== "object") return item;
@@ -112,7 +202,6 @@ function normalizeSubjectCategory(
   return "dai";
 }
 
-// HÀM SỬA LỖI DÍNH LỆNH LATEX (\inftyminus, \inftyplus, v.v.) TRƯỚC KHI RENDER KATEX
 function sanitizeLatexString(tex: string): string {
   if (!tex) return "";
   return String(tex)
@@ -128,7 +217,6 @@ function sanitizeLatexString(tex: string): string {
     .replace(/\[(?:img|image):\s*\$?([a-zA-Z0-9_\-\.\/]+)\$?\s*\]/gi, "[img:$1]");
 }
 
-// HÀM GIẢI MÃ ĐƯỜNG DẪN ẢNH TRONG ĐỀ THI (TỪ MEDIAMAP HOẶC URL STORAGE)
 function resolveSubmissionImageSrc(rawKey: string, mediaMap: Record<string, any> = {}): string {
   if (!rawKey) return "";
   const trimmed = String(rawKey || "").trim();
@@ -158,7 +246,6 @@ function resolveSubmissionImageSrc(rawKey: string, mediaMap: Record<string, any>
   return "";
 }
 
-// COMPONENT HIỂN THỊ NỘI DUNG CÂU HỎI / ĐÁP ÁN / LỜI GIẢI
 function SubmissionRichContent({
   content,
   mediaMap = {},
@@ -256,7 +343,6 @@ interface AdminModalsProps {
   supabase?: any;
   showToast?: (msg: string, type?: "success" | "error") => void;
 
-  // CÁC PROPS KẾT NỐI VỚI LESSONS TAB VÀ DASHBOARD GỐC
   chapters?: any[];
   setChapters?: (chapters: any[]) => void;
   onUpdateChapters?: (newChapters: any[], taskName?: string) => Promise<any> | void;
@@ -296,6 +382,19 @@ interface AdminModalsProps {
   allAttempts?: any[];
   setAllAttempts?: any;
   onDeleteAttemptPermanent?: (attempt: any) => Promise<void> | void;
+  videoModalExam?: any | null;
+  setVideoModalExam?: (exam: any | null) => void;
+  solutionVideoInput?: string;
+  setSolutionVideoInput?: (val: string) => void;
+  handleSaveSolutionVideo?: (e: React.FormEvent) => void;
+  attachmentsModalExam?: any | null;
+  setAttachmentsModalExam?: (exam: any | null) => void;
+  handleSaveExamAttachments?: (
+    examId: string,
+    attachments: ExamAttachmentItem[]
+  ) => Promise<void> | void;
+  testExamRoom?: any | null;
+  setTestExamRoom?: (exam: any | null) => void;
   [key: string]: any;
 }
 
@@ -336,9 +435,18 @@ export default function AdminModals(props: AdminModalsProps) {
     setEditingExamData,
     onSaveAzotaExam,
     practiceExams = [],
-    allAttempts = [],
     setAllAttempts,
-    onDeleteAttemptPermanent
+    onDeleteAttemptPermanent,
+    videoModalExam = null,
+    setVideoModalExam,
+    solutionVideoInput = "",
+    setSolutionVideoInput,
+    handleSaveSolutionVideo,
+    attachmentsModalExam = null,
+    setAttachmentsModalExam,
+    handleSaveExamAttachments,
+    testExamRoom = null,
+    setTestExamRoom
   } = props;
 
   const currentRealtimeMonth = useMemo(() => new Date().getMonth() + 1, []);
@@ -391,19 +499,48 @@ export default function AdminModals(props: AdminModalsProps) {
     type: "lecture"
   });
 
-  // STATE QUẢN LÝ LUỒNG XÓA AN TOÀN 3 BƯỚC
+  // STATE QUẢN LÝ TỐI ĐA 3 TÀI LIỆU ĐÍNH KÈM CHO ĐỀ LUYỆN THI
+  const [examAttachmentsDraft, setExamAttachmentsDraft] = useState<ExamAttachmentItem[]>([]);
+  const [attachmentFormTitle, setAttachmentFormTitle] = useState<string>("");
+  const [attachmentFormUrl, setAttachmentFormUrl] = useState<string>("");
+  const [editingAttachmentId, setEditingAttachmentId] = useState<string | null>(null);
+  const [isSavingAttachments, setIsSavingAttachments] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (attachmentsModalExam) {
+      setExamAttachmentsDraft(parseExamAttachments(attachmentsModalExam));
+      setAttachmentFormTitle("");
+      setAttachmentFormUrl("");
+      setEditingAttachmentId(null);
+      setIsSavingAttachments(false);
+    }
+  }, [attachmentsModalExam]);
+
   const [deletionStateMap, setDeletionStateMap] = useState<Record<string, DeletionItemState>>({});
   const deletionTimersRef = useRef<
     Record<string, { progressInterval?: any; countdownInterval?: any; commitTimeout?: any }>
   >({});
 
-  // STATE QUẢN LÝ MODAL XEM BÀI LÀM CHI TIẾT CỦA HỌC SINH
   const [viewingSubmission, setViewingSubmission] = useState<{
     attempt: any;
     historyList?: any[];
     examObj: any | null;
     isLoadingExam: boolean;
   } | null>(null);
+
+  const adminTestProfile = useMemo(
+    () => ({
+      id: "admin-test",
+      full_name: "Giáo viên (Thi thử)",
+      username: "admin-test",
+      email: "admin-test@tct.edu.vn",
+      role: "student" as const,
+      school: "Tâm Chí Tài",
+      grade: "12",
+      learning_mode: "offline" as const
+    }),
+    []
+  );
 
   useEffect(() => {
     if (createModal) {
@@ -535,7 +672,6 @@ export default function AdminModals(props: AdminModalsProps) {
     });
   }, [azotaScoreViewModal.attempts, profileMap]);
 
-  // THUẬT TOÁN GROUP BY STUDENT: MỖI HỌC SINH CHỈ HIỂN THỊ 1 CARD DUY NHẤT VỚI ĐIỂM CAO NHẤT (MAX)
   const groupedStudentCards = useMemo<GroupedStudentAttemptCard[]>(() => {
     const groupMap = new Map<string, any[]>();
 
@@ -565,9 +701,7 @@ export default function AdminModals(props: AdminModalsProps) {
       for (const candidate of withAttemptIndex) {
         const candScore = Number(candidate.score ?? candidate.points ?? 0);
         const bestScore = Number(bestAttempt.score ?? bestAttempt.points ?? 0);
-        if (candScore > bestScore) {
-          bestAttempt = candidate;
-        } else if (candScore === bestScore) {
+        if (candScore >= bestScore) {
           bestAttempt = candidate;
         }
       }
@@ -601,7 +735,6 @@ export default function AdminModals(props: AdminModalsProps) {
     }));
   };
 
-  // THỰC THI XÓA VĨNH VIỄN SAU KHI HẾT 6 GIÂY HOÀN TÁC
   const commitPermanentDeleteAttempt = async (att: any) => {
     const attemptId = String(att?.id || "");
     const studentId = String(att?.studentId || att?.student_id || att?.user_id || "");
@@ -741,7 +874,6 @@ export default function AdminModals(props: AdminModalsProps) {
     }
   };
 
-  // BƯỚC 1: MỞ POPOVER XÁC NHẬN XÓA
   const handleAskDeleteAttempt = (att: any) => {
     const attemptId = String(att?.id || "");
     if (!attemptId) return;
@@ -767,7 +899,6 @@ export default function AdminModals(props: AdminModalsProps) {
     });
   };
 
-  // BƯỚC 2: TIẾN TRÌNH XÓA
   const handleConfirmStartDelete = (att: any) => {
     const attemptId = String(att?.id || "");
     if (!attemptId) return;
@@ -845,7 +976,6 @@ export default function AdminModals(props: AdminModalsProps) {
     deletionTimersRef.current[attemptId] = { progressInterval };
   };
 
-  // BƯỚC 3: HOÀN TÁC
   const handleUndoDeleteAttempt = (attemptId: string) => {
     clearTimersForAttempt(attemptId);
     setDeletionStateMap((prev) => {
@@ -858,7 +988,6 @@ export default function AdminModals(props: AdminModalsProps) {
     }
   };
 
-  // MỞ MODAL XEM CHI TIẾT BÀI LÀM CỦA HỌC SINH
   const handleOpenSubmissionDetail = async (att: any, historyList?: any[]) => {
     const attQuizId = String(att.quizId || att.quiz_id || att.exam_id || "").trim();
     const attTitleNorm = normalizeText(
@@ -921,7 +1050,9 @@ export default function AdminModals(props: AdminModalsProps) {
 
     try {
       if (supabase) {
-        let query = supabase.from("practice_exams").select("*");
+        let query = supabase
+          .from("practice_exams")
+          .select("id, title, category, duration_minutes, data, media_map");
         if (attQuizId) {
           query = query.eq("id", attQuizId);
         } else if (azotaScoreViewModal.examTitle) {
@@ -943,7 +1074,6 @@ export default function AdminModals(props: AdminModalsProps) {
     setViewingSubmission((prev) => (prev ? { ...prev, isLoadingExam: false } : null));
   };
 
-  // THUẬT TOÁN ABSOLUTE ID MAPPING
   const submissionReviewData = useMemo(() => {
     if (!viewingSubmission) return null;
     const { attempt, examObj } = viewingSubmission;
@@ -1632,6 +1762,69 @@ export default function AdminModals(props: AdminModalsProps) {
     dispatchOptimisticUpdate(newChapters);
   };
 
+  // Xử lý thêm / sửa 1 mục trong modal tài liệu đính kèm (tối đa 3 file)
+  const handleAddOrUpdateDraftAttachment = () => {
+    const cleanUrl = attachmentFormUrl.trim();
+    if (!cleanUrl) return;
+    const cleanTitle =
+      attachmentFormTitle.trim() || `Tài liệu đính kèm ${examAttachmentsDraft.length + 1}`;
+
+    if (editingAttachmentId) {
+      setExamAttachmentsDraft((prev) =>
+        prev.map((item) =>
+          item.id === editingAttachmentId
+            ? { ...item, title: cleanTitle, url: cleanUrl }
+            : item
+        )
+      );
+      setEditingAttachmentId(null);
+    } else {
+      if (examAttachmentsDraft.length >= 3) return;
+      setExamAttachmentsDraft((prev) => [
+        ...prev,
+        {
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: cleanTitle,
+          url: cleanUrl
+        }
+      ]);
+    }
+    setAttachmentFormTitle("");
+    setAttachmentFormUrl("");
+  };
+
+  const handleSubmitAllExamAttachments = async () => {
+    if (!attachmentsModalExam || typeof handleSaveExamAttachments !== "function") return;
+    let finalList = [...examAttachmentsDraft];
+
+    // Nếu Admin vừa điền URL nhưng bấm Lưu ngay mà chưa bấm "+ Thêm vào danh sách"
+    const pendingUrl = attachmentFormUrl.trim();
+    if (pendingUrl) {
+      const pendingTitle =
+        attachmentFormTitle.trim() || `Tài liệu đính kèm ${finalList.length + 1}`;
+      if (editingAttachmentId) {
+        finalList = finalList.map((item) =>
+          item.id === editingAttachmentId
+            ? { ...item, title: pendingTitle, url: pendingUrl }
+            : item
+        );
+      } else if (finalList.length < 3) {
+        finalList.push({
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: pendingTitle,
+          url: pendingUrl
+        });
+      }
+    }
+
+    setIsSavingAttachments(true);
+    try {
+      await handleSaveExamAttachments(String(attachmentsModalExam.id), finalList.slice(0, 3));
+    } finally {
+      setIsSavingAttachments(false);
+    }
+  };
+
   return (
     <>
       {/* 1. MODAL XEM CHI TIẾT ĐIỂM AZOTA */}
@@ -1644,7 +1837,7 @@ export default function AdminModals(props: AdminModalsProps) {
           }}
           className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs cursor-pointer font-sans"
         >
-          <div className="bg-white rounded-2xl max-w-5xl w-full border border-slate-200/90 overflow-hidden flex flex-col max-h-[90vh] cursor-default text-left">
+          <div className="bg-white rounded-2xl max-w-5xl w-full border border-slate-200/90 overflow-hidden flex flex-col max-h-[90vh] cursor-default text-left shadow-xs">
             <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-200/90 flex items-start justify-between relative bg-white">
               <div>
                 <span className="px-2.5 py-0.5 bg-blue-50 text-[#1D4ED8] rounded-md text-[10px] font-bold uppercase tracking-wider border border-blue-200">
@@ -1796,7 +1989,7 @@ export default function AdminModals(props: AdminModalsProps) {
                         className="relative p-3 rounded-xl border border-slate-200/90 bg-white hover:border-slate-300 transition-all flex flex-col justify-between text-left gap-2"
                       >
                         {delState?.step === "confirm" && (
-                          <div className="absolute top-2 right-2 z-20 bg-white border border-rose-200 rounded-xl p-2.5 flex items-center gap-2 shadow-sm">
+                          <div className="absolute top-2 right-2 z-20 bg-white border border-rose-200 rounded-xl p-2.5 flex items-center gap-2 shadow-xs">
                             <span className="text-[11px] font-bold text-slate-800 whitespace-nowrap">
                               Xóa bài thi này?
                             </span>
@@ -2049,7 +2242,7 @@ export default function AdminModals(props: AdminModalsProps) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl max-w-4xl w-full border border-slate-200/90 overflow-hidden flex flex-col max-h-[94vh] cursor-default text-left"
+            className="bg-white rounded-2xl max-w-4xl w-full border border-slate-200/90 overflow-hidden flex flex-col max-h-[94vh] cursor-default text-left shadow-xs"
           >
             <div className="px-4 py-2.5 bg-white border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -2340,7 +2533,7 @@ export default function AdminModals(props: AdminModalsProps) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 shadow-xs cursor-default text-left"
           >
             <h3 className="font-bold text-[15px] mb-4 text-slate-900 border-b border-slate-200/90 pb-3 flex items-center gap-2">
               {resourceModal.type === "video_list" ? (
@@ -2429,7 +2622,7 @@ export default function AdminModals(props: AdminModalsProps) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl w-full max-w-lg border border-slate-200/90 flex flex-col max-h-[80vh] overflow-hidden cursor-default text-left"
+            className="bg-white rounded-2xl w-full max-w-lg border border-slate-200/90 shadow-xs flex flex-col max-h-[80vh] overflow-hidden cursor-default text-left"
           >
             <div className="px-6 py-4 border-b border-slate-200/90 flex justify-between items-center bg-[#F8FAFC]">
               <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
@@ -2559,7 +2752,7 @@ export default function AdminModals(props: AdminModalsProps) {
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleEditResourceSubmit}
-            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 shadow-xs cursor-default text-left"
           >
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
               <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
@@ -2651,7 +2844,7 @@ export default function AdminModals(props: AdminModalsProps) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl p-6 w-full max-w-lg border border-slate-200/90 cursor-default text-left"
+            className="bg-white rounded-2xl p-6 w-full max-w-lg border border-slate-200/90 shadow-xs cursor-default text-left"
           >
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-200/90">
               <div>
@@ -2777,7 +2970,7 @@ export default function AdminModals(props: AdminModalsProps) {
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleAddDriveFile}
-            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 shadow-xs cursor-default text-left"
           >
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
               <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
@@ -2846,7 +3039,7 @@ export default function AdminModals(props: AdminModalsProps) {
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleAddBoost}
-            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 cursor-default text-left"
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 shadow-xs cursor-default text-left"
           >
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
               <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
@@ -2928,7 +3121,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI (5 PHÂN MÔN TỐI GIẢN GỒM CẢ TỔNG ÔN HSA) */}
+      {/* 8. MODAL THÊM CHƯƠNG / BÀI HỌC MỚI */}
       {createModal && (
         <div
           onClick={() => setCreateModal && setCreateModal(null)}
@@ -2937,7 +3130,7 @@ export default function AdminModals(props: AdminModalsProps) {
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleCreateNewItem}
-            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 space-y-4 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar"
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-200/90 shadow-xs space-y-4 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar"
           >
             <div className="flex items-center justify-between border-b border-slate-200/90 pb-3">
               <h3 className="font-bold text-slate-900 text-base">
@@ -3004,7 +3197,6 @@ export default function AdminModals(props: AdminModalsProps) {
               />
             </div>
 
-            {/* CỤM CHỌN 5 PHÂN MÔN TỐI GIẢN: ĐẠI SỐ / HÌNH HỌC / TỔNG ÔN / TĂNG CƯỜNG / TỔNG ÔN HSA */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Phân môn <span className="text-rose-500">*</span>
@@ -3178,7 +3370,7 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 9. MODAL CHỈNH SỬA BÀI HỌC (5 PHÂN MÔN TỐI GIẢN GỒM CẢ TỔNG ÔN HSA) */}
+      {/* 9. MODAL CHỈNH SỬA BÀI HỌC */}
       {editLessonModal && editLessonForm && (
         <div
           onClick={() => setEditLessonModal && setEditLessonModal(null)}
@@ -3187,7 +3379,7 @@ export default function AdminModals(props: AdminModalsProps) {
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={handleEditLessonSubmit}
-            className="bg-white rounded-2xl w-full max-w-lg p-6 border border-slate-200/90 cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar"
+            className="bg-white rounded-2xl w-full max-w-lg p-6 border border-slate-200/90 shadow-xs cursor-default text-left max-h-[92vh] overflow-y-auto custom-scrollbar"
           >
             <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-200/90">
               <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
@@ -3218,7 +3410,6 @@ export default function AdminModals(props: AdminModalsProps) {
                 />
               </div>
 
-              {/* CỤM NÚT CHỌN 5 PHÂN MÔN TỐI GIẢN TRONG MODAL SỬA BÀI HỌC */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Phân môn *
@@ -3410,11 +3601,11 @@ export default function AdminModals(props: AdminModalsProps) {
         </div>
       )}
 
-      {/* 10. MODAL TRÍCH XUẤT ĐỀ THI AZOTA */}
-      {testFile && (
+      {/* 10. MODAL TRÍCH XUẤT & SỬA CÂU HỎI ĐỀ THI AZOTA (HỖ TRỢ MỞ KHI testFile === null) */}
+      {(testFile || editingExamData) && (
         <AzotaExamConfigModal
-          isOpen={Boolean(testFile)}
-          file={testFile}
+          isOpen={Boolean(testFile || editingExamData)}
+          file={testFile || null}
           initialData={
             editingExamData
               ? {
@@ -3442,6 +3633,319 @@ export default function AdminModals(props: AdminModalsProps) {
             if (setAzotaTarget) setAzotaTarget(null);
           }}
         />
+      )}
+
+      {/* 11. MODAL GẮN LINK VIDEO CHỮA ĐỀ LUYỆN THI */}
+      {videoModalExam && (
+        <div
+          onClick={() => setVideoModalExam && setVideoModalExam(null)}
+          className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs cursor-pointer font-sans"
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              if (typeof handleSaveSolutionVideo === "function") {
+                handleSaveSolutionVideo(e);
+              } else {
+                e.preventDefault();
+                if (setVideoModalExam) setVideoModalExam(null);
+              }
+            }}
+            className="bg-white border border-slate-200/90 rounded-2xl max-w-md w-full p-6 shadow-xs cursor-default text-left space-y-4"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/90">
+              <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
+                <Video className="w-4 h-4 text-[#1D4ED8]" />
+                <span>Gắn link Video chữa đề</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setVideoModalExam && setVideoModalExam(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-[#F8FAFC] border border-slate-200/90 rounded-xl px-3.5 py-2.5">
+              <div className="text-[11px] text-slate-500">Đề luyện thi đang chọn</div>
+              <div className="text-xs font-bold text-slate-900 mt-0.5 line-clamp-2">
+                {videoModalExam.title}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700">
+                  Link Video chữa bài (YouTube / Google Drive)
+                </label>
+                {solutionVideoInput && setSolutionVideoInput && (
+                  <button
+                    type="button"
+                    onClick={() => setSolutionVideoInput("")}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 cursor-pointer"
+                  >
+                    Xóa nhanh link
+                  </button>
+                )}
+              </div>
+              <input
+                type="url"
+                value={solutionVideoInput}
+                onChange={(e) =>
+                  setSolutionVideoInput && setSolutionVideoInput(e.target.value)
+                }
+                placeholder="https://www.youtube.com/watch?v=... hoặc https://drive.google.com/..."
+                className="w-full px-3.5 py-2.5 bg-white border border-slate-200/90 rounded-xl text-xs text-slate-800 outline-none focus:border-[#1D4ED8]"
+              />
+              <p className="text-[11px] text-slate-500">
+                Để trống và bấm Lưu nếu muốn gỡ Video chữa đề hiện tại.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200/90">
+              <button
+                type="button"
+                onClick={() => setVideoModalExam && setVideoModalExam(null)}
+                className="px-4 py-2 bg-[#F8FAFC] hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Lưu Video chữa đề
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 12. MODAL QUẢN LÝ TỐI ĐA 3 TÀI LIỆU ĐÍNH KÈM (PDF / GOOGLE DRIVE) CHO ĐỀ THI */}
+      {attachmentsModalExam && (
+        <div
+          onClick={() => setAttachmentsModalExam && setAttachmentsModalExam(null)}
+          className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs cursor-pointer font-sans"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-slate-200/90 rounded-2xl max-w-lg w-full p-6 shadow-xs cursor-default text-left space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/90">
+              <div>
+                <h3 className="font-bold text-slate-900 text-[15px] flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-[#1D4ED8]" />
+                  <span>Tài liệu đính kèm đề thi ({examAttachmentsDraft.length}/3)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                  {attachmentsModalExam.title}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAttachmentsModalExam && setAttachmentsModalExam(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Danh sách tài liệu đã gắn */}
+            <div className="space-y-2">
+              {examAttachmentsDraft.length === 0 ? (
+                <div className="p-4 rounded-xl bg-[#F8FAFC] border border-slate-200/90 text-center text-xs text-slate-500">
+                  Chưa có tài liệu đính kèm nào. Thêm tối đa 3 link PDF / Google Drive bên dưới.
+                </div>
+              ) : (
+                examAttachmentsDraft.map((item, idx) => (
+                  <div
+                    key={item.id || idx}
+                    className="p-3 rounded-lg bg-[#F8FAFC] hover:bg-white border border-slate-200/90 flex items-center justify-between gap-3 transition"
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                      <FileText className="w-4 h-4 text-[#1D4ED8] shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-800 truncate">
+                          {item.title}
+                        </div>
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-[#1D4ED8] hover:underline truncate block mt-0.5"
+                        >
+                          {item.url}
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 transition"
+                        title="Mở link kiểm tra"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingAttachmentId(item.id);
+                          setAttachmentFormTitle(item.title);
+                          setAttachmentFormUrl(item.url);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-[#1D4ED8] hover:bg-blue-50 transition cursor-pointer"
+                        title="Sửa tài liệu"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExamAttachmentsDraft((prev) =>
+                            prev.filter((x) => x.id !== item.id)
+                          );
+                          if (editingAttachmentId === item.id) {
+                            setEditingAttachmentId(null);
+                            setAttachmentFormTitle("");
+                            setAttachmentFormUrl("");
+                          }
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                        title="Xóa tài liệu"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Form thêm mới / chỉnh sửa (ẩn khi đã đủ 3/3 và không ở chế độ sửa) */}
+            {(examAttachmentsDraft.length < 3 || editingAttachmentId) && (
+              <div className="p-4 rounded-xl bg-[#F8FAFC] border border-slate-200/90 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    {editingAttachmentId ? "Cập nhật tài liệu" : "Thêm tài liệu mới"}
+                  </span>
+                  {editingAttachmentId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingAttachmentId(null);
+                        setAttachmentFormTitle("");
+                        setAttachmentFormUrl("");
+                      }}
+                      className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+                    >
+                      Hủy sửa
+                    </button>
+                  )}
+                </div>
+
+                {/* Gợi ý nhanh tên tài liệu */}
+                <div className="flex flex-wrap gap-1.5">
+                  {ATTACHMENT_TITLE_SUGGESTIONS.map((sugg) => (
+                    <button
+                      key={sugg}
+                      type="button"
+                      onClick={() => setAttachmentFormTitle(sugg)}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50/40 border border-slate-200/90 text-[11px] font-medium text-slate-700 hover:text-[#1D4ED8] transition cursor-pointer"
+                    >
+                      {sugg}
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Tên tài liệu
+                  </label>
+                  <input
+                    type="text"
+                    value={attachmentFormTitle}
+                    onChange={(e) => setAttachmentFormTitle(e.target.value)}
+                    placeholder="VD: File đề thi (PDF / Drive)"
+                    className="w-full px-3 py-2 bg-white border border-slate-200/90 rounded-lg text-xs text-slate-800 outline-none focus:border-[#1D4ED8]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Link Google Drive / PDF *
+                  </label>
+                  <input
+                    type="url"
+                    value={attachmentFormUrl}
+                    onChange={(e) => setAttachmentFormUrl(e.target.value)}
+                    placeholder="https://drive.google.com/..."
+                    className="w-full px-3 py-2 bg-white border border-slate-200/90 rounded-lg text-xs text-slate-800 outline-none focus:border-[#1D4ED8]"
+                  />
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    disabled={!attachmentFormUrl.trim()}
+                    onClick={handleAddOrUpdateDraftAttachment}
+                    className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-blue-50/50 text-[#1D4ED8] border border-blue-200 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{editingAttachmentId ? "Cập nhật mục" : "Thêm vào danh sách"}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200/90">
+              <button
+                type="button"
+                onClick={() => setAttachmentsModalExam && setAttachmentsModalExam(null)}
+                className="px-4 py-2 bg-[#F8FAFC] hover:bg-slate-100 text-slate-700 border border-slate-200/90 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isSavingAttachments}
+                onClick={handleSubmitAllExamAttachments}
+                className="px-5 py-2 bg-[#1D4ED8] hover:bg-blue-800 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {isSavingAttachments && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Lưu tài liệu</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 13. MÀN HÌNH PHÒNG THI THỬ TOÀN MÀN HÌNH CHO ADMIN (THPT & ĐGNL HSA) */}
+      {testExamRoom && (
+        <div className="fixed inset-0 z-[600] bg-[#F1F5F9] overflow-hidden">
+          {isHsaPracticeExam(testExamRoom) ? (
+            <HsaExamWorkspace
+              exam={testExamRoom}
+              profile={adminTestProfile}
+              onBack={() => setTestExamRoom && setTestExamRoom(null)}
+              onClose={() => setTestExamRoom && setTestExamRoom(null)}
+              onComplete={() => setTestExamRoom && setTestExamRoom(null)}
+            />
+          ) : (
+            <ExamRoomView
+              exam={testExamRoom}
+              quiz={testExamRoom}
+              profile={adminTestProfile}
+              isHomework={false}
+              onBack={() => setTestExamRoom && setTestExamRoom(null)}
+              onClose={() => setTestExamRoom && setTestExamRoom(null)}
+              onComplete={() => setTestExamRoom && setTestExamRoom(null)}
+            />
+          )}
+        </div>
       )}
     </>
   );
